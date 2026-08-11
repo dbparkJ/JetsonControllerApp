@@ -54,6 +54,8 @@ class BleScanner(
 
     private var stopRunnable: Runnable? = null
 
+    private var jetsonOnlyScan = false
+
 
     @SuppressLint("MissingPermission")
     private val scanCallback =
@@ -72,9 +74,33 @@ class BleScanner(
                         null
                     }
 
+                val displayName = name
+                    ?.trim()
+                    ?.takeIf {
+                        it.isNotEmpty() &&
+                            !it.equals("unknown", ignoreCase = true)
+                    }
+
+                if (displayName == null) {
+                    return
+                }
+
                 val uuids = record?.serviceUuids
                     ?.map { it.uuid.toString() }
                     .orEmpty()
+
+                val isJetsonDevice =
+                    displayName.startsWith("MMS-", ignoreCase = true) ||
+                        uuids.any {
+                            it.equals(
+                                JetsonGattSpec.SERVICE_UUID.toString(),
+                                ignoreCase = true
+                            )
+                        }
+
+                if (jetsonOnlyScan && !isJetsonDevice) {
+                    return
+                }
 
                 Log.d(
                     "JetsonBLE",
@@ -90,7 +116,7 @@ class BleScanner(
                 deviceMap[address] =
                     JetsonDevice(
                         device = device,
-                        name = name ?: "Unknown",
+                        name = displayName,
                         address = address,
                         rssi = result.rssi,
                         advertisedServiceUuids = uuids
@@ -153,6 +179,7 @@ class BleScanner(
 
         deviceMap.clear()
         _devices.value = emptyList()
+        jetsonOnlyScan = jetsonOnly
 
         val settings =
             ScanSettings.Builder()
@@ -164,10 +191,6 @@ class BleScanner(
 
         _isScanning.value = true
 
-        /*
-         * 우선 진단용으로 필터를 완전히 없애자. (이미지 2단계)
-         * SCAN name=MMS-4DE0 가 뜨는지 확인용.
-         */
         bleScanner.startScan(
             null,
             settings,
@@ -202,6 +225,7 @@ class BleScanner(
         )
 
         _isScanning.value = false
+        jetsonOnlyScan = false
 
         stopRunnable?.let {
             handler.removeCallbacks(it)

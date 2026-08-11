@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
+import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
 import com.example.jetsoncontroller.data.network.WifiDirectState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,7 +49,8 @@ fun WifiDirectScreen(
     onBack: () -> Unit,
     onPermissionClick: () -> Unit,
     onDiscoveryClick: () -> Unit,
-    onConnectClick: (WifiDirectPeer) -> Unit
+    onConnectClick: (WifiDirectPeer) -> Unit,
+    onRetryApi: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -90,7 +92,10 @@ fun WifiDirectScreen(
                 }
 
                 state.connected -> {
-                    ConnectedView(state.groupOwnerAddress ?: "확인 중")
+                    ConnectedView(
+                        state = state,
+                        onRetryApi = onRetryApi
+                    )
                 }
 
                 else -> {
@@ -152,7 +157,8 @@ private fun PermissionView(
 
 @Composable
 private fun ConnectedView(
-    ip: String
+    state: WifiDirectState,
+    onRetryApi: () -> Unit
 ) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -178,10 +184,47 @@ private fun ConnectedView(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "그룹 소유자 IP: $ip",
+                text = "그룹 소유자 IP: ${state.groupOwnerAddress ?: "확인 중"}",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when (state.apiStatus) {
+                WifiDirectApiStatus.IDLE,
+                WifiDirectApiStatus.CHECKING -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Jetson API :8765 확인 중")
+                    }
+                }
+
+                WifiDirectApiStatus.READY -> {
+                    Text(
+                        text = "API 연결됨 · ${state.apiDeviceName ?: "Jetson"} · :8765",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+
+                WifiDirectApiStatus.ERROR -> {
+                    Text(
+                        text = state.apiError ?: "Jetson API에 연결하지 못했습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onRetryApi) {
+                        Text("API 다시 확인")
+                    }
+                }
+            }
         }
     }
 }
@@ -247,6 +290,9 @@ private fun DiscoveryView(
             Text(
                 text = if (state.discovering) {
                     "주변 Wi-Fi Direct 장비를 찾고 있습니다."
+                } else if (state.discoveryAttempted) {
+                    "Android Wi-Fi P2P API에서 검색된 장비가 0개입니다.\n" +
+                        "Jetson에서 Wi-Fi Direct 대기(p2p_listen/p2p_find)와 권한을 확인해 주세요."
                 } else {
                     "검색된 장비가 없습니다.\nJetson의 Wi-Fi Direct 대기 상태를 확인해 주세요."
                 },

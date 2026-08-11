@@ -18,7 +18,7 @@ class IpControlTransport(
     )
 
     override suspend fun ping(): Boolean {
-        return apiClient.hello() != null
+        return apiClient.hello().isSuccess
     }
 
     override suspend fun getStatus(): Result<JetsonStatus> {

@@ -5,15 +5,30 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.transport.TransportState
-import com.example.jetsoncontroller.protocol.JetsonCommand
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 class DashboardViewModel(
     private val repository:
         JetsonRepository
 ) : ViewModel() {
+
+    init {
+        viewModelScope.launch {
+            repository.transportState.collectLatest { transport ->
+                if (transport is TransportState.Connected) {
+                    while (true) {
+                        repository.refreshStatus()
+                        delay(1_000L)
+                    }
+                }
+            }
+        }
+    }
 
     val uiState =
         combine(

@@ -13,16 +13,28 @@ import com.example.jetsoncontroller.data.transport.*
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.protocol.CommandCodec
 import com.example.jetsoncontroller.protocol.JetsonCommand
+import com.example.jetsoncontroller.protocol.WifiProvisionCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class JetsonRepository(
     context: Context,
     private val credentialStore: DeviceCredentialStore
 ) {
+    companion object {
+        const val LOCAL_API_PORT = 8765
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val scanner =
@@ -52,15 +64,39 @@ class JetsonRepository(
         StateFlow<BlePairingState> =
         gattClient.pairingState
 
-    val status:
-        StateFlow<JetsonStatus> =
-        gattClient.status
+    val registeredDevices:
+        StateFlow<List<RegisteredDevice>> =
+        credentialStore.registeredDevices
+            .map { credentials ->
+                credentials
+                    .map {
+                        RegisteredDevice(
+                            deviceId = it.deviceId,
+                            deviceName = it.deviceName
+                        )
+                    }
+                    .sortedBy { it.deviceName.lowercase() }
+            }
+            .stateIn(
+                scope = scope,
+                started = SharingStarted.Eagerly,
+                initialValue = emptyList()
+            )
+
+    private val _status = MutableStateFlow(JetsonStatus())
+    val status: StateFlow<JetsonStatus> = _status.asStateFlow()
 
     val wifiDirectState = wifiDirectManager.state
     val lanEndpoints = lanDiscoveryManager.discoveredEndpoints
     val transportState = transportCoordinator.state
 
     init {
+        scope.launch {
+            gattClient.status.collect { currentStatus ->
+                _status.value = currentStatus
+            }
+        }
+
         scope.launch {
             gattClient.connectionState.collect { state ->
                 if (state is ConnectionState.Ready) {
@@ -74,12 +110,52 @@ class JetsonRepository(
         }
         
         scope.launch {
-            wifiDirectManager.state.collect { state ->
-                if (state.connected && state.groupOwnerAddress != null) {
-                    apiClient.updateEndpoint(state.groupOwnerAddress, 8765)
-                    transportCoordinator.setActiveTransport(IpControlTransport(apiClient, TransportType.WIFI_DIRECT))
+            wifiDirectManager.state
+                .map { state ->
+                    state.connected to state.groupOwnerAddress
                 }
+                .distinctUntilChanged()
+                .collectLatest { (connected, host) ->
+                    if (connected && host != null) {
+                        probeWifiDirectApi(host)
+                    } else if (
+                        transportCoordinator.currentTransport()?.type ==
+                            TransportType.WIFI_DIRECT
+                    ) {
+                        transportCoordinator.disconnect()
+                    }
+                }
+        }
+    }
+
+    private suspend fun probeWifiDirectApi(host: String) {
+        wifiDirectManager.markApiChecking()
+        apiClient.updateEndpoint(host, LOCAL_API_PORT)
+
+        val result = apiClient.hello()
+        result.onSuccess { hello ->
+            if (credentialStore.getSecret(hello.deviceId) == null) {
+                val message =
+                    "API 장비가 등록되어 있지 않습니다. 먼저 QR로 장비를 등록해 주세요."
+                wifiDirectManager.markApiError(message)
+                transportCoordinator.setError(TransportType.WIFI_DIRECT, message)
+                return@onSuccess
             }
+
+            wifiDirectManager.markApiReady(hello.deviceName)
+            transportCoordinator.setActiveTransport(
+                transport = IpControlTransport(
+                    apiClient,
+                    TransportType.WIFI_DIRECT
+                ),
+                endpoint = "$host:$LOCAL_API_PORT"
+            )
+        }.onFailure { error ->
+            val message =
+                "Jetson API($host:$LOCAL_API_PORT)에 연결하지 못했습니다: " +
+                    (error.message ?: "응답 없음")
+            wifiDirectManager.markApiError(message)
+            transportCoordinator.setError(TransportType.WIFI_DIRECT, message)
         }
     }
 
@@ -114,6 +190,9 @@ class JetsonRepository(
     fun disconnect() {
 
         gattClient.disconnect()
+        if (wifiDirectManager.state.value.connected) {
+            wifiDirectManager.disconnect()
+        }
         transportCoordinator.disconnect()
     }
 
@@ -140,6 +219,32 @@ class JetsonRepository(
         return sendCommand(
             JetsonCommand.GET_STATUS
         )
+    }
+
+
+    suspend fun refreshStatus(): Boolean {
+        val transport = transportCoordinator.currentTransport()
+            ?: return false
+
+        return when (transport.type) {
+            TransportType.BLE -> requestStatus()
+            TransportType.WIFI_DIRECT,
+            TransportType.LAN -> transport.getStatus()
+                .onSuccess { _status.value = it }
+                .isSuccess
+        }
+    }
+
+
+    fun provisionWifi(
+        request: WifiProvisionRequest
+    ): Result<Unit> {
+        return runCatching {
+            val payload = WifiProvisionCodec.encode(request)
+            check(sendCommand(JetsonCommand.SET_WIFI, payload)) {
+                "Jetson에 Wi-Fi 설정을 전송하지 못했습니다. Bluetooth 연결을 확인하세요."
+            }
+        }
     }
 
 
@@ -208,6 +313,14 @@ class JetsonRepository(
     fun connectWifiDirect(peer: WifiDirectPeer) {
         scanner.stopScan()
         wifiDirectManager.connect(peer)
+    }
+
+    fun retryWifiDirectApi() {
+        val host = wifiDirectManager.state.value.groupOwnerAddress
+            ?: return
+        scope.launch {
+            probeWifiDirectApi(host)
+        }
     }
 
     fun startLanDiscovery() {

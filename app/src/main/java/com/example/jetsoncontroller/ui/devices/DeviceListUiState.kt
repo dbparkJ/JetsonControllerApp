@@ -2,11 +2,16 @@ package com.example.jetsoncontroller.ui.devices
 
 import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.model.JetsonDevice
+import com.example.jetsoncontroller.model.RegisteredDevice
 
 data class DeviceListUiState(
 
     val devices:
         List<JetsonDevice> =
+        emptyList(),
+
+    val registeredDevices:
+        List<RegisteredDevice> =
         emptyList(),
 
     val isScanning:
@@ -17,5 +22,11 @@ data class DeviceListUiState(
 
     val connectionState:
         ConnectionState =
-        ConnectionState.Disconnected
+        ConnectionState.Disconnected,
+
+    val reconnectingDeviceId:
+        String? = null,
+
+    val reconnectError:
+        String? = null
 )

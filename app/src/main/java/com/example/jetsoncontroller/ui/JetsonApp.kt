@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.ConnectionState
+import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
 import com.example.jetsoncontroller.ui.devices.DeviceListScreen
@@ -20,6 +21,8 @@ import com.example.jetsoncontroller.ui.pairing.PairingViewModel
 import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
 import com.example.jetsoncontroller.ui.pairing.PairingPhase
 import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
+import com.example.jetsoncontroller.ui.network.NetworkSettingsScreen
+import com.example.jetsoncontroller.ui.network.NetworkSettingsViewModel
 import com.example.jetsoncontroller.ui.wifi.WifiDirectScreen
 import com.example.jetsoncontroller.ui.wifi.WifiDirectViewModel
 import com.example.jetsoncontroller.ui.storage.DeviceStorageScreen
@@ -48,6 +51,9 @@ private object Routes {
 
     const val DASHBOARD =
         "dashboard"
+
+    const val NETWORK_SETTINGS =
+        "network_settings"
         
     const val STORAGE =
         "storage"
@@ -108,6 +114,15 @@ fun JetsonApp(
                     repository
                 )
         )
+
+    val networkSettingsViewModel:
+        NetworkSettingsViewModel =
+        viewModel(
+            factory =
+                NetworkSettingsViewModel.Factory(
+                    repository
+                )
+        )
         
     val wifiDirectViewModel:
         WifiDirectViewModel =
@@ -150,6 +165,11 @@ fun JetsonApp(
         dashboardViewModel
             .uiState
             .collectAsStateWithLifecycle()
+
+    val networkSettingsState by
+        networkSettingsViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
             
     val wifiDirectState by
         wifiDirectViewModel
@@ -180,14 +200,16 @@ fun JetsonApp(
 
     LaunchedEffect(
         deviceState.connectionState,
-        pairingState.phase
+        pairingState.phase,
+        wifiDirectState.apiStatus
     ) {
 
         if (
             deviceState
                 .connectionState
                 is ConnectionState.Ready ||
-            pairingState.phase == PairingPhase.READY
+            pairingState.phase == PairingPhase.READY ||
+            wifiDirectState.apiStatus == WifiDirectApiStatus.READY
         ) {
 
             navController.navigate(
@@ -238,6 +260,10 @@ fun JetsonApp(
                         .connect(
                             device
                         )
+                },
+                onReconnect = {
+                    device ->
+                    deviceViewModel.reconnect(device)
                 },
                 onAddDeviceClick = {
                     navController.navigate(Routes.QR_SCANNER)
@@ -316,7 +342,8 @@ fun JetsonApp(
                         onRequestNearbyWifiPermission()
                     }
                 },
-                onConnectClick = { wifiDirectViewModel.connect(it) }
+                onConnectClick = { wifiDirectViewModel.connect(it) },
+                onRetryApi = { wifiDirectViewModel.retryApi() }
             )
         }
 
@@ -371,12 +398,23 @@ fun JetsonApp(
                 },
                 
                 onNetworkSettingsClick = {
-                    // TODO: Provisioning
+                    navController.navigate(Routes.NETWORK_SETTINGS)
                 },
                 
                 onUploadHistoryClick = {
                     navController.navigate(Routes.UPLOAD_HISTORY)
                 }
+            )
+        }
+
+        composable(Routes.NETWORK_SETTINGS) {
+            NetworkSettingsScreen(
+                state = networkSettingsState,
+                onBack = { navController.popBackStack() },
+                onSsidChange = networkSettingsViewModel::onSsidChange,
+                onPasswordChange = networkSettingsViewModel::onPasswordChange,
+                onHiddenChange = networkSettingsViewModel::onHiddenChange,
+                onSubmit = networkSettingsViewModel::submit
             )
         }
         

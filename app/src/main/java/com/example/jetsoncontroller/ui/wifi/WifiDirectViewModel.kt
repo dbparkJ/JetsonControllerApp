@@ -30,6 +30,10 @@ class WifiDirectViewModel(
         repository.connectWifiDirect(peer)
     }
 
+    fun retryApi() {
+        repository.retryWifiDirectApi()
+    }
+
     override fun onCleared() {
         repository.stopWifiDirectDiscovery()
         super.onCleared()

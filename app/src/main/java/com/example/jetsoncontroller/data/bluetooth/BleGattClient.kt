@@ -164,7 +164,9 @@ class BleGattClient(
                         if (pairingSession != null) {
                             _pairingState.value = BlePairingState.DiscoveringServices
                         }
-                        gatt.discoverServices()
+                        if (!gatt.requestMtu(247)) {
+                            gatt.discoverServices()
+                        }
                     }
 
                     BluetoothProfile.STATE_DISCONNECTED -> {
@@ -173,6 +175,15 @@ class BleGattClient(
                         gatt.close()
                     }
                 }
+            }
+
+            override fun onMtuChanged(
+                gatt: BluetoothGatt,
+                mtu: Int,
+                status: Int
+            ) {
+                Log.d("JetsonBLE", "MTU changed: mtu=$mtu status=$status")
+                gatt.discoverServices()
             }
 
 

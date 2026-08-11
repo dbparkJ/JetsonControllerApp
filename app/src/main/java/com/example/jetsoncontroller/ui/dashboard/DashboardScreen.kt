@@ -100,7 +100,8 @@ fun DashboardScreen(
                 text =
                     if (
                         state.connectionState
-                        is ConnectionState.Ready
+                        is ConnectionState.Ready ||
+                        state.transportType != null
                     )
                         "● 연결됨"
                     else

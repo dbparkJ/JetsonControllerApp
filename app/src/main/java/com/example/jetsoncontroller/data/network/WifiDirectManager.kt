@@ -23,6 +23,13 @@ data class WifiDirectPeer(
     val status: Int
 )
 
+enum class WifiDirectApiStatus {
+    IDLE,
+    CHECKING,
+    READY,
+    ERROR
+}
+
 data class WifiDirectState(
     val supported: Boolean = true,
     val enabled: Boolean = false,
@@ -31,6 +38,10 @@ data class WifiDirectState(
     val connectingPeerAddress: String? = null,
     val connected: Boolean = false,
     val groupOwnerAddress: String? = null,
+    val discoveryAttempted: Boolean = false,
+    val apiStatus: WifiDirectApiStatus = WifiDirectApiStatus.IDLE,
+    val apiDeviceName: String? = null,
+    val apiError: String? = null,
     val error: String? = null
 )
 
@@ -204,6 +215,7 @@ class WifiDirectManager(
         _state.value = _state.value.copy(
             enabled = true,
             discovering = true,
+            discoveryAttempted = true,
             error = null
         )
 
@@ -323,13 +335,19 @@ class WifiDirectManager(
                         connectingPeerAddress = null,
                         connected = true,
                         groupOwnerAddress = info.groupOwnerAddress.hostAddress,
+                        apiStatus = WifiDirectApiStatus.IDLE,
+                        apiDeviceName = null,
+                        apiError = null,
                         error = null
                     )
                 } else {
                     _state.value = _state.value.copy(
                         connectingPeerAddress = null,
                         connected = false,
-                        groupOwnerAddress = null
+                        groupOwnerAddress = null,
+                        apiStatus = WifiDirectApiStatus.IDLE,
+                        apiDeviceName = null,
+                        apiError = null
                     )
                 }
             }
@@ -358,7 +376,9 @@ class WifiDirectManager(
         }
 
         _state.value = _state.value.copy(discovering = false)
-        unregister()
+        if (!_state.value.connected) {
+            unregister()
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -375,8 +395,12 @@ class WifiDirectManager(
                             connectingPeerAddress = null,
                             connected = false,
                             groupOwnerAddress = null,
+                            apiStatus = WifiDirectApiStatus.IDLE,
+                            apiDeviceName = null,
+                            apiError = null,
                             error = null
                         )
+                        unregister()
                     }
 
                     override fun onFailure(reason: Int) {
@@ -402,6 +426,30 @@ class WifiDirectManager(
             appContext,
             permission
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun markApiChecking() {
+        _state.value = _state.value.copy(
+            apiStatus = WifiDirectApiStatus.CHECKING,
+            apiDeviceName = null,
+            apiError = null
+        )
+    }
+
+    fun markApiReady(deviceName: String) {
+        _state.value = _state.value.copy(
+            apiStatus = WifiDirectApiStatus.READY,
+            apiDeviceName = deviceName,
+            apiError = null
+        )
+    }
+
+    fun markApiError(message: String) {
+        _state.value = _state.value.copy(
+            apiStatus = WifiDirectApiStatus.ERROR,
+            apiDeviceName = null,
+            apiError = message
+        )
     }
 
     private fun fail(message: String) {

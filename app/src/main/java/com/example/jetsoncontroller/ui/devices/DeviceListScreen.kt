@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.JetsonDevice
+import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.ui.components.ConnectionStatusCard
 import com.example.jetsoncontroller.ui.components.DeviceCard
 
@@ -36,6 +40,7 @@ fun DeviceListScreen(
     state: DeviceListUiState,
     onScanClick: () -> Unit,
     onConnect: (JetsonDevice) -> Unit,
+    onReconnect: (RegisteredDevice) -> Unit,
     onAddDeviceClick: () -> Unit
 ) {
 
@@ -60,7 +65,7 @@ fun DeviceListScreen(
 
             Spacer(
                 modifier =
-                    Modifier.height(28.dp)
+                    Modifier.height(24.dp)
             )
 
             Text(
@@ -118,8 +123,50 @@ fun DeviceListScreen(
 
             Spacer(
                 modifier =
-                    Modifier.height(28.dp)
+                    Modifier.height(24.dp)
             )
+
+            if (state.registeredDevices.isNotEmpty()) {
+                Text(
+                    text = "등록된 장비",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(
+                        items = state.registeredDevices,
+                        key = { it.deviceId }
+                    ) { device ->
+                        RegisteredDeviceCard(
+                            device = device,
+                            reconnecting =
+                                state.reconnectingDeviceId == device.deviceId,
+                            enabled =
+                                state.permissionGranted &&
+                                    state.reconnectingDeviceId == null,
+                            onReconnect = { onReconnect(device) },
+                            modifier = Modifier.width(320.dp)
+                        )
+                    }
+                }
+
+                state.reconnectError?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             Row(
                 modifier =
@@ -256,6 +303,57 @@ fun DeviceListScreen(
                             }
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun RegisteredDeviceCard(
+    device: RegisteredDevice,
+    reconnecting: Boolean,
+    enabled: Boolean,
+    onReconnect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = device.deviceName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "QR 인증 정보 저장됨",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            OutlinedButton(
+                onClick = onReconnect,
+                enabled = enabled
+            ) {
+                if (reconnecting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("검색 중")
+                } else {
+                    Text("다시 연결")
                 }
             }
         }

@@ -8,9 +8,6 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
-import java.security.MessageDigest
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 class LocalApiClient(
     private val credentialStore: DeviceCredentialStore
@@ -22,12 +19,14 @@ class LocalApiClient(
     private var deviceId: String? = null
 
     fun updateEndpoint(host: String, port: Int) {
-        val url = "http://$host:$port"
+        val url = "http://$host:$port/"
         if (currentBaseUrl == url) return
         
         currentBaseUrl = url
         val client = OkHttpClient.Builder()
-            .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
+            .addInterceptor(HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.BASIC
+            })
             .connectTimeout(5, TimeUnit.SECONDS)
             .build()
 
@@ -39,15 +38,19 @@ class LocalApiClient(
             .create(LocalControlApi::class.java)
     }
 
-    suspend fun hello(): LocalControlApi.HelloResponse? {
-        val response = api?.hello() ?: return null
-        if (response.isSuccessful) {
+    suspend fun hello(): Result<LocalControlApi.HelloResponse> {
+        return runCatching {
+            val response = api?.hello()
+                ?: error("Local API endpoint is not configured")
+            check(response.isSuccessful) {
+                "Local API returned HTTP ${response.code()}"
+            }
             val body = response.body()
-            bootNonce = body?.bootNonce
-            deviceId = body?.deviceId
-            return body
+                ?: error("Local API hello response was empty")
+            bootNonce = body.bootNonce
+            deviceId = body.deviceId
+            body
         }
-        return null
     }
 
     private suspend fun getSignedHeaders(method: String, path: String, body: ByteArray = byteArrayOf()): HttpAuthSigner.SignedHeaders? {
@@ -60,14 +63,19 @@ class LocalApiClient(
     }
 
     suspend fun getStatus(): Result<JetsonStatus> {
-        val headers = getSignedHeaders("GET", "/v1/status") ?: return Result.failure(Exception("Auth failed"))
-        val response = api?.getStatus(headers.deviceId, headers.requestNonce, headers.signature)
-            ?: return Result.failure(Exception("No API"))
-        
-        return if (response.isSuccessful) {
-            Result.success(response.body()!!)
-        } else {
-            Result.failure(Exception("HTTP ${response.code()}"))
+        return runCatching {
+            val headers = getSignedHeaders("GET", "/v1/status")
+                ?: error("API authentication is not initialized")
+            val response = api?.getStatus(
+                headers.deviceId,
+                headers.requestNonce,
+                headers.signature
+            ) ?: error("Local API endpoint is not configured")
+
+            check(response.isSuccessful) {
+                "Local API returned HTTP ${response.code()}"
+            }
+            response.body() ?: error("Status response was empty")
         }
     }
 
