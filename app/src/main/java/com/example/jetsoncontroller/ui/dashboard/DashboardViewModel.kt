@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.protocol.JetsonCommand
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -17,16 +18,19 @@ class DashboardViewModel(
     val uiState =
         combine(
             repository.connectionState,
-            repository.status
+            repository.status,
+            repository.transportState
         ) {
                 connection,
-                status ->
+                status,
+                transport ->
 
             DashboardUiState(
                 connectionState =
                     connection,
                 status =
-                    status
+                    status,
+                transportType = if (transport is TransportState.Connected) transport.type else null
             )
         }.stateIn(
             scope = viewModelScope,

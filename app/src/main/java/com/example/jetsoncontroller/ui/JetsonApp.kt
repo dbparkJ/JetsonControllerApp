@@ -14,14 +14,51 @@ import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
 import com.example.jetsoncontroller.ui.devices.DeviceListScreen
 import com.example.jetsoncontroller.ui.devices.DeviceListViewModel
+import com.example.jetsoncontroller.ui.pairing.PairingScreen
+import com.example.jetsoncontroller.ui.pairing.PairingViewModel
+import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
+import com.example.jetsoncontroller.ui.pairing.PairingPhase
+import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
+import com.example.jetsoncontroller.ui.wifi.WifiDirectScreen
+import com.example.jetsoncontroller.ui.wifi.WifiDirectViewModel
+import com.example.jetsoncontroller.ui.storage.DeviceStorageScreen
+import com.example.jetsoncontroller.ui.storage.DeviceStorageViewModel
+import com.example.jetsoncontroller.ui.upload.UploadConfirmScreen
+import com.example.jetsoncontroller.ui.upload.UploadHistoryScreen
+import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
+import com.example.jetsoncontroller.ui.upload.UploadViewModel
 
 private object Routes {
 
-    const val DEVICES =
-        "devices"
+    const val CONNECTION_HUB =
+        "connection_hub"
+
+    const val DEVICES_BLE =
+        "devices_ble"
+
+    const val QR_SCANNER =
+        "qr_scanner"
+
+    const val PAIRING =
+        "pairing"
+
+    const val WIFI_DIRECT =
+        "wifi_direct"
 
     const val DASHBOARD =
         "dashboard"
+        
+    const val STORAGE =
+        "storage"
+
+    const val UPLOAD_CONFIRM =
+        "upload_confirm/{rootId}/{path}"
+        
+    const val UPLOAD_PROGRESS =
+        "upload_progress"
+
+    const val UPLOAD_HISTORY =
+        "upload_history"
 }
 
 
@@ -30,6 +67,8 @@ fun JetsonApp(
     repository:
         JetsonRepository,
     bluetoothPermissionGranted:
+        Boolean,
+    cameraPermissionGranted:
         Boolean
 ) {
 
@@ -45,11 +84,47 @@ fun JetsonApp(
                 )
         )
 
+    val pairingViewModel:
+        PairingViewModel =
+        viewModel(
+            factory =
+                PairingViewModel.Factory(
+                    repository
+                )
+        )
+
     val dashboardViewModel:
         DashboardViewModel =
         viewModel(
             factory =
                 DashboardViewModel.Factory(
+                    repository
+                )
+        )
+        
+    val wifiDirectViewModel:
+        WifiDirectViewModel =
+        viewModel(
+            factory =
+                WifiDirectViewModel.Factory(
+                    repository
+                )
+        )
+        
+    val storageViewModel:
+        DeviceStorageViewModel =
+        viewModel(
+            factory =
+                DeviceStorageViewModel.Factory(
+                    repository
+                )
+        )
+        
+    val uploadViewModel:
+        UploadViewModel =
+        viewModel(
+            factory =
+                UploadViewModel.Factory(
                     repository
                 )
         )
@@ -59,8 +134,28 @@ fun JetsonApp(
             .uiState
             .collectAsStateWithLifecycle()
 
+    val pairingState by
+        pairingViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
+
     val dashboardState by
         dashboardViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
+            
+    val wifiDirectState by
+        wifiDirectViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
+            
+    val storageState by
+        storageViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
+            
+    val uploadState by
+        uploadViewModel
             .uiState
             .collectAsStateWithLifecycle()
 
@@ -77,19 +172,24 @@ fun JetsonApp(
 
 
     LaunchedEffect(
-        deviceState.connectionState
+        deviceState.connectionState,
+        pairingState.phase
     ) {
 
         if (
             deviceState
                 .connectionState
-                is ConnectionState.Ready
+                is ConnectionState.Ready ||
+            pairingState.phase == PairingPhase.READY
         ) {
 
             navController.navigate(
                 Routes.DASHBOARD
             ) {
 
+                popUpTo(Routes.CONNECTION_HUB) {
+                    inclusive = false
+                }
                 launchSingleTop =
                     true
             }
@@ -101,11 +201,21 @@ fun JetsonApp(
         navController =
             navController,
         startDestination =
-            Routes.DEVICES
+            Routes.CONNECTION_HUB
     ) {
 
         composable(
-            Routes.DEVICES
+            Routes.CONNECTION_HUB
+        ) {
+            ConnectionHubScreen(
+                onBleClick = { navController.navigate(Routes.DEVICES_BLE) },
+                onQrClick = { navController.navigate(Routes.QR_SCANNER) },
+                onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) }
+            )
+        }
+
+        composable(
+            Routes.DEVICES_BLE
         ) {
 
             DeviceListScreen(
@@ -121,7 +231,53 @@ fun JetsonApp(
                         .connect(
                             device
                         )
+                },
+                onAddDeviceClick = {
+                    navController.navigate(Routes.QR_SCANNER)
                 }
+            )
+        }
+
+        composable(
+            Routes.QR_SCANNER
+        ) {
+            QrScannerScreen(
+                onQrScanned = { rawValue ->
+                    pairingViewModel.onQrScanned(rawValue)
+                    navController.navigate(Routes.PAIRING)
+                },
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(
+            Routes.PAIRING
+        ) {
+            PairingScreen(
+                state = pairingState,
+                onStartPairing = {
+                    pairingViewModel.startPairing()
+                },
+                onCancel = {
+                    pairingViewModel.cancelPairing()
+                    navController.popBackStack(Routes.CONNECTION_HUB, false)
+                },
+                onRetry = {
+                    pairingViewModel.retry()
+                }
+            )
+        }
+        
+        composable(
+            Routes.WIFI_DIRECT
+        ) {
+            WifiDirectScreen(
+                state = wifiDirectState,
+                onBack = { navController.popBackStack() },
+                onDiscoveryClick = { wifiDirectViewModel.startDiscovery() },
+                onConnectClick = { wifiDirectViewModel.connect(it) }
             )
         }
 
@@ -141,7 +297,7 @@ fun JetsonApp(
 
                     navController
                         .popBackStack(
-                            Routes.DEVICES,
+                            Routes.CONNECTION_HUB,
                             inclusive = false
                         )
                 },
@@ -169,7 +325,62 @@ fun JetsonApp(
                 onShutdown = {
                     dashboardViewModel
                         .shutdown()
+                },
+                
+                onStorageClick = {
+                    navController.navigate(Routes.STORAGE)
+                },
+                
+                onNetworkSettingsClick = {
+                    // TODO: Provisioning
+                },
+                
+                onUploadHistoryClick = {
+                    navController.navigate(Routes.UPLOAD_HISTORY)
                 }
+            )
+        }
+        
+        composable(Routes.STORAGE) {
+            DeviceStorageScreen(
+                state = storageState,
+                onBack = { storageViewModel.navigateBack() },
+                onRootClick = { storageViewModel.selectRoot(it) },
+                onDirectoryClick = { storageViewModel.selectDirectory(it) },
+                onUploadClick = { rootId, path ->
+                    navController.navigate(Routes.UPLOAD_CONFIRM.replace("{rootId}", rootId).replace("{path}", if (path.isEmpty()) "_" else path))
+                }
+            )
+        }
+
+        composable(Routes.UPLOAD_CONFIRM) { backStackEntry ->
+            val rootId = backStackEntry.arguments?.getString("rootId") ?: ""
+            val path = backStackEntry.arguments?.getString("path")?.replace("_", "") ?: ""
+            UploadConfirmScreen(
+                rootId = rootId,
+                path = path,
+                targets = uploadState.targets,
+                onBack = { navController.popBackStack() },
+                onConfirm = { targetId ->
+                    uploadViewModel.startUpload(rootId, path, targetId)
+                    navController.navigate(Routes.UPLOAD_PROGRESS) {
+                        popUpTo(Routes.STORAGE) { inclusive = false }
+                    }
+                }
+            )
+        }
+        
+        composable(Routes.UPLOAD_PROGRESS) {
+            UploadProgressScreen(
+                job = uploadState.currentJob,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.UPLOAD_HISTORY) {
+            UploadHistoryScreen(
+                history = uploadState.history,
+                onBack = { navController.popBackStack() }
             )
         }
     }

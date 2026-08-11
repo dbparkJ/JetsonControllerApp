@@ -9,15 +9,31 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.os.Build
+import android.util.Log
+import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
+import com.example.jetsoncontroller.model.BlePairingState
 import com.example.jetsoncontroller.model.ConnectionState
+import com.example.jetsoncontroller.model.PairingInfo
+import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.protocol.PairingAuth
+import com.example.jetsoncontroller.protocol.StatusCodec
+import com.example.jetsoncontroller.protocol.UuidCodec
+import com.example.jetsoncontroller.util.toHex
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 class BleGattClient(
-    context: Context
+    context: Context,
+    private val credentialStore: DeviceCredentialStore
 ) {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val appContext =
         context.applicationContext
@@ -37,14 +53,38 @@ class BleGattClient(
         StateFlow<ConnectionState> =
         _connectionState.asStateFlow()
 
+    private val _pairingState =
+        MutableStateFlow<BlePairingState>(
+            BlePairingState.Idle
+        )
+
+    val pairingState:
+        StateFlow<BlePairingState> =
+        _pairingState.asStateFlow()
+
+    private val _status =
+        MutableStateFlow(JetsonStatus())
+
+    val status:
+        StateFlow<JetsonStatus> =
+        _status.asStateFlow()
+
+    private data class PairingSession(
+        val info: PairingInfo,
+        val displayName: String
+    )
+
+    private var pairingSession: PairingSession? = null
+
 
     @SuppressLint("MissingPermission")
     fun connect(
         device: BluetoothDevice,
         displayName: String
     ) {
-
         disconnect()
+        pairingSession = null
+        _pairingState.value = BlePairingState.Idle
 
         currentDeviceName =
             displayName
@@ -54,40 +94,51 @@ class BleGattClient(
                 displayName
             )
 
-        bluetoothGatt =
-            if (
-                Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.M
-            ) {
+        bluetoothGatt = connectGattInternal(device)
+    }
 
-                device.connectGatt(
-                    appContext,
-                    false,
-                    gattCallback,
-                    BluetoothDevice.TRANSPORT_LE
-                )
+    @SuppressLint("MissingPermission")
+    fun connectForPairing(
+        device: BluetoothDevice,
+        displayName: String,
+        pairingInfo: PairingInfo
+    ) {
+        disconnect()
+        pairingSession = PairingSession(pairingInfo, displayName)
+        
+        currentDeviceName = displayName
+        _connectionState.value = ConnectionState.Connecting(displayName)
+        _pairingState.value = BlePairingState.Connecting
 
-            } else {
+        bluetoothGatt = connectGattInternal(device)
+    }
 
-                device.connectGatt(
-                    appContext,
-                    false,
-                    gattCallback
-                )
-            }
+    @SuppressLint("MissingPermission")
+    private fun connectGattInternal(device: BluetoothDevice): BluetoothGatt? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            device.connectGatt(
+                appContext,
+                false,
+                gattCallback,
+                BluetoothDevice.TRANSPORT_LE
+            )
+        } else {
+            device.connectGatt(
+                appContext,
+                false,
+                gattCallback
+            )
+        }
     }
 
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
-
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
-
         bluetoothGatt = null
-
-        _connectionState.value =
-            ConnectionState.Disconnected
+        _connectionState.value = ConnectionState.Disconnected
+        _pairingState.value = BlePairingState.Idle
     }
 
 
@@ -100,39 +151,25 @@ class BleGattClient(
                 status: Int,
                 newState: Int
             ) {
-
-                if (
-                    status !=
-                    BluetoothGatt.GATT_SUCCESS
-                ) {
-
-                    _connectionState.value =
-                        ConnectionState.Error(
-                            "GATT connection error: $status"
-                        )
-
+                Log.d("JetsonBLE", "onConnectionStateChange: status=$status newState=$newState")
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    handleError("GATT connection error: $status")
                     gatt.close()
-
                     return
                 }
 
                 when (newState) {
-
                     BluetoothProfile.STATE_CONNECTED -> {
-
-                        _connectionState.value =
-                            ConnectionState.Connected(
-                                currentDeviceName
-                            )
-
+                        _connectionState.value = ConnectionState.Connected(currentDeviceName)
+                        if (pairingSession != null) {
+                            _pairingState.value = BlePairingState.DiscoveringServices
+                        }
                         gatt.discoverServices()
                     }
 
                     BluetoothProfile.STATE_DISCONNECTED -> {
-
-                        _connectionState.value =
-                            ConnectionState.Disconnected
-
+                        _connectionState.value = ConnectionState.Disconnected
+                        _pairingState.value = BlePairingState.Idle
                         gatt.close()
                     }
                 }
@@ -143,77 +180,238 @@ class BleGattClient(
                 gatt: BluetoothGatt,
                 status: Int
             ) {
-
-                if (
-                    status !=
-                    BluetoothGatt.GATT_SUCCESS
-                ) {
-
-                    _connectionState.value =
-                        ConnectionState.Error(
-                            "Service discovery failed: $status"
-                        )
-
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    handleError("Service discovery failed: $status")
                     return
                 }
 
-                val jetsonService =
-                    gatt.getService(
-                        JetsonGattSpec.SERVICE_UUID
-                    )
-
+                val jetsonService = gatt.getService(JetsonGattSpec.SERVICE_UUID)
                 if (jetsonService == null) {
-
-                    _connectionState.value =
-                        ConnectionState.Error(
-                            "Jetson Control Service not found"
-                        )
-
+                    handleError("Jetson Control Service not found")
                     return
                 }
 
-                _connectionState.value =
-                    ConnectionState.Ready(
-                        currentDeviceName
-                    )
-            }
-
-
-            override fun onCharacteristicChanged(
-                gatt: BluetoothGatt,
-                characteristic:
-                    BluetoothGattCharacteristic,
-                value: ByteArray
-            ) {
-
-                when (characteristic.uuid) {
-
-                    JetsonGattSpec.STATUS_UUID -> {
-                        /*
-                         * TODO:
-                         * decode Jetson status packet
-                         * and expose through repository.
-                         */
+                // Always try to read Device ID to verify identity or find stored credentials
+                _pairingState.value = BlePairingState.VerifyingIdentity
+                val deviceIdChar = jetsonService.getCharacteristic(JetsonGattSpec.DEVICE_ID_UUID)
+                if (deviceIdChar != null) {
+                    Log.d("JetsonBLE", "Reading DEVICE_ID characteristic")
+                    gatt.readCharacteristic(deviceIdChar)
+                } else {
+                    if (pairingSession != null) {
+                        handleError("Device ID characteristic not found")
+                    } else {
+                        // Fallback for non-secure devices if needed, but per guide we need auth
+                        _connectionState.value = ConnectionState.Ready(currentDeviceName)
                     }
                 }
             }
 
-            @Deprecated(
-                "Legacy Android callback"
-            )
+            override fun onCharacteristicRead(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                value: ByteArray,
+                status: Int
+            ) {
+                Log.d("JetsonBLE", "onCharacteristicRead: uuid=${characteristic.uuid} status=$status valueSize=${value.size}")
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    handleError("Read failed: $status (uuid=${characteristic.uuid})")
+                    return
+                }
+
+                when (characteristic.uuid) {
+                    JetsonGattSpec.DEVICE_ID_UUID -> {
+                        handleDeviceIdRead(gatt, value)
+                    }
+                    JetsonGattSpec.AUTH_CHALLENGE_UUID -> {
+                        handleChallengeRead(gatt, value)
+                    }
+                    JetsonGattSpec.AUTH_STATE_UUID -> {
+                        handleAuthStateRead(value)
+                    }
+                }
+            }
+
+            @Deprecated("Legacy")
+            override fun onCharacteristicRead(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                status: Int
+            ) {
+                onCharacteristicRead(gatt, characteristic, characteristic.value ?: byteArrayOf(), status)
+            }
+
+            override fun onCharacteristicWrite(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                status: Int
+            ) {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    handleError("Write failed: $status")
+                    return
+                }
+
+                if (characteristic.uuid == JetsonGattSpec.AUTH_RESPONSE_UUID) {
+                    Log.d("JetsonBLE", "AUTH_RESPONSE write callback status=$status")
+                    // Response written, now check state
+                    val authStateChar = characteristic.service.getCharacteristic(JetsonGattSpec.AUTH_STATE_UUID)
+                    if (authStateChar != null) {
+                        Log.d("JetsonBLE", "Reading AUTH_STATE")
+                        gatt.readCharacteristic(authStateChar)
+                    } else {
+                        handleError("Auth State characteristic not found")
+                    }
+                }
+            }
+
             override fun onCharacteristicChanged(
                 gatt: BluetoothGatt,
-                characteristic:
-                    BluetoothGattCharacteristic
+                characteristic: BluetoothGattCharacteristic,
+                value: ByteArray
             ) {
+                if (characteristic.uuid == JetsonGattSpec.STATUS_UUID) {
+                    Log.d("JetsonBLE", "STATUS notification received: ${value.size} bytes")
+                    try {
+                        _status.value = StatusCodec.decode(value)
+                    } catch (e: Exception) {
+                        // Log decoding error
+                    }
+                }
+            }
 
-                onCharacteristicChanged(
-                    gatt,
-                    characteristic,
-                    characteristic.value ?: byteArrayOf()
-                )
+            @Deprecated("Legacy")
+            override fun onCharacteristicChanged(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic
+            ) {
+                onCharacteristicChanged(gatt, characteristic, characteristic.value ?: byteArrayOf())
+            }
+
+            override fun onDescriptorWrite(
+                gatt: BluetoothGatt,
+                descriptor: BluetoothGattDescriptor,
+                status: Int
+            ) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    if (pairingSession != null) {
+                        val session = pairingSession!!
+                        scope.launch {
+                            credentialStore.saveCredential(session.info)
+                        }
+                        _pairingState.value = BlePairingState.Ready(currentDeviceName)
+                        _connectionState.value = ConnectionState.Ready(currentDeviceName)
+                    }
+                } else {
+                    handleError("Descriptor write failed: $status")
+                }
             }
         }
+
+    @SuppressLint("MissingPermission")
+    private fun handleDeviceIdRead(gatt: BluetoothGatt, value: ByteArray) {
+        val actualDeviceId = try {
+            UuidCodec.fromBytes(value).toString().lowercase()
+        } catch (e: Exception) {
+            handleError("Invalid Device ID format")
+            return
+        }
+        
+        Log.d("JetsonBLE", "DEVICE_ID read: $actualDeviceId")
+
+        val session = pairingSession
+        if (session != null) {
+            if (actualDeviceId == session.info.deviceId) {
+                proceedToAuthentication(gatt, session.info)
+            } else {
+                handleError("QR 코드와 연결된 Jetson이 일치하지 않습니다.")
+                disconnect()
+            }
+        } else {
+            // Manual connect: check store for this deviceId
+            scope.launch {
+                val secretHex = credentialStore.getSecret(actualDeviceId)
+                if (secretHex != null) {
+                    Log.d("JetsonBLE", "Stored credential found for $actualDeviceId. Authenticating...")
+                    val info = PairingInfo(1, actualDeviceId, secretHex)
+                    proceedToAuthentication(gatt, info)
+                } else {
+                    handleError("이 장비는 아직 등록되지 않았습니다.")
+                    disconnect()
+                }
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun proceedToAuthentication(gatt: BluetoothGatt, info: PairingInfo) {
+        // We need to keep track of the info for challenge computation
+        // If it was a manual connect, we might want to set a temporary session
+        if (pairingSession == null) {
+            pairingSession = PairingSession(info, currentDeviceName)
+        }
+
+        _pairingState.value = BlePairingState.Authenticating
+        val challengeChar = gatt.getService(JetsonGattSpec.SERVICE_UUID)
+            ?.getCharacteristic(JetsonGattSpec.AUTH_CHALLENGE_UUID)
+        if (challengeChar != null) {
+            Log.d("JetsonBLE", "Reading AUTH_CHALLENGE")
+            gatt.readCharacteristic(challengeChar)
+        } else {
+            handleError("Auth Challenge characteristic not found")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun handleChallengeRead(gatt: BluetoothGatt, challenge: ByteArray) {
+        val session = pairingSession ?: return
+        try {
+            Log.d("JetsonBLE", "Challenge received: ${challenge.size} bytes")
+            Log.d("JetsonBLE", "Computing HMAC")
+            val response = PairingAuth.computeResponse(
+                deviceId = session.info.deviceId,
+                bootstrapSecretHex = session.info.bootstrapSecretHex,
+                challenge = challenge
+            )
+            val responseChar = gatt.getService(JetsonGattSpec.SERVICE_UUID)
+                ?.getCharacteristic(JetsonGattSpec.AUTH_RESPONSE_UUID)
+            if (responseChar != null) {
+                Log.d("JetsonBLE", "Writing AUTH_RESPONSE: ${response.size} bytes")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val status = gatt.writeCharacteristic(responseChar, response, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                    Log.d("JetsonBLE", "writeCharacteristic status: $status")
+                } else {
+                    @Suppress("DEPRECATION")
+                    responseChar.value = response
+                    @Suppress("DEPRECATION")
+                    val success = gatt.writeCharacteristic(responseChar)
+                    Log.d("JetsonBLE", "writeCharacteristic success: $success")
+                }
+            } else {
+                handleError("Auth Response characteristic not found")
+            }
+        } catch (e: Exception) {
+            handleError("Authentication calculation failed")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun handleAuthStateRead(value: ByteArray) {
+        val authState = if (value.isNotEmpty()) value[0].toInt() else -1
+        Log.d("JetsonBLE", "AUTH_STATE=$authState")
+        if (authState == 1) {
+            _pairingState.value = BlePairingState.EnablingNotifications
+            Log.d("JetsonBLE", "Enabling STATUS notifications")
+            enableStatusNotifications()
+        } else {
+            handleError("장비 인증에 실패했습니다.")
+            disconnect()
+        }
+    }
+
+    private fun handleError(message: String) {
+        _connectionState.value = ConnectionState.Error(message)
+        _pairingState.value = BlePairingState.Error(message)
+    }
 
 
     fun isReady(): Boolean {

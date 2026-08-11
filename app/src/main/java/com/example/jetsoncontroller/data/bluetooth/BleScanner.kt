@@ -8,6 +8,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.example.jetsoncontroller.model.JetsonDevice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,40 +63,37 @@ class BleScanner(
                 callbackType: Int,
                 result: ScanResult
             ) {
+                val record = result.scanRecord
 
-                val device =
-                    result.device
+                val name = record?.deviceName
+                    ?: try {
+                        result.device.name
+                    } catch (_: SecurityException) {
+                        null
+                    }
 
-                /*
-                 * Prefer the latest advertised name.
-                 *
-                 * IMPORTANT:
-                 * Do not display unnamed devices.
-                 *
-                 * If the device initially sends an advertisement
-                 * without a name, it will be ignored.
-                 *
-                 * If a later advertisement / scan response includes
-                 * a name, this callback runs again and the device
-                 * will then be inserted.
-                 */
-                val name =
-                    result.scanRecord?.deviceName
-                        ?: device.name
+                val uuids = record?.serviceUuids
+                    ?.map { it.uuid.toString() }
+                    .orEmpty()
 
-                if (name.isNullOrBlank()) {
-                    return
-                }
+                Log.d(
+                    "JetsonBLE",
+                    "SCAN name=$name " +
+                            "address=${result.device.address} " +
+                            "rssi=${result.rssi} " +
+                            "uuids=$uuids"
+                )
 
-                val address =
-                    device.address
+                val device = result.device
+                val address = device.address
 
                 deviceMap[address] =
                     JetsonDevice(
                         device = device,
-                        name = name,
+                        name = name ?: "Unknown",
                         address = address,
-                        rssi = result.rssi
+                        rssi = result.rssi,
+                        advertisedServiceUuids = uuids
                     )
 
                 publishDevices()
@@ -116,6 +114,7 @@ class BleScanner(
                 errorCode: Int
             ) {
                 _isScanning.value = false
+                Log.e("JetsonBLE", "Scan failed with error: $errorCode")
             }
         }
 
@@ -166,11 +165,8 @@ class BleScanner(
         _isScanning.value = true
 
         /*
-         * During early development we scan all BLE devices
-         * and hide unnamed ones.
-         *
-         * When the Jetson advertiser is complete,
-         * replace this with a SERVICE_UUID ScanFilter.
+         * 우선 진단용으로 필터를 완전히 없애자. (이미지 2단계)
+         * SCAN name=MMS-4DE0 가 뜨는지 확인용.
          */
         bleScanner.startScan(
             null,

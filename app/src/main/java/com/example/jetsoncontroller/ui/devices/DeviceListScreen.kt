@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -33,7 +35,8 @@ import com.example.jetsoncontroller.ui.components.DeviceCard
 fun DeviceListScreen(
     state: DeviceListUiState,
     onScanClick: () -> Unit,
-    onConnect: (JetsonDevice) -> Unit
+    onConnect: (JetsonDevice) -> Unit,
+    onAddDeviceClick: () -> Unit
 ) {
 
     Scaffold(
@@ -99,6 +102,19 @@ fun DeviceListScreen(
                 connectionState =
                     state.connectionState
             )
+
+            Spacer(
+                modifier =
+                    Modifier.height(24.dp)
+            )
+
+            Button(
+                onClick = onAddDeviceClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("QR 코드로 장비 추가")
+            }
 
             Spacer(
                 modifier =

@@ -2,6 +2,7 @@ package com.example.jetsoncontroller
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,7 +19,13 @@ import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 class MainActivity :
     ComponentActivity() {
 
-    private var permissionGranted
+    private var bluetoothPermissionGranted
+        by mutableStateOf(false)
+
+    private var cameraPermissionGranted
+        by mutableStateOf(false)
+
+    private var nearbyWifiPermissionGranted
         by mutableStateOf(false)
 
 
@@ -49,6 +56,27 @@ class MainActivity :
             connect
     }
 
+    private fun hasCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasNearbyWifiPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.NEARBY_WIFI_DEVICES
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
 
     override fun onCreate(
         savedInstanceState: Bundle?
@@ -58,8 +86,9 @@ class MainActivity :
             savedInstanceState
         )
 
-        permissionGranted =
-            hasBluetoothPermissions()
+        bluetoothPermissionGranted = hasBluetoothPermissions()
+        cameraPermissionGranted = hasCameraPermission()
+        nearbyWifiPermissionGranted = hasNearbyWifiPermission()
 
         val app =
             application
@@ -72,28 +101,35 @@ class MainActivity :
                     contract =
                         ActivityResultContracts
                             .RequestMultiplePermissions()
-                ) {
-
-                    permissionGranted =
-                        hasBluetoothPermissions()
+                ) { result ->
+                    bluetoothPermissionGranted = hasBluetoothPermissions()
+                    cameraPermissionGranted = result[Manifest.permission.CAMERA] ?: cameraPermissionGranted
+                    nearbyWifiPermissionGranted = hasNearbyWifiPermission()
                 }
 
 
             LaunchedEffect(Unit) {
 
-                if (
-                    !hasBluetoothPermissions()
-                ) {
+                val permissionsToRequest = mutableListOf<String>()
+                if (!hasBluetoothPermissions()) {
+                    permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
+                    permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
+                }
+                if (!hasCameraPermission()) {
+                    permissionsToRequest.add(Manifest.permission.CAMERA)
+                }
+                
+                if (!hasNearbyWifiPermission()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+                    } else {
+                        permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+                        permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    }
+                }
 
-                    permissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission
-                                .BLUETOOTH_SCAN,
-
-                            Manifest.permission
-                                .BLUETOOTH_CONNECT
-                        )
-                    )
+                if (permissionsToRequest.isNotEmpty()) {
+                    permissionLauncher.launch(permissionsToRequest.toTypedArray())
                 }
             }
 
@@ -104,7 +140,9 @@ class MainActivity :
                     repository =
                         app.repository,
                     bluetoothPermissionGranted =
-                        permissionGranted
+                        bluetoothPermissionGranted,
+                    cameraPermissionGranted =
+                        cameraPermissionGranted
                 )
             }
         }
