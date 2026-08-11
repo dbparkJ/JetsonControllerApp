@@ -1,0 +1,40 @@
+# Gradle files
+.gradle/
+build/
+
+# Kotlin
+.kotlin/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/assetWizardSettings.xml
+.idea/dictionaries
+.idea/libraries
+.idea/caches
+.idea/navEditor.xml
+.idea/deploymentTargetDropDown.xml
+.idea/modules.xml
+
+# Built variants
+**/build/
+captures/
+
+# User-specific / Local configuration
+local.properties
+.externalNativeBuild/
+.cxx/
+
+# AI Agent Artifacts
+.artifacts/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
