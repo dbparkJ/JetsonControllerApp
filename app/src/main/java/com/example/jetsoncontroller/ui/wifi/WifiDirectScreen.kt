@@ -1,17 +1,41 @@
 package com.example.jetsoncontroller.ui.wifi
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiDirectState
@@ -20,7 +44,9 @@ import com.example.jetsoncontroller.data.network.WifiDirectState
 @Composable
 fun WifiDirectScreen(
     state: WifiDirectState,
+    permissionGranted: Boolean,
     onBack: () -> Unit,
+    onPermissionClick: () -> Unit,
     onDiscoveryClick: () -> Unit,
     onConnectClick: (WifiDirectPeer) -> Unit
 ) {
@@ -43,13 +69,13 @@ fun WifiDirectScreen(
                 .padding(horizontal = 22.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             Text(
                 text = "Wi-Fi Direct",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
-            
+
             Text(
                 text = "공유기 없이 Jetson과 직접 연결합니다.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -58,25 +84,90 @@ fun WifiDirectScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            if (state.connected) {
-                ConnectedView(state.groupOwnerAddress ?: "Unknown IP")
-            } else {
-                DiscoveryView(state, onDiscoveryClick, onConnectClick)
+            when {
+                !permissionGranted -> {
+                    PermissionView(onPermissionClick)
+                }
+
+                state.connected -> {
+                    ConnectedView(state.groupOwnerAddress ?: "확인 중")
+                }
+
+                else -> {
+                    DiscoveryView(
+                        state = state,
+                        onDiscoveryClick = onDiscoveryClick,
+                        onConnectClick = onConnectClick
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ConnectedView(ip: String) {
+private fun PermissionView(
+    onPermissionClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Wifi,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Text(
+            text = "주변 기기 권한이 필요합니다",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "가까이 있는 Jetson을 검색하고 직접 연결하기 위해 권한을 허용해 주세요.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        Button(
+            onClick = onPermissionClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("주변 기기 권한 허용")
+        }
+    }
+}
+
+@Composable
+private fun ConnectedView(
+    ip: String
+) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Wifi, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(
+                    Icons.Default.Wifi,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = "연결됨",
@@ -87,7 +178,7 @@ private fun ConnectedView(ip: String) {
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "IP: $ip",
+                text = "그룹 소유자 IP: $ip",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
@@ -101,6 +192,23 @@ private fun DiscoveryView(
     onDiscoveryClick: () -> Unit,
     onConnectClick: (WifiDirectPeer) -> Unit
 ) {
+    if (state.error != null) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text(
+                text = state.error,
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -111,10 +219,16 @@ private fun DiscoveryView(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
-        
-        TextButton(onClick = onDiscoveryClick, enabled = !state.discovering) {
+
+        TextButton(
+            onClick = onDiscoveryClick,
+            enabled = !state.discovering && state.supported
+        ) {
             if (state.discovering) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("검색 중...")
             } else {
@@ -126,20 +240,44 @@ private fun DiscoveryView(
     Spacer(modifier = Modifier.height(12.dp))
 
     if (state.peers.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("주변에 검색된 장비가 없습니다.", color = MaterialTheme.colorScheme.outline)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (state.discovering) {
+                    "주변 Wi-Fi Direct 장비를 찾고 있습니다."
+                } else {
+                    "검색된 장비가 없습니다.\nJetson의 Wi-Fi Direct 대기 상태를 확인해 주세요."
+                },
+                color = MaterialTheme.colorScheme.outline,
+                textAlign = TextAlign.Center
+            )
         }
     } else {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(state.peers) { peer ->
-                PeerCard(peer, onConnectClick)
+            items(
+                items = state.peers,
+                key = { it.deviceAddress }
+            ) { peer ->
+                PeerCard(
+                    peer = peer,
+                    connecting = state.connectingPeerAddress == peer.deviceAddress,
+                    connectionInProgress = state.connectingPeerAddress != null,
+                    onConnect = onConnectClick
+                )
             }
         }
     }
 }
 
 @Composable
-private fun PeerCard(peer: WifiDirectPeer, onConnect: (WifiDirectPeer) -> Unit) {
+private fun PeerCard(
+    peer: WifiDirectPeer,
+    connecting: Boolean,
+    connectionInProgress: Boolean,
+    onConnect: (WifiDirectPeer) -> Unit
+) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp)
@@ -150,12 +288,32 @@ private fun PeerCard(peer: WifiDirectPeer, onConnect: (WifiDirectPeer) -> Unit) 
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = peer.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(text = peer.deviceAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = peer.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = peer.deviceAddress,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            
-            Button(onClick = { onConnect(peer) }) {
-                Text("연결")
+
+            Button(
+                onClick = { onConnect(peer) },
+                enabled = !connectionInProgress
+            ) {
+                if (connecting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("연결 중")
+                } else {
+                    Text("연결")
+                }
             }
         }
     }

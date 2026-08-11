@@ -198,12 +198,11 @@ class JetsonRepository(
     }
 
     fun startWifiDirectDiscovery() {
-        wifiDirectManager.register()
         wifiDirectManager.startDiscovery()
     }
 
     fun stopWifiDirectDiscovery() {
-        wifiDirectManager.unregister()
+        wifiDirectManager.stopDiscovery()
     }
 
     fun connectWifiDirect(peer: WifiDirectPeer) {

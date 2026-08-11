@@ -77,6 +77,23 @@ class MainActivity :
         }
     }
 
+    private fun nearbyWifiPermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        }
+    }
+
+    private fun refreshPermissionState() {
+        bluetoothPermissionGranted = hasBluetoothPermissions()
+        cameraPermissionGranted = hasCameraPermission()
+        nearbyWifiPermissionGranted = hasNearbyWifiPermission()
+    }
+
 
     override fun onCreate(
         savedInstanceState: Bundle?
@@ -86,9 +103,7 @@ class MainActivity :
             savedInstanceState
         )
 
-        bluetoothPermissionGranted = hasBluetoothPermissions()
-        cameraPermissionGranted = hasCameraPermission()
-        nearbyWifiPermissionGranted = hasNearbyWifiPermission()
+        refreshPermissionState()
 
         val app =
             application
@@ -101,35 +116,18 @@ class MainActivity :
                     contract =
                         ActivityResultContracts
                             .RequestMultiplePermissions()
-                ) { result ->
-                    bluetoothPermissionGranted = hasBluetoothPermissions()
-                    cameraPermissionGranted = result[Manifest.permission.CAMERA] ?: cameraPermissionGranted
-                    nearbyWifiPermissionGranted = hasNearbyWifiPermission()
+                ) {
+                    refreshPermissionState()
                 }
-
 
             LaunchedEffect(Unit) {
-
-                val permissionsToRequest = mutableListOf<String>()
                 if (!hasBluetoothPermissions()) {
-                    permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
-                    permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
-                }
-                if (!hasCameraPermission()) {
-                    permissionsToRequest.add(Manifest.permission.CAMERA)
-                }
-                
-                if (!hasNearbyWifiPermission()) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-                    } else {
-                        permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
-                        permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
-                    }
-                }
-
-                if (permissionsToRequest.isNotEmpty()) {
-                    permissionLauncher.launch(permissionsToRequest.toTypedArray())
+                    permissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.BLUETOOTH_SCAN,
+                            Manifest.permission.BLUETOOTH_CONNECT
+                        )
+                    )
                 }
             }
 
@@ -142,9 +140,26 @@ class MainActivity :
                     bluetoothPermissionGranted =
                         bluetoothPermissionGranted,
                     cameraPermissionGranted =
-                        cameraPermissionGranted
+                        cameraPermissionGranted,
+                    nearbyWifiPermissionGranted =
+                        nearbyWifiPermissionGranted,
+                    onRequestCameraPermission = {
+                        permissionLauncher.launch(
+                            arrayOf(Manifest.permission.CAMERA)
+                        )
+                    },
+                    onRequestNearbyWifiPermission = {
+                        permissionLauncher.launch(
+                            nearbyWifiPermissions()
+                        )
+                    }
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshPermissionState()
     }
 }

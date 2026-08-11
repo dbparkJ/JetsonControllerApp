@@ -1,7 +1,9 @@
 package com.example.jetsoncontroller.protocol
 
-import android.net.Uri
 import com.example.jetsoncontroller.model.PairingInfo
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 object PairingQrParser {
@@ -10,25 +12,37 @@ object PairingQrParser {
         rawValue: String
     ): PairingInfo {
 
-        val uri =
-            Uri.parse(
-                rawValue.trim()
+        val uri = try {
+            URI(rawValue.trim())
+        } catch (_: Exception) {
+            throw IllegalArgumentException(
+                "QR 코드 형식이 올바르지 않습니다."
             )
+        }
 
         require(
-            uri.scheme == "jetsonctl"
+            uri.scheme.equals(
+                "jetsonctl",
+                ignoreCase = true
+            )
         ) {
             "지원하지 않는 QR 코드입니다."
         }
 
         require(
-            uri.host == "pair"
+            uri.host.equals(
+                "pair",
+                ignoreCase = true
+            )
         ) {
             "지원하지 않는 QR 코드입니다."
         }
+
+        val parameters =
+            parseQuery(uri.rawQuery)
 
         val version =
-            uri.getQueryParameter("v")
+            parameters["v"]
                 ?.toIntOrNull()
                 ?: throw IllegalArgumentException(
                     "QR 버전 정보가 없습니다."
@@ -39,18 +53,23 @@ object PairingQrParser {
         }
 
         val deviceId =
-            uri.getQueryParameter("id")
+            parameters["id"]
                 ?: throw IllegalArgumentException(
                     "장비 ID가 없습니다."
                 )
 
-        val normalizedId =
+        val normalizedId = try {
             UUID.fromString(deviceId)
                 .toString()
                 .lowercase()
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException(
+                "장비 ID 형식이 올바르지 않습니다."
+            )
+        }
 
         val secret =
-            uri.getQueryParameter("key")
+            parameters["key"]
                 ?: throw IllegalArgumentException(
                     "장비 인증 정보가 없습니다."
                 )
@@ -69,5 +88,42 @@ object PairingQrParser {
             bootstrapSecretHex =
                 secret.lowercase()
         )
+    }
+
+    private fun parseQuery(
+        rawQuery: String?
+    ): Map<String, String> {
+        if (rawQuery.isNullOrBlank()) {
+            return emptyMap()
+        }
+
+        return rawQuery
+            .split("&")
+            .mapNotNull { entry ->
+                val separator = entry.indexOf('=')
+                if (separator <= 0) {
+                    return@mapNotNull null
+                }
+
+                val key = decode(entry.substring(0, separator))
+                val value = decode(entry.substring(separator + 1))
+                key to value
+            }
+            .toMap()
+    }
+
+    private fun decode(
+        value: String
+    ): String {
+        return try {
+            URLDecoder.decode(
+                value,
+                StandardCharsets.UTF_8.name()
+            )
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException(
+                "QR 코드 형식이 올바르지 않습니다."
+            )
+        }
     }
 }

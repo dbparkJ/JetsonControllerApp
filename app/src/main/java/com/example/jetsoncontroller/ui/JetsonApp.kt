@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -69,7 +70,13 @@ fun JetsonApp(
     bluetoothPermissionGranted:
         Boolean,
     cameraPermissionGranted:
-        Boolean
+        Boolean,
+    nearbyWifiPermissionGranted:
+        Boolean,
+    onRequestCameraPermission:
+        () -> Unit,
+    onRequestNearbyWifiPermission:
+        () -> Unit
 ) {
 
     val navController =
@@ -242,9 +249,21 @@ fun JetsonApp(
             Routes.QR_SCANNER
         ) {
             QrScannerScreen(
+                cameraPermissionGranted =
+                    cameraPermissionGranted,
+                errorMessage =
+                    pairingState.errorMessage,
+                onRequestCameraPermission =
+                    onRequestCameraPermission,
                 onQrScanned = { rawValue ->
-                    pairingViewModel.onQrScanned(rawValue)
-                    navController.navigate(Routes.PAIRING)
+                    val accepted =
+                        pairingViewModel.onQrScanned(rawValue)
+
+                    if (accepted) {
+                        navController.navigate(Routes.PAIRING)
+                    }
+
+                    accepted
                 },
                 onBack = {
                     navController.popBackStack()
@@ -273,10 +292,30 @@ fun JetsonApp(
         composable(
             Routes.WIFI_DIRECT
         ) {
+            DisposableEffect(
+                nearbyWifiPermissionGranted
+            ) {
+                if (nearbyWifiPermissionGranted) {
+                    wifiDirectViewModel.startDiscovery()
+                }
+
+                onDispose {
+                    wifiDirectViewModel.stopDiscovery()
+                }
+            }
+
             WifiDirectScreen(
                 state = wifiDirectState,
+                permissionGranted = nearbyWifiPermissionGranted,
                 onBack = { navController.popBackStack() },
-                onDiscoveryClick = { wifiDirectViewModel.startDiscovery() },
+                onPermissionClick = onRequestNearbyWifiPermission,
+                onDiscoveryClick = {
+                    if (nearbyWifiPermissionGranted) {
+                        wifiDirectViewModel.startDiscovery()
+                    } else {
+                        onRequestNearbyWifiPermission()
+                    }
+                },
                 onConnectClick = { wifiDirectViewModel.connect(it) }
             )
         }

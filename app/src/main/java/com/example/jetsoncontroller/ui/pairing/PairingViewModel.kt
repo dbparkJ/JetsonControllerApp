@@ -100,13 +100,12 @@ class PairingViewModel(
 
     fun onQrScanned(
         rawValue: String
-    ) {
-        Log.d("JetsonBLE", "QR Scanned: $rawValue")
+    ): Boolean {
         if (_qrPhase.value != PairingPhase.IDLE) {
-            return
+            return false
         }
 
-        try {
+        return try {
             val info =
                 PairingQrParser.parse(
                     rawValue
@@ -114,11 +113,19 @@ class PairingViewModel(
             Log.d("JetsonBLE", "QR Parsed: deviceId=${info.deviceId} expectedBleName=${info.expectedBleName}")
 
             _pairingInfo.value = info
+            _errorMessage.value = null
             _qrPhase.value =
                 PairingPhase.QR_SCANNED
 
+            true
+
         } catch (e: Exception) {
             Log.e("JetsonBLE", "QR Parse failed", e)
+            _pairingInfo.value = null
+            _errorMessage.value =
+                e.message ?: "QR 코드 형식을 확인할 수 없습니다."
+            _qrPhase.value = PairingPhase.IDLE
+            false
         }
     }
 
