@@ -28,6 +28,12 @@ class MainActivity :
     private var nearbyWifiPermissionGranted
         by mutableStateOf(false)
 
+    private var wifiScanPermissionGranted
+        by mutableStateOf(false)
+
+    private var localNetworkPermissionGranted
+        by mutableStateOf(false)
+
 
     private fun hasBluetoothPermissions():
         Boolean {
@@ -88,10 +94,27 @@ class MainActivity :
         }
     }
 
+    private fun hasWifiScanPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasLocalNetworkPermission(): Boolean {
+        return Build.VERSION.SDK_INT < 37 ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_LOCAL_NETWORK
+            ) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun refreshPermissionState() {
         bluetoothPermissionGranted = hasBluetoothPermissions()
         cameraPermissionGranted = hasCameraPermission()
         nearbyWifiPermissionGranted = hasNearbyWifiPermission()
+        wifiScanPermissionGranted = hasWifiScanPermission()
+        localNetworkPermissionGranted = hasLocalNetworkPermission()
     }
 
 
@@ -143,6 +166,10 @@ class MainActivity :
                         cameraPermissionGranted,
                     nearbyWifiPermissionGranted =
                         nearbyWifiPermissionGranted,
+                    wifiScanPermissionGranted =
+                        wifiScanPermissionGranted,
+                    localNetworkPermissionGranted =
+                        localNetworkPermissionGranted,
                     onRequestCameraPermission = {
                         permissionLauncher.launch(
                             arrayOf(Manifest.permission.CAMERA)
@@ -152,6 +179,18 @@ class MainActivity :
                         permissionLauncher.launch(
                             nearbyWifiPermissions()
                         )
+                    },
+                    onRequestWifiScanPermission = {
+                        permissionLauncher.launch(
+                            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                        )
+                    },
+                    onRequestLocalNetworkPermission = {
+                        if (Build.VERSION.SDK_INT >= 37) {
+                            permissionLauncher.launch(
+                                arrayOf(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                            )
+                        }
                     }
                 )
             }

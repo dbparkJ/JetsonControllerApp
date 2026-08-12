@@ -12,6 +12,11 @@ sealed interface ConnectionState {
         val deviceName: String
     ) : ConnectionState
 
+    data class RegistrationRequired(
+        val deviceName: String,
+        val deviceId: String
+    ) : ConnectionState
+
     data class Ready(
         val deviceName: String
     ) : ConnectionState

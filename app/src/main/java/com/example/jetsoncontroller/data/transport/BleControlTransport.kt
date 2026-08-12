@@ -3,7 +3,7 @@ package com.example.jetsoncontroller.data.transport
 import com.example.jetsoncontroller.data.bluetooth.BleGattClient
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.protocol.JetsonCommand
-import kotlinx.coroutines.flow.first
+import com.example.jetsoncontroller.protocol.CommandCodec
 
 class BleControlTransport(
     private val gattClient: BleGattClient
@@ -28,10 +28,11 @@ class BleControlTransport(
     }
 
     override suspend fun sendCommand(command: JetsonCommand, payload: ByteArray): Result<Unit> {
-        // We'll need to encode command here if not already done in Repository
-        // For now let's assume we use the GATT client's writeCommand directly
-        // but we'll need to adapt it to the protocol codec
-        return Result.failure(Exception("Not implemented"))
+        return if (gattClient.writeCommand(CommandCodec.encode(command, payload))) {
+            Result.success(Unit)
+        } else {
+            Result.failure(Exception("Bluetooth command write failed"))
+        }
     }
 
     override suspend fun disconnect() {

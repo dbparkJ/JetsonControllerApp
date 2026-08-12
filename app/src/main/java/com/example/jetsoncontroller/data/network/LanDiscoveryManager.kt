@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.data.network
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.util.Log
 import com.example.jetsoncontroller.model.DeviceEndpoint
 import com.example.jetsoncontroller.model.EndpointTransport
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,18 +18,36 @@ class LanDiscoveryManager(private val context: Context) {
     private val _discoveredEndpoints = MutableStateFlow<List<DeviceEndpoint>>(emptyList())
     val discoveredEndpoints: StateFlow<List<DeviceEndpoint>> = _discoveredEndpoints.asStateFlow()
 
+    private val _isDiscovering = MutableStateFlow(false)
+    val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    private var discoveryActive = false
+
     private val discoveryListener = object : NsdManager.DiscoveryListener {
-        override fun onDiscoveryStarted(regType: String) {}
+        override fun onDiscoveryStarted(regType: String) {
+            discoveryActive = true
+            _isDiscovering.value = true
+            _error.value = null
+        }
         override fun onServiceFound(service: NsdServiceInfo) {
-            if (service.serviceType == SERVICE_TYPE) {
+            if (service.serviceType.trimEnd('.') == SERVICE_TYPE.trimEnd('.')) {
                 nsdManager.resolveService(service, object : NsdManager.ResolveListener {
-                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                        _error.value = "LAN 장비 주소 확인 실패: $errorCode"
+                    }
                     override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
                         val deviceId = serviceInfo.attributes["id"]?.let { String(it) } ?: "unknown"
+                        val host = serviceInfo.host?.hostAddress.orEmpty()
+                        if (host.isBlank() || serviceInfo.port <= 0) {
+                            return
+                        }
                         val endpoint = DeviceEndpoint(
                             deviceId = deviceId,
                             displayName = serviceInfo.serviceName,
-                            host = serviceInfo.host.hostAddress ?: "",
+                            host = host,
                             port = serviceInfo.port,
                             transport = EndpointTransport.LAN
                         )
@@ -38,21 +57,63 @@ class LanDiscoveryManager(private val context: Context) {
             }
         }
         override fun onServiceLost(service: NsdServiceInfo) {
-            // Remove endpoint logic
+            _discoveredEndpoints.value = _discoveredEndpoints.value
+                .filterNot { it.displayName == service.serviceName }
         }
-        override fun onDiscoveryStopped(regType: String) {}
-        override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {}
-        override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
+        override fun onDiscoveryStopped(regType: String) {
+            discoveryActive = false
+            _isDiscovering.value = false
+        }
+        override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+            discoveryActive = false
+            _isDiscovering.value = false
+            _error.value = "같은 네트워크 장비 검색 시작 실패: $errorCode"
+        }
+        override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+            discoveryActive = false
+            _isDiscovering.value = false
+            _error.value = "같은 네트워크 장비 검색 중지 실패: $errorCode"
+        }
     }
 
     fun startDiscovery() {
-        nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+        if (discoveryActive) {
+            return
+        }
+
+        _discoveredEndpoints.value = emptyList()
+        _error.value = null
+        discoveryActive = true
+        _isDiscovering.value = true
+        try {
+            nsdManager.discoverServices(
+                SERVICE_TYPE,
+                NsdManager.PROTOCOL_DNS_SD,
+                discoveryListener
+            )
+        } catch (error: SecurityException) {
+            discoveryActive = false
+            _isDiscovering.value = false
+            _error.value = "로컬 네트워크 권한을 허용해 주세요."
+        } catch (error: Exception) {
+            discoveryActive = false
+            Log.e("JetsonLAN", "NSD discovery failed", error)
+            _isDiscovering.value = false
+            _error.value = "같은 네트워크 장비 검색을 시작하지 못했습니다."
+        }
     }
 
     fun stopDiscovery() {
+        if (!discoveryActive) {
+            return
+        }
+
         try {
             nsdManager.stopServiceDiscovery(discoveryListener)
-        } catch (e: Exception) {}
+        } catch (_: Exception) {
+            discoveryActive = false
+            _isDiscovering.value = false
+        }
     }
 
     private fun updateEndpoints(endpoint: DeviceEndpoint) {

@@ -25,12 +25,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.JetsonDevice
+import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.ui.components.ConnectionStatusCard
 import com.example.jetsoncontroller.ui.components.DeviceCard
@@ -41,7 +46,8 @@ fun DeviceListScreen(
     onScanClick: () -> Unit,
     onConnect: (JetsonDevice) -> Unit,
     onReconnect: (RegisteredDevice) -> Unit,
-    onAddDeviceClick: () -> Unit
+    onAddDeviceClick: () -> Unit,
+    onBack: () -> Unit
 ) {
 
     Scaffold(
@@ -68,15 +74,22 @@ fun DeviceListScreen(
                     Modifier.height(24.dp)
             )
 
-            Text(
-                text = "Jetson Control",
-                style =
-                    MaterialTheme
-                        .typography
-                        .headlineMedium,
-                fontWeight =
-                    FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "뒤로"
+                    )
+                }
+
+                Text(
+                    text = "Jetson Control",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             Spacer(
                 modifier =
@@ -118,7 +131,13 @@ fun DeviceListScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text("QR 코드로 장비 추가")
+                Text(
+                    if (state.connectionState is ConnectionState.RegistrationRequired) {
+                        "현재 연결된 장비 QR 인증"
+                    } else {
+                        "QR 코드로 장비 추가"
+                    }
+                )
             }
 
             Spacer(

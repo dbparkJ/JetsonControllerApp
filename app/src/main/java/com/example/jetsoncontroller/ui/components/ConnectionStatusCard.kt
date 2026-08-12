@@ -41,6 +41,10 @@ fun ConnectionStatusCard(
                 is ConnectionState.Connecting ->
                 "Jetson 연결 중"
 
+            connectionState
+                is ConnectionState.RegistrationRequired ->
+                "장비 인증 필요"
+
             else ->
                 "Bluetooth 준비됨"
         }
@@ -64,6 +68,9 @@ fun ConnectionStatusCard(
 
             is ConnectionState.Ready ->
                 "${connectionState.deviceName} · 제어 준비 완료"
+
+            is ConnectionState.RegistrationRequired ->
+                "${connectionState.deviceName} · QR을 스캔해 등록을 완료하세요."
 
             is ConnectionState.Error ->
                 connectionState.message

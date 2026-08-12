@@ -76,6 +76,8 @@ class BleGattClient(
 
     private var pairingSession: PairingSession? = null
 
+    private var verifiedDeviceId: String? = null
+
 
     @SuppressLint("MissingPermission")
     fun connect(
@@ -84,6 +86,7 @@ class BleGattClient(
     ) {
         disconnect()
         pairingSession = null
+        verifiedDeviceId = null
         _pairingState.value = BlePairingState.Idle
 
         currentDeviceName =
@@ -105,6 +108,7 @@ class BleGattClient(
     ) {
         disconnect()
         pairingSession = PairingSession(pairingInfo, displayName)
+        verifiedDeviceId = null
         
         currentDeviceName = displayName
         _connectionState.value = ConnectionState.Connecting(displayName)
@@ -137,6 +141,7 @@ class BleGattClient(
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
+        verifiedDeviceId = null
         _connectionState.value = ConnectionState.Disconnected
         _pairingState.value = BlePairingState.Idle
     }
@@ -170,6 +175,7 @@ class BleGattClient(
                     }
 
                     BluetoothProfile.STATE_DISCONNECTED -> {
+                        verifiedDeviceId = null
                         _connectionState.value = ConnectionState.Disconnected
                         _pairingState.value = BlePairingState.Idle
                         gatt.close()
@@ -209,12 +215,7 @@ class BleGattClient(
                     Log.d("JetsonBLE", "Reading DEVICE_ID characteristic")
                     gatt.readCharacteristic(deviceIdChar)
                 } else {
-                    if (pairingSession != null) {
-                        handleError("Device ID characteristic not found")
-                    } else {
-                        // Fallback for non-secure devices if needed, but per guide we need auth
-                        _connectionState.value = ConnectionState.Ready(currentDeviceName)
-                    }
+                    handleError("Device ID characteristic not found")
                 }
             }
 
@@ -328,6 +329,7 @@ class BleGattClient(
         }
         
         Log.d("JetsonBLE", "DEVICE_ID read: $actualDeviceId")
+        verifiedDeviceId = actualDeviceId
 
         val session = pairingSession
         if (session != null) {
@@ -346,11 +348,34 @@ class BleGattClient(
                     val info = PairingInfo(1, actualDeviceId, secretHex)
                     proceedToAuthentication(gatt, info)
                 } else {
-                    handleError("이 장비는 아직 등록되지 않았습니다.")
-                    disconnect()
+                    _pairingState.value = BlePairingState.Idle
+                    _connectionState.value =
+                        ConnectionState.RegistrationRequired(
+                            deviceName = currentDeviceName,
+                            deviceId = actualDeviceId
+                        )
                 }
             }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun authenticateConnectedDevice(info: PairingInfo): Boolean {
+        if (_connectionState.value !is ConnectionState.RegistrationRequired) {
+            return false
+        }
+
+        val gatt = bluetoothGatt ?: return false
+        val actualDeviceId = verifiedDeviceId ?: return false
+
+        if (!actualDeviceId.equals(info.deviceId, ignoreCase = true)) {
+            handleError("QR 코드와 현재 연결된 Jetson이 일치하지 않습니다.")
+            return true
+        }
+
+        pairingSession = PairingSession(info, currentDeviceName)
+        proceedToAuthentication(gatt, info)
+        return true
     }
 
     @SuppressLint("MissingPermission")

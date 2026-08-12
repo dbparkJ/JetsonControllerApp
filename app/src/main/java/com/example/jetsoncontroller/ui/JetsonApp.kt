@@ -12,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
+import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
 import com.example.jetsoncontroller.ui.devices.DeviceListScreen
@@ -79,9 +80,17 @@ fun JetsonApp(
         Boolean,
     nearbyWifiPermissionGranted:
         Boolean,
+    wifiScanPermissionGranted:
+        Boolean,
+    localNetworkPermissionGranted:
+        Boolean,
     onRequestCameraPermission:
         () -> Unit,
     onRequestNearbyWifiPermission:
+        () -> Unit,
+    onRequestWifiScanPermission:
+        () -> Unit,
+    onRequestLocalNetworkPermission:
         () -> Unit
 ) {
 
@@ -186,6 +195,24 @@ fun JetsonApp(
             .uiState
             .collectAsStateWithLifecycle()
 
+    val lanEndpoints by
+        repository.lanEndpoints.collectAsStateWithLifecycle()
+
+    val lanDiscovering by
+        repository.isLanDiscovering.collectAsStateWithLifecycle()
+
+    val lanDiscoveryError by
+        repository.lanDiscoveryError.collectAsStateWithLifecycle()
+
+    val lanConnectionError by
+        repository.lanConnectionError.collectAsStateWithLifecycle()
+
+    val connectingLanDeviceId by
+        repository.connectingLanDeviceId.collectAsStateWithLifecycle()
+
+    val transportState by
+        repository.transportState.collectAsStateWithLifecycle()
+
 
     LaunchedEffect(
         bluetoothPermissionGranted
@@ -201,7 +228,8 @@ fun JetsonApp(
     LaunchedEffect(
         deviceState.connectionState,
         pairingState.phase,
-        wifiDirectState.apiStatus
+        wifiDirectState.apiStatus,
+        transportState
     ) {
 
         if (
@@ -209,7 +237,8 @@ fun JetsonApp(
                 .connectionState
                 is ConnectionState.Ready ||
             pairingState.phase == PairingPhase.READY ||
-            wifiDirectState.apiStatus == WifiDirectApiStatus.READY
+            wifiDirectState.apiStatus == WifiDirectApiStatus.READY ||
+            transportState is TransportState.Connected
         ) {
 
             navController.navigate(
@@ -225,6 +254,17 @@ fun JetsonApp(
         }
     }
 
+    LaunchedEffect(deviceState.connectionState) {
+        if (
+            deviceState.connectionState
+            is ConnectionState.RegistrationRequired
+        ) {
+            navController.navigate(Routes.QR_SCANNER) {
+                launchSingleTop = true
+            }
+        }
+    }
+
 
     NavHost(
         navController =
@@ -236,10 +276,30 @@ fun JetsonApp(
         composable(
             Routes.CONNECTION_HUB
         ) {
+            DisposableEffect(localNetworkPermissionGranted) {
+                if (localNetworkPermissionGranted) {
+                    repository.startLanDiscovery()
+                }
+                onDispose {
+                    repository.stopLanDiscovery()
+                }
+            }
+
             ConnectionHubScreen(
                 onBleClick = { navController.navigate(Routes.DEVICES_BLE) },
                 onQrClick = { navController.navigate(Routes.QR_SCANNER) },
-                onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) }
+                onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) },
+                lanEndpoints = lanEndpoints,
+                registeredDeviceIds = deviceState.registeredDevices
+                    .map { it.deviceId }
+                    .toSet(),
+                lanDiscovering = lanDiscovering,
+                lanError = lanConnectionError ?: lanDiscoveryError,
+                connectingLanDeviceId = connectingLanDeviceId,
+                localNetworkPermissionGranted = localNetworkPermissionGranted,
+                onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
+                onRefreshLan = { repository.startLanDiscovery() },
+                onConnectLan = repository::connectLan
             )
         }
 
@@ -267,7 +327,8 @@ fun JetsonApp(
                 },
                 onAddDeviceClick = {
                     navController.navigate(Routes.QR_SCANNER)
-                }
+                },
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -292,6 +353,12 @@ fun JetsonApp(
                     accepted
                 },
                 onBack = {
+                    if (
+                        deviceState.connectionState
+                        is ConnectionState.RegistrationRequired
+                    ) {
+                        pairingViewModel.cancelPairing()
+                    }
                     navController.popBackStack()
                 }
             )
@@ -403,18 +470,36 @@ fun JetsonApp(
                 
                 onUploadHistoryClick = {
                     navController.navigate(Routes.UPLOAD_HISTORY)
-                }
+                },
+
+                onBack = { navController.popBackStack() }
             )
         }
 
         composable(Routes.NETWORK_SETTINGS) {
+            LaunchedEffect(wifiScanPermissionGranted) {
+                if (wifiScanPermissionGranted) {
+                    networkSettingsViewModel.scanAccessPoints()
+                }
+            }
+
+            DisposableEffect(Unit) {
+                onDispose {
+                    networkSettingsViewModel.stopAccessPointScan()
+                }
+            }
+
             NetworkSettingsScreen(
                 state = networkSettingsState,
                 onBack = { navController.popBackStack() },
                 onSsidChange = networkSettingsViewModel::onSsidChange,
                 onPasswordChange = networkSettingsViewModel::onPasswordChange,
                 onHiddenChange = networkSettingsViewModel::onHiddenChange,
-                onSubmit = networkSettingsViewModel::submit
+                onSubmit = networkSettingsViewModel::submit,
+                wifiScanPermissionGranted = wifiScanPermissionGranted,
+                onRequestWifiScanPermission = onRequestWifiScanPermission,
+                onScanAccessPoints = networkSettingsViewModel::scanAccessPoints,
+                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint
             )
         }
         

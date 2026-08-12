@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Wifi
@@ -34,7 +35,8 @@ fun DashboardScreen(
     onShutdown: () -> Unit,
     onStorageClick: () -> Unit,
     onNetworkSettingsClick: () -> Unit,
-    onUploadHistoryClick: () -> Unit
+    onUploadHistoryClick: () -> Unit,
+    onBack: () -> Unit
 ) {
 
     val deviceName =
@@ -86,15 +88,20 @@ fun DashboardScreen(
                     )
             )
 
-            Text(
-                text = deviceName,
-                style =
-                    MaterialTheme
-                        .typography
-                        .headlineMedium,
-                fontWeight =
-                    FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "뒤로"
+                    )
+                }
+
+                Text(
+                    text = deviceName,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             Text(
                 text =
@@ -386,7 +393,7 @@ fun DashboardScreen(
                 onClick =
                     onReboot
             ) {
-                Text("Jetson 재부팅")
+                Text("재부팅")
             }
 
             Spacer(

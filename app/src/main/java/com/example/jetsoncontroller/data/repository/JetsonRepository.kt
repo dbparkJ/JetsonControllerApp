@@ -9,6 +9,7 @@ import com.example.jetsoncontroller.data.network.LocalApiClient
 import com.example.jetsoncontroller.data.network.LocalControlApi
 import com.example.jetsoncontroller.data.network.WifiDirectManager
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
+import com.example.jetsoncontroller.data.network.WifiAccessPointScanner
 import com.example.jetsoncontroller.data.transport.*
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.protocol.CommandCodec
@@ -44,6 +45,7 @@ class JetsonRepository(
         BleGattClient(context, credentialStore)
 
     private val wifiDirectManager = WifiDirectManager(context)
+    private val wifiAccessPointScanner = WifiAccessPointScanner(context)
     private val lanDiscoveryManager = LanDiscoveryManager(context)
     private val apiClient = LocalApiClient(credentialStore)
     private val transportCoordinator = TransportCoordinator()
@@ -87,7 +89,19 @@ class JetsonRepository(
     val status: StateFlow<JetsonStatus> = _status.asStateFlow()
 
     val wifiDirectState = wifiDirectManager.state
+    val wifiAccessPointState = wifiAccessPointScanner.state
     val lanEndpoints = lanDiscoveryManager.discoveredEndpoints
+    val isLanDiscovering = lanDiscoveryManager.isDiscovering
+    val lanDiscoveryError = lanDiscoveryManager.error
+
+    private val _connectingLanDeviceId = MutableStateFlow<String?>(null)
+    val connectingLanDeviceId: StateFlow<String?> =
+        _connectingLanDeviceId.asStateFlow()
+
+    private val _lanConnectionError = MutableStateFlow<String?>(null)
+    val lanConnectionError: StateFlow<String?> =
+        _lanConnectionError.asStateFlow()
+
     val transportState = transportCoordinator.state
 
     init {
@@ -201,16 +215,25 @@ class JetsonRepository(
         command: JetsonCommand,
         payload: ByteArray = byteArrayOf()
     ): Boolean {
+        val transport = transportCoordinator.currentTransport()
+            ?: return false
 
-        val frame =
-            CommandCodec.encode(
-                command,
-                payload
+        if (transport.type == TransportType.BLE) {
+            return gattClient.writeCommand(
+                CommandCodec.encode(command, payload)
             )
+        }
 
-        return gattClient.writeCommand(
-            frame
-        )
+        scope.launch {
+            transport.sendCommand(command, payload)
+                .onFailure { error ->
+                    transportCoordinator.setError(
+                        transport.type,
+                        error.message ?: "명령 전송 실패"
+                    )
+                }
+        }
+        return true
     }
 
 
@@ -241,7 +264,11 @@ class JetsonRepository(
     ): Result<Unit> {
         return runCatching {
             val payload = WifiProvisionCodec.encode(request)
-            check(sendCommand(JetsonCommand.SET_WIFI, payload)) {
+            check(
+                gattClient.writeCommand(
+                    CommandCodec.encode(JetsonCommand.SET_WIFI, payload)
+                )
+            ) {
                 "Jetson에 Wi-Fi 설정을 전송하지 못했습니다. Bluetooth 연결을 확인하세요."
             }
         }
@@ -287,9 +314,14 @@ class JetsonRepository(
         )
     }
 
-    fun startPairing(info: PairingInfo) {
+    fun startPairing(info: PairingInfo): Boolean {
+        if (gattClient.authenticateConnectedDevice(info)) {
+            return true
+        }
+
         scanner.stopScan()
         scanner.startScan(jetsonOnly = true)
+        return false
     }
 
     fun connectForPairing(device: JetsonDevice, info: PairingInfo) {
@@ -323,12 +355,59 @@ class JetsonRepository(
         }
     }
 
+    fun startWifiAccessPointScan() {
+        wifiAccessPointScanner.startScan()
+    }
+
+    fun stopWifiAccessPointScan() {
+        wifiAccessPointScanner.stop()
+    }
+
     fun startLanDiscovery() {
+        _lanConnectionError.value = null
         lanDiscoveryManager.startDiscovery()
     }
 
     fun stopLanDiscovery() {
         lanDiscoveryManager.stopDiscovery()
+    }
+
+    fun connectLan(endpoint: DeviceEndpoint) {
+        _connectingLanDeviceId.value = endpoint.deviceId
+        _lanConnectionError.value = null
+
+        scope.launch {
+            apiClient.updateEndpoint(endpoint.host, endpoint.port)
+            apiClient.hello()
+                .onSuccess { hello ->
+                    if (!hello.deviceId.equals(endpoint.deviceId, ignoreCase = true)) {
+                        _lanConnectionError.value =
+                            "검색된 장비 ID와 API 장비 ID가 일치하지 않습니다."
+                        return@onSuccess
+                    }
+
+                    if (credentialStore.getSecret(hello.deviceId) == null) {
+                        _lanConnectionError.value =
+                            "이 장비는 앱에 등록되어 있지 않습니다. 먼저 BLE/QR 등록을 완료해 주세요."
+                        return@onSuccess
+                    }
+
+                    transportCoordinator.setActiveTransport(
+                        transport = IpControlTransport(
+                            apiClient,
+                            TransportType.LAN
+                        ),
+                        endpoint = "${endpoint.host}:${endpoint.port}"
+                    )
+                }
+                .onFailure { error ->
+                    _lanConnectionError.value =
+                        "${endpoint.displayName} API 연결 실패: " +
+                            (error.message ?: "응답 없음")
+                }
+
+            _connectingLanDeviceId.value = null
+        }
     }
 
     suspend fun getRoots(): Result<List<RemoteRoot>> {

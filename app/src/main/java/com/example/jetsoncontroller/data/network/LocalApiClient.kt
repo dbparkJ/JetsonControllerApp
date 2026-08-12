@@ -80,15 +80,24 @@ class LocalApiClient(
     }
 
     suspend fun sendCommand(command: String, body: Map<String, Any> = emptyMap()): Result<Unit> {
-        val bodyBytes = gson.toJson(body).toByteArray(Charsets.UTF_8)
-        val headers = getSignedHeaders("POST", "/v1/commands/$command", bodyBytes) ?: return Result.failure(Exception("Auth failed"))
-        val response = api?.sendCommand(command, headers.deviceId, headers.requestNonce, headers.signature, body)
-            ?: return Result.failure(Exception("No API"))
+        return runCatching {
+            val bodyBytes = gson.toJson(body).toByteArray(Charsets.UTF_8)
+            val headers = getSignedHeaders(
+                "POST",
+                "/v1/commands/$command",
+                bodyBytes
+            ) ?: error("API authentication is not initialized")
+            val response = api?.sendCommand(
+                command,
+                headers.deviceId,
+                headers.requestNonce,
+                headers.signature,
+                body
+            ) ?: error("Local API endpoint is not configured")
 
-        return if (response.isSuccessful) {
-            Result.success(Unit)
-        } else {
-            Result.failure(Exception("HTTP ${response.code()}"))
+            check(response.isSuccessful) {
+                "Local API returned HTTP ${response.code()}"
+            }
         }
     }
 

@@ -26,8 +26,18 @@ class IpControlTransport(
     }
 
     override suspend fun sendCommand(command: JetsonCommand, payload: ByteArray): Result<Unit> {
-        // TODO: Implement command sending in LocalApiClient
-        return Result.failure(Exception("Not implemented"))
+        val apiCommand = when (command) {
+            JetsonCommand.START_SYSTEM -> "start-system"
+            JetsonCommand.STOP_SYSTEM -> "stop-system"
+            JetsonCommand.RESTART_SERVICES -> "restart-services"
+            JetsonCommand.REBOOT -> "reboot"
+            JetsonCommand.SHUTDOWN -> "shutdown"
+            JetsonCommand.GET_STATUS -> return apiClient.getStatus().map { Unit }
+            JetsonCommand.SET_WIFI -> return Result.failure(
+                Exception("Wi-Fi provisioning requires Bluetooth")
+            )
+        }
+        return apiClient.sendCommand(apiCommand)
     }
 
     override suspend fun disconnect() {

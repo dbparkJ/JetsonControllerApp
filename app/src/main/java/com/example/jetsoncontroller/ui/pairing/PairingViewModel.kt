@@ -101,7 +101,16 @@ class PairingViewModel(
     fun onQrScanned(
         rawValue: String
     ): Boolean {
-        if (_qrPhase.value != PairingPhase.IDLE) {
+        val pairingInProgress = when (repository.pairingState.value) {
+            is BlePairingState.Connecting,
+            is BlePairingState.DiscoveringServices,
+            is BlePairingState.VerifyingIdentity,
+            is BlePairingState.Authenticating,
+            is BlePairingState.EnablingNotifications -> true
+            else -> false
+        }
+
+        if (pairingInProgress) {
             return false
         }
 
@@ -135,11 +144,12 @@ class PairingViewModel(
             _pairingInfo.value
                 ?: return
 
-        Log.d("JetsonBLE", "Starting pairing scan for ${info.expectedBleName}")
-        _qrPhase.value =
+        val connectedDevice = repository.startPairing(info)
+        _qrPhase.value = if (connectedDevice) {
+            PairingPhase.AUTHENTICATING
+        } else {
             PairingPhase.SEARCHING
-
-        repository.startPairing(info)
+        }
     }
 
 
