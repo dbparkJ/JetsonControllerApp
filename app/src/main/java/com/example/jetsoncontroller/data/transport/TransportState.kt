@@ -17,7 +17,9 @@ sealed interface TransportState {
 
     data class Connected(
         val type: TransportType,
-        val endpoint: String? = null
+        val endpoint: String? = null,
+        val deviceId: String? = null,
+        val deviceName: String? = null
     ) : TransportState
 
     data class Error(

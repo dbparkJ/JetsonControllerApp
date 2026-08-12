@@ -34,7 +34,7 @@ class IpControlTransport(
             JetsonCommand.SHUTDOWN -> "shutdown"
             JetsonCommand.GET_STATUS -> return apiClient.getStatus().map { Unit }
             JetsonCommand.SET_WIFI -> return Result.failure(
-                Exception("Wi-Fi provisioning requires Bluetooth")
+                Exception("Wi-Fi 설정은 전용 요청으로 전송해야 합니다.")
             )
         }
         return apiClient.sendCommand(apiCommand)

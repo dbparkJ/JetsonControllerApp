@@ -22,8 +22,10 @@ class DashboardViewModel(
             repository.transportState.collectLatest { transport ->
                 if (transport is TransportState.Connected) {
                     while (true) {
-                        repository.refreshStatus()
-                        delay(1_000L)
+                        if (transport.type != com.example.jetsoncontroller.data.transport.TransportType.BLE) {
+                            repository.refreshStatus()
+                        }
+                        delay(2_000L)
                     }
                 }
             }
@@ -34,18 +36,37 @@ class DashboardViewModel(
         combine(
             repository.connectionState,
             repository.status,
-            repository.transportState
+            repository.transportState,
+            repository.capabilities,
+            repository.controlOperation
         ) {
                 connection,
                 status,
-                transport ->
+                transport,
+                capabilities,
+                operation ->
+
+            val connectedTransport = transport as? TransportState.Connected
+            val bleName = when (connection) {
+                is com.example.jetsoncontroller.model.ConnectionState.Ready ->
+                    connection.deviceName
+                is com.example.jetsoncontroller.model.ConnectionState.Connected ->
+                    connection.deviceName
+                else -> null
+            }
 
             DashboardUiState(
                 connectionState =
                     connection,
                 status =
                     status,
-                transportType = if (transport is TransportState.Connected) transport.type else null
+                transportType = connectedTransport?.type,
+                deviceName = connectedTransport?.deviceName ?: bleName ?: "Jetson",
+                endpoint = connectedTransport?.endpoint,
+                capabilities = capabilities,
+                operationInProgress = operation.inProgress,
+                operationMessage = operation.message,
+                operationIsError = operation.isError
             )
         }.stateIn(
             scope = viewModelScope,
@@ -81,6 +102,9 @@ class DashboardViewModel(
 
     fun shutdown() =
         repository.shutdown()
+
+    fun clearOperationMessage() =
+        repository.clearControlMessage()
 
 
     fun disconnect() =

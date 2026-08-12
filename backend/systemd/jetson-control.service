@@ -1,0 +1,30 @@
+[Unit]
+Description=Jetson Controller BLE GATT Service
+After=bluetooth.service dbus.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/jetson-control
+Environment=PYTHONPATH=/opt/jetson-control
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m jetson_control.ble
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/jetson-control
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

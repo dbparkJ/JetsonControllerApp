@@ -1,0 +1,12 @@
+{
+  "recordings": {
+    "label": "Recordings",
+    "path": "/data/recordings",
+    "path_hint": "/data/recordings"
+  },
+  "maps": {
+    "label": "Maps",
+    "path": "/data/maps",
+    "path_hint": "/data/maps"
+  }
+}

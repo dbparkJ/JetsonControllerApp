@@ -88,7 +88,7 @@ class PairingViewModel(
                     }
                     
                     if (candidate != null) {
-                        Log.d("JetsonBLE", "FOUND candidate: ${candidate.name} (${candidate.address}). Connecting...")
+                        Log.d("JetsonBLE", "Pairing candidate found; connecting")
                         // Move phase to CONNECTING immediately to prevent re-triggering while gattClient updates
                         _qrPhase.value = PairingPhase.CONNECTING
                         repository.connectForPairing(candidate, info)

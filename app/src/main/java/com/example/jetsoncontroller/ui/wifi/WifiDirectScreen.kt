@@ -1,8 +1,10 @@
 package com.example.jetsoncontroller.ui.wifi
 
+import android.net.wifi.p2p.WifiP2pDevice
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,36 +12,40 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
+import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiDirectState
+import com.example.jetsoncontroller.ui.components.EmptyState
+import com.example.jetsoncontroller.ui.components.InlineMessage
+import com.example.jetsoncontroller.ui.components.SectionHeader
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,55 +61,122 @@ fun WifiDirectScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Wi-Fi Direct") },
+                title = {
+                    Column {
+                        Text("Wi-Fi Direct")
+                        Text(
+                            "공유기 없이 Jetson 연결",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "뒤로")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    if (permissionGranted && !state.connected) {
+                        IconButton(
+                            onClick = onDiscoveryClick,
+                            enabled = state.supported && !state.discovering
+                        ) {
+                            if (state.discovering) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = "장비 다시 검색")
+                            }
+                        }
                     }
                 }
             )
         }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 22.dp)
+                .padding(paddingValues),
+            contentPadding = PaddingValues(bottom = 28.dp)
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Wi-Fi Direct",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = "공유기 없이 Jetson과 직접 연결합니다.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
             when {
-                !permissionGranted -> {
-                    PermissionView(onPermissionClick)
+                !state.supported -> item {
+                    EmptyState(
+                        title = "Wi-Fi Direct를 지원하지 않습니다",
+                        message = "이 Android 기기에서는 직접 연결을 사용할 수 없습니다."
+                    )
                 }
 
-                state.connected -> {
-                    ConnectedView(
+                !permissionGranted -> item {
+                    EmptyState(
+                        title = "주변 기기 권한이 필요합니다",
+                        message = "가까운 Jetson을 검색하고 연결하기 위해 권한을 허용하세요.",
+                        actionLabel = "권한 허용",
+                        onAction = onPermissionClick
+                    )
+                }
+
+                state.connected -> item {
+                    ConnectedPanel(
                         state = state,
-                        onRetryApi = onRetryApi
+                        onRetryApi = onRetryApi,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                     )
                 }
 
                 else -> {
-                    DiscoveryView(
-                        state = state,
-                        onDiscoveryClick = onDiscoveryClick,
-                        onConnectClick = onConnectClick
-                    )
+                    item {
+                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                            DirectConnectionSummary(state)
+                            state.error?.let { error ->
+                                Spacer(Modifier.height(12.dp))
+                                InlineMessage(message = error, isError = true)
+                            }
+                            Spacer(Modifier.height(22.dp))
+                            SectionHeader(
+                                title = "주변 장비",
+                                trailing = {
+                                    Text(
+                                        if (state.discovering) "검색 중" else "${state.peers.size}대",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            )
+                            if (state.discovering) {
+                                Spacer(Modifier.height(10.dp))
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+
+                    if (state.peers.isEmpty()) {
+                        item {
+                            EmptyState(
+                                title = if (state.discovering) {
+                                    "Jetson을 찾고 있습니다"
+                                } else {
+                                    "검색된 장비가 없습니다"
+                                },
+                                message = "Jetson의 Wi-Fi Direct 서비스와 Android 위치 서비스를 확인하세요.",
+                                actionLabel = if (state.discovering) null else "다시 검색",
+                                onAction = if (state.discovering) null else onDiscoveryClick
+                            )
+                        }
+                    } else {
+                        items(state.peers, key = { it.deviceAddress }) { peer ->
+                            PeerRow(
+                                peer = peer,
+                                connecting = state.connectingPeerAddress == peer.deviceAddress,
+                                connectionInProgress = state.connectingPeerAddress != null,
+                                onConnect = { onConnectClick(peer) }
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = 20.dp))
+                        }
+                    }
                 }
             }
         }
@@ -111,117 +184,98 @@ fun WifiDirectScreen(
 }
 
 @Composable
-private fun PermissionView(
-    onPermissionClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+private fun DirectConnectionSummary(state: WifiDirectState) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium
     ) {
-        Icon(
-            imageVector = Icons.Default.Wifi,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            text = "주변 기기 권한이 필요합니다",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "가까이 있는 Jetson을 검색하고 직접 연결하기 위해 권한을 허용해 주세요.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Button(
-            onClick = onPermissionClick,
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("주변 기기 권한 허용")
+            Icon(
+                Icons.Default.WifiTethering,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    if (state.enabled) "직접 연결 사용 가능" else "Wi-Fi Direct 확인 필요",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "Android의 인터넷 연결을 유지하면서 Jetson 제어망을 만듭니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ConnectedView(
+private fun ConnectedPanel(
     state: WifiDirectState,
-    onRetryApi: () -> Unit
+    onRetryApi: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = MaterialTheme.shapes.medium
     ) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Wifi,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = "연결됨",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Default.Router, contentDescription = null)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        state.apiDeviceName ?: "Jetson 직접 연결",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        state.groupOwnerAddress ?: "장비 주소 확인 중",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "그룹 소유자 IP: ${state.groupOwnerAddress ?: "확인 중"}",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
 
             when (state.apiStatus) {
                 WifiDirectApiStatus.IDLE,
                 WifiDirectApiStatus.CHECKING -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text("Jetson API :8765 확인 중")
-                    }
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(10.dp))
+                    Text("장비 인증과 API 연결을 확인하고 있습니다.")
                 }
 
                 WifiDirectApiStatus.READY -> {
                     Text(
-                        text = "API 연결됨 · ${state.apiDeviceName ?: "Jetson"} · :8765",
+                        "인증된 제어 API에 연결되었습니다.",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
 
                 WifiDirectApiStatus.ERROR -> {
                     Text(
                         text = state.apiError ?: "Jetson API에 연결하지 못했습니다.",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = onRetryApi) {
-                        Text("API 다시 확인")
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = onRetryApi, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Text("API 다시 확인", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
@@ -230,137 +284,49 @@ private fun ConnectedView(
 }
 
 @Composable
-private fun DiscoveryView(
-    state: WifiDirectState,
-    onDiscoveryClick: () -> Unit,
-    onConnectClick: (WifiDirectPeer) -> Unit
-) {
-    if (state.error != null) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text(
-                text = state.error,
-                modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "검색된 장비",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        TextButton(
-            onClick = onDiscoveryClick,
-            enabled = !state.discovering && state.supported
-        ) {
-            if (state.discovering) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("검색 중...")
-            } else {
-                Text("다시 검색")
-            }
-        }
-    }
-
-    Spacer(modifier = Modifier.height(12.dp))
-
-    if (state.peers.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (state.discovering) {
-                    "주변 Wi-Fi Direct 장비를 찾고 있습니다."
-                } else if (state.discoveryAttempted) {
-                    "Android Wi-Fi P2P API에서 검색된 장비가 0개입니다.\n" +
-                        "Jetson에서 Wi-Fi Direct 대기(p2p_listen/p2p_find)와 권한을 확인해 주세요."
-                } else {
-                    "검색된 장비가 없습니다.\nJetson의 Wi-Fi Direct 대기 상태를 확인해 주세요."
-                },
-                color = MaterialTheme.colorScheme.outline,
-                textAlign = TextAlign.Center
-            )
-        }
-    } else {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(
-                items = state.peers,
-                key = { it.deviceAddress }
-            ) { peer ->
-                PeerCard(
-                    peer = peer,
-                    connecting = state.connectingPeerAddress == peer.deviceAddress,
-                    connectionInProgress = state.connectingPeerAddress != null,
-                    onConnect = onConnectClick
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PeerCard(
+private fun PeerRow(
     peer: WifiDirectPeer,
     connecting: Boolean,
     connectionInProgress: Boolean,
-    onConnect: (WifiDirectPeer) -> Unit
+    onConnect: () -> Unit
 ) {
-    OutlinedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = peer.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = peer.deviceAddress,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+    ListItem(
+        headlineContent = {
+            Text(
+                peer.name,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        supportingContent = { Text(peerStatusLabel(peer.status)) },
+        leadingContent = {
+            Icon(
+                Icons.Default.Router,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        trailingContent = {
+            if (connecting) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Default.ChevronRight, contentDescription = null)
             }
+        },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+        modifier = Modifier.clickable(
+            enabled = !connectionInProgress && peer.status != WifiP2pDevice.UNAVAILABLE,
+            onClick = onConnect
+        )
+    )
+}
 
-            Button(
-                onClick = { onConnect(peer) },
-                enabled = !connectionInProgress
-            ) {
-                if (connecting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("연결 중")
-                } else {
-                    Text("연결")
-                }
-            }
-        }
-    }
+private fun peerStatusLabel(status: Int): String = when (status) {
+    WifiP2pDevice.CONNECTED -> "연결됨"
+    WifiP2pDevice.INVITED -> "연결 승인 대기 중"
+    WifiP2pDevice.AVAILABLE -> "연결 가능"
+    WifiP2pDevice.FAILED -> "이전 연결 실패"
+    WifiP2pDevice.UNAVAILABLE -> "현재 연결할 수 없음"
+    else -> "상태 확인 중"
 }

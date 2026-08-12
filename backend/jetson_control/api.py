@@ -1,0 +1,413 @@
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
+from pydantic import BaseModel, ConfigDict, Field
+
+from . import __version__
+from .auth import RequestAuthenticator, sign_hello, sign_response
+from .commands import CommandDisabled, CommandError, CommandRunner
+from .config import DeviceConfig, RuntimePaths
+from .filesystem import StorageRegistry
+from .network import WifiProvisioner, validate_wifi_credentials
+from .pipelines import (
+    PIPELINE_ACTIONS,
+    PipelineConflict,
+    PipelineError,
+    PipelineManager,
+    PipelineNotFound,
+)
+from .status import StatusCollector
+from .tls import certificate_sha256
+from .uploads import UploadCapacityExceeded, UploadConflict, UploadManager
+from .wifi_direct import read_wifi_direct_status
+
+
+class WifiRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ssid: str
+    password: str = ""
+    hidden: bool = False
+
+
+class StartUploadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    root_id: str = Field(alias="rootId")
+    relative_path: str = Field(alias="relativePath")
+    target_id: str = Field(alias="targetId")
+
+
+class RegisterPipelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    pipeline_id: str = Field(alias="id", min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=64)
+    repository_root_id: str = Field(alias="repositoryRootId")
+    repository_path: str = Field(alias="repositoryPath")
+    virtualenv_root_id: str = Field(alias="virtualenvRootId")
+    virtualenv_path: str = Field(alias="virtualenvPath")
+    entrypoint: str
+    config: str = "config.yaml"
+    working_directory: str = Field(alias="workingDirectory", default=".")
+    writable_directories: List[str] = Field(
+        alias="writableDirectories",
+        default_factory=list,
+    )
+    autostart: bool = True
+
+
+def create_app(
+    paths: Optional[RuntimePaths] = None,
+    config: Optional[DeviceConfig] = None,
+    authenticator: Optional[RequestAuthenticator] = None,
+    status_collector: Optional[StatusCollector] = None,
+    command_runner: Optional[CommandRunner] = None,
+    storage: Optional[StorageRegistry] = None,
+    upload_manager: Optional[UploadManager] = None,
+    wifi_provisioner: Optional[WifiProvisioner] = None,
+    pipeline_manager: Optional[PipelineManager] = None,
+    tls_fingerprint: Optional[str] = None,
+) -> FastAPI:
+    runtime_paths = paths or RuntimePaths()
+    device_config = config or DeviceConfig.load(runtime_paths.device_config)
+    request_auth = authenticator or RequestAuthenticator(device_config)
+    storage_service = storage or StorageRegistry(runtime_paths.storage_roots)
+    status_service = status_collector or StatusCollector(
+        device_config,
+        storage_path=storage_service.primary_path(),
+    )
+    commands = command_runner or CommandRunner(device_config)
+    uploads = upload_manager or UploadManager(
+        storage=storage_service,
+        targets_path=runtime_paths.upload_targets,
+        state_dir=runtime_paths.state_dir,
+        device_id=device_config.device_id,
+    )
+    wifi = wifi_provisioner or WifiProvisioner(device_config.wifi_interface)
+    pipelines = pipeline_manager or PipelineManager(
+        registry_root=runtime_paths.pipeline_registry,
+        registrar=runtime_paths.pipeline_registrar,
+        pipeline_user=device_config.pipeline_user,
+    )
+    certificate_fingerprint = tls_fingerprint or certificate_sha256(
+        runtime_paths.tls_certificate
+    )
+
+    app = FastAPI(
+        title="Jetson Control API",
+        version=__version__,
+        description="Authenticated local control API for Jetson Controller Android.",
+    )
+
+    app.state.device_config = device_config
+    app.state.authenticator = request_auth
+    app.state.status_collector = status_service
+    app.state.command_runner = commands
+    app.state.storage = storage_service
+    app.state.upload_manager = uploads
+    app.state.wifi_provisioner = wifi
+    app.state.pipeline_manager = pipelines
+
+    @app.middleware("http")
+    async def sign_authenticated_response(request: Request, call_next):
+        response = await call_next(request)
+        auth_context = getattr(request.state, "auth_context", None)
+        if auth_context is None:
+            return response
+
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        headers = dict(response.headers)
+        headers.pop("content-length", None)
+        headers["X-Response-Signature"] = sign_response(
+            secret=device_config.bootstrap_secret,
+            device_id=device_config.device_id,
+            boot_nonce=request_auth.boot_nonce,
+            request_nonce=auth_context["request_nonce"],
+            request_timestamp=auth_context["request_timestamp"],
+            status_code=response.status_code,
+            body=body,
+        )
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=headers,
+            background=response.background,
+        )
+
+    async def require_auth(request: Request) -> None:
+        body = await request.body()
+        raw_path = request.scope.get("raw_path", request.url.path.encode("ascii"))
+        query = request.scope.get("query_string", b"")
+        path_and_query = raw_path.decode("ascii")
+        if query:
+            path_and_query += "?" + query.decode("ascii")
+
+        valid = request_auth.verify(
+            device_id=request.headers.get("X-Device-Id", ""),
+            request_nonce=request.headers.get("X-Request-Nonce", ""),
+            request_timestamp=request.headers.get("X-Request-Timestamp", ""),
+            method=request.method,
+            path_and_query=path_and_query,
+            body=body,
+            received_signature=request.headers.get("X-Signature", ""),
+        )
+        if not valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication failed",
+            )
+        request.state.auth_context = {
+            "request_nonce": request.headers["X-Request-Nonce"],
+            "request_timestamp": request.headers["X-Request-Timestamp"],
+        }
+
+    authenticated = [Depends(require_auth)]
+
+    @app.get("/v1/hello")
+    async def hello() -> Dict[str, object]:
+        server_time = int(time.time())
+        response = {
+            "apiVersion": 1,
+            "deviceId": device_config.device_id,
+            "deviceName": device_config.device_name,
+            "bootNonce": request_auth.boot_nonce,
+            "serverTimeEpochSeconds": server_time,
+            "authScheme": "JETSONHTTP2",
+            "tlsCertificateSha256": certificate_fingerprint,
+        }
+        response["helloProof"] = sign_hello(
+            secret=device_config.bootstrap_secret,
+            api_version=1,
+            device_id=device_config.device_id,
+            device_name=device_config.device_name,
+            boot_nonce=request_auth.boot_nonce,
+            server_time_epoch_seconds=server_time,
+            auth_scheme="JETSONHTTP2",
+            tls_certificate_sha256=certificate_fingerprint,
+        )
+        return response
+
+    @app.get("/v1/capabilities", dependencies=authenticated)
+    async def capabilities() -> Dict[str, object]:
+        wifi_direct = read_wifi_direct_status()
+        return {
+            "status": True,
+            "commands": sorted(CommandRunner.ACTIONS),
+            "systemControlConfigured": bool(device_config.controlled_services),
+            "powerCommandsEnabled": device_config.allow_power_commands,
+            "fileBrowsing": True,
+            "uploads": True,
+            "wifiProvisioning": True,
+            "wifiDirect": wifi_direct.get("state") == "READY",
+            "pipelines": True,
+        }
+
+    @app.get("/v1/status", dependencies=authenticated)
+    async def device_status() -> Dict[str, object]:
+        return status_service.collect()
+
+    @app.post("/v1/commands/{action}", dependencies=authenticated)
+    async def run_command(
+        action: str,
+        _body: Dict[str, Any] = Body(default_factory=dict),
+    ) -> Dict[str, object]:
+        try:
+            return commands.execute(action)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Unknown command") from error
+        except CommandDisabled as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except CommandError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get("/v1/fs/roots", dependencies=authenticated)
+    async def filesystem_roots() -> List[Dict[str, object]]:
+        try:
+            return storage_service.roots_response()
+        except (RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+
+    @app.get("/v1/fs/list", dependencies=authenticated)
+    async def list_files(root: str, path: str = "") -> Dict[str, object]:
+        try:
+            return {
+                "root": root,
+                "path": path,
+                "entries": storage_service.list_directory(root, path),
+            }
+        except (ValueError, FileNotFoundError, NotADirectoryError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+
+    @app.get("/v1/upload/targets", dependencies=authenticated)
+    async def upload_targets() -> List[Dict[str, str]]:
+        try:
+            return uploads.targets_response()
+        except (RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+
+    @app.post("/v1/uploads", status_code=202, dependencies=authenticated)
+    async def start_upload(body: StartUploadRequest) -> Dict[str, object]:
+        try:
+            return uploads.start(
+                root_id=body.root_id,
+                relative_path=body.relative_path,
+                target_id=body.target_id,
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except UploadCapacityExceeded as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/v1/uploads", dependencies=authenticated)
+    async def list_uploads() -> List[Dict[str, object]]:
+        return uploads.list_jobs()
+
+    @app.get("/v1/uploads/{job_id}", dependencies=authenticated)
+    async def get_upload(job_id: str) -> Dict[str, object]:
+        try:
+            return uploads.get(job_id)
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=404, detail="Upload job not found") from error
+
+    @app.post("/v1/uploads/{job_id}/cancel", dependencies=authenticated)
+    async def cancel_upload(job_id: str) -> Dict[str, object]:
+        try:
+            return uploads.cancel(job_id)
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=404, detail="Upload job not found") from error
+
+    @app.post(
+        "/v1/uploads/{job_id}/retry",
+        status_code=202,
+        dependencies=authenticated,
+    )
+    async def retry_upload(job_id: str) -> Dict[str, object]:
+        try:
+            return uploads.retry(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Upload job not found") from error
+        except (UploadCapacityExceeded, UploadConflict) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (FileNotFoundError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/v1/network/wifi", status_code=202, dependencies=authenticated)
+    async def configure_wifi(body: WifiRequest) -> Dict[str, object]:
+        try:
+            ssid, password = validate_wifi_credentials(body.ssid, body.password)
+            return wifi.submit(ssid, password, body.hidden)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.get("/v1/network/wifi/status", dependencies=authenticated)
+    async def wifi_status() -> Dict[str, object]:
+        return wifi.status()
+
+    @app.get("/v1/network/wifi-direct/status", dependencies=authenticated)
+    async def wifi_direct_status() -> Dict[str, object]:
+        return read_wifi_direct_status()
+
+    @app.get("/v1/pipelines", dependencies=authenticated)
+    async def list_pipelines() -> List[Dict[str, object]]:
+        try:
+            return pipelines.list_pipelines()
+        except PipelineError as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+
+    @app.post("/v1/pipelines", status_code=201, dependencies=authenticated)
+    async def register_pipeline(body: RegisterPipelineRequest) -> Dict[str, object]:
+        try:
+            _, repository = storage_service.resolve(
+                body.repository_root_id,
+                body.repository_path,
+            )
+            _, virtualenv = storage_service.resolve(
+                body.virtualenv_root_id,
+                body.virtualenv_path,
+            )
+            working_directory = _resolve_child(
+                repository,
+                body.working_directory,
+                "working directory",
+            )
+            writable_paths = [
+                _resolve_child(repository, value, "writable directory")
+                for value in body.writable_directories
+            ]
+            return pipelines.register(
+                pipeline_id=body.pipeline_id,
+                label=body.label,
+                repository=repository,
+                virtualenv=virtualenv,
+                entrypoint=_relative_child(body.entrypoint, "entrypoint"),
+                config=_relative_child(body.config, "config"),
+                working_directory=working_directory,
+                writable_paths=writable_paths,
+                autostart=body.autostart,
+            )
+        except PipelineConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (ValueError, FileNotFoundError, NotADirectoryError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PipelineError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.delete("/v1/pipelines/{pipeline_id}", status_code=204, dependencies=authenticated)
+    async def remove_pipeline(pipeline_id: str) -> Response:
+        try:
+            pipelines.remove(pipeline_id)
+            return Response(status_code=204)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PipelineError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.post("/v1/pipelines/{pipeline_id}/{action}", dependencies=authenticated)
+    async def control_pipeline(pipeline_id: str, action: str) -> Dict[str, object]:
+        if action not in PIPELINE_ACTIONS:
+            raise HTTPException(status_code=404, detail="Unknown pipeline action")
+        try:
+            return pipelines.control(pipeline_id, action)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PipelineError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return app
+
+
+def _relative_child(value: str, kind: str) -> str:
+    candidate = Path(value)
+    if not value or candidate.is_absolute() or ".." in candidate.parts or "\x00" in value:
+        raise ValueError(f"Invalid {kind} path")
+    normalized = candidate.as_posix()
+    if normalized in {"", "."}:
+        raise ValueError(f"Invalid {kind} path")
+    return normalized
+
+
+def _resolve_child(repository: Path, value: str, kind: str) -> Path:
+    if value in {"", "."}:
+        return repository
+    relative = _relative_child(value, kind)
+    target = (repository / relative).resolve()
+    try:
+        target.relative_to(repository)
+    except ValueError as error:
+        raise ValueError(f"Invalid {kind} path") from error
+    return target

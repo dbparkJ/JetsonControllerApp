@@ -1,0 +1,9 @@
+{
+  "production": {
+    "label": "Operations cloud",
+    "type": "http",
+    "base_url": "https://uploads.example.com",
+    "token_file": "/etc/jetson-control/upload-production.token",
+    "verify_tls": true
+  }
+}

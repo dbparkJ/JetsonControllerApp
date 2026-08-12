@@ -102,14 +102,6 @@ class BleScanner(
                     return
                 }
 
-                Log.d(
-                    "JetsonBLE",
-                    "SCAN name=$name " +
-                            "address=${result.device.address} " +
-                            "rssi=${result.rssi} " +
-                            "uuids=$uuids"
-                )
-
                 val device = result.device
                 val address = device.address
 

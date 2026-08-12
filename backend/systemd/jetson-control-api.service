@@ -1,0 +1,30 @@
+[Unit]
+Description=Jetson Controller Local API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/jetson-control
+Environment=PYTHONPATH=/opt/jetson-control
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/jetson-control/venv/bin/uvicorn jetson_control.asgi:app --host 0.0.0.0 --port 8765 --ssl-certfile /etc/jetson-control/tls.crt --ssl-keyfile /etc/jetson-control/tls.key --no-access-log
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/jetson-control
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

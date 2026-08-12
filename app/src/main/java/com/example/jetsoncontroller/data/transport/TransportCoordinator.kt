@@ -15,10 +15,17 @@ class TransportCoordinator {
 
     fun setActiveTransport(
         transport: ControlTransport,
-        endpoint: String? = null
+        endpoint: String? = null,
+        deviceId: String? = null,
+        deviceName: String? = null
     ) {
         activeTransport = transport
-        _state.value = TransportState.Connected(transport.type, endpoint)
+        _state.value = TransportState.Connected(
+            type = transport.type,
+            endpoint = endpoint,
+            deviceId = deviceId,
+            deviceName = deviceName
+        )
     }
 
     fun disconnect() {

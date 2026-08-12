@@ -3,7 +3,6 @@ package com.example.jetsoncontroller.ui.components
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,10 +21,7 @@ fun MetricCard(
     Surface(
         modifier =
             modifier.fillMaxWidth(),
-        shape =
-            RoundedCornerShape(
-                20.dp
-            ),
+        shape = MaterialTheme.shapes.medium,
         color =
             MaterialTheme
                 .colorScheme
@@ -35,7 +31,7 @@ fun MetricCard(
         Column(
             modifier =
                 Modifier.padding(
-                    18.dp
+                    14.dp
                 )
         ) {
 

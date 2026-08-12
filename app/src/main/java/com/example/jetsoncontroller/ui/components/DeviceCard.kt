@@ -38,7 +38,7 @@ fun DeviceCard(
         modifier =
             Modifier.fillMaxWidth(),
         shape =
-            RoundedCornerShape(24.dp)
+            RoundedCornerShape(8.dp)
     ) {
 
         Column(
@@ -56,8 +56,8 @@ fun DeviceCard(
                 Surface(
                     modifier =
                         Modifier.size(52.dp),
-                    shape =
-                        RoundedCornerShape(18.dp),
+                shape =
+                    RoundedCornerShape(8.dp),
                     color =
                         MaterialTheme
                             .colorScheme
@@ -175,9 +175,7 @@ fun DeviceCard(
                 Button(
                     onClick = onConnect,
                     shape =
-                        RoundedCornerShape(
-                            14.dp
-                        )
+                        RoundedCornerShape(8.dp)
                 ) {
 
                     Text("연결")
