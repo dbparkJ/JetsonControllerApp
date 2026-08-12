@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.WifiProvisionRequest
+import com.example.jetsoncontroller.data.transport.TransportState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -30,11 +31,25 @@ class NetworkSettingsViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            repository.transportState.collect { transport ->
+                _uiState.update {
+                    it.copy(
+                        transportType = (transport as? TransportState.Connected)?.type
+                    )
+                }
+            }
+        }
     }
 
     fun onSsidChange(value: String) {
         _uiState.update {
-            it.copy(ssid = value, message = null, isError = false)
+            it.copy(
+                ssid = value,
+                selectedAccessPointSsid = null,
+                message = null,
+                isError = false
+            )
         }
     }
 
@@ -52,7 +67,9 @@ class NetworkSettingsViewModel(
         _uiState.update {
             it.copy(
                 ssid = accessPoint.ssid,
+                selectedAccessPointSsid = accessPoint.ssid,
                 password = "",
+                hidden = false,
                 message = null,
                 isError = false
             )
@@ -69,31 +86,33 @@ class NetworkSettingsViewModel(
 
     fun submit() {
         val current = _uiState.value
-        _uiState.update { it.copy(sending = true, message = null) }
+        viewModelScope.launch {
+            _uiState.update { it.copy(sending = true, message = null) }
 
-        val result = repository.provisionWifi(
-            WifiProvisionRequest(
-                ssid = current.ssid,
-                password = current.password,
-                hidden = current.hidden
+            val result = repository.provisionWifi(
+                WifiProvisionRequest(
+                    ssid = current.ssid,
+                    password = current.password,
+                    hidden = current.hidden
+                )
             )
-        )
 
-        _uiState.update {
-            if (result.isSuccess) {
-                it.copy(
-                    sending = false,
-                    password = "",
-                    message = "공유기 설정을 Jetson에 전송했습니다.",
-                    isError = false
-                )
-            } else {
-                it.copy(
-                    sending = false,
-                    message = result.exceptionOrNull()?.message
-                        ?: "공유기 설정 전송에 실패했습니다.",
-                    isError = true
-                )
+            _uiState.update {
+                if (result.isSuccess) {
+                    it.copy(
+                        sending = false,
+                        password = "",
+                        message = "Wi-Fi 연결 요청을 Jetson에 전송했습니다.",
+                        isError = false
+                    )
+                } else {
+                    it.copy(
+                        sending = false,
+                        message = result.exceptionOrNull()?.message
+                            ?: "Wi-Fi 설정 전송에 실패했습니다.",
+                        isError = true
+                    )
+                }
             }
         }
     }

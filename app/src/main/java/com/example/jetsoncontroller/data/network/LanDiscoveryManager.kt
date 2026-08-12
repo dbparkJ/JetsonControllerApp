@@ -9,6 +9,8 @@ import com.example.jetsoncontroller.model.EndpointTransport
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 class LanDiscoveryManager(private val context: Context) {
 
@@ -39,7 +41,15 @@ class LanDiscoveryManager(private val context: Context) {
                         _error.value = "LAN 장비 주소 확인 실패: $errorCode"
                     }
                     override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                        val deviceId = serviceInfo.attributes["id"]?.let { String(it) } ?: "unknown"
+                        val attributes = serviceInfo.attributes.mapValues { (_, value) ->
+                            String(value, StandardCharsets.UTF_8)
+                        }
+                        if (attributes["api"] != "1" || attributes["tls"] != "1") {
+                            return
+                        }
+                        val deviceId = runCatching {
+                            UUID.fromString(attributes["id"]).toString().lowercase()
+                        }.getOrNull() ?: return
                         val host = serviceInfo.host?.hostAddress.orEmpty()
                         if (host.isBlank() || serviceInfo.port <= 0) {
                             return

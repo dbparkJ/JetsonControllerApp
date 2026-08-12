@@ -11,6 +11,7 @@ import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
+import android.net.wifi.WpsInfo
 import android.os.Build
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -163,6 +164,7 @@ class WifiDirectManager(
             _state.value = _state.value.copy(
                 enabled = wifiManager?.isWifiEnabled == true
             )
+            requestConnectionInfo()
             true
         } catch (_: Exception) {
             fail("Wi-Fi Direct 상태 수신기를 등록할 수 없습니다.")
@@ -216,6 +218,7 @@ class WifiDirectManager(
             enabled = true,
             discovering = true,
             discoveryAttempted = true,
+            peers = emptyList(),
             error = null
         )
 
@@ -288,6 +291,7 @@ class WifiDirectManager(
         val config = WifiP2pConfig().apply {
             deviceAddress = peer.deviceAddress
             groupOwnerIntent = 0
+            wps.setup = WpsInfo.PBC
         }
 
         _state.value = _state.value.copy(

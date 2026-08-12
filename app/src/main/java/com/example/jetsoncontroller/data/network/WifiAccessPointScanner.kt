@@ -17,8 +17,29 @@ import kotlinx.coroutines.flow.asStateFlow
 data class WifiAccessPoint(
     val ssid: String,
     val rssi: Int,
+    val security: WifiSecurity
+) {
     val secured: Boolean
-)
+        get() = security != WifiSecurity.OPEN && security != WifiSecurity.ENHANCED_OPEN
+
+    val requiresPassword: Boolean
+        get() = security == WifiSecurity.PERSONAL
+
+    val provisionable: Boolean
+        get() = security in setOf(
+            WifiSecurity.OPEN,
+            WifiSecurity.ENHANCED_OPEN,
+            WifiSecurity.PERSONAL
+        )
+}
+
+enum class WifiSecurity {
+    OPEN,
+    ENHANCED_OPEN,
+    PERSONAL,
+    ENTERPRISE,
+    LEGACY_WEP
+}
 
 data class WifiAccessPointState(
     val accessPoints: List<WifiAccessPoint> = emptyList(),
@@ -116,15 +137,15 @@ class WifiAccessPointScanner(context: Context) {
             wifiManager.scanResults
                 .mapNotNull { result ->
                     @Suppress("DEPRECATION")
-                    val ssid = result.SSID?.trim().orEmpty()
-                    if (ssid.isBlank()) {
+                    val ssid = result.SSID.orEmpty()
+                    if (ssid.isEmpty()) {
                         return@mapNotNull null
                     }
 
                     WifiAccessPoint(
                         ssid = ssid,
                         rssi = result.level,
-                        secured = isSecured(result.capabilities.orEmpty())
+                        security = securityType(result.capabilities.orEmpty())
                     )
                 }
                 .groupBy { it.ssid }
@@ -153,9 +174,14 @@ class WifiAccessPointScanner(context: Context) {
         _state.value = _state.value.copy(scanning = false)
     }
 
-    private fun isSecured(capabilities: String): Boolean {
+    private fun securityType(capabilities: String): WifiSecurity {
         val upper = capabilities.uppercase()
-        return listOf("WEP", "PSK", "SAE", "EAP", "OWE")
-            .any(upper::contains)
+        return when {
+            "EAP" in upper -> WifiSecurity.ENTERPRISE
+            "WEP" in upper -> WifiSecurity.LEGACY_WEP
+            "PSK" in upper || "SAE" in upper -> WifiSecurity.PERSONAL
+            "OWE" in upper -> WifiSecurity.ENHANCED_OPEN
+            else -> WifiSecurity.OPEN
+        }
     }
 }

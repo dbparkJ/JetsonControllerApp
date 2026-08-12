@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -137,7 +136,7 @@ private fun ConfirmationView(
         Button(
             onClick = onConnect,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
+            shape = MaterialTheme.shapes.medium
         ) {
             Text("연결 및 인증")
         }
@@ -147,7 +146,7 @@ private fun ConfirmationView(
         OutlinedButton(
             onClick = onCancel,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
+            shape = MaterialTheme.shapes.medium
         ) {
             Text("취소")
         }
@@ -191,7 +190,7 @@ private fun ProgressView(
         OutlinedButton(
             onClick = onCancel,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
+            shape = MaterialTheme.shapes.medium
         ) {
             Text("취소")
         }
@@ -229,7 +228,7 @@ private fun ErrorView(
         Button(
             onClick = onRetry,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
+            shape = MaterialTheme.shapes.medium
         ) {
             Text("다시 시도")
         }
@@ -239,7 +238,7 @@ private fun ErrorView(
         OutlinedButton(
             onClick = onCancel,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
+            shape = MaterialTheme.shapes.medium
         ) {
             Text("취소")
         }

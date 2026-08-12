@@ -171,7 +171,7 @@ class DeviceListViewModel(
                 )
             } else {
                 reconnectState.value = ReconnectState()
-                repository.connect(found)
+                repository.reconnectRegistered(found, device.deviceId)
             }
         }
     }

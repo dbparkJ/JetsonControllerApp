@@ -17,6 +17,9 @@ object PairingAuth {
             '|'.code.toByte()
         )
 
+    private val SESSION_KEY_CONTEXT =
+        "JETSONBLEENC1|".toByteArray(Charsets.UTF_8)
+
 
     fun computeResponse(
         deviceId: String,
@@ -70,6 +73,23 @@ object PairingAuth {
                 0,
                 16
             )
+    }
+
+    fun deriveSessionKey(
+        deviceId: String,
+        bootstrapSecretHex: String,
+        challenge: ByteArray
+    ): ByteArray {
+        require(challenge.size == 16) {
+            "Invalid authentication challenge."
+        }
+        val secret = hexToBytes(bootstrapSecretHex)
+        require(secret.size == 32)
+        val deviceIdBytes = UuidCodec.toBytes(UUID.fromString(deviceId))
+        val message = SESSION_KEY_CONTEXT + deviceIdBytes + SEPARATOR + challenge
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret, "HmacSHA256"))
+        return mac.doFinal(message)
     }
 
 

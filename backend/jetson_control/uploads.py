@@ -1,0 +1,820 @@
+from __future__ import annotations
+
+import json
+import http.client
+import hashlib
+import os
+import shutil
+import ssl
+import threading
+import time
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlencode, urlsplit
+
+from .config import load_json_object, validate_config_id
+from .filesystem import StorageRegistry
+
+
+TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
+ACTIVE_STATES = {"QUEUED", "SCANNING", "UPLOADING"}
+HTTP_CHUNK_SIZE = 4 * 1024 * 1024
+HTTP_RETRY_DELAYS = (0.0, 1.0, 3.0, 7.0)
+DEFAULT_MAX_CONCURRENT_JOBS = 2
+
+
+@dataclass(frozen=True)
+class UploadTarget:
+    id: str
+    label: str
+    kind: str
+    path: Optional[Path] = None
+    base_url: Optional[str] = None
+    token_file: Optional[Path] = None
+    verify_tls: bool = True
+
+
+class UploadManager:
+    def __init__(
+        self,
+        storage: StorageRegistry,
+        targets_path: Path,
+        state_dir: Path,
+        device_id: str = "unknown",
+        allow_local_targets: bool = False,
+        max_concurrent_jobs: int = DEFAULT_MAX_CONCURRENT_JOBS,
+    ) -> None:
+        if max_concurrent_jobs < 1:
+            raise ValueError("max_concurrent_jobs must be at least 1")
+        self.storage = storage
+        self.targets_path = targets_path
+        self.jobs_dir = state_dir / "upload-jobs"
+        self.device_id = device_id
+        self.allow_local_targets = allow_local_targets
+        self.max_concurrent_jobs = max_concurrent_jobs
+        self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._cancellations: Dict[str, threading.Event] = {}
+        self._recover_interrupted_jobs()
+
+    def targets(self) -> Dict[str, UploadTarget]:
+        raw = load_json_object(self.targets_path)
+        targets: Dict[str, UploadTarget] = {}
+        for target_id, value in raw.items():
+            validate_config_id(target_id, "upload target")
+            if not isinstance(value, dict):
+                raise ValueError(f"Upload target {target_id!r} must be an object")
+            target_type = str(value.get("type", "local")).strip().lower()
+            label = str(value.get("label", target_id)).strip()
+            if not label:
+                raise ValueError(f"Upload target {target_id!r} needs a label")
+
+            if target_type == "local":
+                if not self.allow_local_targets:
+                    continue
+                path_text = str(value.get("path", "")).strip()
+                if not path_text:
+                    raise ValueError(f"Upload target {target_id!r} needs a path")
+                targets[target_id] = UploadTarget(
+                    id=target_id,
+                    label=label,
+                    kind="local",
+                    path=Path(path_text).expanduser().resolve(),
+                )
+            elif target_type == "http":
+                base_url = str(value.get("base_url", "")).strip().rstrip("/")
+                token_text = str(value.get("token_file", "")).strip()
+                parsed = urlsplit(base_url)
+                verify_tls_value = value.get("verify_tls", True)
+                if not isinstance(verify_tls_value, bool):
+                    raise ValueError(
+                        f"Upload target {target_id!r} verify_tls must be a boolean"
+                    )
+                verify_tls = verify_tls_value
+                if (
+                    parsed.scheme not in {"http", "https"}
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.query
+                    or parsed.fragment
+                ):
+                    raise ValueError(f"Upload target {target_id!r} has an invalid base_url")
+                if parsed.scheme != "https" and verify_tls:
+                    raise ValueError(
+                        f"Upload target {target_id!r} must use HTTPS or set verify_tls=false"
+                    )
+                if not token_text:
+                    raise ValueError(f"Upload target {target_id!r} needs a token_file")
+                targets[target_id] = UploadTarget(
+                    id=target_id,
+                    label=label,
+                    kind="http",
+                    base_url=base_url,
+                    token_file=Path(token_text).expanduser().resolve(),
+                    verify_tls=verify_tls,
+                )
+            else:
+                raise ValueError(f"Upload target {target_id!r} has an unsupported type")
+        return targets
+
+    def targets_response(self) -> List[Dict[str, str]]:
+        return [
+            {"id": target.id, "label": target.label}
+            for target in self.targets().values()
+        ]
+
+    def start(self, root_id: str, relative_path: str, target_id: str) -> Dict[str, object]:
+        source, target = self._resolve_source_and_target(
+            root_id, relative_path, target_id
+        )
+
+        job_id = uuid.uuid4().hex
+        job = self._new_job(job_id, root_id, relative_path, target_id)
+        cancellation = threading.Event()
+        with self._lock:
+            self._reserve_and_save(job_id, cancellation, job)
+
+        self._launch_worker(job_id, source, target, cancellation)
+        return job
+
+    def retry(self, job_id: str) -> Dict[str, object]:
+        validate_config_id(job_id, "upload job")
+        with self._lock:
+            job = self.get(job_id)
+            if job.get("state") != "FAILED":
+                raise UploadConflict("Only failed uploads can be retried")
+            root_id, relative_path, target_id = self._job_parameters(job)
+            source, target = self._resolve_source_and_target(
+                root_id, relative_path, target_id
+            )
+            cancellation = threading.Event()
+            self._reset_for_retry(job)
+            self._reserve_and_save(job_id, cancellation, job)
+
+        self._launch_worker(job_id, source, target, cancellation)
+        return job
+
+    def _resolve_source_and_target(
+        self, root_id: str, relative_path: str, target_id: str
+    ) -> Tuple[Path, UploadTarget]:
+        _, source = self.storage.resolve(root_id, relative_path)
+        if not source.exists():
+            raise FileNotFoundError("Upload source was not found")
+        if not source.is_file() and not source.is_dir():
+            raise ValueError("Upload source must be a regular file or directory")
+
+        try:
+            target = self.targets()[target_id]
+        except KeyError as error:
+            raise ValueError("Unknown upload target") from error
+
+        if target.kind == "local" and target.path is not None:
+            try:
+                target.path.relative_to(source)
+            except ValueError:
+                pass
+            else:
+                raise ValueError("Upload target cannot be inside the source path")
+        return source, target
+
+    def _reserve_worker(
+        self, job_id: str, cancellation: threading.Event
+    ) -> None:
+        if job_id in self._cancellations:
+            raise UploadConflict("The previous upload worker is still stopping")
+        if len(self._cancellations) >= self.max_concurrent_jobs:
+            raise UploadCapacityExceeded(
+                f"At most {self.max_concurrent_jobs} uploads can run at once"
+            )
+        self._cancellations[job_id] = cancellation
+
+    def _reserve_and_save(
+        self,
+        job_id: str,
+        cancellation: threading.Event,
+        job: Dict[str, object],
+    ) -> None:
+        self._reserve_worker(job_id, cancellation)
+        try:
+            self._save_job(job)
+        except Exception:
+            self._cancellations.pop(job_id, None)
+            raise
+
+    def _launch_worker(
+        self,
+        job_id: str,
+        source: Path,
+        target: UploadTarget,
+        cancellation: threading.Event,
+    ) -> None:
+        worker = threading.Thread(
+            target=self._run_job,
+            args=(job_id, source, target, cancellation),
+            name=f"upload-{job_id[:8]}",
+            daemon=True,
+        )
+        worker.start()
+
+    def list_jobs(self) -> List[Dict[str, object]]:
+        jobs = []
+        for path in self.jobs_dir.glob("*.json"):
+            try:
+                jobs.append(self._load_path(path))
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        jobs.sort(key=lambda job: str(job.get("createdAt", "")), reverse=True)
+        return jobs
+
+    def get(self, job_id: str) -> Dict[str, object]:
+        validate_config_id(job_id, "upload job")
+        path = self.jobs_dir / f"{job_id}.json"
+        if not path.exists():
+            raise KeyError(job_id)
+        return self._load_path(path)
+
+    def cancel(self, job_id: str) -> Dict[str, object]:
+        with self._lock:
+            job = self.get(job_id)
+            if job["state"] in TERMINAL_STATES:
+                return job
+            event = self._cancellations.get(job_id)
+            if event is not None:
+                event.set()
+            job["state"] = "CANCELLED"
+            job["errorMessage"] = None
+            job["updatedAt"] = self._timestamp()
+            self._save_job(job)
+        return self.get(job_id)
+
+    def _run_job(
+        self,
+        job_id: str,
+        source: Path,
+        target: UploadTarget,
+        cancellation: threading.Event,
+    ) -> None:
+        try:
+            self._raise_if_cancelled(job_id, cancellation)
+            self._update(job_id, state="SCANNING")
+            files = list(self.storage.iter_regular_files(source))
+            self._raise_if_cancelled(job_id, cancellation)
+            bytes_total = sum(path.stat().st_size for path in files)
+            self._update(
+                job_id,
+                state="UPLOADING",
+                bytesTotal=bytes_total,
+                bytesTransferred=0,
+                filesTotal=len(files),
+                filesTransferred=0,
+            )
+
+            if target.kind == "local":
+                self._copy_to_local_target(
+                    job_id, source, files, target, cancellation
+                )
+            else:
+                self._upload_to_http_target(
+                    job_id, source, files, target, cancellation
+                )
+
+            self._finish_success(
+                job_id,
+                cancellation,
+                bytes_total,
+                len(files),
+            )
+        except UploadCancelled:
+            pass
+        except Exception as error:
+            if cancellation.is_set():
+                self._update(
+                    job_id,
+                    state="CANCELLED",
+                    currentFile=None,
+                    errorMessage=None,
+                )
+            else:
+                self._update(
+                    job_id,
+                    state="FAILED",
+                    currentFile=None,
+                    errorMessage=self._public_error(error),
+                )
+        finally:
+            with self._lock:
+                if self._cancellations.get(job_id) is cancellation:
+                    self._cancellations.pop(job_id, None)
+
+    def _copy_to_local_target(
+        self,
+        job_id: str,
+        source: Path,
+        files: List[Path],
+        target: UploadTarget,
+        cancellation: threading.Event,
+    ) -> None:
+        if target.path is None:
+            raise ValueError("Local upload target path is missing")
+        target.path.mkdir(parents=True, exist_ok=True)
+        destination_root = target.path / self._destination_name(source, job_id)
+        destination_root.mkdir(parents=True, exist_ok=False)
+
+        transferred = 0
+        for index, source_file in enumerate(files, start=1):
+            self._raise_if_cancelled(job_id, cancellation)
+            relative = self._relative_file_path(source, source_file)
+            destination = destination_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            self._update(job_id, currentFile=relative.as_posix())
+
+            with source_file.open("rb") as source_stream, destination.open("wb") as target_stream:
+                while True:
+                    self._raise_if_cancelled(job_id, cancellation)
+                    chunk = source_stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    target_stream.write(chunk)
+                    transferred += len(chunk)
+                    self._update(job_id, bytesTransferred=transferred)
+            shutil.copystat(source_file, destination)
+            self._update(job_id, filesTransferred=index)
+
+    def _upload_to_http_target(
+        self,
+        job_id: str,
+        source: Path,
+        files: List[Path],
+        target: UploadTarget,
+        cancellation: threading.Event,
+    ) -> None:
+        token = self._read_target_token(target)
+        manifest_files = []
+        for path in files:
+            self._raise_if_cancelled(job_id, cancellation)
+            manifest_files.append(
+                {
+                    "path": self._relative_file_path(source, path).as_posix(),
+                    "sizeBytes": path.stat().st_size,
+                    "sha256": self._sha256_file(path, cancellation, job_id),
+                }
+            )
+
+        manifest = {
+            "deviceId": self.device_id,
+            "clientJobId": job_id,
+            "sourceName": source.name or "root",
+            "files": manifest_files,
+        }
+        response = self._http_json_with_retry(
+            target, token, "POST", "/v1/upload-sessions", manifest
+        )
+        session_id = str(response.get("sessionId", ""))
+        try:
+            validate_config_id(session_id, "upload session")
+        except ValueError as error:
+            raise RuntimeError("Upload receiver returned an invalid session id")
+
+        transferred = 0
+        try:
+            for index, source_file in enumerate(files, start=1):
+                self._raise_if_cancelled(job_id, cancellation)
+                relative = self._relative_file_path(source, source_file).as_posix()
+                self._update(job_id, currentFile=relative)
+                transferred = self._http_put_file_resumable(
+                    target=target,
+                    token=token,
+                    session_id=session_id,
+                    relative_path=relative,
+                    source_file=source_file,
+                    transferred=transferred,
+                    job_id=job_id,
+                    cancellation=cancellation,
+                )
+                self._update(job_id, filesTransferred=index)
+            self._raise_if_cancelled(job_id, cancellation)
+            self._http_json_with_retry(
+                target,
+                token,
+                "POST",
+                f"/v1/upload-sessions/{session_id}/complete",
+                {},
+            )
+        except Exception as error:
+            if not isinstance(error, UploadCancelled) and not cancellation.is_set():
+                raise
+            try:
+                self._http_json(
+                    target,
+                    token,
+                    "DELETE",
+                    f"/v1/upload-sessions/{session_id}",
+                    None,
+                )
+            except Exception:
+                pass
+            raise UploadCancelled() from error
+
+    def _http_put_file_resumable(
+        self,
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        relative_path: str,
+        source_file: Path,
+        transferred: int,
+        job_id: str,
+        cancellation: threading.Event,
+    ) -> int:
+        size = source_file.stat().st_size
+        status_response = self._http_json_with_retry(
+            target,
+            token,
+            "GET",
+            f"/v1/upload-sessions/{session_id}/files/offset?"
+            + urlencode({"path": relative_path}),
+            None,
+        )
+        try:
+            offset = int(status_response.get("nextOffset", 0))
+        except (TypeError, ValueError) as error:
+            raise RuntimeError("Upload receiver returned an invalid file offset") from error
+        if offset < 0 or offset > size:
+            raise RuntimeError("Upload receiver returned an out-of-range file offset")
+
+        transferred += offset
+        self._update(job_id, bytesTransferred=transferred)
+        with source_file.open("rb") as source_stream:
+            source_stream.seek(offset)
+            while offset < size:
+                self._raise_if_cancelled(job_id, cancellation)
+                chunk = source_stream.read(min(HTTP_CHUNK_SIZE, size - offset))
+                if not chunk:
+                    raise OSError("Source file ended before its declared size")
+
+                next_offset = self._put_chunk_with_retry(
+                    target=target,
+                    token=token,
+                    session_id=session_id,
+                    relative_path=relative_path,
+                    file_size=size,
+                    offset=offset,
+                    chunk=chunk,
+                )
+                if next_offset <= offset or next_offset > offset + len(chunk):
+                    raise RuntimeError("Upload receiver acknowledged an invalid offset")
+
+                acknowledged = next_offset - offset
+                transferred += acknowledged
+                offset = next_offset
+                source_stream.seek(offset)
+                self._update(job_id, bytesTransferred=transferred)
+
+        return transferred
+
+    def _put_chunk_with_retry(
+        self,
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        relative_path: str,
+        file_size: int,
+        offset: int,
+        chunk: bytes,
+    ) -> int:
+        last_error: Optional[Exception] = None
+        for delay in HTTP_RETRY_DELAYS:
+            if delay:
+                time.sleep(delay)
+            try:
+                return self._http_put_chunk(
+                    target,
+                    token,
+                    session_id,
+                    relative_path,
+                    file_size,
+                    offset,
+                    chunk,
+                )
+            except (OSError, http.client.HTTPException, RuntimeError) as error:
+                last_error = error
+                try:
+                    status_response = self._http_json(
+                        target,
+                        token,
+                        "GET",
+                        f"/v1/upload-sessions/{session_id}/files/offset?"
+                        + urlencode({"path": relative_path}),
+                        None,
+                    )
+                    remote_offset = int(status_response.get("nextOffset", -1))
+                    if remote_offset > offset:
+                        return remote_offset
+                except Exception:
+                    pass
+        raise RuntimeError("External upload failed after multiple retries") from last_error
+
+    def _http_put_chunk(
+        self,
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        relative_path: str,
+        file_size: int,
+        offset: int,
+        chunk: bytes,
+    ) -> int:
+        connection, base_path = self._http_connection(target)
+        request_path = (
+            f"{base_path}/v1/upload-sessions/{session_id}/files?"
+            + urlencode({"path": relative_path, "offset": offset})
+        )
+        end_offset = offset + len(chunk) - 1
+        try:
+            connection.request(
+                "PUT",
+                request_path,
+                body=chunk,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {offset}-{end_offset}/{file_size}",
+                    "X-Chunk-SHA256": hashlib.sha256(chunk).hexdigest(),
+                },
+            )
+            response = connection.getresponse()
+            response_body = response.read(1024 * 1024)
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError("Upload receiver rejected a data chunk")
+            parsed = json.loads(response_body.decode("utf-8"))
+            return int(parsed["nextOffset"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError("Upload receiver returned an invalid chunk response") from error
+        finally:
+            connection.close()
+
+    def _http_json(
+        self,
+        target: UploadTarget,
+        token: str,
+        method: str,
+        endpoint: str,
+        value: Optional[Dict[str, object]],
+    ) -> Dict[str, object]:
+        connection, base_path = self._http_connection(target)
+        body = None if value is None else json.dumps(
+            value, ensure_ascii=True, separators=(",", ":")
+        ).encode("utf-8")
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+            headers["Content-Length"] = str(len(body))
+        try:
+            connection.request(method, f"{base_path}{endpoint}", body=body, headers=headers)
+            response = connection.getresponse()
+            response_body = response.read(1024 * 1024)
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError("Upload receiver rejected the request")
+            if not response_body:
+                return {}
+            parsed = json.loads(response_body.decode("utf-8"))
+            if not isinstance(parsed, dict):
+                raise RuntimeError("Upload receiver returned an invalid response")
+            return parsed
+        finally:
+            connection.close()
+
+    def _http_json_with_retry(
+        self,
+        target: UploadTarget,
+        token: str,
+        method: str,
+        endpoint: str,
+        value: Optional[Dict[str, object]],
+    ) -> Dict[str, object]:
+        last_error: Optional[Exception] = None
+        for delay in HTTP_RETRY_DELAYS:
+            if delay:
+                time.sleep(delay)
+            try:
+                return self._http_json(target, token, method, endpoint, value)
+            except (OSError, http.client.HTTPException, RuntimeError) as error:
+                last_error = error
+        raise RuntimeError("External upload request failed after multiple retries") from last_error
+
+    @staticmethod
+    def _http_connection(target: UploadTarget) -> Tuple[http.client.HTTPConnection, str]:
+        if target.base_url is None:
+            raise ValueError("HTTP upload target URL is missing")
+        parsed = urlsplit(target.base_url)
+        timeout = 60
+        if parsed.scheme == "https":
+            context = (
+                ssl.create_default_context()
+                if target.verify_tls
+                else ssl._create_unverified_context()
+            )
+            connection = http.client.HTTPSConnection(
+                parsed.hostname, parsed.port or 443, timeout=timeout, context=context
+            )
+        else:
+            connection = http.client.HTTPConnection(
+                parsed.hostname, parsed.port or 80, timeout=timeout
+            )
+        return connection, parsed.path.rstrip("/")
+
+    @staticmethod
+    def _read_target_token(target: UploadTarget) -> str:
+        if target.token_file is None:
+            raise ValueError("HTTP upload target token file is missing")
+        token = target.token_file.read_text(encoding="utf-8").strip()
+        if not token or len(token) > 4096 or "\n" in token:
+            raise ValueError("HTTP upload target token is invalid")
+        return token
+
+    @staticmethod
+    def _relative_file_path(source: Path, source_file: Path) -> Path:
+        return Path(source_file.name) if source.is_file() else source_file.relative_to(source)
+
+    @staticmethod
+    def _sha256_file(
+        path: Path,
+        cancellation: threading.Event,
+        job_id: str,
+    ) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            while True:
+                if cancellation.is_set():
+                    raise UploadCancelled()
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    return digest.hexdigest()
+                digest.update(chunk)
+
+    def _raise_if_cancelled(
+        self, job_id: str, cancellation: threading.Event
+    ) -> None:
+        if cancellation.is_set():
+            self._update(job_id, state="CANCELLED", errorMessage=None)
+            raise UploadCancelled()
+
+    def _finish_success(
+        self,
+        job_id: str,
+        cancellation: threading.Event,
+        bytes_total: int,
+        files_total: int,
+    ) -> None:
+        with self._lock:
+            job = self.get(job_id)
+            if cancellation.is_set():
+                job.update(state="CANCELLED", errorMessage=None)
+                job["updatedAt"] = self._timestamp()
+                self._save_job(job)
+                raise UploadCancelled()
+            job.update(
+                state="COMPLETED",
+                bytesTransferred=bytes_total,
+                filesTransferred=files_total,
+                currentFile=None,
+                errorMessage=None,
+            )
+            job["updatedAt"] = self._timestamp()
+            self._save_job(job)
+
+    def _update(self, job_id: str, **changes: object) -> Dict[str, object]:
+        with self._lock:
+            job = self.get(job_id)
+            job.update(changes)
+            job["updatedAt"] = self._timestamp()
+            self._save_job(job)
+            return job
+
+    def _save_job(self, job: Dict[str, object]) -> None:
+        path = self.jobs_dir / f"{job['id']}.json"
+        temporary = self.jobs_dir / f".{job['id']}.tmp"
+        with temporary.open("w", encoding="utf-8") as output:
+            json.dump(job, output, ensure_ascii=True, separators=(",", ":"))
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+
+    @staticmethod
+    def _load_path(path: Path) -> Dict[str, object]:
+        with path.open("r", encoding="utf-8") as source:
+            value = json.load(source)
+        if not isinstance(value, dict):
+            raise ValueError("Upload job is not a JSON object")
+        return value
+
+    def _recover_interrupted_jobs(self) -> None:
+        recovered = []
+        for job in self.list_jobs():
+            if job.get("state") in ACTIVE_STATES:
+                job_id: Optional[str] = None
+                try:
+                    if not isinstance(job.get("id"), str):
+                        raise ValueError("Stored upload job is invalid")
+                    job_id = job["id"]
+                    validate_config_id(job_id, "upload job")
+                    root_id, relative_path, target_id = self._job_parameters(job)
+                    source, target = self._resolve_source_and_target(
+                        root_id, relative_path, target_id
+                    )
+                    cancellation = threading.Event()
+                    self._reset_for_retry(job)
+                    self._reserve_and_save(job_id, cancellation, job)
+                    recovered.append((job_id, source, target, cancellation))
+                except Exception as error:
+                    if job_id is not None:
+                        self._cancellations.pop(job_id, None)
+                    job["state"] = "FAILED"
+                    job["currentFile"] = None
+                    job["errorMessage"] = self._public_error(error)
+                    job["updatedAt"] = self._timestamp()
+                    self._save_job(job)
+
+        for job_id, source, target, cancellation in recovered:
+            self._launch_worker(job_id, source, target, cancellation)
+
+    @staticmethod
+    def _job_parameters(job: Dict[str, object]) -> Tuple[str, str, str]:
+        values = tuple(job.get(key) for key in ("rootId", "relativePath", "targetId"))
+        if any(not isinstance(value, str) for value in values):
+            raise ValueError("Stored upload job is invalid")
+        return values  # type: ignore[return-value]
+
+    @staticmethod
+    def _reset_for_retry(job: Dict[str, object]) -> None:
+        job.update(
+            state="QUEUED",
+            bytesTotal=None,
+            bytesTransferred=0,
+            filesTotal=None,
+            filesTransferred=0,
+            currentFile=None,
+            errorMessage=None,
+            updatedAt=UploadManager._timestamp(),
+        )
+
+    @staticmethod
+    def _new_job(
+        job_id: str, root_id: str, relative_path: str, target_id: str
+    ) -> Dict[str, object]:
+        now = UploadManager._timestamp()
+        return {
+            "id": job_id,
+            "rootId": root_id,
+            "relativePath": relative_path,
+            "targetId": target_id,
+            "state": "QUEUED",
+            "bytesTotal": None,
+            "bytesTransferred": 0,
+            "filesTotal": None,
+            "filesTransferred": 0,
+            "currentFile": None,
+            "errorMessage": None,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+    @staticmethod
+    def _destination_name(source: Path, job_id: str) -> str:
+        name = source.name or "root"
+        return f"{name}-{job_id[:8]}"
+
+    @staticmethod
+    def _timestamp() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _public_error(error: Exception) -> str:
+        if isinstance(error, UploadCancelled):
+            return "Upload cancelled"
+        if isinstance(error, PermissionError):
+            return "Permission denied while reading or writing upload data"
+        if isinstance(error, OSError):
+            return "Storage I/O failed during upload"
+        if isinstance(error, RuntimeError):
+            return str(error)
+        if isinstance(error, ValueError):
+            return str(error)
+        return "Unexpected upload failure"
+
+
+class UploadCancelled(Exception):
+    pass
+
+
+class UploadConflict(RuntimeError):
+    pass
+
+
+class UploadCapacityExceeded(UploadConflict):
+    pass

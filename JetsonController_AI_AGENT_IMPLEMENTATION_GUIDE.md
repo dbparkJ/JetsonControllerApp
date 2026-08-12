@@ -1,5 +1,7 @@
 # Jetson Controller Android App — AI Agent Implementation Guide
 
+> **Current status:** This is the original Android/BLE implementation history. Use [`docs/JETSON_BACKEND_SETUP.md`](docs/JETSON_BACKEND_SETUP.md) for the current backend, QR/BLE security, storage, external upload, and power-control contract. Use [`docs/MULTI_JETSON_PIPELINE_DEPLOYMENT.md`](docs/MULTI_JETSON_PIPELINE_DEPLOYMENT.md) for multi-device installation and managed Python pipelines.
+
 > **Purpose**
 >
 > This document is an implementation specification for an AI coding agent.

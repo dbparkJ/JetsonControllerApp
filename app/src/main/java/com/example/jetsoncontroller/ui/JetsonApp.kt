@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -8,7 +9,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
@@ -32,6 +36,10 @@ import com.example.jetsoncontroller.ui.upload.UploadConfirmScreen
 import com.example.jetsoncontroller.ui.upload.UploadHistoryScreen
 import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
 import com.example.jetsoncontroller.ui.upload.UploadViewModel
+import com.example.jetsoncontroller.ui.pipelines.PipelineEditorScreen
+import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
+import com.example.jetsoncontroller.ui.pipelines.PipelinePickerScreen
+import com.example.jetsoncontroller.ui.pipelines.PipelineViewModel
 
 private object Routes {
 
@@ -60,13 +68,22 @@ private object Routes {
         "storage"
 
     const val UPLOAD_CONFIRM =
-        "upload_confirm/{rootId}/{path}"
+        "upload_confirm/{rootId}?path={path}"
         
     const val UPLOAD_PROGRESS =
         "upload_progress"
 
     const val UPLOAD_HISTORY =
         "upload_history"
+
+    const val PIPELINES =
+        "pipelines"
+
+    const val PIPELINE_EDITOR =
+        "pipeline_editor"
+
+    const val PIPELINE_PICKER =
+        "pipeline_picker"
 }
 
 
@@ -160,6 +177,15 @@ fun JetsonApp(
                 )
         )
 
+    val pipelineViewModel:
+        PipelineViewModel =
+        viewModel(
+            factory =
+                PipelineViewModel.Factory(
+                    repository
+                )
+        )
+
     val deviceState by
         deviceViewModel
             .uiState
@@ -195,6 +221,11 @@ fun JetsonApp(
             .uiState
             .collectAsStateWithLifecycle()
 
+    val pipelineState by
+        pipelineViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
+
     val lanEndpoints by
         repository.lanEndpoints.collectAsStateWithLifecycle()
 
@@ -213,6 +244,9 @@ fun JetsonApp(
     val transportState by
         repository.transportState.collectAsStateWithLifecycle()
 
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route
+
 
     LaunchedEffect(
         bluetoothPermissionGranted
@@ -227,20 +261,19 @@ fun JetsonApp(
 
     LaunchedEffect(
         deviceState.connectionState,
-        pairingState.phase,
         wifiDirectState.apiStatus,
-        transportState
+        transportState,
+        currentRoute
     ) {
-
-        if (
-            deviceState
-                .connectionState
-                is ConnectionState.Ready ||
-            pairingState.phase == PairingPhase.READY ||
+        val connected =
+            (deviceState.connectionState is ConnectionState.Ready) ||
             wifiDirectState.apiStatus == WifiDirectApiStatus.READY ||
             transportState is TransportState.Connected
-        ) {
+        val connectionRoute = currentRoute == Routes.CONNECTION_HUB ||
+            currentRoute == Routes.DEVICES_BLE ||
+            currentRoute == Routes.WIFI_DIRECT
 
+        if (connected && connectionRoute) {
             navController.navigate(
                 Routes.DASHBOARD
             ) {
@@ -254,6 +287,17 @@ fun JetsonApp(
         }
     }
 
+    LaunchedEffect(pairingState.phase, currentRoute) {
+        if (pairingState.phase == PairingPhase.READY && currentRoute == Routes.PAIRING) {
+            navController.navigate(Routes.NETWORK_SETTINGS) {
+                popUpTo(Routes.CONNECTION_HUB) {
+                    inclusive = false
+                }
+                launchSingleTop = true
+            }
+        }
+    }
+
     LaunchedEffect(deviceState.connectionState) {
         if (
             deviceState.connectionState
@@ -262,6 +306,13 @@ fun JetsonApp(
             navController.navigate(Routes.QR_SCANNER) {
                 launchSingleTop = true
             }
+        }
+    }
+
+    LaunchedEffect(pipelineState.registrationComplete) {
+        if (pipelineState.registrationComplete) {
+            navController.popBackStack(Routes.PIPELINES, inclusive = false)
+            pipelineViewModel.consumeRegistrationComplete()
         }
     }
 
@@ -435,21 +486,6 @@ fun JetsonApp(
                         )
                 },
 
-                onStartSystem = {
-                    dashboardViewModel
-                        .startSystem()
-                },
-
-                onStopSystem = {
-                    dashboardViewModel
-                        .stopSystem()
-                },
-
-                onRestartServices = {
-                    dashboardViewModel
-                        .restartServices()
-                },
-
                 onReboot = {
                     dashboardViewModel
                         .reboot()
@@ -471,6 +507,13 @@ fun JetsonApp(
                 onUploadHistoryClick = {
                     navController.navigate(Routes.UPLOAD_HISTORY)
                 },
+
+                onPipelinesClick = {
+                    navController.navigate(Routes.PIPELINES)
+                },
+
+                onDismissOperationMessage =
+                    dashboardViewModel::clearOperationMessage,
 
                 onBack = { navController.popBackStack() }
             )
@@ -506,23 +549,42 @@ fun JetsonApp(
         composable(Routes.STORAGE) {
             DeviceStorageScreen(
                 state = storageState,
-                onBack = { storageViewModel.navigateBack() },
+                onBack = {
+                    if (!storageViewModel.navigateBack()) {
+                        navController.popBackStack()
+                    }
+                },
+                onRefresh = storageViewModel::refresh,
                 onRootClick = { storageViewModel.selectRoot(it) },
                 onDirectoryClick = { storageViewModel.selectDirectory(it) },
                 onUploadClick = { rootId, path ->
-                    navController.navigate(Routes.UPLOAD_CONFIRM.replace("{rootId}", rootId).replace("{path}", if (path.isEmpty()) "_" else path))
+                    navController.navigate(
+                        "upload_confirm/${Uri.encode(rootId)}?path=${Uri.encode(path)}"
+                    )
                 }
             )
         }
 
-        composable(Routes.UPLOAD_CONFIRM) { backStackEntry ->
-            val rootId = backStackEntry.arguments?.getString("rootId") ?: ""
-            val path = backStackEntry.arguments?.getString("path")?.replace("_", "") ?: ""
+        composable(
+            route = Routes.UPLOAD_CONFIRM,
+            arguments = listOf(
+                navArgument("rootId") { type = NavType.StringType },
+                navArgument("path") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                }
+            )
+        ) { backStackEntry ->
+            val rootId = backStackEntry.arguments?.getString("rootId").orEmpty()
+            val path = backStackEntry.arguments?.getString("path").orEmpty()
             UploadConfirmScreen(
                 rootId = rootId,
                 path = path,
                 targets = uploadState.targets,
+                isLoading = uploadState.isLoading,
+                error = uploadState.error,
                 onBack = { navController.popBackStack() },
+                onRefresh = uploadViewModel::refresh,
                 onConfirm = { targetId ->
                     uploadViewModel.startUpload(rootId, path, targetId)
                     navController.navigate(Routes.UPLOAD_PROGRESS) {
@@ -535,6 +597,10 @@ fun JetsonApp(
         composable(Routes.UPLOAD_PROGRESS) {
             UploadProgressScreen(
                 job = uploadState.currentJob,
+                isLoading = uploadState.isLoading,
+                error = uploadState.error,
+                onCancel = uploadViewModel::cancelCurrentUpload,
+                onRetry = uploadViewModel::retryCurrentUpload,
                 onBack = { navController.popBackStack() }
             )
         }
@@ -542,7 +608,70 @@ fun JetsonApp(
         composable(Routes.UPLOAD_HISTORY) {
             UploadHistoryScreen(
                 history = uploadState.history,
+                isLoading = uploadState.isLoading,
+                error = uploadState.error,
+                onRefresh = uploadViewModel::refresh,
+                onJobClick = { job ->
+                    uploadViewModel.openJob(job)
+                    navController.navigate(Routes.UPLOAD_PROGRESS)
+                },
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.PIPELINES) {
+            PipelineListScreen(
+                state = pipelineState,
+                onBack = { navController.popBackStack() },
+                onRefresh = pipelineViewModel::refresh,
+                onAdd = {
+                    pipelineViewModel.beginCreate()
+                    navController.navigate(Routes.PIPELINE_EDITOR)
+                },
+                onControl = pipelineViewModel::control,
+                onRemove = pipelineViewModel::remove,
+                onClearMessage = pipelineViewModel::clearMessage
+            )
+        }
+
+        composable(Routes.PIPELINE_EDITOR) {
+            PipelineEditorScreen(
+                state = pipelineState,
+                onBack = { navController.popBackStack() },
+                onPick = { target ->
+                    pipelineViewModel.beginPick(target)
+                    navController.navigate(Routes.PIPELINE_PICKER)
+                },
+                onIdChange = pipelineViewModel::setId,
+                onLabelChange = pipelineViewModel::setLabel,
+                onWritableDirectoryChange = pipelineViewModel::setWritableDirectory,
+                onAutostartChange = pipelineViewModel::setAutostart,
+                onRegister = pipelineViewModel::register
+            )
+        }
+
+        composable(Routes.PIPELINE_PICKER) {
+            PipelinePickerScreen(
+                roots = pipelineState.roots,
+                state = pipelineState.picker,
+                onBack = {
+                    if (!pipelineViewModel.navigatePickerBack()) {
+                        navController.popBackStack()
+                    }
+                },
+                onRefresh = pipelineViewModel::refreshPicker,
+                onRootClick = pipelineViewModel::selectPickerRoot,
+                onDirectoryClick = pipelineViewModel::openPickerDirectory,
+                onFileClick = { entry ->
+                    if (pipelineViewModel.selectPickerFile(entry)) {
+                        navController.popBackStack()
+                    }
+                },
+                onSelectCurrentDirectory = {
+                    if (pipelineViewModel.selectCurrentPickerDirectory()) {
+                        navController.popBackStack()
+                    }
+                }
             )
         }
     }

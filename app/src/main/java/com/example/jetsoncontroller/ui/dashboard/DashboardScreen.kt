@@ -1,538 +1,389 @@
 package com.example.jetsoncontroller.ui.dashboard
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.transport.TransportType
-import com.example.jetsoncontroller.model.ConnectionState
+import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.MetricCard
+import com.example.jetsoncontroller.ui.components.SectionHeader
 
+private enum class PowerAction { REBOOT, SHUTDOWN }
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     state: DashboardUiState,
     onDisconnect: () -> Unit,
-    onStartSystem: () -> Unit,
-    onStopSystem: () -> Unit,
-    onRestartServices: () -> Unit,
     onReboot: () -> Unit,
     onShutdown: () -> Unit,
     onStorageClick: () -> Unit,
     onNetworkSettingsClick: () -> Unit,
     onUploadHistoryClick: () -> Unit,
+    onPipelinesClick: () -> Unit,
+    onDismissOperationMessage: () -> Unit,
     onBack: () -> Unit
 ) {
+    var pendingPowerAction by remember { mutableStateOf<PowerAction?>(null) }
 
-    val deviceName =
-        when (
-            val connection =
-                state.connectionState
-        ) {
-
-            is ConnectionState.Ready ->
-                connection.deviceName
-
-            is ConnectionState.Connected ->
-                connection.deviceName
-
-            is ConnectionState.Connecting ->
-                connection.deviceName
-
-            else ->
-                "Jetson"
-        }
+    pendingPowerAction?.let { action ->
+        val rebooting = action == PowerAction.REBOOT
+        AlertDialog(
+            onDismissRequest = { pendingPowerAction = null },
+            icon = {
+                Icon(
+                    if (rebooting) Icons.Default.RestartAlt else Icons.Default.PowerSettingsNew,
+                    contentDescription = null
+                )
+            },
+            title = {
+                Text(if (rebooting) "Jetson을 재부팅할까요?" else "Jetson을 종료할까요?")
+            },
+            text = {
+                Text(
+                    if (rebooting) {
+                        "실행 중인 수집 작업이 중단되고 연결이 잠시 끊어집니다."
+                    } else {
+                        "실행 중인 작업이 중단됩니다. 다시 사용하려면 Jetson 전원을 직접 켜야 합니다."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    pendingPowerAction = null
+                    if (rebooting) onReboot() else onShutdown()
+                }) {
+                    Text(if (rebooting) "재부팅" else "종료")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPowerAction = null }) { Text("취소") }
+            }
+        )
+    }
 
     Scaffold(
-        containerColor =
-            MaterialTheme
-                .colorScheme
-                .background
-    ) {
-            paddingValues ->
-
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(
-                        paddingValues
-                    )
-                    .padding(
-                        horizontal = 22.dp
-                    )
-                    .verticalScroll(
-                        rememberScrollState()
-                    )
-        ) {
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        28.dp
-                    )
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            state.deviceName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            transportLabel(state.transportType, state.endpoint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onDisconnect) {
+                        Icon(Icons.Default.LinkOff, contentDescription = "연결 해제")
+                    }
+                }
             )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
+        ) {
+            if (state.operationInProgress) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "뒤로"
-                    )
+            state.operationMessage?.let { message ->
+                Surface(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    onClick = onDismissOperationMessage,
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    InlineMessage(message = message, isError = state.operationIsError)
+                }
+            }
+
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Spacer(Modifier.height(12.dp))
+                ConnectionSummary(state)
+                Spacer(Modifier.height(24.dp))
+                SectionHeader("시스템 상태")
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MetricCard("CPU", "${state.status.cpuPercent}%", Modifier.weight(1f))
+                    MetricCard("GPU", "${state.status.gpuPercent}%", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MetricCard("온도", "${state.status.temperatureC} C", Modifier.weight(1f))
+                    MetricCard("저장 공간", "${state.status.storagePercent}%", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("메모리", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                "${formatMemory(state.status.ramUsedMb)} / ${formatMemory(state.status.ramTotalMb)}",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        val ramProgress = if (state.status.ramTotalMb > 0) {
+                            state.status.ramUsedMb.toFloat() / state.status.ramTotalMb
+                        } else 0f
+                        LinearProgressIndicator(
+                            progress = { ramProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
 
-                Text(
-                    text = deviceName,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Spacer(Modifier.height(28.dp))
+                SectionHeader("작업")
             }
 
-            Text(
-                text =
-                    if (
-                        state.connectionState
-                        is ConnectionState.Ready ||
-                        state.transportType != null
-                    )
-                        "● 연결됨"
-                    else
-                        "연결 상태 확인 중",
-                style =
-                    MaterialTheme
-                        .typography
-                        .bodyMedium,
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TransportBadge(state.transportType)
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        28.dp
-                    )
-            )
-
-            Text(
-                text = "시스템 상태",
-                style =
-                    MaterialTheme
-                        .typography
-                        .titleLarge,
-                fontWeight =
-                    FontWeight.SemiBold
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
-                    )
-            )
-
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.spacedBy(
-                        12.dp
-                    )
-            ) {
-
-                MetricCard(
-                    title = "CPU",
-                    value =
-                        "${state.status.cpuPercent}%",
-                    modifier =
-                        Modifier.weight(1f)
-                )
-
-                MetricCard(
-                    title = "GPU",
-                    value =
-                        "${state.status.gpuPercent}%",
-                    modifier =
-                        Modifier.weight(1f)
-                )
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
-                    )
-            )
-
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.spacedBy(
-                        12.dp
-                    )
-            ) {
-
-                MetricCard(
-                    title = "TEMP",
-                    value =
-                        "${state.status.temperatureC}°C",
-                    modifier =
-                        Modifier.weight(1f)
-                )
-
-                MetricCard(
-                    title = "STORAGE",
-                    value =
-                        "${state.status.storagePercent}%",
-                    modifier =
-                        Modifier.weight(1f)
-                )
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        28.dp
-                    )
-            )
-
-            Text(
-                text = "서비스",
-                style =
-                    MaterialTheme
-                        .typography
-                        .titleLarge,
-                fontWeight =
-                    FontWeight.SemiBold
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
-                    )
-            )
-
-            ServiceRow(
-                name = "Camera",
-                running =
-                    state.status
-                        .cameraRunning
-            )
-
-            ServiceRow(
-                name = "LiDAR",
-                running =
-                    state.status
-                        .lidarRunning
-            )
-
-            ServiceRow(
-                name = "GNSS",
-                running =
-                    state.status
-                        .gnssRunning
-            )
-
-            ServiceRow(
-                name = "MMS",
-                running =
-                    state.status
-                        .mmsRunning
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            DashboardNavSection(
-                title = "네트워크",
+            DashboardAction(
                 icon = Icons.Default.Wifi,
-                label = "공유기 연결 설정",
+                title = "Wi-Fi 설정",
+                description = "Jetson을 사용할 공유기에 연결",
+                enabled = state.capabilities.wifiProvisioning,
                 onClick = onNetworkSettingsClick
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            DashboardNavSection(
-                title = "데이터",
-                icon = Icons.Default.Storage,
-                label = "수집 데이터 탐색",
-                onClick = onStorageClick,
-                enabled = state.transportType != TransportType.BLE
+            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            DashboardAction(
+                icon = Icons.Default.FolderOpen,
+                title = "저장소 탐색",
+                description = if (state.transportType == TransportType.BLE) {
+                    "LAN 또는 Wi-Fi Direct 연결이 필요합니다"
+                } else {
+                    "수집 파일과 폴더 확인"
+                },
+                enabled = state.capabilities.fileBrowsing && state.transportType != TransportType.BLE,
+                onClick = onStorageClick
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            DashboardNavSection(
-                title = "업로드",
+            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            DashboardAction(
                 icon = Icons.Default.CloudUpload,
-                label = "업로드 관리",
-                onClick = onUploadHistoryClick,
-                enabled = state.transportType != TransportType.BLE
+                title = "업로드 기록",
+                description = if (state.transportType == TransportType.BLE) {
+                    "LAN 또는 Wi-Fi Direct 연결이 필요합니다"
+                } else {
+                    "외부 서버 전송 상태와 결과"
+                },
+                enabled = state.capabilities.uploads && state.transportType != TransportType.BLE,
+                onClick = onUploadHistoryClick
+            )
+            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            DashboardAction(
+                icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                title = "자동 실행 작업",
+                description = if (state.transportType == TransportType.BLE) {
+                    "LAN 또는 Wi-Fi Direct 연결이 필요합니다"
+                } else {
+                    "Python 파이프라인 실행과 부팅 설정"
+                },
+                enabled = state.capabilities.pipelines && state.transportType != TransportType.BLE,
+                onClick = onPipelinesClick
             )
 
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        32.dp
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Spacer(Modifier.height(28.dp))
+                SectionHeader("장비 관리")
+                Spacer(Modifier.height(10.dp))
+                if (!state.capabilities.powerCommandsEnabled) {
+                    InlineMessage(
+                        message = "Jetson에서 전원 명령이 비활성화되어 있습니다.",
+                        isError = false
                     )
-            )
-
-            Button(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                shape =
-                    RoundedCornerShape(
-                        16.dp
-                    ),
-                onClick =
-                    onStartSystem
-            ) {
-
-                Text("전체 시스템 시작")
+                    Spacer(Modifier.height(12.dp))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { pendingPowerAction = PowerAction.REBOOT },
+                        modifier = Modifier.weight(1f),
+                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
+                    ) {
+                        Icon(Icons.Default.RestartAlt, contentDescription = null)
+                        Text("재부팅", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    OutlinedButton(
+                        onClick = { pendingPowerAction = PowerAction.SHUTDOWN },
+                        modifier = Modifier.weight(1f),
+                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
+                    ) {
+                        Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
+                        Text("종료", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+                Spacer(Modifier.height(28.dp))
             }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        10.dp
-                    )
-            )
-
-            OutlinedButton(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                shape =
-                    RoundedCornerShape(
-                        16.dp
-                    ),
-                onClick =
-                    onStopSystem
-            ) {
-
-                Text("전체 시스템 중지")
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        10.dp
-                    )
-            )
-
-            OutlinedButton(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                shape =
-                    RoundedCornerShape(
-                        16.dp
-                    ),
-                onClick =
-                    onRestartServices
-            ) {
-
-                Text("서비스 재시작")
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        30.dp
-                    )
-            )
-
-            HorizontalDivider()
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        22.dp
-                    )
-            )
-
-            Text(
-                text = "장비 관리",
-                style =
-                    MaterialTheme
-                        .typography
-                        .titleLarge,
-                fontWeight =
-                    FontWeight.SemiBold
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
-                    )
-            )
-
-            OutlinedButton(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                onClick =
-                    onReboot
-            ) {
-                Text("재부팅")
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        8.dp
-                    )
-            )
-
-            OutlinedButton(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                onClick =
-                    onShutdown
-            ) {
-                Text("Jetson 종료")
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        8.dp
-                    )
-            )
-
-            OutlinedButton(
-                modifier =
-                    Modifier.fillMaxWidth(),
-                onClick =
-                    onDisconnect
-            ) {
-                Text("연결 해제")
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        40.dp
-                    )
-            )
-        }
-    }
-}
-
-
-@Composable
-private fun ServiceRow(
-    name: String,
-    running: Boolean
-) {
-
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    vertical = 10.dp
-                ),
-        horizontalArrangement =
-            Arrangement.SpaceBetween
-    ) {
-
-        Text(
-            text = name,
-            style =
-                MaterialTheme
-                    .typography
-                    .bodyLarge
-        )
-
-        Text(
-            text =
-                if (running)
-                    "● Running"
-                else
-                    "○ Stopped",
-            style =
-                MaterialTheme
-                    .typography
-                    .bodyMedium,
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun TransportBadge(type: TransportType?) {
-    val (label, color) = when (type) {
-        TransportType.LAN -> "LAN" to MaterialTheme.colorScheme.primary
-        TransportType.WIFI_DIRECT -> "Wi-Fi Direct" to MaterialTheme.colorScheme.secondary
-        TransportType.BLE -> "Bluetooth" to MaterialTheme.colorScheme.tertiary
-        null -> "연결 확인 중" to MaterialTheme.colorScheme.outline
-    }
-
-    Surface(
-        color = color.copy(alpha = 0.1f),
-        shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.5f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = label, style = MaterialTheme.typography.labelMedium, color = color, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun DashboardNavSection(
-    title: String,
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true
-) {
-    val alpha = if (enabled) 1f else 0.4f
-    
+private fun ConnectionSummary(state: DashboardUiState) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = MaterialTheme.shapes.medium
     ) {
         Row(
-            modifier = Modifier.padding(16.dp).padding(end = 8.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-            Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
-                Text(text = label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
+                Text("온라인", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "상태 정보가 자동으로 갱신됩니다",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline.copy(alpha = alpha))
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = when (state.transportType) {
+                        TransportType.LAN -> "LAN"
+                        TransportType.WIFI_DIRECT -> "Wi-Fi Direct"
+                        TransportType.BLE -> "Bluetooth"
+                        null -> "연결 확인"
+                    },
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun DashboardAction(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val alpha = if (enabled) 1f else 0.45f
+    ListItem(
+        headlineContent = {
+            Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+        },
+        supportingContent = {
+            Text(
+                description,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+            )
+        },
+        leadingContent = {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+            )
+        },
+        trailingContent = {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick)
+    )
+}
+
+private fun transportLabel(type: TransportType?, endpoint: String?): String {
+    val label = when (type) {
+        TransportType.LAN -> "LAN"
+        TransportType.WIFI_DIRECT -> "Wi-Fi Direct"
+        TransportType.BLE -> "Bluetooth"
+        null -> "연결 확인 중"
+    }
+    return if (endpoint.isNullOrBlank()) label else "$label · $endpoint"
+}
+
+private fun formatMemory(megabytes: Int): String = when {
+    megabytes >= 1024 -> "%.1f GB".format(megabytes / 1024f)
+    else -> "$megabytes MB"
 }

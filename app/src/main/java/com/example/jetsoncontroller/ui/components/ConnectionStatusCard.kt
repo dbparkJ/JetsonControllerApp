@@ -80,7 +80,7 @@ fun ConnectionStatusCard(
         modifier =
             Modifier.fillMaxWidth(),
         shape =
-            RoundedCornerShape(22.dp),
+            RoundedCornerShape(8.dp),
         color =
             MaterialTheme
                 .colorScheme
