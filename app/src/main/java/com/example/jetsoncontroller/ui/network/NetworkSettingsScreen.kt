@@ -143,6 +143,10 @@ fun NetworkSettingsScreen(
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                     ConnectionMethodLabel(state.transportType)
+                    if (state.wifiConnected && !state.currentWifiSsid.isNullOrBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        CurrentWifiCard(state.currentWifiSsid)
+                    }
                     state.accessPointError?.let { error ->
                         Spacer(Modifier.height(12.dp))
                         InlineMessage(message = error, isError = true)
@@ -226,6 +230,32 @@ fun NetworkSettingsScreen(
                         onSubmit = onSubmit
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurrentWifiCard(ssid: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null)
+            Column {
+                Text(
+                    "현재 Wi-Fi 연결됨",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(ssid, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

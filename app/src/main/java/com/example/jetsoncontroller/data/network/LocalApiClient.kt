@@ -29,6 +29,7 @@ class LocalApiClient(
     private val authInterceptor = HttpAuthInterceptor()
     private var currentBaseUrl: String? = null
     private var api: LocalControlApi? = null
+    private var bootstrapTrustManager: HelloBootstrapTrustManager? = null
 
     fun updateEndpoint(host: String, port: Int) {
         val normalizedHost = host.removePrefix("[").removeSuffix("]")
@@ -42,7 +43,8 @@ class LocalApiClient(
 
         currentBaseUrl = url
         authInterceptor.clearSession()
-        api = buildApi(HelloBootstrapTrustManager())
+        bootstrapTrustManager = HelloBootstrapTrustManager()
+        api = buildApi(bootstrapTrustManager ?: HelloBootstrapTrustManager())
     }
 
     @SuppressLint("BadHostnameVerifier")
@@ -77,8 +79,12 @@ class LocalApiClient(
         val peerCertificate = response.raw().handshake
             ?.peerCertificates
             ?.firstOrNull()
-            ?: error("Jetson TLS 인증서를 확인할 수 없습니다.")
-        val peerFingerprint = certificateSha256(peerCertificate)
+        val peerFingerprint = if (peerCertificate != null) {
+            certificateSha256(peerCertificate)
+        } else {
+            bootstrapTrustManager?.lastServerCertificateSha256
+                ?: error("Jetson TLS 인증서를 확인할 수 없습니다.")
+        }
         require(
             peerFingerprint.equals(body.tlsCertificateSha256, ignoreCase = true)
         ) {

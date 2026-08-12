@@ -324,7 +324,11 @@ private fun ConnectionSummary(state: DashboardUiState) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("온라인", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "상태 정보가 자동으로 갱신됩니다",
+                    if (state.status.wifiConnected && !state.status.wifiSsid.isNullOrBlank()) {
+                        "Wi-Fi: ${state.status.wifiSsid}"
+                    } else {
+                        "상태 정보가 자동으로 갱신됩니다"
+                    },
                     style = MaterialTheme.typography.bodySmall
                 )
             }

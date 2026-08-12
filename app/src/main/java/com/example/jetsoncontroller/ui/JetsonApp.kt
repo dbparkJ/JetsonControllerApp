@@ -269,8 +269,7 @@ fun JetsonApp(
             (deviceState.connectionState is ConnectionState.Ready) ||
             wifiDirectState.apiStatus == WifiDirectApiStatus.READY ||
             transportState is TransportState.Connected
-        val connectionRoute = currentRoute == Routes.DEVICES_BLE ||
-            currentRoute == Routes.WIFI_DIRECT
+        val connectionRoute = currentRoute == Routes.DEVICES_BLE
 
         if (connected && connectionRoute) {
             navController.navigate(

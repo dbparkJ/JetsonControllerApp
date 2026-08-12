@@ -8,6 +8,8 @@ data class NetworkSettingsUiState(
     val password: String = "",
     val hidden: Boolean = false,
     val selectedAccessPointSsid: String? = null,
+    val currentWifiSsid: String? = null,
+    val wifiConnected: Boolean = false,
     val transportType: TransportType? = null,
     val accessPoints: List<WifiAccessPoint> = emptyList(),
     val scanningAccessPoints: Boolean = false,

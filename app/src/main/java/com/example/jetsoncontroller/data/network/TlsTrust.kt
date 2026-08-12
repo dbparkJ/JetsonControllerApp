@@ -14,6 +14,9 @@ internal fun certificateSha256(certificate: Certificate): String =
 
 @SuppressLint("CustomX509TrustManager")
 internal class HelloBootstrapTrustManager : X509TrustManager {
+    var lastServerCertificateSha256: String? = null
+        private set
+
     override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
         throw CertificateException("Client certificates are not supported")
     }
@@ -22,6 +25,7 @@ internal class HelloBootstrapTrustManager : X509TrustManager {
         val leaf = chain?.firstOrNull()
             ?: throw CertificateException("The Jetson did not present a TLS certificate")
         leaf.checkValidity()
+        lastServerCertificateSha256 = certificateSha256(leaf)
     }
 
     override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()

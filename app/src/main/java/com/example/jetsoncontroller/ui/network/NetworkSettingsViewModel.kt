@@ -40,6 +40,16 @@ class NetworkSettingsViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            repository.status.collect { status ->
+                _uiState.update {
+                    it.copy(
+                        wifiConnected = status.wifiConnected,
+                        currentWifiSsid = status.wifiSsid
+                    )
+                }
+            }
+        }
     }
 
     fun onSsidChange(value: String) {
@@ -77,6 +87,9 @@ class NetworkSettingsViewModel(
     }
 
     fun scanAccessPoints() {
+        viewModelScope.launch {
+            repository.refreshStatus()
+        }
         repository.startWifiAccessPointScan()
     }
 

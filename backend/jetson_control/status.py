@@ -94,6 +94,42 @@ class StatusCollector:
         except (OSError, subprocess.SubprocessError):
             return False
 
+    def wifi_status(self) -> Tuple[bool, str]:
+        try:
+            result = subprocess.run(
+                [
+                    "/usr/bin/nmcli",
+                    "-t",
+                    "-f",
+                    "DEVICE,TYPE,STATE,CONNECTION",
+                    "device",
+                    "status",
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False, ""
+        if result.returncode != 0:
+            return False, ""
+        for line in result.stdout.splitlines():
+            parts = line.split(":", 3)
+            if len(parts) != 4:
+                continue
+            device, connection_type, state, connection = parts
+            if (
+                device == self.config.wifi_interface
+                and connection_type == "wifi"
+                and state == "connected"
+                and connection
+                and connection != "--"
+            ):
+                return True, connection
+        return False, ""
+
     def collect(self) -> Dict[str, object]:
         ram_used, ram_total = self.ram_megabytes()
         storage_percent, storage_used, storage_total, storage_available = (
@@ -103,6 +139,7 @@ class StatusCollector:
             name: self.service_active(self.config.service_flags.get(name, ""))
             for name in ("camera", "lidar", "gnss", "mms")
         }
+        wifi_connected, wifi_ssid = self.wifi_status()
         return {
             "cpuPercent": self.cpu_percent(),
             "gpuPercent": self.gpu_percent(),
@@ -117,6 +154,8 @@ class StatusCollector:
             "lidarRunning": flags["lidar"],
             "gnssRunning": flags["gnss"],
             "mmsRunning": flags["mms"],
+            "wifiConnected": wifi_connected,
+            "wifiSsid": wifi_ssid or None,
         }
 
     def ble_packet_values(self) -> Tuple[int, int, int, int, int, int, int, int]:
