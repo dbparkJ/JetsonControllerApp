@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,16 +79,17 @@ fun ConnectionStatusCard(
         modifier =
             Modifier.fillMaxWidth(),
         shape =
-            RoundedCornerShape(8.dp),
+            MaterialTheme.shapes.large,
         color =
             MaterialTheme
                 .colorScheme
-                .surfaceContainer
+                .surfaceContainerLow,
+        tonalElevation = 1.dp
     ) {
 
         Row(
             modifier =
-                Modifier.padding(18.dp),
+                Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment =
                 Alignment.CenterVertically
         ) {
@@ -97,7 +97,7 @@ fun ConnectionStatusCard(
             Box(
                 modifier =
                     Modifier
-                        .size(10.dp)
+                        .size(12.dp)
                         .background(
                             color =
                                 when {
@@ -127,14 +127,14 @@ fun ConnectionStatusCard(
                     Modifier.size(12.dp)
             )
 
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
 
                 Text(
                     text = title,
                     style =
                         MaterialTheme
                             .typography
-                            .labelLarge,
+                            .titleSmall,
                     fontWeight =
                         FontWeight.SemiBold
                 )

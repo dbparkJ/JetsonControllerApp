@@ -12,9 +12,10 @@ private val Base = TextStyle(
 )
 
 val Typography = Typography(
+    headlineLarge = Base.copy(fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold),
     headlineMedium = Base.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
     headlineSmall = Base.copy(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
-    titleLarge = Base.copy(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
+    titleLarge = Base.copy(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
     titleMedium = Base.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
     titleSmall = Base.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
     bodyLarge = Base.copy(fontSize = 16.sp, lineHeight = 24.sp),

@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
@@ -38,12 +38,12 @@ fun DeviceCard(
         modifier =
             Modifier.fillMaxWidth(),
         shape =
-            RoundedCornerShape(8.dp)
+            MaterialTheme.shapes.large
     ) {
 
         Column(
             modifier =
-                Modifier.padding(20.dp)
+                Modifier.padding(18.dp)
         ) {
 
             Row(
@@ -55,9 +55,9 @@ fun DeviceCard(
 
                 Surface(
                     modifier =
-                        Modifier.size(52.dp),
+                        Modifier.size(50.dp),
                 shape =
-                    RoundedCornerShape(8.dp),
+                    CircleShape,
                     color =
                         MaterialTheme
                             .colorScheme
@@ -175,7 +175,7 @@ fun DeviceCard(
                 Button(
                     onClick = onConnect,
                     shape =
-                        RoundedCornerShape(8.dp)
+                        MaterialTheme.shapes.extraLarge
                 ) {
 
                     Text("연결")

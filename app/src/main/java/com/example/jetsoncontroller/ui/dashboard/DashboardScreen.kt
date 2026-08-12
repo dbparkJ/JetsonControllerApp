@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.ui.dashboard
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,7 +25,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -39,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -111,6 +110,7 @@ fun DashboardScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -138,7 +138,10 @@ fun DashboardScreen(
                     IconButton(onClick = onDisconnect) {
                         Icon(Icons.Default.LinkOff, contentDescription = "연결 해제")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
         }
     ) { paddingValues ->
@@ -222,7 +225,7 @@ fun DashboardScreen(
                 enabled = state.capabilities.wifiProvisioning,
                 onClick = onNetworkSettingsClick
             )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            Spacer(Modifier.height(2.dp))
             DashboardAction(
                 icon = Icons.Default.Wifi,
                 title = "Wi-Fi Direct",
@@ -234,7 +237,7 @@ fun DashboardScreen(
                 enabled = true,
                 onClick = onWifiDirectClick
             )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            Spacer(Modifier.height(2.dp))
             DashboardAction(
                 icon = Icons.Default.FolderOpen,
                 title = "저장소 탐색",
@@ -246,7 +249,7 @@ fun DashboardScreen(
                 enabled = state.capabilities.fileBrowsing && state.transportType != TransportType.BLE,
                 onClick = onStorageClick
             )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            Spacer(Modifier.height(2.dp))
             DashboardAction(
                 icon = Icons.Default.CloudUpload,
                 title = "업로드 기록",
@@ -258,7 +261,7 @@ fun DashboardScreen(
                 enabled = state.capabilities.uploads && state.transportType != TransportType.BLE,
                 onClick = onUploadHistoryClick
             )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            Spacer(Modifier.height(2.dp))
             DashboardAction(
                 icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                 title = "자동 실행 작업",
@@ -289,7 +292,8 @@ fun DashboardScreen(
                     OutlinedButton(
                         onClick = { pendingPowerAction = PowerAction.REBOOT },
                         modifier = Modifier.weight(1f),
-                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
+                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress,
+                        shape = MaterialTheme.shapes.extraLarge
                     ) {
                         Icon(Icons.Default.RestartAlt, contentDescription = null)
                         Text("재부팅", modifier = Modifier.padding(start = 8.dp))
@@ -297,7 +301,8 @@ fun DashboardScreen(
                     OutlinedButton(
                         onClick = { pendingPowerAction = PowerAction.SHUTDOWN },
                         modifier = Modifier.weight(1f),
-                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
+                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress,
+                        shape = MaterialTheme.shapes.extraLarge
                     ) {
                         Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
                         Text("종료", modifier = Modifier.padding(start = 8.dp))
@@ -313,12 +318,12 @@ fun DashboardScreen(
 private fun ConnectionSummary(state: DashboardUiState) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = MaterialTheme.shapes.medium
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = MaterialTheme.shapes.extraLarge
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -333,9 +338,9 @@ private fun ConnectionSummary(state: DashboardUiState) {
                 )
             }
             Surface(
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.14f),
                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = MaterialTheme.shapes.small
+                shape = MaterialTheme.shapes.extraLarge
             ) {
                 Text(
                     text = when (state.transportType) {
@@ -361,33 +366,53 @@ private fun DashboardAction(
     onClick: () -> Unit
 ) {
     val alpha = if (enabled) 1f else 0.45f
-    ListItem(
-        headlineContent = {
-            Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
-        },
-        supportingContent = {
-            Text(
-                description,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        ListItem(
+            headlineContent = {
+                Text(
+                    title,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            supportingContent = {
+                Text(
+                    description,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+                )
+            },
+            leadingContent = {
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = alpha),
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = alpha)
+                ) {
+                    androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null)
+                    }
+                }
+            },
+            trailingContent = {
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+                )
+            },
+            colors = ListItemDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
             )
-        },
-        leadingContent = {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha)
-            )
-        },
-        trailingContent = {
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
-            )
-        },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-        modifier = Modifier.clickable(enabled = enabled, onClick = onClick)
-    )
+        )
+    }
 }
 
 private fun transportLabel(type: TransportType?, endpoint: String?): String {

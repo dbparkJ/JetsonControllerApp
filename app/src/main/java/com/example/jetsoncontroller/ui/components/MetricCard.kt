@@ -25,13 +25,14 @@ fun MetricCard(
         color =
             MaterialTheme
                 .colorScheme
-                .surfaceContainer
+                .surfaceContainerLow,
+        tonalElevation = 1.dp
     ) {
 
         Column(
             modifier =
                 Modifier.padding(
-                    14.dp
+                    16.dp
                 )
         ) {
 
@@ -53,8 +54,8 @@ fun MetricCard(
                     MaterialTheme
                         .typography
                         .headlineSmall,
-                fontWeight =
-                    FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
             )
         }
     }

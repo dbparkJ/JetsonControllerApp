@@ -37,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,23 +66,18 @@ fun ConnectionHubScreen(
     onConnectLan: (DeviceEndpoint) -> Unit
 ) {
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text("Jetson Controller")
-                        Text(
-                            "장비 연결",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
+                title = { Text("장비 연결", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = onQrClick) {
                         Icon(Icons.Default.QrCodeScanner, contentDescription = "QR로 장비 등록")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
         }
     ) { paddingValues ->
@@ -91,6 +87,38 @@ fun ConnectionHubScreen(
                 .padding(paddingValues),
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                    Text(
+                        text = "JETSON FLEET",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "현장 장비를\n연결하세요",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "같은 네트워크의 등록 장비를 자동으로 찾고, QR과 Bluetooth로 새 장비를 추가할 수 있어요.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    Button(
+                        onClick = onQrClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.extraLarge
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                        Text("QR로 새 장비 등록", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+
             item {
                 SectionHeader(
                     title = "사용 가능한 장비",
@@ -140,8 +168,8 @@ fun ConnectionHubScreen(
                 item {
                     Surface(
                         modifier = Modifier.padding(horizontal = 20.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        shape = MaterialTheme.shapes.medium
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        shape = MaterialTheme.shapes.large
                     ) {
                         Row(
                             modifier = Modifier
@@ -197,31 +225,39 @@ fun ConnectionHubScreen(
             }
 
             item {
-                Spacer(Modifier.height(26.dp))
+                Spacer(Modifier.height(30.dp))
                 SectionHeader(
                     title = "다른 연결 방법",
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                 )
-                ConnectionMethod(
-                    icon = Icons.Default.QrCodeScanner,
-                    title = "새 장비 등록",
-                    description = "본체 QR로 인증 정보를 안전하게 저장",
-                    onClick = onQrClick
-                )
-                HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = 20.dp))
-                ConnectionMethod(
-                    icon = Icons.Default.Bluetooth,
-                    title = "Bluetooth",
-                    description = "주변 Jetson 검색, 인증 및 기본 제어",
-                    onClick = onBleClick
-                )
-                HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = 20.dp))
-                ConnectionMethod(
-                    icon = Icons.Default.WifiTethering,
-                    title = "Wi-Fi Direct",
-                    description = "공유기 없이 저장소와 로컬 API에 연결",
-                    onClick = onWifiDirectClick
-                )
+                Surface(
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                ) {
+                    Column {
+                        ConnectionMethod(
+                            icon = Icons.Default.QrCodeScanner,
+                            title = "새 장비 등록",
+                            description = "본체 QR로 인증 정보를 안전하게 저장",
+                            onClick = onQrClick
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = 76.dp, end = 16.dp))
+                        ConnectionMethod(
+                            icon = Icons.Default.Bluetooth,
+                            title = "Bluetooth",
+                            description = "주변 Jetson 검색, 인증 및 기본 제어",
+                            onClick = onBleClick
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = 76.dp, end = 16.dp))
+                        ConnectionMethod(
+                            icon = Icons.Default.WifiTethering,
+                            title = "Wi-Fi Direct",
+                            description = "공유기 없이 저장소와 로컬 API에 연결",
+                            onClick = onWifiDirectClick
+                        )
+                    }
+                }
             }
         }
     }
@@ -235,17 +271,28 @@ private fun LanDeviceCard(
     onConnect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large
+    ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Surface(
-                modifier = Modifier.size(40.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                shape = MaterialTheme.shapes.small
+                modifier = Modifier.size(48.dp),
+                color = if (registered) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.errorContainer
+                },
+                contentColor = if (registered) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onErrorContainer
+                },
+                shape = MaterialTheme.shapes.large
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Router, contentDescription = null)
@@ -276,6 +323,7 @@ private fun LanDeviceCard(
             OutlinedButton(
                 onClick = onConnect,
                 enabled = registered && !connecting,
+                shape = MaterialTheme.shapes.extraLarge,
                 contentPadding = PaddingValues(horizontal = 14.dp)
             ) {
                 if (connecting) {
@@ -299,12 +347,21 @@ private fun ConnectionMethod(
         headlineContent = { Text(title) },
         supportingContent = { Text(description) },
         leadingContent = {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null)
+                }
+            }
         },
         trailingContent = {
             Icon(Icons.Default.ChevronRight, contentDescription = null)
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier.clickable(onClick = onClick)
     )
 }
