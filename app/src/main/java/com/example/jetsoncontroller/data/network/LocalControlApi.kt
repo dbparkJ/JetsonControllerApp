@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.network
 
 import com.example.jetsoncontroller.model.*
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -26,6 +27,21 @@ interface LocalControlApi {
 
     @GET("/v1/fs/list")
     suspend fun listFiles(
+        @Query("root") rootId: String,
+        @Query("path") path: String
+    ): Response<ListFilesResponse>
+
+    @GET("/v1/fs/file")
+    suspend fun getFile(
+        @Query("root") rootId: String,
+        @Query("path") path: String
+    ): Response<ResponseBody>
+
+    @GET("/v1/fs/workspaces")
+    suspend fun getWorkspaceRoots(): Response<List<RemoteRoot>>
+
+    @GET("/v1/fs/workspace/list")
+    suspend fun listWorkspaceFiles(
         @Query("root") rootId: String,
         @Query("path") path: String
     ): Response<ListFilesResponse>
@@ -74,6 +90,23 @@ interface LocalControlApi {
     suspend fun removePipeline(
         @Path("pipelineId") pipelineId: String
     ): Response<Unit>
+
+    @GET("/v1/pipelines/{pipelineId}/logs")
+    suspend fun getPipelineLogs(
+        @Path("pipelineId") pipelineId: String,
+        @Query("lines") lines: Int = 300
+    ): Response<PipelineLog>
+
+    @GET("/v1/pipelines/{pipelineId}/config")
+    suspend fun getPipelineConfig(
+        @Path("pipelineId") pipelineId: String
+    ): Response<PipelineConfigDocument>
+
+    @PUT("/v1/pipelines/{pipelineId}/config")
+    suspend fun updatePipelineConfig(
+        @Path("pipelineId") pipelineId: String,
+        @Body request: UpdatePipelineConfigRequest
+    ): Response<PipelineConfigDocument>
 
     @POST("/v1/network/wifi")
     suspend fun configureWifi(

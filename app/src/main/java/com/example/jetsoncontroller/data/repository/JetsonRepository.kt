@@ -581,6 +581,24 @@ class JetsonRepository(
         return client.listFiles(rootId, relativePath)
     }
 
+    suspend fun getFile(rootId: String, relativePath: String): Result<RemoteFileContent> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getFile(rootId, relativePath)
+    }
+
+    suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getWorkspaceRoots()
+    }
+
+    suspend fun listWorkspaceDirectory(
+        rootId: String,
+        relativePath: String
+    ): Result<LocalControlApi.ListFilesResponse> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.listWorkspaceFiles(rootId, relativePath)
+    }
+
     suspend fun getUploadTargets(): Result<List<UploadTarget>> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.getUploadTargets()
@@ -632,6 +650,24 @@ class JetsonRepository(
     suspend fun removePipeline(pipelineId: String): Result<Unit> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.removePipeline(pipelineId)
+    }
+
+    suspend fun getPipelineLogs(pipelineId: String): Result<PipelineLog> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getPipelineLogs(pipelineId)
+    }
+
+    suspend fun getPipelineConfig(pipelineId: String): Result<PipelineConfigDocument> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getPipelineConfig(pipelineId)
+    }
+
+    suspend fun updatePipelineConfig(
+        pipelineId: String,
+        content: String
+    ): Result<PipelineConfigDocument> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.updatePipelineConfig(pipelineId, content)
     }
 
     fun clearControlMessage() {

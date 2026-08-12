@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
@@ -27,6 +28,8 @@ CommandRunner = Callable[..., subprocess.CompletedProcess]
 
 
 class PipelineManager:
+    MAX_CONFIG_BYTES = 512 * 1024
+
     def __init__(
         self,
         registry_root: Path,
@@ -74,6 +77,74 @@ class PipelineManager:
             message = (result.stderr or result.stdout or "systemctl failed").strip()
             raise PipelineError(message)
         return self.get(pipeline_id)
+
+    def logs(self, pipeline_id: str, lines: int = 200) -> Dict[str, object]:
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        self._load_manifest(pipeline_id)
+        line_count = max(20, min(1000, lines))
+        result = self._run(
+            [
+                "journalctl",
+                "--unit",
+                self._unit(pipeline_id),
+                "--lines",
+                str(line_count),
+                "--output",
+                "short-iso",
+                "--no-pager",
+            ],
+            timeout=15,
+        )
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "journalctl failed").strip()
+            raise PipelineError(message)
+        return {
+            "pipelineId": pipeline_id,
+            "lines": result.stdout.splitlines(),
+        }
+
+    def config_document(self, pipeline_id: str) -> Dict[str, str]:
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        manifest = self._load_manifest(pipeline_id)
+        target = self._runtime_config_path(pipeline_id, manifest)
+        if target.stat().st_size > self.MAX_CONFIG_BYTES:
+            raise PipelineError("Pipeline config is too large to edit")
+        try:
+            content = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError as error:
+            raise PipelineError("Pipeline config is not valid UTF-8") from error
+        return {
+            "pipelineId": pipeline_id,
+            "path": str(manifest["config"]),
+            "content": content,
+        }
+
+    def update_config(self, pipeline_id: str, content: str) -> Dict[str, str]:
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        if "\x00" in content:
+            raise ValueError("Pipeline config contains a null byte")
+        encoded = content.encode("utf-8")
+        if len(encoded) > self.MAX_CONFIG_BYTES:
+            raise ValueError("Pipeline config is too large")
+
+        manifest = self._load_manifest(pipeline_id)
+        target = self._runtime_config_path(pipeline_id, manifest)
+        metadata = target.stat()
+        temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}")
+        try:
+            with temporary.open("xb") as output:
+                output.write(encoded)
+                output.flush()
+                os.fsync(output.fileno())
+            os.chmod(temporary, metadata.st_mode)
+            os.chown(temporary, metadata.st_uid, metadata.st_gid)
+            os.replace(temporary, target)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+        return self.config_document(pipeline_id)
 
     def register(
         self,
@@ -171,7 +242,34 @@ class PipelineManager:
                 raise PipelineError(f"Pipeline manifest field is invalid: {key}")
         if not isinstance(value.get("source_dirty"), bool):
             raise PipelineError("Pipeline manifest field is invalid: source_dirty")
+        writable_paths = value.get("writable_paths", [])
+        if not isinstance(writable_paths, list) or any(
+            not isinstance(path, str) for path in writable_paths
+        ):
+            raise PipelineError("Pipeline manifest field is invalid: writable_paths")
         return value
+
+    def _runtime_config_path(
+        self,
+        pipeline_id: str,
+        manifest: Mapping[str, Any],
+    ) -> Path:
+        pipeline_root = (self.registry_root / pipeline_id).resolve(strict=True)
+        releases_root = (pipeline_root / "releases").resolve(strict=True)
+        release = (pipeline_root / "current").resolve(strict=True)
+        try:
+            release.relative_to(releases_root)
+        except ValueError as error:
+            raise PipelineError("Pipeline release is outside its registry") from error
+        config_value = str(manifest["config"])
+        config = (release / config_value).resolve(strict=True)
+        try:
+            config.relative_to(release)
+        except ValueError as error:
+            raise PipelineError("Pipeline config is outside its release") from error
+        if config.suffix.lower() not in {".yaml", ".yml"} or not config.is_file():
+            raise PipelineError("Pipeline config is not an editable YAML file")
+        return config
 
     def _status(self, pipeline_id: str) -> Mapping[str, str]:
         result = self._run(
@@ -254,6 +352,7 @@ class PipelineManager:
             "sourceRevision": manifest["source_revision"],
             "sourceDirty": manifest["source_dirty"],
             "snapshotCreatedAt": manifest["snapshot_created_at"],
+            "writablePaths": list(manifest.get("writable_paths", [])),
         }
 
     def _run(self, command: Sequence[str], timeout: int) -> subprocess.CompletedProcess:

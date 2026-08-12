@@ -15,7 +15,7 @@ from jetson_control.auth import (
     sign_response,
 )
 from jetson_control.config import DeviceConfig, RuntimePaths
-from jetson_control.filesystem import StorageRegistry
+from jetson_control.filesystem import StorageRegistry, WorkspaceRegistry
 from jetson_control.uploads import UploadManager
 
 
@@ -23,6 +23,7 @@ class ApiContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         base = Path(self.temporary.name)
+        self.base = base
         source = base / "source"
         source.mkdir()
         (source / "hello world.txt").write_text("hello", encoding="utf-8")
@@ -106,6 +107,20 @@ class ApiContractTest(unittest.TestCase):
             "label": "Capture",
             "state": "RUNNING",
         }
+        self.pipelines.logs.return_value = {
+            "pipelineId": "capture",
+            "lines": ["capture started"],
+        }
+        self.pipelines.config_document.return_value = {
+            "pipelineId": "capture",
+            "path": "config.yaml",
+            "content": "fps: 30\n",
+        }
+        self.pipelines.update_config.return_value = {
+            "pipelineId": "capture",
+            "path": "config.yaml",
+            "content": "fps: 15\n",
+        }
 
         app = create_app(
             paths=self.paths,
@@ -114,6 +129,7 @@ class ApiContractTest(unittest.TestCase):
             status_collector=status_collector,
             command_runner=command_runner,
             storage=storage,
+            workspace_storage=WorkspaceRegistry(base),
             upload_manager=uploads,
             wifi_provisioner=wifi,
             pipeline_manager=self.pipelines,
@@ -195,6 +211,21 @@ class ApiContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["entries"][0]["name"], "hello world.txt")
 
+    def test_authenticated_file_and_workspace_access(self) -> None:
+        file_path = "/v1/fs/file?root=data&path=hello%20world.txt"
+        response = self.signed_request("GET", file_path)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, b"hello")
+
+        roots = self.signed_request("GET", "/v1/fs/workspaces")
+        self.assertEqual(roots.status_code, 200, roots.text)
+        self.assertEqual(roots.json()[0]["id"], "workspace-home")
+
+        listing_path = "/v1/fs/workspace/list?root=workspace-home&path="
+        listing = self.signed_request("GET", listing_path)
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertIn("source", [entry["name"] for entry in listing.json()["entries"]])
+
     def test_wifi_direct_status_requires_authentication(self) -> None:
         path = "/v1/network/wifi-direct/status"
         self.assertEqual(self.client.get(path).status_code, 401)
@@ -271,6 +302,21 @@ class ApiContractTest(unittest.TestCase):
         response = self.signed_request("DELETE", "/v1/pipelines/capture")
         self.assertEqual(response.status_code, 204, response.text)
         self.pipelines.remove.assert_called_once_with("capture")
+
+    def test_pipeline_logs_and_yaml_config(self) -> None:
+        logs = self.signed_request("GET", "/v1/pipelines/capture/logs?lines=300")
+        self.assertEqual(logs.status_code, 200, logs.text)
+        self.assertEqual(logs.json()["lines"], ["capture started"])
+        self.pipelines.logs.assert_called_once_with("capture", 300)
+
+        config = self.signed_request("GET", "/v1/pipelines/capture/config")
+        self.assertEqual(config.status_code, 200, config.text)
+        self.assertEqual(config.json()["content"], "fps: 30\n")
+
+        body = json.dumps({"content": "fps: 15\n"}, separators=(",", ":")).encode()
+        updated = self.signed_request("PUT", "/v1/pipelines/capture/config", body)
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.pipelines.update_config.assert_called_once_with("capture", "fps: 15\n")
 
     def test_pipeline_path_traversal_is_rejected(self) -> None:
         body = json.dumps(

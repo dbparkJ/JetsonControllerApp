@@ -18,7 +18,9 @@ data class ManagedPipeline(
     val sourceBranch: String = "",
     val sourceRevision: String = "",
     val sourceDirty: Boolean = false,
-    val snapshotCreatedAt: String = ""
+    val snapshotCreatedAt: String = "",
+    val outputRootId: String? = null,
+    val outputPath: String? = null
 )
 
 enum class PipelineState {
@@ -43,4 +45,19 @@ data class RegisterPipelineRequest(
     val workingDirectory: String = ".",
     val writableDirectories: List<String> = emptyList(),
     val autostart: Boolean = true
+)
+
+data class PipelineLog(
+    val pipelineId: String,
+    val lines: List<String> = emptyList()
+)
+
+data class PipelineConfigDocument(
+    val pipelineId: String,
+    val path: String,
+    val content: String
+)
+
+data class UpdatePipelineConfigRequest(
+    val content: String
 )

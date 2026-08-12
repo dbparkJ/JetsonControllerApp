@@ -130,6 +130,7 @@ sudo /opt/jetson-control/configure-upload-target.sh \
     "camera": "",
     "lidar": "",
     "gnss": "",
+    "imu": "",
     "mms": ""
   },
   "allow_power_commands": true,
@@ -143,7 +144,7 @@ sudo /opt/jetson-control/configure-upload-target.sh \
 
 - `bootstrap_secret_hex`는 32 bytes이며 QR, BLE 인증, HTTP HMAC에서 같은 값을 사용한다.
 - secret을 로그, 문서, Git에 넣지 않는다.
-- 서비스 탭은 후순위다. 실제 unit이 정해지기 전에는 `controlled_services`와 `service_flags`를 비워 둔다.
+- 센서 탭은 `camera`, `gnss`, `imu` unit의 활성 상태를 표시한다. 실제 unit이 정해지기 전에는 해당 `service_flags` 값을 비워 둔다.
 - backend는 문자열 shell command를 받지 않고 설정에 있는 정확한 systemd unit만 실행한다.
 
 Storage root 예시:
@@ -170,6 +171,9 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `POST` | `/v1/commands/{action}` | HMAC | allow-list 명령 |
 | `GET` | `/v1/fs/roots` | HMAC | 노출 storage root |
 | `GET` | `/v1/fs/list?root=&path=` | HMAC | 디렉터리 목록 |
+| `GET` | `/v1/fs/file?root=&path=` | HMAC | 12 MiB 이하 수집 파일 미리보기 |
+| `GET` | `/v1/fs/workspaces` | HMAC | pipeline 사용자의 `~/` 작업공간 root |
+| `GET` | `/v1/fs/workspace/list?root=&path=` | HMAC | 작업공간 내부 소스 선택 |
 | `GET` | `/v1/upload/targets` | HMAC | 외부 업로드 대상 |
 | `POST` | `/v1/uploads` | HMAC | 업로드 작업 시작 |
 | `GET` | `/v1/uploads` | HMAC | 업로드 기록 |
@@ -183,6 +187,8 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `POST` | `/v1/pipelines` | HMAC | storage root에서 pipeline 등록 |
 | `POST` | `/v1/pipelines/{id}/{action}` | HMAC | start/stop/restart/enable/disable |
 | `DELETE` | `/v1/pipelines/{id}` | HMAC | 작업 등록 해제 |
+| `GET` | `/v1/pipelines/{id}/logs` | HMAC | 최근 systemd journal 로그 |
+| `GET`, `PUT` | `/v1/pipelines/{id}/config` | HMAC | 현재 release의 YAML 읽기와 원자 저장 |
 
 ### TLS bootstrap
 
@@ -334,7 +340,7 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 
 ## 10. Python 파이프라인 자동 실행
 
-앱은 backend가 공개한 storage root 안에서 다음 항목을 선택해 작업을 등록한다.
+앱은 인증 후 `pipeline_user`의 홈 작업공간(`~/`) 아래에서 다음 항목을 선택해 작업을 등록한다. 수집 데이터 화면은 별도의 storage root 중 수집 root 하나만 연다.
 
 - Git 작업 트리 root
 - `bin/python`을 가진 virtualenv
@@ -344,6 +350,8 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - 부팅 시 자동 실행 여부
 
 backend는 임의 shell 문자열을 저장하지 않는다. 등록기는 Git tracked 파일과 ignore되지 않은 untracked 파일만 `/opt/jetson-pipelines/<id>/releases/`에 복사하고, commit·branch·dirty 상태를 manifest에 남긴다. `.git`, ignored dataset, cache는 실행 사본에 들어가지 않는다. `current` symlink가 활성 release를 가리키며 `jetson-pipeline@<id>.service`가 선택한 virtualenv Python으로 실행한다.
+
+앱의 YAML 편집기는 `current` release 안의 등록된 `.yaml` 또는 `.yml` 파일만 UTF-8 텍스트로 읽고 원자 저장한다. 저장 후 작업을 재시작하면 반영된다. 로그 화면은 해당 작업의 정확한 systemd unit에서 최근 300줄을 읽으며, 출력 버튼은 등록 시 지정한 쓰기 경로가 수집 storage root 안에 있을 때 그 폴더를 바로 연다.
 
 관리 action은 정확히 `start`, `stop`, `restart`, `enable`, `disable`만 허용한다. 등록 해제 시 unit은 중지·비활성화하고 release는 `/opt/jetson-pipelines/.archive/`로 이동해 보존한다.
 

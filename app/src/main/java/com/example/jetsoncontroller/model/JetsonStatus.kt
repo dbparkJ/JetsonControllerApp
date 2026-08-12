@@ -13,7 +13,11 @@ data class JetsonStatus(
     val cameraRunning: Boolean = false,
     val lidarRunning: Boolean = false,
     val gnssRunning: Boolean = false,
+    val imuRunning: Boolean = false,
     val mmsRunning: Boolean = false,
+    val cameraConfigured: Boolean = false,
+    val gnssConfigured: Boolean = false,
+    val imuConfigured: Boolean = false,
     val wifiConnected: Boolean = false,
     val wifiSsid: String? = null
 )

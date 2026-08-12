@@ -34,6 +34,9 @@ class MainActivity :
     private var localNetworkPermissionGranted
         by mutableStateOf(false)
 
+    private var notificationPermissionGranted
+        by mutableStateOf(false)
+
 
     private fun hasBluetoothPermissions():
         Boolean {
@@ -109,12 +112,21 @@ class MainActivity :
             ) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun hasNotificationPermission(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun refreshPermissionState() {
         bluetoothPermissionGranted = hasBluetoothPermissions()
         cameraPermissionGranted = hasCameraPermission()
         nearbyWifiPermissionGranted = hasNearbyWifiPermission()
         wifiScanPermissionGranted = hasWifiScanPermission()
         localNetworkPermissionGranted = hasLocalNetworkPermission()
+        notificationPermissionGranted = hasNotificationPermission()
     }
 
 
@@ -160,6 +172,8 @@ class MainActivity :
                 JetsonApp(
                     repository =
                         app.repository,
+                    alertPreferences =
+                        app.alertPreferences,
                     bluetoothPermissionGranted =
                         bluetoothPermissionGranted,
                     cameraPermissionGranted =
@@ -170,6 +184,8 @@ class MainActivity :
                         wifiScanPermissionGranted,
                     localNetworkPermissionGranted =
                         localNetworkPermissionGranted,
+                    notificationPermissionGranted =
+                        notificationPermissionGranted,
                     onRequestCameraPermission = {
                         permissionLauncher.launch(
                             arrayOf(Manifest.permission.CAMERA)
@@ -189,6 +205,13 @@ class MainActivity :
                         if (Build.VERSION.SDK_INT >= 37) {
                             permissionLauncher.launch(
                                 arrayOf(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                            )
+                        }
+                    },
+                    onRequestNotificationPermission = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissionLauncher.launch(
+                                arrayOf(Manifest.permission.POST_NOTIFICATIONS)
                             )
                         }
                     }

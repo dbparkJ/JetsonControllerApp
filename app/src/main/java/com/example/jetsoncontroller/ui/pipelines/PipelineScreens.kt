@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.pipelines
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,6 +69,8 @@ import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.ui.components.EmptyState
 import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.SectionHeader
+import com.example.jetsoncontroller.ui.components.ControlNavigationBar
+import com.example.jetsoncontroller.ui.components.ControlSection
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +81,10 @@ fun PipelineListScreen(
     onAdd: () -> Unit,
     onControl: (ManagedPipeline, String) -> Unit,
     onRemove: (ManagedPipeline) -> Unit,
+    onLogs: (ManagedPipeline) -> Unit,
+    onConfig: (ManagedPipeline) -> Unit,
+    onOutput: (ManagedPipeline) -> Unit,
+    onSectionSelected: (ControlSection) -> Unit,
     onClearMessage: () -> Unit
 ) {
     var pendingRemoval by remember { mutableStateOf<ManagedPipeline?>(null) }
@@ -119,6 +128,9 @@ fun PipelineListScreen(
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("작업 추가") }
             )
+        },
+        bottomBar = {
+            ControlNavigationBar(ControlSection.PIPELINES, onSectionSelected)
         }
     ) { paddingValues ->
         Box(Modifier.fillMaxSize().padding(paddingValues)) {
@@ -161,7 +173,10 @@ fun PipelineListScreen(
                         busy = state.busyPipelineId == pipeline.id,
                         controlsEnabled = state.busyPipelineId == null,
                         onControl = { action -> onControl(pipeline, action) },
-                        onRemove = { pendingRemoval = pipeline }
+                        onRemove = { pendingRemoval = pipeline },
+                        onLogs = { onLogs(pipeline) },
+                        onConfig = { onConfig(pipeline) },
+                        onOutput = { onOutput(pipeline) }
                     )
                 }
             }
@@ -178,7 +193,10 @@ private fun PipelineItem(
     busy: Boolean,
     controlsEnabled: Boolean,
     onControl: (String) -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onLogs: () -> Unit,
+    onConfig: () -> Unit,
+    onOutput: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -245,6 +263,27 @@ private fun PipelineItem(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 8.dp)
                 )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                TextButton(onClick = onLogs, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Terminal, contentDescription = null)
+                    Text("로그", modifier = Modifier.padding(start = 4.dp))
+                }
+                TextButton(onClick = onConfig, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Description, contentDescription = null)
+                    Text("YAML", modifier = Modifier.padding(start = 4.dp))
+                }
+                TextButton(
+                    onClick = onOutput,
+                    enabled = pipeline.outputRootId != null && pipeline.outputPath != null,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = null)
+                    Text("출력", modifier = Modifier.padding(start = 4.dp))
+                }
             }
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
@@ -513,6 +552,7 @@ fun PipelinePickerScreen(
     onFileClick: (RemoteFileEntry) -> Unit,
     onSelectCurrentDirectory: () -> Unit
 ) {
+    BackHandler(onBack = onBack)
     val directoryTarget = state.target == PipelinePickerTarget.REPOSITORY ||
         state.target == PipelinePickerTarget.VIRTUALENV
     Scaffold(
@@ -622,6 +662,126 @@ fun PipelinePickerScreen(
             if (state.isLoading) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PipelineLogScreen(
+    state: PipelineUiState,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit
+) {
+    BackHandler(onBack = onBack)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("실행 로그") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onRefresh, enabled = !state.detailLoading) {
+                        Icon(Icons.Default.Refresh, contentDescription = "로그 새로고침")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Box(Modifier.fillMaxSize().padding(paddingValues)) {
+            when {
+                state.error != null -> InlineMessage(
+                    message = state.error,
+                    isError = true,
+                    modifier = Modifier.padding(20.dp)
+                )
+                state.logLines.isEmpty() && !state.detailLoading -> EmptyState(
+                    title = "표시할 로그가 없습니다",
+                    message = "작업을 실행하면 최근 로그가 여기에 표시됩니다."
+                )
+                else -> SelectionContainer {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp)
+                    ) {
+                        item {
+                            Text(
+                                state.logLines.joinToString("\n"),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            }
+            if (state.detailLoading) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PipelineConfigScreen(
+    state: PipelineUiState,
+    onBack: () -> Unit,
+    onContentChange: (String) -> Unit,
+    onSave: () -> Unit
+) {
+    BackHandler(onBack = onBack)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("YAML 설정")
+                        if (state.configPath.isNotBlank()) {
+                            Text(
+                                state.configPath,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = onSave,
+                        enabled = !state.detailLoading && !state.configSaving
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = "YAML 저장")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp)
+        ) {
+            state.error?.let {
+                InlineMessage(it, isError = true, modifier = Modifier.padding(bottom = 12.dp))
+            }
+            state.message?.let {
+                InlineMessage(it, isError = false, modifier = Modifier.padding(bottom = 12.dp))
+            }
+            OutlinedTextField(
+                value = state.configContent,
+                onValueChange = onContentChange,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                enabled = !state.detailLoading && !state.configSaving,
+                textStyle = MaterialTheme.typography.bodySmall,
+                label = { Text("YAML") }
+            )
         }
     }
 }

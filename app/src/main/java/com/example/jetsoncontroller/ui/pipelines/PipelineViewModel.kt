@@ -73,6 +73,12 @@ data class PipelineUiState(
     val isLoading: Boolean = false,
     val busyPipelineId: String? = null,
     val registrationComplete: Boolean = false,
+    val detailPipelineId: String? = null,
+    val logLines: List<String> = emptyList(),
+    val configPath: String = "",
+    val configContent: String = "",
+    val detailLoading: Boolean = false,
+    val configSaving: Boolean = false,
     val message: String? = null,
     val error: String? = null
 )
@@ -112,7 +118,7 @@ class PipelineViewModel(
         operationJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val pipelines = repository.getPipelines()
-            val roots = repository.getRoots()
+            val roots = repository.getWorkspaceRoots()
             if (generation != connectionGeneration) return@launch
             if (pipelines.isFailure || roots.isFailure) {
                 _uiState.value = _uiState.value.copy(
@@ -188,25 +194,31 @@ class PipelineViewModel(
         val draft = _uiState.value.draft
         val repositoryRoot = draft.repositoryRoot
         val root = when (target) {
+            PipelinePickerTarget.REPOSITORY -> _uiState.value.roots.singleOrNull()
             PipelinePickerTarget.ENTRYPOINT,
-            PipelinePickerTarget.CONFIG -> repositoryRoot
-            else -> null
+            PipelinePickerTarget.CONFIG,
+            PipelinePickerTarget.VIRTUALENV -> repositoryRoot
         }
         val basePath = when (target) {
             PipelinePickerTarget.ENTRYPOINT,
             PipelinePickerTarget.CONFIG -> draft.repositoryPath
             else -> ""
         }
+        val currentPath = when (target) {
+            PipelinePickerTarget.VIRTUALENV -> draft.virtualenvPath
+                .ifEmpty { draft.repositoryPath }
+            else -> basePath
+        }
         _uiState.value = _uiState.value.copy(
             picker = PipelinePickerState(
                 target = target,
                 root = root,
                 basePath = basePath,
-                currentPath = basePath
+                currentPath = currentPath
             ),
             error = null
         )
-        if (root != null) loadPickerDirectory(root.id, basePath)
+        if (root != null) loadPickerDirectory(root.id, currentPath)
     }
 
     fun selectPickerRoot(root: RemoteRoot) {
@@ -240,6 +252,8 @@ class PipelineViewModel(
             PipelinePickerTarget.REPOSITORY -> draft.copy(
                 repositoryRoot = root,
                 repositoryPath = picker.currentPath,
+                virtualenvRoot = root,
+                virtualenvPath = joinPath(picker.currentPath, ".venv"),
                 entrypoint = "",
                 config = "config.yaml"
             )
@@ -299,7 +313,12 @@ class PipelineViewModel(
             _uiState.value = _uiState.value.copy(
                 picker = _uiState.value.picker.copy(isLoading = true, error = null)
             )
-            repository.listDirectory(rootId, path)
+            val listing = if (rootId == "workspace-home") {
+                repository.listWorkspaceDirectory(rootId, path)
+            } else {
+                repository.listDirectory(rootId, path)
+            }
+            listing
                 .onSuccess { response ->
                     val picker = _uiState.value.picker
                     if (generation == connectionGeneration &&
@@ -430,6 +449,101 @@ class PipelineViewModel(
         }
     }
 
+    fun loadLogs(pipelineId: String) {
+        val generation = connectionGeneration
+        operationJob?.cancel()
+        operationJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                detailPipelineId = pipelineId,
+                detailLoading = true,
+                logLines = emptyList(),
+                error = null
+            )
+            repository.getPipelineLogs(pipelineId)
+                .onSuccess { log ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            logLines = log.lines,
+                            detailLoading = false
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            detailLoading = false,
+                            error = error.message ?: "실행 로그를 불러오지 못했습니다."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun loadConfig(pipelineId: String) {
+        val generation = connectionGeneration
+        operationJob?.cancel()
+        operationJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                detailPipelineId = pipelineId,
+                detailLoading = true,
+                configPath = "",
+                configContent = "",
+                message = null,
+                error = null
+            )
+            repository.getPipelineConfig(pipelineId)
+                .onSuccess { document ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            configPath = document.path,
+                            configContent = document.content,
+                            detailLoading = false
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            detailLoading = false,
+                            error = error.message ?: "YAML 설정을 불러오지 못했습니다."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun setConfigContent(value: String) {
+        _uiState.value = _uiState.value.copy(configContent = value)
+    }
+
+    fun saveConfig() {
+        val pipelineId = _uiState.value.detailPipelineId ?: return
+        if (_uiState.value.configSaving) return
+        val generation = connectionGeneration
+        operationJob?.cancel()
+        operationJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(configSaving = true, error = null)
+            repository.updatePipelineConfig(pipelineId, _uiState.value.configContent)
+                .onSuccess { document ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            configContent = document.content,
+                            configSaving = false,
+                            message = "${document.path} 설정을 저장했습니다. 재시작하면 적용됩니다."
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            configSaving = false,
+                            error = error.message ?: "YAML 설정을 저장하지 못했습니다."
+                        )
+                    }
+                }
+        }
+    }
+
     fun consumeRegistrationComplete() {
         _uiState.value = _uiState.value.copy(registrationComplete = false)
     }
@@ -454,6 +568,9 @@ class PipelineViewModel(
 
     private fun isInside(path: String, base: String): Boolean =
         path == base || path.startsWith("$base/")
+
+    private fun joinPath(parent: String, child: String): String =
+        if (parent.isEmpty()) child else "$parent/$child"
 
     private fun actionMessage(label: String, action: String): String = when (action) {
         "start" -> "$label 작업을 시작했습니다."

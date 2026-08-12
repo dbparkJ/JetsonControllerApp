@@ -21,6 +21,7 @@ def manifest(pipeline_id: str = "capture"):
         "source_branch": "feature/capture",
         "source_dirty": True,
         "snapshot_created_at": "2026-08-12T00:00:00Z",
+        "writable_paths": ["/data/records"],
     }
 
 
@@ -64,6 +65,13 @@ class PipelineManagerTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         pipeline_root = self.root / "capture"
         pipeline_root.mkdir()
+        release = pipeline_root / "releases" / "release-1"
+        (release / "configs").mkdir(parents=True)
+        (release / "configs" / "capture.yaml").write_text(
+            "camera:\n  fps: 30\n",
+            encoding="utf-8",
+        )
+        (pipeline_root / "current").symlink_to(Path("releases") / "release-1")
         (pipeline_root / "pipeline.json").write_text(
             json.dumps(manifest()),
             encoding="utf-8",
@@ -112,6 +120,36 @@ class PipelineManagerTest(unittest.TestCase):
         invalid.mkdir()
         (invalid / "pipeline.json").write_text("{}", encoding="utf-8")
         self.assertEqual([item["id"] for item in self.manager.list_pipelines()], ["capture"])
+
+    def test_reads_and_atomically_updates_runtime_yaml(self) -> None:
+        document = self.manager.config_document("capture")
+        self.assertEqual(document["path"], "configs/capture.yaml")
+        self.assertIn("fps: 30", document["content"])
+
+        updated = self.manager.update_config("capture", "camera:\n  fps: 15\n")
+        self.assertEqual(updated["content"], "camera:\n  fps: 15\n")
+        self.assertEqual(
+            (self.root / "capture" / "current" / "configs" / "capture.yaml").read_text(),
+            "camera:\n  fps: 15\n",
+        )
+
+    def test_logs_use_exact_unit_and_bounded_line_count(self) -> None:
+        response = self.manager.logs("capture", 5000)
+        self.assertEqual(response["pipelineId"], "capture")
+        self.assertEqual(response["lines"], [])
+        self.assertIn(
+            [
+                "journalctl",
+                "--unit",
+                "jetson-pipeline@capture.service",
+                "--lines",
+                "1000",
+                "--output",
+                "short-iso",
+                "--no-pager",
+            ],
+            self.commands.commands,
+        )
 
 
 if __name__ == "__main__":

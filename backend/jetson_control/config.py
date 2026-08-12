@@ -124,7 +124,7 @@ class DeviceConfig:
             raise ValueError("service_flags must be an object")
         service_flags = {
             name: str(service_flags_value.get(name, "")).strip()
-            for name in ("camera", "lidar", "gnss", "mms")
+            for name in ("camera", "lidar", "gnss", "imu", "mms")
         }
         if any(unit and not UNIT_PATTERN.fullmatch(unit) for unit in service_flags.values()):
             raise ValueError("service_flags contains an invalid systemd unit")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -11,7 +12,7 @@ from . import __version__
 from .auth import RequestAuthenticator, sign_hello, sign_response
 from .commands import CommandDisabled, CommandError, CommandRunner
 from .config import DeviceConfig, RuntimePaths
-from .filesystem import StorageRegistry
+from .filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
 from .network import WifiProvisioner, validate_wifi_credentials
 from .pipelines import (
     PIPELINE_ACTIONS,
@@ -61,6 +62,12 @@ class RegisterPipelineRequest(BaseModel):
     autostart: bool = True
 
 
+class UpdatePipelineConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str
+
+
 def create_app(
     paths: Optional[RuntimePaths] = None,
     config: Optional[DeviceConfig] = None,
@@ -68,6 +75,7 @@ def create_app(
     status_collector: Optional[StatusCollector] = None,
     command_runner: Optional[CommandRunner] = None,
     storage: Optional[StorageRegistry] = None,
+    workspace_storage: Optional[WorkspaceRegistry] = None,
     upload_manager: Optional[UploadManager] = None,
     wifi_provisioner: Optional[WifiProvisioner] = None,
     pipeline_manager: Optional[PipelineManager] = None,
@@ -77,6 +85,9 @@ def create_app(
     device_config = config or DeviceConfig.load(runtime_paths.device_config)
     request_auth = authenticator or RequestAuthenticator(device_config)
     storage_service = storage or StorageRegistry(runtime_paths.storage_roots)
+    workspace_service = workspace_storage or WorkspaceRegistry.for_user(
+        device_config.pipeline_user
+    )
     status_service = status_collector or StatusCollector(
         device_config,
         storage_path=storage_service.primary_path(),
@@ -109,6 +120,7 @@ def create_app(
     app.state.status_collector = status_service
     app.state.command_runner = commands
     app.state.storage = storage_service
+    app.state.workspace_storage = workspace_service
     app.state.upload_manager = uploads
     app.state.wifi_provisioner = wifi
     app.state.pipeline_manager = pipelines
@@ -167,6 +179,28 @@ def create_app(
         }
 
     authenticated = [Depends(require_auth)]
+
+    def resolve_pipeline_source(root_id: str, relative_path: str) -> Path:
+        if root_id == WorkspaceRegistry.ROOT_ID:
+            _, target = workspace_service.resolve(root_id, relative_path)
+        else:
+            _, target = storage_service.resolve(root_id, relative_path)
+        return target
+
+    def pipeline_response(value: Dict[str, object]) -> Dict[str, object]:
+        response = dict(value)
+        writable_paths = response.pop("writablePaths", [])
+        if isinstance(writable_paths, list):
+            for writable_path in writable_paths:
+                if not isinstance(writable_path, str):
+                    continue
+                location = storage_service.locate(Path(writable_path))
+                if location is not None:
+                    response["outputRootId"], response["outputPath"] = location
+                    break
+        response.setdefault("outputRootId", None)
+        response.setdefault("outputPath", None)
+        return response
 
     @app.get("/v1/hello")
     async def hello() -> Dict[str, object]:
@@ -239,6 +273,42 @@ def create_app(
                 "root": root,
                 "path": path,
                 "entries": storage_service.list_directory(root, path),
+            }
+        except (ValueError, FileNotFoundError, NotADirectoryError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+
+    @app.get("/v1/fs/file", dependencies=authenticated)
+    async def read_file(root: str, path: str) -> Response:
+        try:
+            target, content = storage_service.read_file(
+                root,
+                path,
+                max_bytes=12 * 1024 * 1024,
+            )
+            media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            return Response(content=content, media_type=media_type)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except FileTooLarge as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+
+    @app.get("/v1/fs/workspaces", dependencies=authenticated)
+    async def workspace_roots() -> List[Dict[str, object]]:
+        return workspace_service.roots_response()
+
+    @app.get("/v1/fs/workspace/list", dependencies=authenticated)
+    async def list_workspace_files(root: str, path: str = "") -> Dict[str, object]:
+        try:
+            return {
+                "root": root,
+                "path": path,
+                "entries": workspace_service.list_directory(root, path),
             }
         except (ValueError, FileNotFoundError, NotADirectoryError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -321,20 +391,18 @@ def create_app(
     @app.get("/v1/pipelines", dependencies=authenticated)
     async def list_pipelines() -> List[Dict[str, object]]:
         try:
-            return pipelines.list_pipelines()
+            return [pipeline_response(item) for item in pipelines.list_pipelines()]
         except PipelineError as error:
             raise HTTPException(status_code=500, detail=str(error)) from error
 
     @app.post("/v1/pipelines", status_code=201, dependencies=authenticated)
     async def register_pipeline(body: RegisterPipelineRequest) -> Dict[str, object]:
         try:
-            _, repository = storage_service.resolve(
-                body.repository_root_id,
-                body.repository_path,
+            repository = resolve_pipeline_source(
+                body.repository_root_id, body.repository_path
             )
-            _, virtualenv = storage_service.resolve(
-                body.virtualenv_root_id,
-                body.virtualenv_path,
+            virtualenv = resolve_pipeline_source(
+                body.virtualenv_root_id, body.virtualenv_path
             )
             working_directory = _resolve_child(
                 repository,
@@ -345,16 +413,18 @@ def create_app(
                 _resolve_child(repository, value, "writable directory")
                 for value in body.writable_directories
             ]
-            return pipelines.register(
-                pipeline_id=body.pipeline_id,
-                label=body.label,
-                repository=repository,
-                virtualenv=virtualenv,
-                entrypoint=_relative_child(body.entrypoint, "entrypoint"),
-                config=_relative_child(body.config, "config"),
-                working_directory=working_directory,
-                writable_paths=writable_paths,
-                autostart=body.autostart,
+            return pipeline_response(
+                pipelines.register(
+                    pipeline_id=body.pipeline_id,
+                    label=body.label,
+                    repository=repository,
+                    virtualenv=virtualenv,
+                    entrypoint=_relative_child(body.entrypoint, "entrypoint"),
+                    config=_relative_child(body.config, "config"),
+                    working_directory=working_directory,
+                    writable_paths=writable_paths,
+                    autostart=body.autostart,
+                )
             )
         except PipelineConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -375,12 +445,42 @@ def create_app(
         except PipelineError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
 
+    @app.get("/v1/pipelines/{pipeline_id}/logs", dependencies=authenticated)
+    async def pipeline_logs(pipeline_id: str, lines: int = 200) -> Dict[str, object]:
+        try:
+            return pipelines.logs(pipeline_id, lines)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/v1/pipelines/{pipeline_id}/config", dependencies=authenticated)
+    async def pipeline_config(pipeline_id: str) -> Dict[str, str]:
+        try:
+            return pipelines.config_document(pipeline_id)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.put("/v1/pipelines/{pipeline_id}/config", dependencies=authenticated)
+    async def update_pipeline_config(
+        pipeline_id: str,
+        body: UpdatePipelineConfigRequest,
+    ) -> Dict[str, str]:
+        try:
+            return pipelines.update_config(pipeline_id, body.content)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @app.post("/v1/pipelines/{pipeline_id}/{action}", dependencies=authenticated)
     async def control_pipeline(pipeline_id: str, action: str) -> Dict[str, object]:
         if action not in PIPELINE_ACTIONS:
             raise HTTPException(status_code=404, detail="Unknown pipeline action")
         try:
-            return pipelines.control(pipeline_id, action)
+            return pipeline_response(pipelines.control(pipeline_id, action))
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:

@@ -14,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.alerts.AlertPreferencesStore
 import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
 import com.example.jetsoncontroller.data.transport.TransportState
@@ -37,9 +38,15 @@ import com.example.jetsoncontroller.ui.upload.UploadHistoryScreen
 import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
 import com.example.jetsoncontroller.ui.upload.UploadViewModel
 import com.example.jetsoncontroller.ui.pipelines.PipelineEditorScreen
+import com.example.jetsoncontroller.ui.pipelines.PipelineConfigScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
+import com.example.jetsoncontroller.ui.pipelines.PipelineLogScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelinePickerScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineViewModel
+import com.example.jetsoncontroller.ui.sensors.SensorScreen
+import com.example.jetsoncontroller.ui.settings.AlertSettingsScreen
+import com.example.jetsoncontroller.ui.settings.AlertSettingsViewModel
+import com.example.jetsoncontroller.ui.components.ControlSection
 
 private object Routes {
 
@@ -64,8 +71,10 @@ private object Routes {
     const val NETWORK_SETTINGS =
         "network_settings"
         
-    const val STORAGE =
-        "storage"
+    const val STORAGE = "storage"
+
+    const val STORAGE_ROUTE =
+        "storage?rootId={rootId}&path={path}"
 
     const val UPLOAD_CONFIRM =
         "upload_confirm/{rootId}?path={path}"
@@ -84,6 +93,16 @@ private object Routes {
 
     const val PIPELINE_PICKER =
         "pipeline_picker"
+
+    const val PIPELINE_LOGS =
+        "pipeline_logs/{pipelineId}"
+
+    const val PIPELINE_CONFIG =
+        "pipeline_config/{pipelineId}"
+
+    const val SENSORS = "sensors"
+
+    const val SETTINGS = "settings"
 }
 
 
@@ -91,6 +110,7 @@ private object Routes {
 fun JetsonApp(
     repository:
         JetsonRepository,
+    alertPreferences: AlertPreferencesStore,
     bluetoothPermissionGranted:
         Boolean,
     cameraPermissionGranted:
@@ -101,6 +121,8 @@ fun JetsonApp(
         Boolean,
     localNetworkPermissionGranted:
         Boolean,
+    notificationPermissionGranted:
+        Boolean,
     onRequestCameraPermission:
         () -> Unit,
     onRequestNearbyWifiPermission:
@@ -108,6 +130,8 @@ fun JetsonApp(
     onRequestWifiScanPermission:
         () -> Unit,
     onRequestLocalNetworkPermission:
+        () -> Unit,
+    onRequestNotificationPermission:
         () -> Unit
 ) {
 
@@ -186,6 +210,9 @@ fun JetsonApp(
                 )
         )
 
+    val alertSettingsViewModel: AlertSettingsViewModel =
+        viewModel(factory = AlertSettingsViewModel.Factory(alertPreferences))
+
     val deviceState by
         deviceViewModel
             .uiState
@@ -226,6 +253,9 @@ fun JetsonApp(
             .uiState
             .collectAsStateWithLifecycle()
 
+    val alertSettings by
+        alertSettingsViewModel.settings.collectAsStateWithLifecycle()
+
     val lanEndpoints by
         repository.lanEndpoints.collectAsStateWithLifecycle()
 
@@ -246,6 +276,20 @@ fun JetsonApp(
 
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
+
+    val onSectionSelected: (ControlSection) -> Unit = { section ->
+        val route = when (section) {
+            ControlSection.OVERVIEW -> Routes.DASHBOARD
+            ControlSection.DATA -> Routes.STORAGE
+            ControlSection.PIPELINES -> Routes.PIPELINES
+            ControlSection.SENSORS -> Routes.SENSORS
+            ControlSection.SETTINGS -> Routes.SETTINGS
+        }
+        navController.navigate(route) {
+            popUpTo(Routes.DASHBOARD) { inclusive = false }
+            launchSingleTop = true
+        }
+    }
 
 
     LaunchedEffect(
@@ -529,6 +573,8 @@ fun JetsonApp(
                     navController.navigate(Routes.PIPELINES)
                 },
 
+                onSectionSelected = onSectionSelected,
+
                 onDismissOperationMessage =
                     dashboardViewModel::clearOperationMessage,
 
@@ -563,7 +609,28 @@ fun JetsonApp(
             )
         }
         
-        composable(Routes.STORAGE) {
+        composable(
+            route = Routes.STORAGE_ROUTE,
+            arguments = listOf(
+                navArgument("rootId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("path") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                }
+            )
+        ) { backStackEntry ->
+            val rootId = backStackEntry.arguments?.getString("rootId").orEmpty()
+            val initialPath = backStackEntry.arguments?.getString("path").orEmpty()
+            LaunchedEffect(rootId, initialPath) {
+                if (rootId.isNotEmpty()) {
+                    storageViewModel.openLocation(rootId, initialPath)
+                } else {
+                    storageViewModel.openCollection()
+                }
+            }
             DeviceStorageScreen(
                 state = storageState,
                 onBack = {
@@ -572,13 +639,14 @@ fun JetsonApp(
                     }
                 },
                 onRefresh = storageViewModel::refresh,
-                onRootClick = { storageViewModel.selectRoot(it) },
                 onDirectoryClick = { storageViewModel.selectDirectory(it) },
+                onFileClick = storageViewModel::openFile,
                 onUploadClick = { rootId, path ->
                     navController.navigate(
                         "upload_confirm/${Uri.encode(rootId)}?path=${Uri.encode(path)}"
                     )
-                }
+                },
+                onSectionSelected = onSectionSelected
             )
         }
 
@@ -605,7 +673,7 @@ fun JetsonApp(
                 onConfirm = { targetId ->
                     uploadViewModel.startUpload(rootId, path, targetId)
                     navController.navigate(Routes.UPLOAD_PROGRESS) {
-                        popUpTo(Routes.STORAGE) { inclusive = false }
+                        popUpTo(Routes.STORAGE_ROUTE) { inclusive = false }
                     }
                 }
             )
@@ -647,6 +715,20 @@ fun JetsonApp(
                 },
                 onControl = pipelineViewModel::control,
                 onRemove = pipelineViewModel::remove,
+                onLogs = { pipeline ->
+                    navController.navigate("pipeline_logs/${Uri.encode(pipeline.id)}")
+                },
+                onConfig = { pipeline ->
+                    navController.navigate("pipeline_config/${Uri.encode(pipeline.id)}")
+                },
+                onOutput = { pipeline ->
+                    val rootId = pipeline.outputRootId ?: return@PipelineListScreen
+                    val path = pipeline.outputPath ?: return@PipelineListScreen
+                    navController.navigate(
+                        "storage?rootId=${Uri.encode(rootId)}&path=${Uri.encode(path)}"
+                    )
+                },
+                onSectionSelected = onSectionSelected,
                 onClearMessage = pipelineViewModel::clearMessage
             )
         }
@@ -689,6 +771,53 @@ fun JetsonApp(
                         navController.popBackStack()
                     }
                 }
+            )
+        }
+
+        composable(
+            route = Routes.PIPELINE_LOGS,
+            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val pipelineId = backStackEntry.arguments?.getString("pipelineId").orEmpty()
+            LaunchedEffect(pipelineId) { pipelineViewModel.loadLogs(pipelineId) }
+            PipelineLogScreen(
+                state = pipelineState,
+                onBack = { navController.popBackStack() },
+                onRefresh = { pipelineViewModel.loadLogs(pipelineId) }
+            )
+        }
+
+        composable(
+            route = Routes.PIPELINE_CONFIG,
+            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val pipelineId = backStackEntry.arguments?.getString("pipelineId").orEmpty()
+            LaunchedEffect(pipelineId) { pipelineViewModel.loadConfig(pipelineId) }
+            PipelineConfigScreen(
+                state = pipelineState,
+                onBack = { navController.popBackStack() },
+                onContentChange = pipelineViewModel::setConfigContent,
+                onSave = pipelineViewModel::saveConfig
+            )
+        }
+
+        composable(Routes.SENSORS) {
+            SensorScreen(
+                status = dashboardState.status,
+                onSectionSelected = onSectionSelected
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            AlertSettingsScreen(
+                settings = alertSettings,
+                notificationPermissionGranted = notificationPermissionGranted,
+                onRequestNotificationPermission = onRequestNotificationPermission,
+                onStorageEnabledChange = alertSettingsViewModel::setStorageEnabled,
+                onStorageThresholdChange = alertSettingsViewModel::setStorageThreshold,
+                onTemperatureEnabledChange = alertSettingsViewModel::setTemperatureEnabled,
+                onTemperatureThresholdChange = alertSettingsViewModel::setTemperatureThreshold,
+                onSectionSelected = onSectionSelected
             )
         }
     }

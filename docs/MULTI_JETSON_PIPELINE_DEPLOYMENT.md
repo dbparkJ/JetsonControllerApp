@@ -194,7 +194,9 @@ Jetson에 LAN 또는 Wi-Fi Direct로 연결한 뒤 `대시보드 > 자동 실행
 5. 레포 내부 `.yaml` 또는 `.yml`
 6. 레포 기준 출력 폴더와 부팅 자동 실행 toggle
 
-앱 선택기는 backend의 허용 storage root 밖으로 이동할 수 없다. backend 등록기는 실제 Git root, venv Python, Python syntax, config 확장자, 파일 유형을 다시 검증한다. 임의 shell command는 앱에서 등록할 수 없다.
+앱의 실행 소스 선택기는 `pipeline_user`의 `~/` 아래만 탐색한다. 레포를 선택하면 `<repo>/.venv`를 기본 가상환경으로 채우며 다른 홈 하위 venv도 직접 선택할 수 있다. backend 등록기는 실제 Git root, venv Python, Python syntax, config 확장자, 파일 유형을 다시 검증한다. 임의 shell command는 앱에서 등록할 수 없다.
+
+등록된 작업 카드에서는 최근 journal 로그, 현재 release의 YAML 설정, 첫 출력 폴더를 각각 별도 화면으로 연다. YAML 저장은 실행 snapshot에 원자 반영되며 작업 재시작 후 적용된다. 소스 레포를 다시 등록하면 새 snapshot의 YAML이 기준이 된다.
 
 ## 9. 운영 명령
 

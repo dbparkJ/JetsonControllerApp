@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from jetson_control.filesystem import StorageRegistry
+from jetson_control.filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
 from jetson_control.uploads import UploadCapacityExceeded, UploadManager
 
 
@@ -148,6 +148,24 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         self.assertEqual([entry["name"] for entry in entries], ["folder", "note.txt"])
         with self.assertRaises(ValueError):
             self.storage.resolve("data", "../../etc/passwd")
+
+    def test_reads_bounded_files_and_locates_collection_paths(self) -> None:
+        target, content = self.storage.read_file("data", "note.txt", max_bytes=100)
+        self.assertEqual(target.name, "note.txt")
+        self.assertEqual(content, b"hello")
+        self.assertEqual(self.storage.locate(self.source / "folder"), ("data", "folder"))
+        with self.assertRaises(FileTooLarge):
+            self.storage.read_file("data", "note.txt", max_bytes=2)
+
+    def test_workspace_is_limited_to_configured_home(self) -> None:
+        workspace = WorkspaceRegistry(self.source)
+        self.assertEqual(workspace.roots_response()[0]["pathHint"], "~/")
+        self.assertEqual(
+            [entry["name"] for entry in workspace.list_directory("workspace-home", "")],
+            ["folder", "note.txt"],
+        )
+        with self.assertRaises(ValueError):
+            workspace.resolve("workspace-home", "../../etc")
 
     def test_concurrent_uploads_are_limited(self) -> None:
         copy_started = threading.Event()

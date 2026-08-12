@@ -5,7 +5,11 @@ import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.RegisterPipelineRequest
+import com.example.jetsoncontroller.model.PipelineConfigDocument
+import com.example.jetsoncontroller.model.PipelineLog
+import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.model.RemoteRoot
+import com.example.jetsoncontroller.model.UpdatePipelineConfigRequest
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.WifiProvisionRequest
@@ -143,6 +147,28 @@ class LocalApiClient(
     ): Result<LocalControlApi.ListFilesResponse> =
         request("파일 목록 조회") { requireApi().listFiles(rootId, path) }
 
+    suspend fun getFile(rootId: String, path: String): Result<RemoteFileContent> =
+        suspendResult {
+            val response = requireApi().getFile(rootId, path)
+            val body = requireBody(response, "파일 열기")
+            RemoteFileContent(
+                name = path.substringAfterLast('/'),
+                mimeType = body.contentType()?.toString() ?: "application/octet-stream",
+                bytes = body.bytes()
+            )
+        }
+
+    suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> =
+        request("작업공간 조회") { requireApi().getWorkspaceRoots() }
+
+    suspend fun listWorkspaceFiles(
+        rootId: String,
+        path: String
+    ): Result<LocalControlApi.ListFilesResponse> =
+        request("작업공간 파일 목록 조회") {
+            requireApi().listWorkspaceFiles(rootId, path)
+        }
+
     suspend fun getUploadTargets(): Result<List<UploadTarget>> =
         request("업로드 대상 조회") { requireApi().getUploadTargets() }
 
@@ -187,6 +213,23 @@ class LocalApiClient(
     suspend fun removePipeline(pipelineId: String): Result<Unit> = suspendResult {
         requireSuccess(requireApi().removePipeline(pipelineId), "자동 실행 작업 등록 해제")
     }
+
+    suspend fun getPipelineLogs(pipelineId: String): Result<PipelineLog> =
+        request("실행 로그 조회") { requireApi().getPipelineLogs(pipelineId) }
+
+    suspend fun getPipelineConfig(pipelineId: String): Result<PipelineConfigDocument> =
+        request("YAML 설정 조회") { requireApi().getPipelineConfig(pipelineId) }
+
+    suspend fun updatePipelineConfig(
+        pipelineId: String,
+        content: String
+    ): Result<PipelineConfigDocument> =
+        request("YAML 설정 저장") {
+            requireApi().updatePipelineConfig(
+                pipelineId,
+                UpdatePipelineConfigRequest(content)
+            )
+        }
 
     suspend fun configureWifi(
         request: WifiProvisionRequest

@@ -137,7 +137,11 @@ class StatusCollector:
         )
         flags = {
             name: self.service_active(self.config.service_flags.get(name, ""))
-            for name in ("camera", "lidar", "gnss", "mms")
+            for name in ("camera", "lidar", "gnss", "imu", "mms")
+        }
+        configured = {
+            name: bool(self.config.service_flags.get(name, ""))
+            for name in ("camera", "gnss", "imu")
         }
         wifi_connected, wifi_ssid = self.wifi_status()
         return {
@@ -153,7 +157,11 @@ class StatusCollector:
             "cameraRunning": flags["camera"],
             "lidarRunning": flags["lidar"],
             "gnssRunning": flags["gnss"],
+            "imuRunning": flags["imu"],
             "mmsRunning": flags["mms"],
+            "cameraConfigured": configured["camera"],
+            "gnssConfigured": configured["gnss"],
+            "imuConfigured": configured["imu"],
             "wifiConnected": wifi_connected,
             "wifiSsid": wifi_ssid or None,
         }

@@ -54,6 +54,8 @@ import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.MetricCard
 import com.example.jetsoncontroller.ui.components.SectionHeader
+import com.example.jetsoncontroller.ui.components.ControlNavigationBar
+import com.example.jetsoncontroller.ui.components.ControlSection
 
 private enum class PowerAction { REBOOT, SHUTDOWN }
 
@@ -69,6 +71,7 @@ fun DashboardScreen(
     onWifiDirectClick: () -> Unit,
     onUploadHistoryClick: () -> Unit,
     onPipelinesClick: () -> Unit,
+    onSectionSelected: (ControlSection) -> Unit,
     onDismissOperationMessage: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -140,6 +143,9 @@ fun DashboardScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected)
         }
     ) { paddingValues ->
         Column(
