@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +51,7 @@ fun DeviceListScreen(
     onScanClick: () -> Unit,
     onConnect: (JetsonDevice) -> Unit,
     onReconnect: (RegisteredDevice) -> Unit,
+    onForget: (RegisteredDevice) -> Unit,
     onAddDeviceClick: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -142,7 +144,8 @@ fun DeviceListScreen(
                         device = device,
                         reconnecting = state.reconnectingDeviceId == device.deviceId,
                         enabled = state.permissionGranted && state.reconnectingDeviceId == null,
-                        onReconnect = { onReconnect(device) }
+                        onReconnect = { onReconnect(device) },
+                        onForget = { onForget(device) }
                     )
                 }
             }
@@ -217,7 +220,8 @@ private fun RegisteredDeviceRow(
     device: RegisteredDevice,
     reconnecting: Boolean,
     enabled: Boolean,
-    onReconnect: () -> Unit
+    onReconnect: () -> Unit,
+    onForget: () -> Unit
 ) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -249,6 +253,9 @@ private fun RegisteredDeviceRow(
                 } else {
                     Text("연결")
                 }
+            }
+            IconButton(onClick = onForget, enabled = !reconnecting) {
+                Icon(Icons.Default.DeleteOutline, contentDescription = "저장된 장비 삭제")
             }
         }
     }

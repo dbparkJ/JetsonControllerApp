@@ -176,6 +176,13 @@ class DeviceListViewModel(
         }
     }
 
+    fun forget(device: RegisteredDevice) {
+        viewModelScope.launch {
+            repository.forgetRegisteredDevice(device.deviceId)
+            reconnectState.value = ReconnectState()
+        }
+    }
+
 
     override fun onCleared() {
 

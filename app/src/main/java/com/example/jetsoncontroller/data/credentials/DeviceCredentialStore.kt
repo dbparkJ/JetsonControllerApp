@@ -113,6 +113,19 @@ class DeviceCredentialStore(private val context: Context) {
         }.getOrNull()
     }
 
+    suspend fun removeCredential(deviceId: String) {
+        val normalizedDeviceId = deviceId.lowercase()
+        context.dataStore.edit { prefs ->
+            prefs.asMap().keys
+                .map { it.name }
+                .filter {
+                    it.startsWith("device_") &&
+                        it.removePrefix("device_").equals(normalizedDeviceId, ignoreCase = true)
+                }
+                .forEach { prefs.remove(stringPreferencesKey(it)) }
+        }
+    }
+
     val registeredDevices: Flow<List<StoredCredential>> = context.dataStore.data.map { prefs ->
         prefs.asMap().keys
             .filter { it.name.startsWith("device_") }

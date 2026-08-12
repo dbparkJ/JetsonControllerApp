@@ -276,6 +276,10 @@ class JetsonRepository(
         )
     }
 
+    suspend fun forgetRegisteredDevice(deviceId: String) {
+        credentialStore.removeCredential(deviceId)
+    }
+
 
     fun disconnect() {
 

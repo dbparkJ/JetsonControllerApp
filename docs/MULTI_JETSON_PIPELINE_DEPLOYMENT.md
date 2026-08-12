@@ -149,7 +149,41 @@ manifest에는 source repo, branch, commit, dirty 여부, Python/venv, entrypoin
 
 source 변경을 배포할 때는 pipeline을 중지한 뒤 같은 ID로 다시 등록하거나 CLI에서 `--restart-running`을 쓴다. 이전 release는 그대로 남는다. 등록 해제는 실행 release를 삭제하지 않고 `/opt/jetson-pipelines/.archive/`로 이동한다.
 
-## 7. 앱에서 작업 추가
+## 7. 변경분 시스템 반영
+
+Controller backend 코드, systemd unit, helper script가 바뀌면 Git 작업 트리를 최신 commit으로 맞춘 뒤 설치 script를 다시 실행한다. `install.sh`는 `/opt/jetson-control/jetson_control`을 새 복사본으로 교체하고, systemd unit과 실행 script를 덮어쓰며, 기존 `/etc/jetson-control/device.json`, QR identity, storage/upload 설정은 보존한다.
+
+```bash
+git pull --ff-only
+sudo backend/scripts/install.sh \
+  --pipeline-user <user> \
+  --storage-root /home/<user>/26_camera_record \
+  --enable-power
+sudo systemctl restart jetson-control.service jetson-control-api.service
+sudo systemctl restart jetson-wifi-direct.service
+sudo /opt/jetson-control/doctor.sh
+```
+
+Python pipeline source가 바뀐 경우에는 backend 설치만으로 실행 snapshot이 바뀌지 않는다. 앱의 `자동 실행 작업`에서 해당 작업을 다시 등록하거나 CLI에서 같은 ID로 `--restart-running`을 사용해 새 release를 만든다.
+
+```bash
+sudo /opt/jetson-control/register-pipeline.sh \
+  --id depthai-capture \
+  --label "DepthAI Capture" \
+  --repo /home/<user>/26_camera_record/depthai_refactored_ver2 \
+  --venv /home/<user>/26_camera_record/.venv \
+  --entry synced_image_recorder.py \
+  --config configs/capture.yaml \
+  --working-dir /home/<user>/26_camera_record/depthai_refactored_ver2 \
+  --write-path /home/<user>/26_camera_record/depthai_refactored_ver2/image_records \
+  --user <user> \
+  --autostart \
+  --restart-running
+```
+
+운영 순서는 `Git 최신화 -> backend install 재실행 -> 필요한 pipeline 재등록 -> doctor와 앱 연결 확인`으로 고정한다. 설정 파일을 직접 복사해 덮어쓰지 말고, 설치 script와 등록기를 통해 원자적으로 반영한다.
+
+## 8. 앱에서 작업 추가
 
 Jetson에 LAN 또는 Wi-Fi Direct로 연결한 뒤 `대시보드 > 자동 실행 작업 > 작업 추가`로 이동한다. 앱에서 다음 순서로 선택한다.
 
@@ -162,7 +196,7 @@ Jetson에 LAN 또는 Wi-Fi Direct로 연결한 뒤 `대시보드 > 자동 실행
 
 앱 선택기는 backend의 허용 storage root 밖으로 이동할 수 없다. backend 등록기는 실제 Git root, venv Python, Python syntax, config 확장자, 파일 유형을 다시 검증한다. 임의 shell command는 앱에서 등록할 수 없다.
 
-## 8. 운영 명령
+## 9. 운영 명령
 
 ```bash
 systemctl status jetson-pipeline@depthai-capture.service
@@ -178,7 +212,7 @@ sudo systemctl disable jetson-pipeline@depthai-capture.service
 
 pipeline 사용자에게 필요한 장치 group을 장비 정책에 맞게 부여한다. 일반적인 후보는 `video`, `dialout`, `plugdev`지만 실제 `/dev` node의 owner/group을 먼저 확인한다. group 변경 후에는 사용자 session 재로그인 또는 재부팅이 필요하다.
 
-## 9. 검증
+## 10. 검증
 
 ```bash
 /usr/local/libexec/bluetooth/bluetoothd-5.55 -v

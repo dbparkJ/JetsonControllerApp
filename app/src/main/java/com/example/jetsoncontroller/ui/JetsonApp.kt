@@ -269,8 +269,7 @@ fun JetsonApp(
             (deviceState.connectionState is ConnectionState.Ready) ||
             wifiDirectState.apiStatus == WifiDirectApiStatus.READY ||
             transportState is TransportState.Connected
-        val connectionRoute = currentRoute == Routes.CONNECTION_HUB ||
-            currentRoute == Routes.DEVICES_BLE ||
+        val connectionRoute = currentRoute == Routes.DEVICES_BLE ||
             currentRoute == Routes.WIFI_DIRECT
 
         if (connected && connectionRoute) {
@@ -302,6 +301,17 @@ fun JetsonApp(
         if (
             deviceState.connectionState
             is ConnectionState.RegistrationRequired
+        ) {
+            navController.navigate(Routes.QR_SCANNER) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    LaunchedEffect(deviceState.registeredDevices, currentRoute) {
+        if (
+            currentRoute == Routes.CONNECTION_HUB &&
+            deviceState.registeredDevices.isEmpty()
         ) {
             navController.navigate(Routes.QR_SCANNER) {
                 launchSingleTop = true
@@ -375,6 +385,10 @@ fun JetsonApp(
                 onReconnect = {
                     device ->
                     deviceViewModel.reconnect(device)
+                },
+                onForget = {
+                    device ->
+                    deviceViewModel.forget(device)
                 },
                 onAddDeviceClick = {
                     navController.navigate(Routes.QR_SCANNER)
@@ -502,6 +516,10 @@ fun JetsonApp(
                 
                 onNetworkSettingsClick = {
                     navController.navigate(Routes.NETWORK_SETTINGS)
+                },
+
+                onWifiDirectClick = {
+                    navController.navigate(Routes.WIFI_DIRECT)
                 },
                 
                 onUploadHistoryClick = {

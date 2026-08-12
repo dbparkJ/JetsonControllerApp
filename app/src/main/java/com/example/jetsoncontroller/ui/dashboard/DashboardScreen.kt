@@ -66,6 +66,7 @@ fun DashboardScreen(
     onShutdown: () -> Unit,
     onStorageClick: () -> Unit,
     onNetworkSettingsClick: () -> Unit,
+    onWifiDirectClick: () -> Unit,
     onUploadHistoryClick: () -> Unit,
     onPipelinesClick: () -> Unit,
     onDismissOperationMessage: () -> Unit,
@@ -220,6 +221,18 @@ fun DashboardScreen(
                 description = "Jetson을 사용할 공유기에 연결",
                 enabled = state.capabilities.wifiProvisioning,
                 onClick = onNetworkSettingsClick
+            )
+            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
+            DashboardAction(
+                icon = Icons.Default.Wifi,
+                title = "Wi-Fi Direct",
+                description = if (state.transportType == TransportType.WIFI_DIRECT) {
+                    "직접 연결 상태 확인"
+                } else {
+                    "공유기 없이 Jetson 제어망 연결"
+                },
+                enabled = true,
+                onClick = onWifiDirectClick
             )
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
             DashboardAction(
