@@ -63,15 +63,7 @@ class WifiAccessPointScanner(context: Context) {
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
-                val updated = intent.getBooleanExtra(
-                    WifiManager.EXTRA_RESULTS_UPDATED,
-                    false
-                )
-                publishResults(
-                    error = if (updated) null else {
-                        "새 검색이 제한되어 최근 Wi-Fi 목록을 표시합니다."
-                    }
-                )
+                publishResults()
             }
         }
     }
@@ -108,12 +100,12 @@ class WifiAccessPointScanner(context: Context) {
         }
 
         register()
-        _state.value = _state.value.copy(scanning = true, error = null)
+        publishResults(scanning = true)
 
         if (!wifiManager.startScan()) {
-            publishResults(
-                error = "Android Wi-Fi 검색 제한으로 최근 목록을 표시합니다. 잠시 후 다시 시도하세요."
-            )
+            // Android can throttle active scans. Cached results are still valid and
+            // should remain usable instead of turning a successful lookup into an error.
+            publishResults()
         }
     }
 
@@ -131,7 +123,7 @@ class WifiAccessPointScanner(context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private fun publishResults(error: String?) {
+    private fun publishResults(scanning: Boolean = false) {
         val accessPoints = try {
             @Suppress("DEPRECATION")
             wifiManager.scanResults
@@ -157,8 +149,8 @@ class WifiAccessPointScanner(context: Context) {
 
         _state.value = WifiAccessPointState(
             accessPoints = accessPoints,
-            scanning = false,
-            error = error
+            scanning = scanning,
+            error = null
         )
     }
 

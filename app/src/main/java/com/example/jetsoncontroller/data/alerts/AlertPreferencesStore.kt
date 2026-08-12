@@ -18,6 +18,8 @@ data class AlertSettings(
     val storageThresholdPercent: Int = 85,
     val temperatureEnabled: Boolean = true,
     val temperatureThresholdC: Int = 80,
+    val pipelineStartedEnabled: Boolean = true,
+    val pipelineFailedEnabled: Boolean = true,
     val storageAlertLatched: Boolean = false,
     val temperatureAlertLatched: Boolean = false
 )
@@ -31,6 +33,8 @@ class AlertPreferencesStore(context: Context) {
             storageThresholdPercent = preferences[STORAGE_THRESHOLD] ?: 85,
             temperatureEnabled = preferences[TEMPERATURE_ENABLED] ?: true,
             temperatureThresholdC = preferences[TEMPERATURE_THRESHOLD] ?: 80,
+            pipelineStartedEnabled = preferences[PIPELINE_STARTED_ENABLED] ?: true,
+            pipelineFailedEnabled = preferences[PIPELINE_FAILED_ENABLED] ?: true,
             storageAlertLatched = preferences[STORAGE_LATCHED] ?: false,
             temperatureAlertLatched = preferences[TEMPERATURE_LATCHED] ?: false
         )
@@ -58,6 +62,14 @@ class AlertPreferencesStore(context: Context) {
         }
     }
 
+    suspend fun setPipelineStartedEnabled(enabled: Boolean) {
+        dataStore.edit { it[PIPELINE_STARTED_ENABLED] = enabled }
+    }
+
+    suspend fun setPipelineFailedEnabled(enabled: Boolean) {
+        dataStore.edit { it[PIPELINE_FAILED_ENABLED] = enabled }
+    }
+
     suspend fun setLatches(storage: Boolean, temperature: Boolean) {
         dataStore.edit {
             it[STORAGE_LATCHED] = storage
@@ -70,6 +82,8 @@ class AlertPreferencesStore(context: Context) {
         val STORAGE_THRESHOLD = intPreferencesKey("storage_threshold")
         val TEMPERATURE_ENABLED = booleanPreferencesKey("temperature_enabled")
         val TEMPERATURE_THRESHOLD = intPreferencesKey("temperature_threshold")
+        val PIPELINE_STARTED_ENABLED = booleanPreferencesKey("pipeline_started_enabled")
+        val PIPELINE_FAILED_ENABLED = booleanPreferencesKey("pipeline_failed_enabled")
         val STORAGE_LATCHED = booleanPreferencesKey("storage_latched")
         val TEMPERATURE_LATCHED = booleanPreferencesKey("temperature_latched")
     }

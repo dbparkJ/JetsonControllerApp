@@ -16,6 +16,8 @@ import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import retrofit2.Response
@@ -34,6 +36,10 @@ class LocalApiClient(
     private var currentBaseUrl: String? = null
     private var api: LocalControlApi? = null
     private var bootstrapTrustManager: HelloBootstrapTrustManager? = null
+    private val sessionRefreshMutex = Mutex()
+
+    @Volatile
+    private var sessionRevision = 0L
 
     fun updateEndpoint(host: String, port: Int) {
         val normalizedHost = host.removePrefix("[").removeSuffix("]")
@@ -47,6 +53,7 @@ class LocalApiClient(
 
         currentBaseUrl = url
         authInterceptor.clearSession()
+        sessionRevision += 1
         bootstrapTrustManager = HelloBootstrapTrustManager()
         api = buildApi(bootstrapTrustManager ?: HelloBootstrapTrustManager())
     }
@@ -121,6 +128,7 @@ class LocalApiClient(
                 secret = secret,
                 serverTimeEpochSeconds = body.serverTimeEpochSeconds
             )
+            sessionRevision += 1
         }
         body
     }
@@ -135,7 +143,10 @@ class LocalApiClient(
         command: String,
         body: Map<String, Any> = emptyMap()
     ): Result<Unit> = suspendResult {
-        requireSuccess(requireApi().sendCommand(command, body), "명령 전송")
+        requireSuccess(
+            withSessionRetry { requireApi().sendCommand(command, body) },
+            "명령 전송"
+        )
     }
 
     suspend fun getRoots(): Result<List<RemoteRoot>> =
@@ -149,7 +160,7 @@ class LocalApiClient(
 
     suspend fun getFile(rootId: String, path: String): Result<RemoteFileContent> =
         suspendResult {
-            val response = requireApi().getFile(rootId, path)
+            val response = withSessionRetry { requireApi().getFile(rootId, path) }
             val body = requireBody(response, "파일 열기")
             RemoteFileContent(
                 name = path.substringAfterLast('/'),
@@ -211,7 +222,10 @@ class LocalApiClient(
         }
 
     suspend fun removePipeline(pipelineId: String): Result<Unit> = suspendResult {
-        requireSuccess(requireApi().removePipeline(pipelineId), "자동 실행 작업 등록 해제")
+        requireSuccess(
+            withSessionRetry { requireApi().removePipeline(pipelineId) },
+            "자동 실행 작업 등록 해제"
+        )
     }
 
     suspend fun getPipelineLogs(pipelineId: String): Result<PipelineLog> =
@@ -243,7 +257,21 @@ class LocalApiClient(
         operation: String,
         call: suspend () -> Response<T>
     ): Result<T> = suspendResult {
-        requireBody(call(), operation)
+        requireBody(withSessionRetry(call), operation)
+    }
+
+    private suspend fun <T> withSessionRetry(call: suspend () -> T): T {
+        val attemptedRevision = sessionRevision
+        return try {
+            call()
+        } catch (_: JetsonSessionExpiredException) {
+            sessionRefreshMutex.withLock {
+                if (sessionRevision == attemptedRevision) {
+                    hello().getOrThrow()
+                }
+            }
+            call()
+        }
     }
 
     private suspend fun <T> suspendResult(

@@ -34,6 +34,14 @@ class AlertSettingsViewModel(
         preferences.setTemperatureThreshold(value)
     }
 
+    fun setPipelineStartedEnabled(enabled: Boolean) = viewModelScope.launch {
+        preferences.setPipelineStartedEnabled(enabled)
+    }
+
+    fun setPipelineFailedEnabled(enabled: Boolean) = viewModelScope.launch {
+        preferences.setPipelineFailedEnabled(enabled)
+    }
+
     class Factory(
         private val preferences: AlertPreferencesStore
     ) : ViewModelProvider.Factory {

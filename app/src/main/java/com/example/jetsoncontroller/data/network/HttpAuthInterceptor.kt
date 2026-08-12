@@ -6,6 +6,10 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
 import java.io.IOException
 
+class JetsonSessionExpiredException : IOException(
+    "Jetson 인증 세션이 만료되었습니다."
+)
+
 class HttpAuthInterceptor : Interceptor {
 
     private data class Session(
@@ -78,6 +82,11 @@ class HttpAuthInterceptor : Interceptor {
         val contentType = responseBody?.contentType()
         val responseBytes = responseBody?.bytes() ?: byteArrayOf()
         val responseSignature = response.header("X-Response-Signature")
+
+        if (response.code == 401 && responseSignature == null) {
+            response.close()
+            throw JetsonSessionExpiredException()
+        }
 
         if (responseSignature == null || !HttpAuthSigner.verifyResponse(
                 secret = currentSession.secret,

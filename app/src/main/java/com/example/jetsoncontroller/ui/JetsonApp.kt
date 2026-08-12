@@ -817,6 +817,10 @@ fun JetsonApp(
                 onStorageThresholdChange = alertSettingsViewModel::setStorageThreshold,
                 onTemperatureEnabledChange = alertSettingsViewModel::setTemperatureEnabled,
                 onTemperatureThresholdChange = alertSettingsViewModel::setTemperatureThreshold,
+                onPipelineStartedEnabledChange =
+                    alertSettingsViewModel::setPipelineStartedEnabled,
+                onPipelineFailedEnabledChange =
+                    alertSettingsViewModel::setPipelineFailedEnabled,
                 onSectionSelected = onSectionSelected
             )
         }

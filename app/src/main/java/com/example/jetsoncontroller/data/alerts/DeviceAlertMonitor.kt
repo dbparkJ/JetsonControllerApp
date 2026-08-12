@@ -13,8 +13,16 @@ import androidx.core.content.ContextCompat
 import com.example.jetsoncontroller.MainActivity
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.transport.TransportState
+import com.example.jetsoncontroller.data.transport.TransportType
+import com.example.jetsoncontroller.model.PipelineState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class DeviceAlertMonitor(
@@ -24,7 +32,12 @@ class DeviceAlertMonitor(
     private val scope: CoroutineScope
 ) {
     fun start() {
-        createChannel()
+        createChannels()
+        startHealthAlerts()
+        startPipelineAlerts()
+    }
+
+    private fun startHealthAlerts() {
         scope.launch {
             combine(repository.status, preferences.settings) { status, settings ->
                 status to settings
@@ -42,6 +55,7 @@ class DeviceAlertMonitor(
                 if (decision.notifyStorage) {
                     notify(
                         STORAGE_NOTIFICATION_ID,
+                        HEALTH_CHANNEL_ID,
                         "Jetson 저장공간 경고",
                         "저장공간 사용량이 ${status.storagePercent}%입니다. 수집 데이터를 확인하세요."
                     )
@@ -50,6 +64,7 @@ class DeviceAlertMonitor(
                 if (decision.notifyTemperature) {
                     notify(
                         TEMPERATURE_NOTIFICATION_ID,
+                        HEALTH_CHANNEL_ID,
                         "Jetson 온도 경고",
                         "장비 온도가 ${status.temperatureC} C입니다. 냉각 상태를 확인하세요."
                     )
@@ -67,6 +82,47 @@ class DeviceAlertMonitor(
         }
     }
 
+    private fun startPipelineAlerts() {
+        scope.launch {
+            repository.transportState.collectLatest { transport ->
+                if (transport !is TransportState.Connected || transport.type == TransportType.BLE) {
+                    return@collectLatest
+                }
+
+                var previousStates: Map<String, PipelineState>? = null
+                while (currentCoroutineContext().isActive) {
+                    repository.getPipelines().onSuccess { pipelines ->
+                        val decision = PipelineAlertEvaluator.evaluate(previousStates, pipelines)
+                        previousStates = decision.currentStates
+                        val settings = preferences.settings.first()
+
+                        if (notificationsAllowed() && settings.pipelineStartedEnabled) {
+                            decision.started.forEach { pipeline ->
+                                notify(
+                                    pipelineNotificationId(PIPELINE_STARTED_NOTIFICATION_BASE, pipeline.id),
+                                    PIPELINE_CHANNEL_ID,
+                                    "작업 시작됨",
+                                    "${pipeline.label} 작업이 실행을 시작했습니다."
+                                )
+                            }
+                        }
+                        if (notificationsAllowed() && settings.pipelineFailedEnabled) {
+                            decision.failed.forEach { pipeline ->
+                                notify(
+                                    pipelineNotificationId(PIPELINE_FAILED_NOTIFICATION_BASE, pipeline.id),
+                                    PIPELINE_CHANNEL_ID,
+                                    "작업 오류 종료",
+                                    "${pipeline.label} 작업이 오류로 종료되었습니다. 로그를 확인하세요."
+                                )
+                            }
+                        }
+                    }
+                    delay(PIPELINE_POLL_INTERVAL_MS)
+                }
+            }
+        }
+    }
+
     private fun notificationsAllowed(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(
@@ -74,20 +130,29 @@ class DeviceAlertMonitor(
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
 
-    private fun createChannel() {
+    private fun createChannels() {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(
-                CHANNEL_ID,
+                HEALTH_CHANNEL_ID,
                 "Jetson 장비 경고",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "저장공간 및 장비 온도 임계치 알림"
             }
         )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                PIPELINE_CHANNEL_ID,
+                "Jetson 작업 알림",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "자동 실행 작업 시작 및 오류 종료 알림"
+            }
+        )
     }
 
-    private fun notify(id: Int, title: String, message: String) {
+    private fun notify(id: Int, channelId: String, title: String, message: String) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -97,7 +162,7 @@ class DeviceAlertMonitor(
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(message)
@@ -109,9 +174,17 @@ class DeviceAlertMonitor(
         context.getSystemService(NotificationManager::class.java).notify(id, notification)
     }
 
+    private fun pipelineNotificationId(base: Int, pipelineId: String): Int =
+        base + (pipelineId.hashCode() and PIPELINE_NOTIFICATION_ID_MASK)
+
     private companion object {
-        const val CHANNEL_ID = "jetson_device_alerts"
+        const val HEALTH_CHANNEL_ID = "jetson_device_alerts"
+        const val PIPELINE_CHANNEL_ID = "jetson_pipeline_alerts"
         const val STORAGE_NOTIFICATION_ID = 2001
         const val TEMPERATURE_NOTIFICATION_ID = 2002
+        const val PIPELINE_STARTED_NOTIFICATION_BASE = 10_000
+        const val PIPELINE_FAILED_NOTIFICATION_BASE = 30_000
+        const val PIPELINE_NOTIFICATION_ID_MASK = 0x3fff
+        const val PIPELINE_POLL_INTERVAL_MS = 5_000L
     }
 }
