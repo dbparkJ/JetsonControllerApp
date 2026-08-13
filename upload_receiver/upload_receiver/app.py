@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 from contextlib import asynccontextmanager
 
@@ -114,7 +116,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session_id, status = await run_in_threadpool(
             receiver.create_session, device, manifest
         )
-        return JSONResponse(status_code=status, content={"sessionId": session_id})
+        return JSONResponse(
+            status_code=status,
+            content={
+                "sessionId": session_id,
+                "fileBatch": {
+                    "version": 1,
+                    "maxBytes": effective_settings.max_batch_bytes,
+                    "maxFiles": effective_settings.max_batch_files,
+                },
+            },
+        )
 
     @application.get("/v1/upload-sessions/{session_id}/files/offset")
     async def get_offset(session_id: str, request: Request):
@@ -129,6 +141,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             receiver.get_offset, device, session_id, paths[0]
         )
         return {"nextOffset": offset}
+
+    @application.post("/v1/upload-sessions/{session_id}/files/offsets")
+    async def get_offsets(session_id: str, request: Request):
+        receiver = service(request)
+        device = await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        _require_content_type(request, "application/json")
+        body = await _bounded_body(request, effective_settings.max_manifest_bytes)
+        try:
+            value = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ReceiverError(400, "Batch offset JSON is invalid") from error
+        if not isinstance(value, dict) or set(value) != {"paths"}:
+            raise ReceiverError(400, "Batch offset request is invalid")
+        paths = value["paths"]
+        if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+            raise ReceiverError(400, "Batch offset paths are invalid")
+        offsets = await run_in_threadpool(
+            receiver.get_offsets,
+            device,
+            session_id,
+            paths,
+        )
+        return {
+            "files": [
+                {"path": path, "nextOffset": next_offset}
+                for path, next_offset in offsets.items()
+            ]
+        }
 
     @application.put("/v1/upload-sessions/{session_id}/files")
     async def put_chunk(session_id: str, request: Request):
@@ -168,6 +210,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             receiver.release_put_slot(device.device_id)
         return {"nextOffset": next_offset}
+
+    @application.put("/v1/upload-sessions/{session_id}/files/batch")
+    async def put_file_batch(session_id: str, request: Request):
+        receiver = service(request)
+        device = await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        _require_content_type(request, "application/vnd.jetson.upload-batch-v1")
+        batch_sha256 = request.headers.get("x-batch-sha256")
+        if batch_sha256 is None:
+            raise ReceiverError(400, "X-Batch-SHA256 is required")
+        await run_in_threadpool(receiver.acquire_put_slot, device.device_id)
+        try:
+            body = await _bounded_body(request, effective_settings.max_batch_bytes)
+            if not hmac.compare_digest(
+                hashlib.sha256(body).hexdigest(),
+                batch_sha256,
+            ):
+                raise ReceiverError(422, "File batch SHA-256 does not match")
+            files = await run_in_threadpool(receiver.parse_file_batch, body)
+            offsets = await run_in_threadpool(
+                receiver.put_file_batch,
+                device,
+                session_id,
+                files,
+                slot_reserved=True,
+            )
+        finally:
+            receiver.release_put_slot(device.device_id)
+        return {
+            "files": [
+                {"path": path, "nextOffset": next_offset}
+                for path, next_offset in offsets.items()
+            ]
+        }
 
     @application.post("/v1/upload-sessions/{session_id}/complete")
     async def complete(session_id: str, request: Request):

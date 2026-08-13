@@ -39,6 +39,8 @@ class Settings:
     require_mount: bool
     max_manifest_bytes: int = 32 * 1024 * 1024
     max_chunk_bytes: int = 4 * 1024 * 1024
+    max_batch_bytes: int = 32 * 1024 * 1024
+    max_batch_files: int = 256
     max_files_per_session: int = 100_000
     max_session_bytes: int = 5 * 1024**4
     max_concurrent_puts_per_device: int = 2
@@ -64,6 +66,12 @@ class Settings:
             ),
             max_chunk_bytes=_positive_int(
                 "UPLOAD_RECEIVER_MAX_CHUNK_BYTES", 4 * 1024 * 1024
+            ),
+            max_batch_bytes=_positive_int(
+                "UPLOAD_RECEIVER_MAX_BATCH_BYTES", 32 * 1024 * 1024
+            ),
+            max_batch_files=_positive_int(
+                "UPLOAD_RECEIVER_MAX_BATCH_FILES", 256
             ),
             max_files_per_session=_positive_int(
                 "UPLOAD_RECEIVER_MAX_FILES", 100_000

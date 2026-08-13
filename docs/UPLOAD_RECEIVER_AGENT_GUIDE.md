@@ -27,6 +27,8 @@ Public upload receiver
 송신 코드는 `backend/jetson_control/uploads.py`에 있다.
 
 - 청크 크기: 최대 4 MiB
+- 작은 파일이 많은 디렉터리는 수신기가 `fileBatch` capability를 광고할 때 최대 32 MiB, 256개 파일 단위로 묶어 전송
+- 배치 전송 전 여러 파일의 오프셋을 한 요청으로 조회하고, 일부만 올라간 파일은 기존 4 MiB 재개 청크로 자동 전환
 - 파일 전체 SHA-256을 세션 생성 전에 계산
 - 청크별 `X-Chunk-SHA256` 전송
 - 실패 시 0, 1, 3, 7초 간격으로 재시도
@@ -74,6 +76,7 @@ CORS는 필요하지 않다. 호출자는 브라우저가 아닌 Jetson 데몬�
 | 세션당 파일 | 100,000 |
 | 세션 전체 크기 | 장비 정책에 따라 1~5 TiB |
 | 개별 청크 | 4 MiB |
+| 파일 배치 | 32 MiB, 최대 256개 |
 | manifest JSON | 32 MiB |
 | 동시 파일 PUT | 세션당 1개, 장비당 2개 이하 |
 
@@ -157,9 +160,16 @@ Content-Type: application/json
 
 ```json
 {
-  "sessionId": "dfe4038e-314c-45e0-b0d5-e8bca82b163c"
+  "sessionId": "dfe4038e-314c-45e0-b0d5-e8bca82b163c",
+  "fileBatch": {
+    "version": 1,
+    "maxBytes": 33554432,
+    "maxFiles": 256
+  }
 }
 ```
+
+`fileBatch`는 선택 capability다. 새 Jetson backend는 이 값이 있으면 다수 파일 배치 전송을 사용하고, 필드가 없는 기존 수신기에는 파일별 offset/청크 계약을 그대로 사용한다.
 
 ### 6.2 파일 오프셋 조회
 
@@ -178,7 +188,57 @@ Authorization: Bearer <token>
 - `0 <= nextOffset <= sizeBytes`를 항상 보장한다.
 - 취소되거나 실패한 세션은 `409`, 없는 경로는 `404`를 반환한다.
 
-### 6.3 청크 업로드
+### 6.3 배치 파일 오프셋 조회
+
+```http
+POST /v1/upload-sessions/{sessionId}/files/offsets
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"paths":["camera/front/000001.jpg","camera/front/000002.jpg"]}
+```
+
+```json
+{
+  "files": [
+    {"path": "camera/front/000001.jpg", "nextOffset": 0},
+    {"path": "camera/front/000002.jpg", "nextOffset": 1843200}
+  ]
+}
+```
+
+한 요청의 경로 수는 세션 생성 응답의 `fileBatch.maxFiles` 이하로 제한한다. 요청 순서대로 모든 경로와 오프셋을 반환하며, 중복·누락·타 장비 세션은 거부한다.
+
+### 6.4 다수 파일 배치 업로드
+
+```http
+PUT /v1/upload-sessions/{sessionId}/files/batch
+Authorization: Bearer <token>
+Content-Type: application/vnd.jetson.upload-batch-v1
+Content-Length: <bytes>
+X-Batch-SHA256: <64-lowercase-hex>
+
+<JETSONBATCH1 binary body>
+```
+
+`JETSONBATCH1` body는 네트워크 byte order로 다음 필드를 연속 배치한다.
+
+1. ASCII magic `JETSONBATCH1\n`
+2. unsigned 32-bit 파일 수
+3. 파일마다 unsigned 32-bit UTF-8 경로 길이, unsigned 64-bit 내용 길이, 경로 bytes, 파일 bytes
+
+수신기는 전체 body hash와 각 파일의 manifest 크기·SHA-256을 먼저 확인한 뒤 staging 객체를 기록한다. 오프셋이 `0`인 완전한 파일만 배치에 넣으며 부분 전송 파일은 6.5의 청크 API로 재개한다. 동일 배치의 응답이 유실되어 다시 도착하면 이미 완료된 파일을 덧붙이지 않고 같은 오프셋을 반환한다.
+
+```json
+{
+  "files": [
+    {"path": "camera/front/000001.jpg", "nextOffset": 1843200},
+    {"path": "camera/front/000002.jpg", "nextOffset": 1843200}
+  ]
+}
+```
+
+### 6.5 청크 업로드
 
 ```http
 PUT /v1/upload-sessions/{sessionId}/files?path=...&offset=4194304
@@ -208,7 +268,7 @@ X-Chunk-SHA256: <64-lowercase-hex>
 
 정상 응답은 `200`이다. 이전 오프셋의 청크가 중복 도착하면 데이터를 다시 붙이지 말고 `409`를 반환한다. Jetson은 오프셋 조회 후 계속한다. 응답이 유실되더라도 저장된 오프셋이 유지되어야 한다.
 
-### 6.4 세션 완료
+### 6.6 세션 완료
 
 ```http
 POST /v1/upload-sessions/{sessionId}/complete
@@ -234,7 +294,7 @@ Content-Type: application/json
 
 파일이 덜 전송됐으면 `409`, 해시가 다르면 `422`를 반환하고 세션을 `FAILED`로 표시한다.
 
-### 6.5 세션 취소
+### 6.7 세션 취소
 
 ```http
 DELETE /v1/upload-sessions/{sessionId}
@@ -295,7 +355,7 @@ devices/{deviceId}/uploads/{sessionId}/{percent-encoded-relative-path}
 ## 9. Reverse Proxy 설정 원칙
 
 - 공개 포트는 443만 연다.
-- 요청 body 제한은 manifest 32 MiB, 청크 5 MiB 이상으로 구분한다.
+- 요청 body 제한은 manifest 32 MiB, 파일 배치 32 MiB, 청크 5 MiB 이상으로 구분한다.
 - PUT request buffering을 꺼서 디스크 이중 사용을 피한다.
 - upstream read/write timeout은 90초 이상으로 둔다.
 - access log에서 `Authorization`을 제외한다.
@@ -335,6 +395,8 @@ devices/{deviceId}/uploads/{sessionId}/{percent-encoded-relative-path}
 13. cancel 재호출의 멱등성 및 staging 정리
 14. 프로세스 재시작 뒤 DB offset과 저장 데이터 일치
 15. quota, rate limit, 만료 세션 정리
+16. 배치 body hash·파일별 hash·중복 경로·trailing bytes 거부
+17. 배치 응답 유실 재시도와 부분 파일의 청크 전환
 
 저장소 장애 주입 테스트에서 DB offset이 실제 내구성 저장보다 앞서가면 안 된다.
 
@@ -376,7 +438,7 @@ sudo /opt/jetson-control/configure-upload-target.sh \
 | 경로 | 역할 |
 |---|---|
 | `upload_receiver/upload_receiver/app.py` | FastAPI route, body 제한, JSON 오류 응답 |
-| `upload_receiver/upload_receiver/service.py` | 인증, 세션, quota, 청크 내구성 기록, 전체 해시, 재시작 복구 |
+| `upload_receiver/upload_receiver/service.py` | 인증, 세션, quota, 배치·청크 내구성 기록, 전체 해시, 재시작 복구 |
 | `upload_receiver/upload_receiver/database.py` | SQLite schema, WAL, `synchronous=FULL`, 트랜잭션 |
 | `upload_receiver/upload_receiver/admin.py` | 초기화, token 발급/교체, 장비 차단, staging 정리 |
 | `upload_receiver/Caddyfile` | 공인 HTTPS reverse proxy와 endpoint별 body 제한 |
@@ -391,7 +453,7 @@ sudo /opt/jetson-control/configure-upload-target.sh \
 - 청크 파일 `fsync`가 성공한 뒤에만 SQLite offset을 올린다. 재시작 시 DB offset보다 긴 미승인 tail은 잘라낸다.
 - 완료 시 모든 staging 객체의 크기와 SHA-256을 다시 확인하고 같은 ext4 파일시스템 안에서 디렉터리를 원자적으로 이동한다. 이동 직후 재시작한 경우에도 final 객체와 manifest 전체를 검증한 뒤 `COMPLETED`로 복구한다.
 - 동일 `clientJobId`의 `FAILED` 세션은 같은 manifest일 때 안전하게 초기화하여 Jetson retry를 허용한다. `CANCELLED`는 명시적인 새 Jetson 작업 ID가 필요하다.
-- 기본 제한은 장비당 동시 PUT 2개, 열린 세션 8개, 분당 manifest 30개, 누적 세션 10,000개, 누적 파일 metadata 1,000,000개다.
+- 기본 제한은 32 MiB/256개 파일 배치, 장비당 동시 PUT 2개, 열린 세션 8개, 분당 manifest 30개, 누적 세션 10,000개, 누적 파일 metadata 1,000,000개다.
 - `OPEN`/`FAILED`/`CANCELLED` staging 세션은 72시간 뒤 매일 정리한다. `COMPLETED` 객체는 자동 삭제하지 않는다.
 
 ## 15. 이 PC의 실제 배포
@@ -419,6 +481,8 @@ cd /home/geonws/JetsonControllerServer/JetsonControllerApp
 ./upload_receiver/scripts/install-user-service.sh \
   /data/server_storage/jetson-upload-receiver
 ```
+
+이 명령은 user service 환경에 `UPLOAD_RECEIVER_MAX_BATCH_BYTES=33554432`, `UPLOAD_RECEIVER_MAX_BATCH_FILES=256`을 기록한다. 기존 설치도 코드를 갱신한 뒤 같은 명령을 다시 실행해야 배치 route와 정확한 HDD 저장 루트가 함께 반영된다. 다른 경로를 임시로 사용하지 말고 receiver 데이터는 항상 `/data/server_storage/jetson-upload-receiver` 아래에 둔다.
 
 공인 HTTPS를 처음 구성하거나 다시 적용:
 

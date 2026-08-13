@@ -27,6 +27,7 @@ class ApiCompatibilityTest {
     fun `unsigned status maps only recoverable responses to typed errors`() {
         assertTrue(unsignedResponseException(401) is JetsonSessionExpiredException)
         assertTrue(unsignedResponseException(404) is JetsonEndpointUnavailableException)
+        assertTrue(unsignedResponseException(405) is JetsonEndpointUnavailableException)
 
         val serverError = unsignedResponseException(500)
         assertTrue(serverError is JetsonUnsignedServerErrorException)

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import hashlib
 import json
+import struct
 import tempfile
 import threading
 import time
@@ -10,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from jetson_control.filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
 from jetson_control.uploads import (
+    FILE_BATCH_MAGIC,
     HTTP_COMPLETE_RESPONSE_TIMEOUT,
     UploadCapacityExceeded,
     UploadConflict,
@@ -20,9 +24,13 @@ from jetson_control.uploads import (
 
 class UploadReceiverHandler(BaseHTTPRequestHandler):
     token = "test-receiver-token"
+    advertise_file_batch = True
     manifest = None
     files = {}
     completed = False
+    batch_requests = 0
+    batch_offset_requests = 0
+    legacy_offset_requests = 0
 
     def log_message(self, _format, *_args) -> None:
         pass
@@ -54,7 +62,30 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
             type(self).manifest = body
             type(self).files = {item["path"]: bytearray() for item in body["files"]}
             type(self).completed = False
-            self._json_response(201, {"sessionId": "session-test"})
+            type(self).batch_requests = 0
+            type(self).batch_offset_requests = 0
+            type(self).legacy_offset_requests = 0
+            response = {"sessionId": "session-test"}
+            if type(self).advertise_file_batch:
+                response["fileBatch"] = {
+                    "version": 1,
+                    "maxBytes": 1024 * 1024,
+                    "maxFiles": 32,
+                }
+            self._json_response(201, response)
+            return
+        if parsed.path == "/v1/upload-sessions/session-test/files/offsets":
+            type(self).batch_offset_requests += 1
+            paths = body.get("paths", [])
+            self._json_response(
+                200,
+                {
+                    "files": [
+                        {"path": path, "nextOffset": len(type(self).files[path])}
+                        for path in paths
+                    ]
+                },
+            )
             return
         if parsed.path == "/v1/upload-sessions/session-test/complete":
             type(self).completed = True
@@ -70,6 +101,7 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
             self._json_response(404, {"detail": "not found"})
             return
         relative_path = parse_qs(parsed.query).get("path", [""])[0]
+        type(self).legacy_offset_requests += 1
         if relative_path not in type(self).files:
             self._json_response(404, {"detail": "unknown file"})
             return
@@ -79,6 +111,32 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
         if not self._require_auth():
             return
         parsed = urlsplit(self.path)
+        if parsed.path == "/v1/upload-sessions/session-test/files/batch":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length)
+            if hashlib.sha256(body).hexdigest() != self.headers.get("X-Batch-SHA256"):
+                self._json_response(422, {"detail": "checksum mismatch"})
+                return
+            try:
+                entries = self._decode_batch(body)
+            except (UnicodeDecodeError, ValueError, struct.error):
+                self._json_response(400, {"detail": "invalid batch"})
+                return
+            offsets = []
+            for path, content in entries:
+                destination = type(self).files.get(path)
+                if destination is None:
+                    self._json_response(404, {"detail": "unknown file"})
+                    return
+                if destination and bytes(destination) != content:
+                    self._json_response(409, {"detail": "offset mismatch"})
+                    return
+                if not destination:
+                    destination.extend(content)
+                offsets.append({"path": path, "nextOffset": len(destination)})
+            type(self).batch_requests += 1
+            self._json_response(200, {"files": offsets})
+            return
         if parsed.path != "/v1/upload-sessions/session-test/files":
             self._json_response(404, {"detail": "not found"})
             return
@@ -96,6 +154,26 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
             return
         destination.extend(chunk)
         self._json_response(200, {"nextOffset": len(destination)})
+
+    @staticmethod
+    def _decode_batch(body: bytes) -> list[tuple[str, bytes]]:
+        if not body.startswith(FILE_BATCH_MAGIC):
+            raise ValueError("invalid magic")
+        cursor = len(FILE_BATCH_MAGIC)
+        count = struct.unpack_from(">I", body, cursor)[0]
+        cursor += 4
+        entries = []
+        for _index in range(count):
+            path_size, content_size = struct.unpack_from(">IQ", body, cursor)
+            cursor += 12
+            path = body[cursor : cursor + path_size].decode("utf-8")
+            cursor += path_size
+            content = body[cursor : cursor + content_size]
+            cursor += content_size
+            entries.append((path, content))
+        if cursor != len(body):
+            raise ValueError("trailing data")
+        return entries
 
 
 class FilesystemAndUploadsTest(unittest.TestCase):
@@ -254,6 +332,9 @@ class FilesystemAndUploadsTest(unittest.TestCase):
 
             self.assertEqual(current["state"], "COMPLETED", current)
             self.assertTrue(UploadReceiverHandler.completed)
+            self.assertEqual(UploadReceiverHandler.batch_requests, 1)
+            self.assertEqual(UploadReceiverHandler.batch_offset_requests, 1)
+            self.assertEqual(UploadReceiverHandler.legacy_offset_requests, 0)
             self.assertEqual(
                 UploadReceiverHandler.manifest["deviceId"],
                 "00000000-0000-0000-0000-000000000001",
@@ -270,6 +351,57 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                 uploaded = bytes(UploadReceiverHandler.files[manifest_file["path"]])
                 self.assertEqual(hashlib.sha256(uploaded).hexdigest(), manifest_file["sha256"])
         finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=2)
+
+    def test_external_http_upload_falls_back_for_legacy_receiver(self) -> None:
+        token_file = self.base / "legacy-receiver.token"
+        token_file.write_text(UploadReceiverHandler.token, encoding="utf-8")
+        UploadReceiverHandler.advertise_file_batch = False
+        server = ThreadingHTTPServer(("127.0.0.1", 0), UploadReceiverHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            self.targets.write_text(
+                json.dumps(
+                    {
+                        "legacy": {
+                            "label": "Legacy receiver",
+                            "type": "http",
+                            "base_url": f"http://127.0.0.1:{server.server_port}",
+                            "token_file": str(token_file),
+                            "verify_tls": False,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            uploads = UploadManager(
+                self.storage,
+                self.targets,
+                self.state / "legacy-external",
+                "00000000-0000-0000-0000-000000000001",
+            )
+            job = uploads.start("data", "", "legacy")
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                current = uploads.get(str(job["id"]))
+                if current["state"] in {"COMPLETED", "FAILED"}:
+                    break
+                time.sleep(0.02)
+
+            self.assertEqual(current["state"], "COMPLETED", current)
+            self.assertEqual(UploadReceiverHandler.batch_requests, 0)
+            self.assertEqual(UploadReceiverHandler.batch_offset_requests, 0)
+            self.assertEqual(UploadReceiverHandler.legacy_offset_requests, 2)
+            self.assertEqual(
+                bytes(UploadReceiverHandler.files["folder/sample.bin"]),
+                b"abc" * 4096,
+            )
+            self.assertEqual(bytes(UploadReceiverHandler.files["note.txt"]), b"hello")
+        finally:
+            UploadReceiverHandler.advertise_file_batch = True
             server.shutdown()
             server.server_close()
             server_thread.join(timeout=2)

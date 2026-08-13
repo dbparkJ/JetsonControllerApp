@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import struct
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ from upload_receiver.app import create_app
 from upload_receiver import admin
 from upload_receiver.admin import _write_secret
 from upload_receiver.config import Settings
-from upload_receiver.service import ReceiverError, ReceiverService
+from upload_receiver.service import FILE_BATCH_MAGIC, ReceiverError, ReceiverService
 
 
 DEVICE_ID = "d606c26d-98d6-4b09-99d7-c3da7dda4de0"
@@ -109,6 +110,35 @@ class ReceiverApiTest(unittest.TestCase):
             content=body,
         )
 
+    @staticmethod
+    def batch_body(files: list[tuple[str, bytes]]) -> bytes:
+        body = bytearray(FILE_BATCH_MAGIC)
+        body.extend(struct.pack(">I", len(files)))
+        for path, content in files:
+            path_bytes = path.encode("utf-8")
+            body.extend(struct.pack(">IQ", len(path_bytes), len(content)))
+            body.extend(path_bytes)
+            body.extend(content)
+        return bytes(body)
+
+    def put_batch(
+        self,
+        session_id: str,
+        files: list[tuple[str, bytes]],
+        *,
+        batch_hash: str | None = None,
+    ):
+        body = self.batch_body(files)
+        return self.client.put(
+            f"/v1/upload-sessions/{session_id}/files/batch",
+            headers={
+                **self.auth(),
+                "Content-Type": "application/vnd.jetson.upload-batch-v1",
+                "X-Batch-SHA256": batch_hash or hashlib.sha256(body).hexdigest(),
+            },
+            content=body,
+        )
+
     def test_health_and_authentication(self) -> None:
         self.assertEqual(self.client.get("/health/live").json(), {"state": "LIVE"})
         self.assertEqual(self.client.get("/health/ready").status_code, 200)
@@ -194,6 +224,95 @@ class ReceiverApiTest(unittest.TestCase):
         for path, body in files:
             object_path = final_directory / stored[path]["storedObject"]
             self.assertEqual(object_path.read_bytes(), body)
+
+    def test_batch_offsets_upload_and_idempotent_retry(self) -> None:
+        files = [
+            ("camera/front.bin", b"front-frame"),
+            ("camera/한글.bin", b"rear-frame"),
+            ("empty", b""),
+        ]
+        created = self.create(
+            self.manifest(files),
+            token=self.token,
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["fileBatch"]["version"], 1)
+        session_id = created.json()["sessionId"]
+
+        offsets = self.client.post(
+            f"/v1/upload-sessions/{session_id}/files/offsets",
+            headers={**self.auth(), "Content-Type": "application/json"},
+            json={"paths": [path for path, _body in files]},
+        )
+        self.assertEqual(offsets.status_code, 200, offsets.text)
+        self.assertEqual(
+            {item["path"]: item["nextOffset"] for item in offsets.json()["files"]},
+            {path: 0 for path, _body in files},
+        )
+
+        nonempty = files[:2]
+        uploaded = self.put_batch(session_id, nonempty)
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertEqual(
+            {item["path"]: item["nextOffset"] for item in uploaded.json()["files"]},
+            {path: len(body) for path, body in nonempty},
+        )
+        repeated = self.put_batch(session_id, nonempty)
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+
+        completed = self.client.post(
+            f"/v1/upload-sessions/{session_id}/complete",
+            headers=self.auth(),
+            json={},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+
+    def test_batch_rejects_bad_hash_and_partial_file(self) -> None:
+        body = b"part-one-part-two"
+        session_id = self.create(
+            self.manifest([("file.bin", body)], client_job_id="d" * 32)
+        ).json()["sessionId"]
+        bad_hash = self.put_batch(session_id, [("file.bin", body)], batch_hash="0" * 64)
+        self.assertEqual(bad_hash.status_code, 422)
+
+        split = len(body) // 2
+        self.assertEqual(
+            self.put(session_id, "file.bin", body[:split], total=len(body)).status_code,
+            200,
+        )
+        partial = self.put_batch(session_id, [("file.bin", body)])
+        self.assertEqual(partial.status_code, 409)
+
+    def test_batch_rejects_duplicate_paths_and_trailing_data(self) -> None:
+        content = b"contents"
+        session_id = self.create(
+            self.manifest([("file.bin", content)], client_job_id="e" * 32)
+        ).json()["sessionId"]
+        duplicate_body = self.batch_body(
+            [("file.bin", content), ("file.bin", content)]
+        )
+        duplicate = self.client.put(
+            f"/v1/upload-sessions/{session_id}/files/batch",
+            headers={
+                **self.auth(),
+                "Content-Type": "application/vnd.jetson.upload-batch-v1",
+                "X-Batch-SHA256": hashlib.sha256(duplicate_body).hexdigest(),
+            },
+            content=duplicate_body,
+        )
+        self.assertEqual(duplicate.status_code, 400)
+
+        trailing_body = self.batch_body([("file.bin", content)]) + b"unexpected"
+        trailing = self.client.put(
+            f"/v1/upload-sessions/{session_id}/files/batch",
+            headers={
+                **self.auth(),
+                "Content-Type": "application/vnd.jetson.upload-batch-v1",
+                "X-Batch-SHA256": hashlib.sha256(trailing_body).hexdigest(),
+            },
+            content=trailing_body,
+        )
+        self.assertEqual(trailing.status_code, 400)
 
     def test_manifest_validation_and_idempotency_conflict(self) -> None:
         valid = self.manifest([("valid.bin", b"valid")])

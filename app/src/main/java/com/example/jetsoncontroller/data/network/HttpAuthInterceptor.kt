@@ -30,7 +30,7 @@ class JetsonUnsignedServerErrorException(statusCode: Int) : IOException(
 
 internal fun unsignedResponseException(statusCode: Int): IOException = when (statusCode) {
     401 -> JetsonSessionExpiredException()
-    404 -> JetsonEndpointUnavailableException()
+    404, 405 -> JetsonEndpointUnavailableException()
     in 500..599 -> JetsonUnsignedServerErrorException(statusCode)
     else -> IOException("Jetson 응답 인증에 실패했습니다. (HTTP $statusCode)")
 }

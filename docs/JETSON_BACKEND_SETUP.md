@@ -358,7 +358,7 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - symlink는 업로드 대상에서 제외한다.
 - 앱에는 절대 실제 경로 대신 root ID와 상대 경로를 전달한다.
 - 업로드 상태: `QUEUED`, `SCANNING`, `UPLOADING`, `COMPLETED`, `FAILED`, `CANCELLED`.
-- 파일 전체 hash 계산, 외부 세션 생성, 파일별 offset 조회, 4 MiB PUT, 완료 순으로 처리한다.
+- 파일 전체 hash 계산 후 외부 세션을 만든다. 수신기가 `fileBatch` capability를 제공하면 최대 32 MiB/256개 파일의 오프셋을 묶어 조회·전송하고, capability가 없거나 파일이 부분 전송된 상태면 기존 파일별 offset과 4 MiB PUT으로 자동 전환한다.
 - 관리자 target의 token은 Android 앱에 전달하지 않는다. 앱 관리 target은 등록/교체 요청 때만 입력받고 Local Control API 응답에는 token을 절대 포함하지 않는다.
 - 앱이 등록한 서버와 token은 `/var/lib/jetson-control` 아래 root 전용 파일로 원자 저장한다. `/etc`의 관리자 대상은 앱에서 수정할 수 없다.
 - 재부팅 또는 API 재시작 후 진행 중 작업은 영속 상태에서 자동 재개한다.

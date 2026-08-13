@@ -7,6 +7,7 @@ import ipaddress
 import os
 import shutil
 import ssl
+import struct
 import threading
 import time
 import uuid
@@ -26,6 +27,10 @@ HTTP_CHUNK_SIZE = 4 * 1024 * 1024
 HTTP_RETRY_DELAYS = (0.0, 1.0, 3.0, 7.0)
 DEFAULT_MAX_CONCURRENT_JOBS = 2
 HTTP_COMPLETE_RESPONSE_TIMEOUT = 24 * 60 * 60
+FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
+FILE_BATCH_VERSION = 1
+CLIENT_MAX_BATCH_BYTES = 32 * 1024 * 1024
+CLIENT_MAX_BATCH_FILES = 256
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,12 @@ class UploadTarget:
     token_file: Optional[Path] = None
     verify_tls: bool = True
     editable: bool = False
+
+
+@dataclass(frozen=True)
+class FileBatchLimits:
+    max_bytes: int
+    max_files: int
 
 
 class UploadManager:
@@ -615,23 +626,29 @@ class UploadManager:
         except ValueError as error:
             raise RuntimeError("Upload receiver returned an invalid session id")
 
-        transferred = 0
         try:
-            for index, source_file in enumerate(files, start=1):
-                self._raise_if_cancelled(job_id, cancellation)
-                relative = self._relative_file_path(source, source_file).as_posix()
-                self._update(job_id, currentFile=relative)
-                transferred = self._http_put_file_resumable(
+            batch_limits = self._file_batch_limits(response)
+            if batch_limits is None:
+                self._upload_http_files_legacy(
+                    job_id=job_id,
+                    source=source,
+                    files=files,
                     target=target,
                     token=token,
                     session_id=session_id,
-                    relative_path=relative,
-                    source_file=source_file,
-                    transferred=transferred,
-                    job_id=job_id,
                     cancellation=cancellation,
                 )
-                self._update(job_id, filesTransferred=index)
+            else:
+                self._upload_http_files_batched(
+                    job_id=job_id,
+                    source=source,
+                    files=files,
+                    target=target,
+                    token=token,
+                    session_id=session_id,
+                    cancellation=cancellation,
+                    limits=batch_limits,
+                )
             self._raise_if_cancelled(job_id, cancellation)
             self._http_json_with_retry(
                 target,
@@ -655,6 +672,206 @@ class UploadManager:
             except Exception:
                 pass
             raise UploadCancelled() from error
+
+    def _upload_http_files_legacy(
+        self,
+        job_id: str,
+        source: Path,
+        files: List[Path],
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        cancellation: threading.Event,
+    ) -> None:
+        transferred = 0
+        for index, source_file in enumerate(files, start=1):
+            self._raise_if_cancelled(job_id, cancellation)
+            relative = self._relative_file_path(source, source_file).as_posix()
+            self._update(job_id, currentFile=relative)
+            transferred = self._http_put_file_resumable(
+                target=target,
+                token=token,
+                session_id=session_id,
+                relative_path=relative,
+                source_file=source_file,
+                transferred=transferred,
+                job_id=job_id,
+                cancellation=cancellation,
+            )
+            self._update(job_id, filesTransferred=index)
+
+    def _upload_http_files_batched(
+        self,
+        job_id: str,
+        source: Path,
+        files: List[Path],
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        cancellation: threading.Event,
+        limits: FileBatchLimits,
+    ) -> None:
+        transferred = 0
+        files_transferred = 0
+        for group in self._file_batch_groups(source, files, limits):
+            self._raise_if_cancelled(job_id, cancellation)
+            relative_paths = [
+                self._relative_file_path(source, path).as_posix() for path in group
+            ]
+            offsets = self._http_get_file_offsets(
+                target,
+                token,
+                session_id,
+                relative_paths,
+            )
+            batch_files: List[Tuple[str, Path, int]] = []
+            for source_file, relative_path in zip(group, relative_paths):
+                self._raise_if_cancelled(job_id, cancellation)
+                size = source_file.stat().st_size
+                offset = offsets[relative_path]
+                if offset < 0 or offset > size:
+                    raise RuntimeError(
+                        "Upload receiver returned an out-of-range file offset"
+                    )
+                if offset == size:
+                    transferred += size
+                    files_transferred += 1
+                    self._update(
+                        job_id,
+                        bytesTransferred=transferred,
+                        filesTransferred=files_transferred,
+                    )
+                elif (
+                    offset == 0
+                    and self._file_batch_entry_size(relative_path, size)
+                    + len(FILE_BATCH_MAGIC)
+                    + 4
+                    <= limits.max_bytes
+                ):
+                    batch_files.append((relative_path, source_file, size))
+                else:
+                    self._update(job_id, currentFile=relative_path)
+                    transferred = self._http_put_file_from_offset(
+                        target=target,
+                        token=token,
+                        session_id=session_id,
+                        relative_path=relative_path,
+                        source_file=source_file,
+                        file_size=size,
+                        offset=offset,
+                        transferred=transferred,
+                        job_id=job_id,
+                        cancellation=cancellation,
+                    )
+                    files_transferred += 1
+                    self._update(job_id, filesTransferred=files_transferred)
+
+            if not batch_files:
+                continue
+
+            label = batch_files[0][0]
+            if len(batch_files) > 1:
+                label += f" (+{len(batch_files) - 1} files)"
+            self._update(job_id, currentFile=label)
+            body = self._encode_file_batch(batch_files, cancellation, job_id)
+            acknowledged = self._http_put_file_batch_with_retry(
+                target,
+                token,
+                session_id,
+                body,
+                [path for path, _source_file, _size in batch_files],
+            )
+            expected_offsets = {path: size for path, _source_file, size in batch_files}
+            if acknowledged != expected_offsets:
+                raise RuntimeError("Upload receiver returned invalid batch offsets")
+            transferred += sum(expected_offsets.values())
+            files_transferred += len(batch_files)
+            self._update(
+                job_id,
+                bytesTransferred=transferred,
+                filesTransferred=files_transferred,
+            )
+
+    def _file_batch_groups(
+        self,
+        source: Path,
+        files: List[Path],
+        limits: FileBatchLimits,
+    ) -> Iterable[List[Path]]:
+        base_size = len(FILE_BATCH_MAGIC) + 4
+        group: List[Path] = []
+        group_size = base_size
+        for source_file in files:
+            relative_path = self._relative_file_path(source, source_file).as_posix()
+            entry_size = self._file_batch_entry_size(
+                relative_path,
+                source_file.stat().st_size,
+            )
+            if group and (
+                len(group) >= limits.max_files
+                or group_size + entry_size > limits.max_bytes
+            ):
+                yield group
+                group = []
+                group_size = base_size
+            group.append(source_file)
+            group_size += entry_size
+            if group_size > limits.max_bytes:
+                yield group
+                group = []
+                group_size = base_size
+        if group:
+            yield group
+
+    @staticmethod
+    def _file_batch_limits(response: Dict[str, object]) -> Optional[FileBatchLimits]:
+        raw = response.get("fileBatch")
+        if not isinstance(raw, dict) or raw.get("version") != FILE_BATCH_VERSION:
+            return None
+        max_bytes = raw.get("maxBytes")
+        max_files = raw.get("maxFiles")
+        if (
+            isinstance(max_bytes, bool)
+            or not isinstance(max_bytes, int)
+            or isinstance(max_files, bool)
+            or not isinstance(max_files, int)
+        ):
+            return None
+        max_bytes = min(max_bytes, CLIENT_MAX_BATCH_BYTES)
+        max_files = min(max_files, CLIENT_MAX_BATCH_FILES)
+        if max_bytes <= len(FILE_BATCH_MAGIC) + 4 or max_files < 1:
+            return None
+        return FileBatchLimits(max_bytes=max_bytes, max_files=max_files)
+
+    @staticmethod
+    def _file_batch_entry_size(relative_path: str, size: int) -> int:
+        return 4 + 8 + len(relative_path.encode("utf-8")) + size
+
+    def _encode_file_batch(
+        self,
+        files: List[Tuple[str, Path, int]],
+        cancellation: threading.Event,
+        job_id: str,
+    ) -> bytes:
+        body = bytearray(FILE_BATCH_MAGIC)
+        body.extend(struct.pack(">I", len(files)))
+        for relative_path, source_file, expected_size in files:
+            self._raise_if_cancelled(job_id, cancellation)
+            path_bytes = relative_path.encode("utf-8")
+            body.extend(struct.pack(">IQ", len(path_bytes), expected_size))
+            body.extend(path_bytes)
+            bytes_read = 0
+            with source_file.open("rb") as source_stream:
+                while True:
+                    self._raise_if_cancelled(job_id, cancellation)
+                    chunk = source_stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    body.extend(chunk)
+                    bytes_read += len(chunk)
+            if bytes_read != expected_size:
+                raise OSError("Source file changed while preparing an upload batch")
+        return bytes(body)
 
     def _http_put_file_resumable(
         self,
@@ -683,13 +900,41 @@ class UploadManager:
         if offset < 0 or offset > size:
             raise RuntimeError("Upload receiver returned an out-of-range file offset")
 
+        return self._http_put_file_from_offset(
+            target=target,
+            token=token,
+            session_id=session_id,
+            relative_path=relative_path,
+            source_file=source_file,
+            file_size=size,
+            offset=offset,
+            transferred=transferred,
+            job_id=job_id,
+            cancellation=cancellation,
+        )
+
+    def _http_put_file_from_offset(
+        self,
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        relative_path: str,
+        source_file: Path,
+        file_size: int,
+        offset: int,
+        transferred: int,
+        job_id: str,
+        cancellation: threading.Event,
+    ) -> int:
+        if source_file.stat().st_size != file_size:
+            raise OSError("Source file changed during upload")
         transferred += offset
         self._update(job_id, bytesTransferred=transferred)
         with source_file.open("rb") as source_stream:
             source_stream.seek(offset)
-            while offset < size:
+            while offset < file_size:
                 self._raise_if_cancelled(job_id, cancellation)
-                chunk = source_stream.read(min(HTTP_CHUNK_SIZE, size - offset))
+                chunk = source_stream.read(min(HTTP_CHUNK_SIZE, file_size - offset))
                 if not chunk:
                     raise OSError("Source file ended before its declared size")
 
@@ -698,7 +943,7 @@ class UploadManager:
                     token=token,
                     session_id=session_id,
                     relative_path=relative_path,
-                    file_size=size,
+                    file_size=file_size,
                     offset=offset,
                     chunk=chunk,
                 )
@@ -712,6 +957,106 @@ class UploadManager:
                 self._update(job_id, bytesTransferred=transferred)
 
         return transferred
+
+    def _http_get_file_offsets(
+        self,
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        relative_paths: List[str],
+    ) -> Dict[str, int]:
+        response = self._http_json_with_retry(
+            target,
+            token,
+            "POST",
+            f"/v1/upload-sessions/{session_id}/files/offsets",
+            {"paths": relative_paths},
+        )
+        return self._parse_file_offsets(response, relative_paths)
+
+    @staticmethod
+    def _parse_file_offsets(
+        response: Dict[str, object],
+        expected_paths: List[str],
+    ) -> Dict[str, int]:
+        raw_files = response.get("files")
+        if not isinstance(raw_files, list) or len(raw_files) != len(expected_paths):
+            raise RuntimeError("Upload receiver returned invalid batch offsets")
+        offsets: Dict[str, int] = {}
+        for item in raw_files:
+            if not isinstance(item, dict):
+                raise RuntimeError("Upload receiver returned invalid batch offsets")
+            path = item.get("path")
+            next_offset = item.get("nextOffset")
+            if (
+                not isinstance(path, str)
+                or isinstance(next_offset, bool)
+                or not isinstance(next_offset, int)
+                or path in offsets
+            ):
+                raise RuntimeError("Upload receiver returned invalid batch offsets")
+            offsets[path] = next_offset
+        if set(offsets) != set(expected_paths):
+            raise RuntimeError("Upload receiver returned invalid batch offsets")
+        return offsets
+
+    def _http_put_file_batch_with_retry(
+        self,
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        body: bytes,
+        expected_paths: List[str],
+    ) -> Dict[str, int]:
+        last_error: Optional[Exception] = None
+        for delay in HTTP_RETRY_DELAYS:
+            if delay:
+                time.sleep(delay)
+            try:
+                response = self._http_put_file_batch(
+                    target,
+                    token,
+                    session_id,
+                    body,
+                )
+                return self._parse_file_offsets(response, expected_paths)
+            except (OSError, http.client.HTTPException, RuntimeError) as error:
+                last_error = error
+        raise RuntimeError("External upload batch failed after multiple retries") from last_error
+
+    def _http_put_file_batch(
+        self,
+        target: UploadTarget,
+        token: str,
+        session_id: str,
+        body: bytes,
+    ) -> Dict[str, object]:
+        connection, base_path = self._http_connection(target)
+        request_path = f"{base_path}/v1/upload-sessions/{session_id}/files/batch"
+        try:
+            connection.request(
+                "PUT",
+                request_path,
+                body=body,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/vnd.jetson.upload-batch-v1",
+                    "Content-Length": str(len(body)),
+                    "X-Batch-SHA256": hashlib.sha256(body).hexdigest(),
+                },
+            )
+            response = connection.getresponse()
+            response_body = response.read(4 * 1024 * 1024)
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError("Upload receiver rejected a file batch")
+            parsed = json.loads(response_body.decode("utf-8"))
+            if not isinstance(parsed, dict):
+                raise RuntimeError("Upload receiver returned an invalid batch response")
+            return parsed
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RuntimeError("Upload receiver returned an invalid batch response") from error
+        finally:
+            connection.close()
 
     def _put_chunk_with_retry(
         self,

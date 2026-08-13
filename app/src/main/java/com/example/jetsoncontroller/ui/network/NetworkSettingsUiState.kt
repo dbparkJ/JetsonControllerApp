@@ -18,3 +18,6 @@ data class NetworkSettingsUiState(
     val message: String? = null,
     val isError: Boolean = false
 )
+
+internal fun NetworkSettingsUiState.isCurrentJetsonWifi(candidateSsid: String): Boolean =
+    wifiConnected && !currentWifiSsid.isNullOrBlank() && currentWifiSsid == candidateSsid

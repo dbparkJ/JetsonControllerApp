@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -66,5 +67,42 @@ class NetworkSettingsScreenTest {
         composeRule.onNodeWithTag("wifi-selected-network-form").assertIsDisplayed()
         composeRule.onNodeWithText("비밀번호").assertIsDisplayed()
         composeRule.onNodeWithTag("wifi-connect-button").assertIsDisplayed()
+    }
+
+    @Test
+    fun currentJetsonNetworkIsCheckedAndDoesNotOpenReconnectForm() {
+        val accessPoint = WifiAccessPoint(
+            ssid = "Lab Wi-Fi",
+            rssi = -52,
+            security = WifiSecurity.PERSONAL
+        )
+
+        composeRule.setContent {
+            JetsonControllerTheme {
+                NetworkSettingsScreen(
+                    state = NetworkSettingsUiState(
+                        currentWifiSsid = accessPoint.ssid,
+                        wifiConnected = true,
+                        transportType = TransportType.LAN,
+                        accessPoints = listOf(accessPoint)
+                    ),
+                    onBack = {},
+                    onSsidChange = {},
+                    onPasswordChange = {},
+                    onHiddenChange = {},
+                    onSubmit = {},
+                    wifiScanPermissionGranted = true,
+                    onRequestWifiScanPermission = {},
+                    onScanAccessPoints = {},
+                    onSelectAccessPoint = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("현재 Jetson이 연결됨 · WPA 개인용 네트워크")
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("wifi-access-point-Lab Wi-Fi")
+            .assertIsNotEnabled()
+        composeRule.onAllNodesWithTag("wifi-selected-network-form").assertCountEquals(0)
     }
 }

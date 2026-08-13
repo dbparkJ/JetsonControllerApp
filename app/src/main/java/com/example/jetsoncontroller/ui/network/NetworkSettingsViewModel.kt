@@ -74,6 +74,17 @@ class NetworkSettingsViewModel(
     }
 
     fun selectAccessPoint(accessPoint: WifiAccessPoint) {
+        if (_uiState.value.isCurrentJetsonWifi(accessPoint.ssid)) {
+            _uiState.update {
+                it.copy(
+                    selectedAccessPointSsid = null,
+                    password = "",
+                    message = "Jetson이 이미 이 네트워크에 연결되어 있습니다.",
+                    isError = false
+                )
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 ssid = accessPoint.ssid,
@@ -99,6 +110,18 @@ class NetworkSettingsViewModel(
 
     fun submit() {
         val current = _uiState.value
+        if (current.isCurrentJetsonWifi(current.ssid)) {
+            _uiState.update {
+                it.copy(
+                    sending = false,
+                    password = "",
+                    selectedAccessPointSsid = null,
+                    message = "Jetson이 이미 이 네트워크에 연결되어 있습니다.",
+                    isError = false
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(sending = true, message = null) }
 

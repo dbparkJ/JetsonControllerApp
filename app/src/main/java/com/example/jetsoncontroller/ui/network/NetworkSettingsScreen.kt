@@ -181,7 +181,9 @@ fun NetworkSettingsScreen(
                 ) { accessPoint ->
                     WifiAccessPointRow(
                         accessPoint = accessPoint,
-                        selected = state.selectedAccessPointSsid == accessPoint.ssid,
+                        selected = state.selectedAccessPointSsid == accessPoint.ssid &&
+                            !state.isCurrentJetsonWifi(accessPoint.ssid),
+                        connected = state.isCurrentJetsonWifi(accessPoint.ssid),
                         password = state.password,
                         sending = state.sending,
                         message = state.message,
@@ -290,6 +292,7 @@ private fun ConnectionMethodLabel(type: TransportType?) {
 private fun WifiAccessPointRow(
     accessPoint: WifiAccessPoint,
     selected: Boolean,
+    connected: Boolean,
     password: String,
     sending: Boolean,
     message: String?,
@@ -324,7 +327,7 @@ private fun WifiAccessPointRow(
     }
 
     Surface(
-        color = if (selected) {
+        color = if (selected || connected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
         } else {
             MaterialTheme.colorScheme.surface
@@ -338,16 +341,29 @@ private fun WifiAccessPointRow(
         ) {
             ListItem(
                 headlineContent = {
-                    Text(accessPoint.ssid, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(
+                        accessPoint.ssid,
+                        fontWeight = if (selected || connected) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        }
+                    )
                 },
                 supportingContent = {
-                    Text(securityLabel(accessPoint.security))
+                    Text(
+                        if (connected) {
+                            "현재 Jetson이 연결됨 · ${securityLabel(accessPoint.security)}"
+                        } else {
+                            securityLabel(accessPoint.security)
+                        }
+                    )
                 },
                 leadingContent = {
                     Icon(
                         Icons.Default.Wifi,
                         contentDescription = null,
-                        tint = if (selected) MaterialTheme.colorScheme.primary
+                        tint = if (selected || connected) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
@@ -361,13 +377,13 @@ private fun WifiAccessPointRow(
                         Spacer(Modifier.size(8.dp))
                         Icon(
                             when {
-                                selected -> Icons.Default.CheckCircle
+                                selected || connected -> Icons.Default.CheckCircle
                                 accessPoint.secured -> Icons.Default.Lock
                                 else -> Icons.Default.LockOpen
                             },
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
-                            tint = if (selected) MaterialTheme.colorScheme.primary
+                            tint = if (selected || connected) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -375,10 +391,10 @@ private fun WifiAccessPointRow(
                 colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                 modifier = Modifier
                     .testTag("wifi-access-point-${accessPoint.ssid}")
-                    .clickable(onClick = onSelect)
+                    .clickable(enabled = !connected, onClick = onSelect)
             )
 
-            AnimatedVisibility(visible = selected) {
+            AnimatedVisibility(visible = selected && !connected) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

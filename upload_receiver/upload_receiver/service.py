@@ -12,6 +12,7 @@ import secrets
 import shutil
 import sqlite3
 import stat
+import struct
 import threading
 import time
 import unicodedata
@@ -32,6 +33,7 @@ CLIENT_JOB_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 CONTENT_RANGE_PATTERN = re.compile(r"^bytes ([0-9]+)-([0-9]+)/([0-9]+)$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
 
 
 class ReceiverError(Exception):
@@ -65,6 +67,12 @@ class Manifest:
     total_bytes: int
     canonical_json: str
     digest: str
+
+
+@dataclass(frozen=True)
+class BatchFile:
+    path: str
+    body: bytes
 
 
 class ReceiverService:
@@ -499,6 +507,152 @@ class ReceiverService:
         if row is None:
             raise ReceiverError(404, "Upload file was not found")
         return int(row["next_offset"])
+
+    def get_offsets(
+        self,
+        device: Device,
+        session_id: str,
+        relative_paths: list[str],
+    ) -> Dict[str, int]:
+        self.ensure_storage_available()
+        session_id = self.validate_session_id(session_id)
+        if not relative_paths or len(relative_paths) > self.settings.max_batch_files:
+            raise ReceiverError(400, "Batch offset request has an invalid file count")
+        normalized = [self.validate_relative_path(path) for path in relative_paths]
+        if len(set(normalized)) != len(normalized):
+            raise ReceiverError(400, "Batch offset request contains duplicate paths")
+
+        offsets: Dict[str, int] = {}
+        with self.database.connect() as connection:
+            session = self._owned_session(connection, device, session_id)
+            if session["state"] in {"FAILED", "CANCELLED"}:
+                raise ReceiverError(409, "Upload session is not open")
+            for relative_path in normalized:
+                row = connection.execute(
+                    """
+                    SELECT next_offset FROM upload_files
+                    WHERE session_id=? AND relative_path=?
+                    """,
+                    (session_id, relative_path),
+                ).fetchone()
+                if row is None:
+                    raise ReceiverError(404, "Upload file was not found")
+                offsets[relative_path] = int(row["next_offset"])
+        return offsets
+
+    def parse_file_batch(self, body: bytes) -> tuple[BatchFile, ...]:
+        if len(body) > self.settings.max_batch_bytes:
+            raise ReceiverError(413, "File batch is larger than the configured limit")
+        header_size = len(FILE_BATCH_MAGIC) + 4
+        if len(body) < header_size or not body.startswith(FILE_BATCH_MAGIC):
+            raise ReceiverError(400, "File batch header is invalid")
+        cursor = len(FILE_BATCH_MAGIC)
+        file_count = struct.unpack_from(">I", body, cursor)[0]
+        cursor += 4
+        if file_count < 1 or file_count > self.settings.max_batch_files:
+            raise ReceiverError(400, "File batch has an invalid file count")
+
+        files = []
+        seen_paths = set()
+        for _index in range(file_count):
+            if cursor + 12 > len(body):
+                raise ReceiverError(400, "File batch entry is truncated")
+            path_size, content_size = struct.unpack_from(">IQ", body, cursor)
+            cursor += 12
+            if path_size < 1 or path_size > 4096 or cursor + path_size > len(body):
+                raise ReceiverError(400, "File batch path is invalid")
+            try:
+                path = body[cursor : cursor + path_size].decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise ReceiverError(400, "File batch path is invalid") from error
+            cursor += path_size
+            path = self.validate_relative_path(path)
+            if path in seen_paths:
+                raise ReceiverError(400, "File batch contains a duplicate path")
+            seen_paths.add(path)
+            if content_size > self.settings.max_batch_bytes or cursor + content_size > len(body):
+                raise ReceiverError(400, "File batch content is truncated")
+            files.append(
+                BatchFile(path=path, body=body[cursor : cursor + content_size])
+            )
+            cursor += content_size
+        if cursor != len(body):
+            raise ReceiverError(400, "File batch has trailing data")
+        return tuple(files)
+
+    def put_file_batch(
+        self,
+        device: Device,
+        session_id: str,
+        files: tuple[BatchFile, ...],
+        *,
+        slot_reserved: bool = False,
+    ) -> Dict[str, int]:
+        self.ensure_storage_available()
+        session_id = self.validate_session_id(session_id)
+        if not files or len(files) > self.settings.max_batch_files:
+            raise ReceiverError(400, "File batch has an invalid file count")
+
+        slot = nullcontext() if slot_reserved else self._put_slot(device.device_id)
+        with slot, self._guard(f"session:{session_id}"):
+            rows = []
+            with self.database.connect() as connection:
+                session = self._owned_session(connection, device, session_id)
+                if session["state"] != "OPEN":
+                    raise ReceiverError(409, "Upload session is not open")
+                for item in files:
+                    row = connection.execute(
+                        "SELECT * FROM upload_files WHERE session_id=? AND relative_path=?",
+                        (session_id, item.path),
+                    ).fetchone()
+                    if row is None:
+                        raise ReceiverError(404, "Upload file was not found")
+                    next_offset = int(row["next_offset"])
+                    size_bytes = int(row["size_bytes"])
+                    if next_offset not in {0, size_bytes}:
+                        raise ReceiverError(
+                            409,
+                            "Partially uploaded files must use resumable chunks",
+                        )
+                    if len(item.body) != size_bytes:
+                        raise ReceiverError(400, "File batch size does not match the manifest")
+                    if not hmac.compare_digest(
+                        hashlib.sha256(item.body).hexdigest(),
+                        row["sha256"],
+                    ):
+                        raise ReceiverError(422, "File batch SHA-256 does not match")
+                    rows.append((item, row, next_offset, size_bytes))
+
+            pending = [entry for entry in rows if entry[2] == 0 and entry[3] > 0]
+            for item, row, _next_offset, _size_bytes in pending:
+                staging_path = self._key_path(
+                    row["staging_key"],
+                    self.settings.staging_root,
+                )
+                self._reconcile_staging_file(staging_path, 0, session_id)
+                self._durable_write(staging_path, 0, item.body)
+
+            if pending:
+                now = self.timestamp()
+                with self.database.immediate() as connection:
+                    for item, _row, _next_offset, size_bytes in pending:
+                        cursor = connection.execute(
+                            """
+                            UPDATE upload_files
+                            SET next_offset=?, state='VERIFIED'
+                            WHERE session_id=? AND relative_path=? AND next_offset=0
+                            """,
+                            (size_bytes, session_id, item.path),
+                        )
+                        if cursor.rowcount != 1:
+                            raise ReceiverError(409, "File batch offset changed concurrently")
+                        self._hasher_cache.pop((session_id, item.path), None)
+                    connection.execute(
+                        "UPDATE upload_sessions SET updated_at=? WHERE session_id=?",
+                        (now, session_id),
+                    )
+
+            return {item.path: size_bytes for item, _row, _offset, size_bytes in rows}
 
     def put_chunk(
         self,

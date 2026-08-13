@@ -17,6 +17,19 @@
 		reverse_proxy 127.0.0.1:8877
 	}
 
+	@batches {
+		method PUT
+		path /v1/upload-sessions/*/files/batch
+	}
+	handle @batches {
+		request_body {
+			max_size 32MiB
+		}
+		reverse_proxy 127.0.0.1:8877 {
+			flush_interval -1
+		}
+	}
+
 	@chunks {
 		method PUT
 		path /v1/upload-sessions/*/files
