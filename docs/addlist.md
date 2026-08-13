@@ -5,7 +5,7 @@
 1. ~~multi part인가 그방법으로 올리는건 별로인가? 그리고 계산도 하면서 업로드를 하는 병렬적인 프로세스로 진행할 순 없는건가? 그렇게 되면 서버단에서 또 바꿔야할 로직은 docs로 정리해둬~~
    - 처리: 단일 대형 요청 대신 재개 가능한 chunk 전송을 유지하고, 작은 파일은 `JETSONBATCH1` 형식으로 최대 32 MiB 또는 256개씩 묶었다. `deferred-v1`에서는 receiver가 수신과 동시에 SHA-256을 계산하므로 Jetson의 전체 사전 hash 단계를 제거하며, 구형 receiver에는 기존 전송으로 자동 fallback한다.
    - 처리: receiver capability, batch 멱등성, 중단 재개, reverse proxy와 배포 절차를 `UPLOAD_RECEIVER_AGENT_GUIDE.md`에 정리했다.
-   - 배포 상태: 공인 receiver에는 최신 코드 재배포가 필요하다. 현재 원격 접속 키가 만료되어 이 저장소 작업에서는 서버 프로세스까지 교체하지 못했다.
+   - 배포 상태: 2026-08-13 공인 receiver를 최신 `main`으로 재설치했다. 공개 HTTPS에서 `deferred-v1` batch의 수신 hash 확정과 멱등 재전송, 기존 required-hash resumable 전송, 완료 처리와 HDD 객체 일치를 확인했다.
 
 2. ~~Jetson에 업로드 하는 루트 위치도 /data 밑으로 잡아둔거 있자나 그쪽으로 사용할 수 있게 해줘~~
    - 처리: 기본 수집 root를 `/data/collections`로 바꾸고 pipeline 사용자 소유로 생성한다. DepthAI 설치 작업의 working directory와 쓰기 허용 경로도 이 root를 사용하므로 상대 `output_dir: image_records`는 `/data/collections/image_records`에 기록된다.
@@ -39,7 +39,7 @@
    - 처리: receiver에 장비 token 소유권으로 제한된 완료 session, 가상 폴더, 12 MiB 미리보기 API를 추가했다. 폴더는 최대 500개 항목만 반환하고 파일은 regular file과 크기를 다시 검증한다.
    - 처리: Jetson이 server token을 보관한 채 library 요청을 proxy하고, 앱의 `서버 데이터` 화면에서 서버 선택, session pagination, 폴더 이동, 사진 확대와 text preview를 제공한다.
    - 처리: 서버 agent용 설치·검증·rollback 절차와 API 계약을 `UPLOAD_LIBRARY_SERVER_AGENT_GUIDE.md`에 정리했다.
-   - 배포 상태: 공인 receiver에 이 문서대로 library API를 배포한 뒤 앱에서 활성화된다. 현재 공개 서버에는 아직 반영되지 않았다.
+   - 배포 상태: 공인 receiver에 library API를 배포했고 기존 완료 세션과 JPEG·CSV, 새 deferred upload의 폴더·미리보기 byte 및 MIME type을 HDD 원본과 대조했다. 실제 앱에서 활성화하려면 Jetson backend를 최신 버전으로 재설치해야 한다.
 
 ## 검증
 

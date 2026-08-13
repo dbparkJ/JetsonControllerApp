@@ -109,7 +109,7 @@ git switch main
 git pull --ff-only origin main
 
 PYTHONPATH=upload_receiver \
-  backend/.venv/bin/python -m unittest discover \
+  upload_receiver/.venv/bin/python -m unittest discover \
   -s upload_receiver/tests -p 'test_*.py'
 
 ./upload_receiver/scripts/install-user-service.sh \
@@ -152,6 +152,16 @@ PYTHONPATH=upload_receiver \
 ```
 
 기대 결과는 library 소유권/크기 제한 테스트를 포함한 `30 tests OK` 이상이다. 이후 테스트가 추가되면 개수보다 전체 통과 여부를 기준으로 한다.
+
+2026-08-13 KST에 이 PC의 공인 receiver를 최신 `main`으로 재설치하고 다음 항목을 확인했다.
+
+- 공개 base URL `https://125-142-22-24.sslip.io`의 readiness와 인증 경계가 각각 `200`, 무인증 `401`이다.
+- 인증된 capability에 `deferredFileHashes` v1, `fileBatch` v1, `library` v1과 `maxPreviewBytes=12582912`가 노출된다.
+- 기존 완료 세션 4개와 HDD의 JPEG·CSV를 library API로 조회했으며 응답 MIME type, 크기와 byte가 원본 객체와 일치한다.
+- 새 deferred manifest의 2개 파일을 batch로 보내고 같은 batch를 재전송한 뒤 완료해, 수신 hash 확정·멱등성·library 미리보기·HDD 객체 일치를 확인했다.
+- 기존 required-hash 파일도 2개 청크로 전송하고 완료해 resumable 계약의 회귀가 없음을 확인했다.
+
+두 번째 장비 token과 12 MiB 초과 완료 객체가 이 서버에 없으므로 타 장비 소유권 `403`과 대형 미리보기 `413`은 격리 자동 시험으로 검증했다. 실제 Jetson과 Android 앱의 end-to-end 열람은 Jetson backend를 최신 버전으로 재설치한 뒤 수행한다.
 
 ## 5. Jetson 및 앱 연동 확인
 
