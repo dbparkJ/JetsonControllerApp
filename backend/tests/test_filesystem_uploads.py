@@ -9,7 +9,13 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from jetson_control.filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
-from jetson_control.uploads import UploadCapacityExceeded, UploadConflict, UploadManager
+from jetson_control.uploads import (
+    HTTP_COMPLETE_RESPONSE_TIMEOUT,
+    UploadCapacityExceeded,
+    UploadConflict,
+    UploadManager,
+    UploadTarget,
+)
 
 
 class UploadReceiverHandler(BaseHTTPRequestHandler):
@@ -389,6 +395,72 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             )
         with self.assertRaises(UploadConflict):
             self.uploads.delete_http_target("field-server")
+
+    def test_completion_uses_extended_response_timeout_only(self) -> None:
+        calls = []
+
+        class TimeoutCaptureUploadManager(UploadManager):
+            def _http_connection(self, _target):
+                class Socket:
+                    def settimeout(_self, value):
+                        calls.append(("timeout", value))
+
+                class Response:
+                    status = 200
+
+                    @staticmethod
+                    def read(_limit):
+                        return b'{"state":"COMPLETED"}'
+
+                class Connection:
+                    sock = Socket()
+
+                    @staticmethod
+                    def request(*_args, **_kwargs):
+                        calls.append(("request", None))
+
+                    @staticmethod
+                    def getresponse():
+                        calls.append(("response", None))
+                        return Response()
+
+                    @staticmethod
+                    def close():
+                        pass
+
+                return Connection(), ""
+
+        manager = TimeoutCaptureUploadManager(
+            self.storage,
+            self.targets,
+            self.state / "completion-timeout",
+            "device-test",
+            allow_local_targets=True,
+        )
+        target = UploadTarget(
+            id="receiver",
+            label="Receiver",
+            kind="http",
+            base_url="https://uploads.example.com",
+            token_file=self.base / "unused-token",
+        )
+        response = manager._http_json(
+            target,
+            "token",
+            "POST",
+            "/v1/upload-sessions/session/complete",
+            {},
+            response_timeout=HTTP_COMPLETE_RESPONSE_TIMEOUT,
+        )
+        self.assertEqual(response, {"state": "COMPLETED"})
+        self.assertEqual(
+            calls,
+            [
+                ("request", None),
+                ("timeout", HTTP_COMPLETE_RESPONSE_TIMEOUT),
+                ("response", None),
+            ],
+        )
 
     def test_cancellation_cannot_be_overwritten_by_worker_completion(self) -> None:
         copy_started = threading.Event()

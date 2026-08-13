@@ -1,0 +1,17 @@
+[Unit]
+Description=Refresh the Jetson upload receiver HTTPS port forward
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@APP_ROOT@
+EnvironmentFile=@PUBLIC_ENV_FILE@
+ExecStart=@APP_ROOT@/.venv/bin/python @APP_ROOT@/scripts/ensure-port-forward.py --expected-domain ${UPLOAD_RECEIVER_DOMAIN}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictSUIDSGID=true
+LockPersonality=true
+

@@ -1,0 +1,30 @@
+[Unit]
+Description=Jetson durable external upload receiver
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/data/server_storage
+ConditionPathIsMountPoint=/data/server_storage
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@APP_ROOT@
+EnvironmentFile=@ENV_FILE@
+ExecStartPre=/usr/bin/mountpoint --quiet /data/server_storage
+ExecStart=@APP_ROOT@/.venv/bin/uvicorn upload_receiver.app:app --host 127.0.0.1 --port 8877 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@DATA_ROOT@
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target

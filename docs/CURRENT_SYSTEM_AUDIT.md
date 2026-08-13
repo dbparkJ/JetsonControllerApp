@@ -1,6 +1,6 @@
 # Current Jetson System Audit
 
-점검일: 2026-08-12 (Asia/Seoul)
+점검일: 2026-08-12, upload receiver 추가 점검: 2026-08-13 (Asia/Seoul)
 
 이 문서는 secret, token, QR URI를 기록하지 않는다. 배포 전 실제 장비 상태와 새 backend 설치 후 확인할 상태를 구분한다.
 
@@ -88,7 +88,37 @@ curl --fail --insecure https://127.0.0.1:8765/v1/hello
 
 ## 5. 운영 투입 전 필요한 외부 정보와 실기 확인
 
-- 공인 HTTPS upload receiver base URL
-- 해당 장비 ID에 묶인 receiver token 파일
+- Jetson에 발급 완료된 upload receiver URL/token 적용
 - 후순위 서비스 탭에 연결할 실제 camera/LiDAR/GNSS/MMS systemd unit 이름
 - 최신 APK를 설치한 Android 단말에서 Wi-Fi Direct `DISCOVERABLE -> CONNECTING -> READY` 전환과 API 연결 확인
+
+## 6. 외부 upload receiver 실제 배포 결과
+
+배포 완료: 2026-08-13 KST
+
+| 항목 | 확인값 |
+|---|---|
+| 구현 | `upload_receiver/` FastAPI 단일 worker + SQLite WAL/`synchronous=FULL` + Caddy |
+| HDD | `/dev/sda1`, ext4 3.6 TB, `/data/server_storage` mount, 점검 시 약 3.4 TB available |
+| 데이터 root | `/data/server_storage/jetson-upload-receiver` (`/data` 자체는 NVMe이므로 사용하지 않음) |
+| mount 안전장치 | systemd `RequiresMountsFor`, `ConditionPathIsMountPoint`, 시작 전 `mountpoint` 검사 |
+| receiver | `jetson-upload-receiver.service` enabled/active, `127.0.0.1:8877`만 listen |
+| public HTTPS | `jetson-upload-caddy.service` enabled/active, 공개 TCP 443 |
+| base URL | `https://125-142-22-24.sslip.io` |
+| TLS | Let's Encrypt 공인 인증서, SAN `125-142-22-24.sslip.io`, 2026-11-11까지 유효한 인증서 확인 |
+| router mapping | TCP 443 -> 이 PC TCP 443, `jetson-upload-port-forward.timer`가 15분마다 확인 |
+| cleanup | `jetson-upload-receiver-cleanup.timer` enabled/active, 72시간 지난 staging을 매일 정리 |
+| 장비 token | 장비 ID `d606c26d-98d6-4b09-99d7-c3da7dda4de0`에 발급, 3 TiB quota, 서버의 mode `0600` 파일에만 저장 |
+| 자동 시험 | receiver API·경로·hash·재개·복구·경합·quota·token·runtime mount guard 시험 24개 통과 |
+| Jetson backend 회귀 시험 | 최신 `main` 통합 후 56개 통과, 개발 venv에 `python3-cryptography`가 없어 BLE crypto 2개 skip |
+| 공인 E2E | 공인 URL로 배포 smoke file의 session/offset/PUT/complete 후 HDD 객체와 manifest 일치 확인; 최종 코드 재배포 뒤 31-byte 시험 재통과 |
+
+token 원문은 이 audit에 기록하지 않는다. 서버 보관 위치는 다음이며, 신뢰할 수 있는 경로로 Jetson에 전달한 뒤 [JETSON_BACKEND_SETUP.md](JETSON_BACKEND_SETUP.md)의 명령으로 설정한다.
+
+```text
+/data/server_storage/jetson-upload-receiver/secrets/device-tokens/d606c26d-98d6-4b09-99d7-c3da7dda4de0.token
+```
+
+현재 `sslip.io` 이름은 공인 IPv4 `125.142.22.24`를 포함한다. 공인 IP가 바뀌면 새 이름으로 Caddy와 Jetson upload target을 함께 갱신해야 한다. 고정 공인 IP 또는 소유한 DDNS로 이전하기 전까지는 이 변경 가능성을 운영 절차에 포함한다.
+
+API, HDD 저장, 공인 TLS와 장비 token 구축은 완료됐다. 다만 [UPLOAD_RECEIVER_AGENT_GUIDE.md](UPLOAD_RECEIVER_AGENT_GUIDE.md)의 전체 운영 준비 완료 기준 중 별도 관측성 dashboard, 처리량/checksum/offset/latency의 장기 metric, 실제 Jetson의 외부망 중단 재개·대용량 전송 시험은 아직 남아 있다. 현재 `/metrics`는 localhost receiver에만 있고 세션 상태 및 전체 declared/received byte의 최소 metric만 제공한다.
