@@ -34,6 +34,7 @@ SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 CONTENT_RANGE_PATTERN = re.compile(r"^bytes ([0-9]+)-([0-9]+)/([0-9]+)$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
+DEFERRED_FILE_HASH_MODE = "deferred-v1"
 
 
 class ReceiverError(Exception):
@@ -54,7 +55,7 @@ class Device:
 class ManifestFile:
     path: str
     size_bytes: int
-    sha256: str
+    sha256: str | None
     file_id: str
 
 
@@ -328,6 +329,10 @@ class ReceiverService:
             raise ReceiverError(400, "files must be an array")
         if len(files_value) > self.settings.max_files_per_session:
             raise ReceiverError(413, "Session contains too many files")
+        hash_mode = value.get("hashMode", "required")
+        if hash_mode not in {"required", DEFERRED_FILE_HASH_MODE}:
+            raise ReceiverError(400, "Manifest hashMode is invalid")
+        deferred_hashes = hash_mode == DEFERRED_FILE_HASH_MODE
 
         files = []
         seen_paths = set()
@@ -348,10 +353,20 @@ class ReceiverService:
                 raise ReceiverError(400, "File size is invalid")
             if size_value > self.settings.max_session_bytes:
                 raise ReceiverError(413, "File is larger than the session limit")
-            if not isinstance(sha_value, str) or not SHA256_PATTERN.fullmatch(sha_value):
-                raise ReceiverError(400, "File SHA-256 is invalid")
-            if size_value == 0 and sha_value != EMPTY_SHA256:
-                raise ReceiverError(422, "Empty file SHA-256 does not match")
+            if deferred_hashes:
+                if "sha256" in entry:
+                    raise ReceiverError(
+                        400,
+                        "Deferred manifest files must omit SHA-256",
+                    )
+                sha_value = EMPTY_SHA256 if size_value == 0 else None
+            else:
+                if not isinstance(sha_value, str) or not SHA256_PATTERN.fullmatch(
+                    sha_value
+                ):
+                    raise ReceiverError(400, "File SHA-256 is invalid")
+                if size_value == 0 and sha_value != EMPTY_SHA256:
+                    raise ReceiverError(422, "Empty file SHA-256 does not match")
             total_bytes += size_value
             if total_bytes > self.settings.max_session_bytes:
                 raise ReceiverError(413, "Session is larger than the configured limit")
@@ -364,15 +379,20 @@ class ReceiverService:
                 )
             )
 
+        canonical_files = []
+        for item in sorted(files, key=lambda item: item.path.encode("utf-8")):
+            canonical_file = {"path": item.path, "sizeBytes": item.size_bytes}
+            if item.sha256 is not None:
+                canonical_file["sha256"] = item.sha256
+            canonical_files.append(canonical_file)
         canonical_value = {
             "deviceId": device_id,
             "clientJobId": client_value,
             "sourceName": source_name,
-            "files": [
-                {"path": item.path, "sizeBytes": item.size_bytes, "sha256": item.sha256}
-                for item in sorted(files, key=lambda item: item.path.encode("utf-8"))
-            ],
+            "files": canonical_files,
         }
+        if deferred_hashes:
+            canonical_value["hashMode"] = DEFERRED_FILE_HASH_MODE
         canonical_json = json.dumps(
             canonical_value,
             ensure_ascii=False,
@@ -468,7 +488,7 @@ class ReceiverService:
                                     item.path,
                                     item.file_id,
                                     item.size_bytes,
-                                    item.sha256,
+                                    item.sha256 or "",
                                     state,
                                     staging_key,
                                     final_key,
@@ -616,15 +636,25 @@ class ReceiverService:
                         )
                     if len(item.body) != size_bytes:
                         raise ReceiverError(400, "File batch size does not match the manifest")
-                    if not hmac.compare_digest(
-                        hashlib.sha256(item.body).hexdigest(),
-                        row["sha256"],
+                    actual_sha256 = hashlib.sha256(item.body).hexdigest()
+                    expected_sha256 = str(row["sha256"])
+                    if expected_sha256 and not hmac.compare_digest(
+                        actual_sha256,
+                        expected_sha256,
                     ):
                         raise ReceiverError(422, "File batch SHA-256 does not match")
-                    rows.append((item, row, next_offset, size_bytes))
+                    rows.append(
+                        (
+                            item,
+                            row,
+                            next_offset,
+                            size_bytes,
+                            expected_sha256 or actual_sha256,
+                        )
+                    )
 
             pending = [entry for entry in rows if entry[2] == 0 and entry[3] > 0]
-            for item, row, _next_offset, _size_bytes in pending:
+            for item, row, _next_offset, _size_bytes, _sha256 in pending:
                 staging_path = self._key_path(
                     row["staging_key"],
                     self.settings.staging_root,
@@ -635,14 +665,14 @@ class ReceiverService:
             if pending:
                 now = self.timestamp()
                 with self.database.immediate() as connection:
-                    for item, _row, _next_offset, size_bytes in pending:
+                    for item, _row, _next_offset, size_bytes, sha256 in pending:
                         cursor = connection.execute(
                             """
                             UPDATE upload_files
-                            SET next_offset=?, state='VERIFIED'
+                            SET next_offset=?, state='VERIFIED', sha256=?
                             WHERE session_id=? AND relative_path=? AND next_offset=0
                             """,
-                            (size_bytes, session_id, item.path),
+                            (size_bytes, sha256, session_id, item.path),
                         )
                         if cursor.rowcount != 1:
                             raise ReceiverError(409, "File batch offset changed concurrently")
@@ -652,7 +682,10 @@ class ReceiverService:
                         (now, session_id),
                     )
 
-            return {item.path: size_bytes for item, _row, _offset, size_bytes in rows}
+            return {
+                item.path: size_bytes
+                for item, _row, _offset, size_bytes, _sha256 in rows
+            }
 
     def put_chunk(
         self,
@@ -717,10 +750,16 @@ class ReceiverService:
             next_offset = offset + len(body)
 
             self._durable_write(staging_path, offset, body)
+            expected_sha256 = str(row["sha256"])
+            completed_sha256 = (
+                candidate_hasher.hexdigest()
+                if next_offset == size_bytes and candidate_hasher is not None
+                else None
+            )
             if (
-                next_offset == size_bytes
-                and candidate_hasher is not None
-                and not hmac.compare_digest(candidate_hasher.hexdigest(), row["sha256"])
+                completed_sha256 is not None
+                and expected_sha256
+                and not hmac.compare_digest(completed_sha256, expected_sha256)
             ):
                 now = self.timestamp()
                 with self.database.immediate() as connection:
@@ -745,7 +784,7 @@ class ReceiverService:
 
             new_state = (
                 "VERIFIED"
-                if next_offset == size_bytes and candidate_hasher is not None
+                if completed_sha256 is not None
                 else "RECEIVED"
                 if next_offset == size_bytes
                 else "UPLOADING"
@@ -755,10 +794,17 @@ class ReceiverService:
                 cursor = connection.execute(
                     """
                     UPDATE upload_files
-                    SET next_offset=?, state=?
+                    SET next_offset=?, state=?, sha256=?
                     WHERE session_id=? AND relative_path=? AND next_offset=?
                     """,
-                    (next_offset, new_state, session_id, relative_path, offset),
+                    (
+                        next_offset,
+                        new_state,
+                        expected_sha256 or completed_sha256 or "",
+                        session_id,
+                        relative_path,
+                        offset,
+                    ),
                 )
                 if cursor.rowcount != 1:
                     raise ReceiverError(409, "Chunk offset changed concurrently")
@@ -1287,6 +1333,7 @@ class ReceiverService:
                 """,
                 (session_id,),
             ).fetchall()
+        resolved_hashes = {}
         for row in rows:
             path = self._key_path(row["staging_key"], self.settings.staging_root)
             digest = hashlib.sha256()
@@ -1314,11 +1361,26 @@ class ReceiverService:
                 raise ReceiverError(
                     503, "Staging storage is unavailable", retry_after=5
                 ) from error
-            if not hmac.compare_digest(digest.hexdigest(), row["sha256"]):
+            actual_sha256 = digest.hexdigest()
+            expected_sha256 = str(row["sha256"])
+            if expected_sha256 and not hmac.compare_digest(
+                actual_sha256,
+                expected_sha256,
+            ):
                 self._fail_file_hash(session_id, row["relative_path"])
                 raise ReceiverError(422, "File SHA-256 does not match")
+            if not expected_sha256:
+                resolved_hashes[str(row["relative_path"])] = actual_sha256
         if rows:
             with self.database.immediate() as connection:
+                for relative_path, sha256 in resolved_hashes.items():
+                    connection.execute(
+                        """
+                        UPDATE upload_files SET sha256=?
+                        WHERE session_id=? AND relative_path=? AND sha256=''
+                        """,
+                        (sha256, session_id, relative_path),
+                    )
                 connection.execute(
                     """
                     UPDATE upload_files SET state='VERIFIED'

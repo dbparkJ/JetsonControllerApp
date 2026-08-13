@@ -74,6 +74,23 @@ class ReceiverApiTest(unittest.TestCase):
             ],
         }
 
+    @staticmethod
+    def deferred_manifest(
+        files: list[tuple[str, bytes]],
+        *,
+        device_id: str = DEVICE_ID,
+        client_job_id: str = "fedcba9876543210fedcba9876543210",
+    ) -> dict[str, object]:
+        return {
+            "deviceId": device_id,
+            "clientJobId": client_job_id,
+            "sourceName": "capture-20260813",
+            "hashMode": "deferred-v1",
+            "files": [
+                {"path": path, "sizeBytes": len(body)} for path, body in files
+            ],
+        }
+
     def auth(self, token: str | None = None) -> dict[str, str]:
         return {"Authorization": f"Bearer {token or self.token}"}
 
@@ -151,6 +168,13 @@ class ReceiverApiTest(unittest.TestCase):
             json={},
         )
         self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.client.get("/v1/capabilities").status_code, 401)
+        capabilities = self.client.get("/v1/capabilities", headers=self.auth())
+        self.assertEqual(capabilities.status_code, 200)
+        self.assertEqual(
+            capabilities.json()["deferredFileHashes"],
+            {"version": 1, "manifestHashMode": "deferred-v1"},
+        )
 
     def test_upload_resume_complete_and_idempotency(self) -> None:
         first = b"first chunk"
@@ -267,6 +291,75 @@ class ReceiverApiTest(unittest.TestCase):
         )
         self.assertEqual(completed.status_code, 200, completed.text)
 
+    def test_deferred_hashes_support_batch_and_resumed_chunks(self) -> None:
+        files = [
+            ("batch.bin", b"batched-content"),
+            ("chunk.bin", b"first-half-second-half"),
+            ("empty", b""),
+        ]
+        manifest = self.deferred_manifest(files)
+        created = self.create(manifest)
+        self.assertEqual(created.status_code, 201, created.text)
+        session_id = created.json()["sessionId"]
+
+        with sqlite3.connect(self.settings.database_path) as connection:
+            initial_hashes = dict(
+                connection.execute(
+                    "SELECT relative_path, sha256 FROM upload_files WHERE session_id=?",
+                    (session_id,),
+                ).fetchall()
+            )
+        self.assertEqual(initial_hashes["batch.bin"], "")
+        self.assertEqual(initial_hashes["chunk.bin"], "")
+        self.assertEqual(initial_hashes["empty"], EMPTY_SHA256)
+
+        uploaded = self.put_batch(session_id, [files[0]])
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertEqual(self.put_batch(session_id, [files[0]]).status_code, 200)
+
+        chunk_body = files[1][1]
+        split = len(chunk_body) // 2
+        first = self.put(
+            session_id,
+            "chunk.bin",
+            chunk_body[:split],
+            total=len(chunk_body),
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+
+        restarted = ReceiverService(self.settings)
+        device = restarted.authenticate(f"Bearer {self.token}")
+        next_offset = restarted.put_chunk(
+            device,
+            session_id,
+            "chunk.bin",
+            split,
+            f"bytes {split}-{len(chunk_body) - 1}/{len(chunk_body)}",
+            hashlib.sha256(chunk_body[split:]).hexdigest(),
+            chunk_body[split:],
+        )
+        self.assertEqual(next_offset, len(chunk_body))
+        self.assertEqual(restarted.complete(device, session_id), "COMPLETED")
+
+        with sqlite3.connect(self.settings.database_path) as connection:
+            final_hashes = dict(
+                connection.execute(
+                    "SELECT relative_path, sha256 FROM upload_files WHERE session_id=?",
+                    (session_id,),
+                ).fetchall()
+            )
+        self.assertEqual(
+            final_hashes,
+            {path: hashlib.sha256(body).hexdigest() for path, body in files},
+        )
+        final_directory = self.data_root / "storage" / "objects" / DEVICE_ID / session_id
+        metadata = json.loads((final_directory / "manifest.json").read_text("utf-8"))
+        self.assertEqual(metadata["hashMode"], "deferred-v1")
+        self.assertEqual(
+            {item["path"]: item["sha256"] for item in metadata["files"]},
+            final_hashes,
+        )
+
     def test_batch_rejects_bad_hash_and_partial_file(self) -> None:
         body = b"part-one-part-two"
         session_id = self.create(
@@ -325,6 +418,18 @@ class ReceiverApiTest(unittest.TestCase):
             self.assertEqual(self.create(invalid).status_code, 400, path)
         duplicate = self.manifest([("same", b"1"), ("same", b"2")], client_job_id="1" * 32)
         self.assertEqual(self.create(duplicate).status_code, 400)
+        unknown_hash_mode = self.deferred_manifest(
+            [("file", b"x")],
+            client_job_id="3" * 32,
+        )
+        unknown_hash_mode["hashMode"] = "future-mode"
+        self.assertEqual(self.create(unknown_hash_mode).status_code, 400)
+        mixed_hash_mode = self.deferred_manifest(
+            [("file", b"x")],
+            client_job_id="4" * 32,
+        )
+        mixed_hash_mode["files"][0]["sha256"] = hashlib.sha256(b"x").hexdigest()
+        self.assertEqual(self.create(mixed_hash_mode).status_code, 400)
         wrong_device = self.manifest(
             [("file", b"x")],
             device_id=SECOND_DEVICE_ID,

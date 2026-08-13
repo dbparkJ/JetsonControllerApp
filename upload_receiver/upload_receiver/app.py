@@ -99,6 +99,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def metrics(request: Request):
         return await run_in_threadpool(service(request).metrics)
 
+    @application.get("/v1/capabilities")
+    async def capabilities(request: Request):
+        receiver = service(request)
+        await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        return {
+            "deferredFileHashes": {
+                "version": 1,
+                "manifestHashMode": "deferred-v1",
+            },
+            "fileBatch": {
+                "version": 1,
+                "maxBytes": effective_settings.max_batch_bytes,
+                "maxFiles": effective_settings.max_batch_files,
+            },
+        }
+
     @application.post("/v1/upload-sessions")
     async def create_session(request: Request):
         receiver = service(request)

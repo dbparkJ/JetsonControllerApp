@@ -14,7 +14,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlencode, urlsplit
 
 from .config import load_json_object, validate_config_id
@@ -29,8 +29,11 @@ DEFAULT_MAX_CONCURRENT_JOBS = 2
 HTTP_COMPLETE_RESPONSE_TIMEOUT = 24 * 60 * 60
 FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
 FILE_BATCH_VERSION = 1
+DEFERRED_FILE_HASH_VERSION = 1
+DEFERRED_FILE_HASH_MODE = "deferred-v1"
 CLIENT_MAX_BATCH_BYTES = 32 * 1024 * 1024
 CLIENT_MAX_BATCH_FILES = 256
+HASH_PROGRESS_INTERVAL_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -513,7 +516,6 @@ class UploadManager:
             bytes_total = sum(path.stat().st_size for path in files)
             self._update(
                 job_id,
-                state="UPLOADING",
                 bytesTotal=bytes_total,
                 bytesTransferred=0,
                 filesTotal=len(files),
@@ -521,6 +523,7 @@ class UploadManager:
             )
 
             if target.kind == "local":
+                self._update(job_id, state="UPLOADING")
                 self._copy_to_local_target(
                     job_id, source, files, target, cancellation
                 )
@@ -600,15 +603,22 @@ class UploadManager:
         cancellation: threading.Event,
     ) -> None:
         token = self._read_target_token(target)
-        manifest_files = []
-        for path in files:
-            self._raise_if_cancelled(job_id, cancellation)
-            manifest_files.append(
+        capabilities = self._http_receiver_capabilities(target, token)
+        deferred_hashes = self._supports_deferred_file_hashes(capabilities)
+        if deferred_hashes:
+            manifest_files = [
                 {
                     "path": self._relative_file_path(source, path).as_posix(),
                     "sizeBytes": path.stat().st_size,
-                    "sha256": self._sha256_file(path, cancellation, job_id),
                 }
+                for path in files
+            ]
+        else:
+            manifest_files = self._build_manifest_files(
+                job_id,
+                source,
+                files,
+                cancellation,
             )
 
         manifest = {
@@ -617,6 +627,8 @@ class UploadManager:
             "sourceName": source.name or "root",
             "files": manifest_files,
         }
+        if deferred_hashes:
+            manifest["hashMode"] = DEFERRED_FILE_HASH_MODE
         response = self._http_json_with_retry(
             target, token, "POST", "/v1/upload-sessions", manifest
         )
@@ -625,6 +637,13 @@ class UploadManager:
             validate_config_id(session_id, "upload session")
         except ValueError as error:
             raise RuntimeError("Upload receiver returned an invalid session id")
+        self._update(
+            job_id,
+            state="UPLOADING",
+            bytesTransferred=0,
+            filesTransferred=0,
+            currentFile=None,
+        )
 
         try:
             batch_limits = self._file_batch_limits(response)
@@ -672,6 +691,89 @@ class UploadManager:
             except Exception:
                 pass
             raise UploadCancelled() from error
+
+    def _build_manifest_files(
+        self,
+        job_id: str,
+        source: Path,
+        files: List[Path],
+        cancellation: threading.Event,
+    ) -> List[Dict[str, object]]:
+        manifest_files: List[Dict[str, object]] = []
+        bytes_prepared = 0
+        files_prepared = 0
+        last_report = 0.0
+
+        for path in files:
+            self._raise_if_cancelled(job_id, cancellation)
+            relative_path = self._relative_file_path(source, path).as_posix()
+            expected_size = path.stat().st_size
+            file_start = bytes_prepared
+
+            def report_chunk(size: int) -> None:
+                nonlocal bytes_prepared, last_report
+                bytes_prepared += size
+                now = time.monotonic()
+                if now - last_report >= HASH_PROGRESS_INTERVAL_SECONDS:
+                    self._update(
+                        job_id,
+                        bytesTransferred=bytes_prepared,
+                        filesTransferred=files_prepared,
+                        currentFile=relative_path,
+                    )
+                    last_report = now
+
+            digest = self._sha256_file(
+                path,
+                cancellation,
+                job_id,
+                report_chunk,
+            )
+            if bytes_prepared - file_start != expected_size:
+                raise OSError("Source file changed while preparing upload metadata")
+            files_prepared += 1
+            manifest_files.append(
+                {
+                    "path": relative_path,
+                    "sizeBytes": expected_size,
+                    "sha256": digest,
+                }
+            )
+
+        self._update(
+            job_id,
+            bytesTransferred=bytes_prepared,
+            filesTransferred=files_prepared,
+            currentFile=None,
+        )
+        return manifest_files
+
+    def _http_receiver_capabilities(
+        self,
+        target: UploadTarget,
+        token: str,
+    ) -> Dict[str, object]:
+        try:
+            return self._http_json(
+                target,
+                token,
+                "GET",
+                "/v1/capabilities",
+                None,
+            )
+        except UploadReceiverHttpError as error:
+            if error.status_code in {404, 405}:
+                return {}
+            raise
+
+    @staticmethod
+    def _supports_deferred_file_hashes(capabilities: Dict[str, object]) -> bool:
+        raw = capabilities.get("deferredFileHashes")
+        return (
+            isinstance(raw, dict)
+            and raw.get("version") == DEFERRED_FILE_HASH_VERSION
+            and raw.get("manifestHashMode") == DEFERRED_FILE_HASH_MODE
+        )
 
     def _upload_http_files_legacy(
         self,
@@ -1164,7 +1266,7 @@ class UploadManager:
             response = connection.getresponse()
             response_body = response.read(1024 * 1024)
             if response.status < 200 or response.status >= 300:
-                raise RuntimeError("Upload receiver rejected the request")
+                raise UploadReceiverHttpError(response.status)
             if not response_body:
                 return {}
             parsed = json.loads(response_body.decode("utf-8"))
@@ -1239,6 +1341,7 @@ class UploadManager:
         path: Path,
         cancellation: threading.Event,
         job_id: str,
+        on_chunk: Optional[Callable[[int], None]] = None,
     ) -> str:
         digest = hashlib.sha256()
         with path.open("rb") as source:
@@ -1249,6 +1352,8 @@ class UploadManager:
                 if not chunk:
                     return digest.hexdigest()
                 digest.update(chunk)
+                if on_chunk is not None:
+                    on_chunk(len(chunk))
 
     def _raise_if_cancelled(
         self, job_id: str, cancellation: threading.Event
@@ -1403,6 +1508,12 @@ class UploadManager:
 
 class UploadCancelled(Exception):
     pass
+
+
+class UploadReceiverHttpError(RuntimeError):
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(f"Upload receiver rejected the request (HTTP {status_code})")
 
 
 class UploadConflict(RuntimeError):

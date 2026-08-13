@@ -9,6 +9,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from jetson_control.filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
@@ -25,6 +26,7 @@ from jetson_control.uploads import (
 class UploadReceiverHandler(BaseHTTPRequestHandler):
     token = "test-receiver-token"
     advertise_file_batch = True
+    advertise_deferred_hashes = True
     manifest = None
     files = {}
     completed = False
@@ -97,6 +99,20 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
         if not self._require_auth():
             return
         parsed = urlsplit(self.path)
+        if parsed.path == "/v1/capabilities":
+            if not type(self).advertise_deferred_hashes:
+                self._json_response(404, {"detail": "not found"})
+                return
+            self._json_response(
+                200,
+                {
+                    "deferredFileHashes": {
+                        "version": 1,
+                        "manifestHashMode": "deferred-v1",
+                    }
+                },
+            )
+            return
         if parsed.path != "/v1/upload-sessions/session-test/files/offset":
             self._json_response(404, {"detail": "not found"})
             return
@@ -339,6 +355,8 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                 UploadReceiverHandler.manifest["deviceId"],
                 "00000000-0000-0000-0000-000000000001",
             )
+            self.assertEqual(UploadReceiverHandler.manifest["hashMode"], "deferred-v1")
+            self.assertNotIn("sha256", UploadReceiverHandler.manifest["files"][0])
             self.assertEqual(
                 bytes(UploadReceiverHandler.files["folder/sample.bin"]),
                 b"abc" * 4096,
@@ -349,8 +367,86 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             )
             for manifest_file in UploadReceiverHandler.manifest["files"]:
                 uploaded = bytes(UploadReceiverHandler.files[manifest_file["path"]])
-                self.assertEqual(hashlib.sha256(uploaded).hexdigest(), manifest_file["sha256"])
+                self.assertEqual(
+                    uploaded,
+                    (self.source / manifest_file["path"]).read_bytes(),
+                )
         finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=2)
+
+    def test_external_http_upload_reports_manifest_hashing_progress(self) -> None:
+        token_file = self.base / "progress-receiver.token"
+        token_file.write_text(UploadReceiverHandler.token, encoding="utf-8")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), UploadReceiverHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        hashing_started = threading.Event()
+        release_hashing = threading.Event()
+        UploadReceiverHandler.advertise_deferred_hashes = False
+
+        def controlled_hash(path, cancellation, _job_id, on_chunk=None):
+            content = path.read_bytes()
+            midpoint = max(1, len(content) // 2)
+            digest = hashlib.sha256()
+            digest.update(content[:midpoint])
+            if on_chunk is not None:
+                on_chunk(midpoint)
+            hashing_started.set()
+            if not release_hashing.wait(timeout=5):
+                raise RuntimeError("Test did not release manifest hashing")
+            if cancellation.is_set():
+                raise RuntimeError("Upload was unexpectedly cancelled")
+            digest.update(content[midpoint:])
+            if on_chunk is not None:
+                on_chunk(len(content) - midpoint)
+            return digest.hexdigest()
+
+        try:
+            self.targets.write_text(
+                json.dumps(
+                    {
+                        "progress": {
+                            "label": "Progress receiver",
+                            "type": "http",
+                            "base_url": f"http://127.0.0.1:{server.server_port}",
+                            "token_file": str(token_file),
+                            "verify_tls": False,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            uploads = UploadManager(
+                self.storage,
+                self.targets,
+                self.state / "progress-external",
+                "00000000-0000-0000-0000-000000000001",
+            )
+            with patch.object(UploadManager, "_sha256_file", side_effect=controlled_hash):
+                job = uploads.start("data", "", "progress")
+                self.assertTrue(hashing_started.wait(timeout=5))
+                current = uploads.get(str(job["id"]))
+                self.assertEqual(current["state"], "SCANNING")
+                self.assertGreater(current["bytesTransferred"], 0)
+                self.assertEqual(current["filesTransferred"], 0)
+                self.assertIsNotNone(current["currentFile"])
+
+                release_hashing.set()
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    current = uploads.get(str(job["id"]))
+                    if current["state"] in {"COMPLETED", "FAILED"}:
+                        break
+                    time.sleep(0.02)
+
+            self.assertEqual(current["state"], "COMPLETED", current)
+            self.assertEqual(current["bytesTransferred"], current["bytesTotal"])
+            self.assertEqual(current["filesTransferred"], current["filesTotal"])
+        finally:
+            release_hashing.set()
+            UploadReceiverHandler.advertise_deferred_hashes = True
             server.shutdown()
             server.server_close()
             server_thread.join(timeout=2)
@@ -359,6 +455,7 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         token_file = self.base / "legacy-receiver.token"
         token_file.write_text(UploadReceiverHandler.token, encoding="utf-8")
         UploadReceiverHandler.advertise_file_batch = False
+        UploadReceiverHandler.advertise_deferred_hashes = False
         server = ThreadingHTTPServer(("127.0.0.1", 0), UploadReceiverHandler)
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
@@ -402,6 +499,7 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             self.assertEqual(bytes(UploadReceiverHandler.files["note.txt"]), b"hello")
         finally:
             UploadReceiverHandler.advertise_file_batch = True
+            UploadReceiverHandler.advertise_deferred_hashes = True
             server.shutdown()
             server.server_close()
             server_thread.join(timeout=2)

@@ -29,7 +29,8 @@ Public upload receiver
 - 청크 크기: 최대 4 MiB
 - 작은 파일이 많은 디렉터리는 수신기가 `fileBatch` capability를 광고할 때 최대 32 MiB, 256개 파일 단위로 묶어 전송
 - 배치 전송 전 여러 파일의 오프셋을 한 요청으로 조회하고, 일부만 올라간 파일은 기존 4 MiB 재개 청크로 자동 전환
-- 파일 전체 SHA-256을 세션 생성 전에 계산
+- 수신기가 `deferredFileHashes`를 광고하면 세션에는 경로와 크기만 먼저 보내고, 각 batch·파일이 도착할 때 전체 SHA-256을 확정
+- 구형 수신기에서는 파일 전체 SHA-256을 세션 생성 전에 계산하되 Android에 `SCANNING` byte·파일 진행률을 표시
 - 청크별 `X-Chunk-SHA256` 전송
 - 실패 시 0, 1, 3, 7초 간격으로 재시도
 - 실패한 PUT 뒤 서버 오프셋을 다시 조회하여 이어서 전송
@@ -38,9 +39,11 @@ Public upload receiver
 - 완료 요청은 수 TiB 파일의 전체 해시 검증을 기다릴 수 있도록 응답 read timeout을 24시간으로 확장
 - 운영 모드에서는 `http://`와 로컬 복사 대상을 사용하지 않는다.
 
+`multipart/form-data`는 파일마다 header와 form parser 비용이 들고 offset 재개·멱등 batch 재시도 계약이 모호해지므로 사용하지 않는다. `JETSONBATCH1`은 같은 목적의 길이 기반 binary multipart 형식이다. 188.9 GiB 데이터처럼 파일이 많은 작업은 전체를 먼저 hash하지 않고 32 MiB 단위로 읽고 checksum을 만든 직후 전송한다. 디스크 hash 속도가 현재 WAN 전송보다 충분히 빠르므로 여러 대용량 PUT을 동시에 열어 순서·메모리·복구 복잡도를 키우지 않고, 한 batch 준비와 receiver 검증을 짧게 교차하는 bounded pipeline을 사용한다.
+
 ## 3. 인증과 TLS
 
-모든 `/v1/upload-sessions` 요청은 다음 헤더가 필요하다.
+모든 `/v1/*` 요청은 다음 헤더가 필요하다.
 
 ```http
 Authorization: Bearer <device-token>
@@ -114,7 +117,7 @@ CORS는 필요하지 않다. 호출자는 브라우저가 아닌 Jetson 데몬�
 |---|---|
 | `session_id`, `relative_path` | 복합 PK |
 | `size_bytes` | 선언된 전체 크기 |
-| `sha256` | 선언된 전체 해시 |
+| `sha256` | 사전 선언된 전체 해시 또는 deferred upload에서 수신 후 확정한 전체 해시 |
 | `next_offset` | 서버가 영속화한 다음 바이트 위치 |
 | `state` | `PENDING`, `UPLOADING`, `RECEIVED`, `VERIFIED`, `FAILED` |
 | `staging_key`, `final_key` | 저장소 객체 키 |
@@ -125,7 +128,30 @@ CORS는 필요하지 않다. 호출자는 브라우저가 아닌 Jetson 데몬�
 
 Base URL 예: `https://uploads.example.com`. 모든 응답은 JSON이다. 성공 응답의 필드명과 대소문자를 그대로 지킨다.
 
-### 6.1 세션 생성
+### 6.1 Capability 조회
+
+```http
+GET /v1/capabilities
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "deferredFileHashes": {
+    "version": 1,
+    "manifestHashMode": "deferred-v1"
+  },
+  "fileBatch": {
+    "version": 1,
+    "maxBytes": 33554432,
+    "maxFiles": 256
+  }
+}
+```
+
+Jetson은 작업 시작 때 한 번 조회한다. endpoint가 없거나 `deferredFileHashes` 값이 정확히 일치하지 않으면 전체 파일 SHA-256을 먼저 계산하는 기존 계약으로 자동 전환한다. 인증 실패나 receiver 장애를 capability 부재로 오인해 보안을 낮추지 않으며, 실제 session·upload 요청은 기존 오류 처리에 따라 실패한다.
+
+### 6.2 세션 생성
 
 ```http
 POST /v1/upload-sessions
@@ -147,6 +173,25 @@ Content-Type: application/json
   ]
 }
 ```
+
+`deferredFileHashes`를 지원하는 receiver에는 다음처럼 전체 파일 SHA-256을 생략한다.
+
+```json
+{
+  "deviceId": "00000000-0000-0000-0000-000000000001",
+  "clientJobId": "6fd7a68a0a734c01a83bb6445e5f6c58",
+  "sourceName": "capture-20260812",
+  "hashMode": "deferred-v1",
+  "files": [
+    {
+      "path": "camera/front/000001.jpg",
+      "sizeBytes": 1843200
+    }
+  ]
+}
+```
+
+deferred manifest도 전체 경로·크기와 집계 quota를 세션 생성 시 검증하고 예약한다. 0-byte 파일은 즉시 빈 SHA-256으로 확정하며, 나머지 파일의 hash DB 값은 batch 또는 완성된 chunk 파일을 검증할 때 원자적으로 채운다.
 
 처리 순서:
 
@@ -171,7 +216,7 @@ Content-Type: application/json
 
 `fileBatch`는 선택 capability다. 새 Jetson backend는 이 값이 있으면 다수 파일 배치 전송을 사용하고, 필드가 없는 기존 수신기에는 파일별 offset/청크 계약을 그대로 사용한다.
 
-### 6.2 파일 오프셋 조회
+### 6.3 파일 오프셋 조회
 
 ```http
 GET /v1/upload-sessions/{sessionId}/files/offset?path=camera%2Ffront%2F000001.jpg
@@ -188,7 +233,7 @@ Authorization: Bearer <token>
 - `0 <= nextOffset <= sizeBytes`를 항상 보장한다.
 - 취소되거나 실패한 세션은 `409`, 없는 경로는 `404`를 반환한다.
 
-### 6.3 배치 파일 오프셋 조회
+### 6.4 배치 파일 오프셋 조회
 
 ```http
 POST /v1/upload-sessions/{sessionId}/files/offsets
@@ -209,7 +254,7 @@ Content-Type: application/json
 
 한 요청의 경로 수는 세션 생성 응답의 `fileBatch.maxFiles` 이하로 제한한다. 요청 순서대로 모든 경로와 오프셋을 반환하며, 중복·누락·타 장비 세션은 거부한다.
 
-### 6.4 다수 파일 배치 업로드
+### 6.5 다수 파일 배치 업로드
 
 ```http
 PUT /v1/upload-sessions/{sessionId}/files/batch
@@ -227,7 +272,7 @@ X-Batch-SHA256: <64-lowercase-hex>
 2. unsigned 32-bit 파일 수
 3. 파일마다 unsigned 32-bit UTF-8 경로 길이, unsigned 64-bit 내용 길이, 경로 bytes, 파일 bytes
 
-수신기는 전체 body hash와 각 파일의 manifest 크기·SHA-256을 먼저 확인한 뒤 staging 객체를 기록한다. 오프셋이 `0`인 완전한 파일만 배치에 넣으며 부분 전송 파일은 6.5의 청크 API로 재개한다. 동일 배치의 응답이 유실되어 다시 도착하면 이미 완료된 파일을 덧붙이지 않고 같은 오프셋을 반환한다.
+수신기는 전체 body hash와 각 파일의 manifest 크기를 확인한 뒤 파일 SHA-256과 staging 객체를 함께 확정한다. 기존 manifest의 SHA-256이 있으면 대조하고, deferred manifest이면 계산값을 DB에 기록한다. 오프셋이 `0`인 완전한 파일만 배치에 넣으며 부분 전송 파일은 6.6의 청크 API로 재개한다. 동일 배치의 응답이 유실되어 다시 도착하면 저장된 hash와 body를 대조하고 이미 완료된 파일을 덧붙이지 않은 채 같은 오프셋을 반환한다.
 
 ```json
 {
@@ -238,7 +283,7 @@ X-Batch-SHA256: <64-lowercase-hex>
 }
 ```
 
-### 6.5 청크 업로드
+### 6.6 청크 업로드
 
 ```http
 PUT /v1/upload-sessions/{sessionId}/files?path=...&offset=4194304
@@ -260,6 +305,8 @@ X-Chunk-SHA256: <64-lowercase-hex>
 5. 기록 성공 뒤에만 DB `next_offset`을 증가시킨다.
 6. 새 오프셋을 반환한다.
 
+deferred manifest의 파일은 첫 offset부터 끊김 없이 완료되면 수신 중 누적한 전체 SHA-256을 즉시 기록한다. 프로세스 재시작 뒤 이어받아 누적 hasher가 없으면 파일 상태를 `RECEIVED`로 두고 세션 완료 검증에서 staging 객체를 한 번 읽어 hash를 확정한다.
+
 ```json
 {
   "nextOffset": 8388608
@@ -268,7 +315,7 @@ X-Chunk-SHA256: <64-lowercase-hex>
 
 정상 응답은 `200`이다. 이전 오프셋의 청크가 중복 도착하면 데이터를 다시 붙이지 말고 `409`를 반환한다. Jetson은 오프셋 조회 후 계속한다. 응답이 유실되더라도 저장된 오프셋이 유지되어야 한다.
 
-### 6.6 세션 완료
+### 6.7 세션 완료
 
 ```http
 POST /v1/upload-sessions/{sessionId}/complete
@@ -281,7 +328,7 @@ Content-Type: application/json
 완료 처리:
 
 1. 모든 파일의 `next_offset == size_bytes`를 확인한다.
-2. 각 staging 파일의 전체 SHA-256을 manifest와 대조한다.
+2. 각 staging 파일의 전체 SHA-256을 검증한다. 기존 manifest 값과 대조하거나 deferred 파일의 최종 값을 확정한다.
 3. 최종 object key로 원자적 promote 또는 multipart complete를 수행한다.
 4. 모든 파일이 성공한 뒤 세션을 `COMPLETED`로 바꾼다.
 5. 같은 요청의 재호출은 성공 응답을 반환한다.
@@ -294,7 +341,7 @@ Content-Type: application/json
 
 파일이 덜 전송됐으면 `409`, 해시가 다르면 `422`를 반환하고 세션을 `FAILED`로 표시한다.
 
-### 6.7 세션 취소
+### 6.8 세션 취소
 
 ```http
 DELETE /v1/upload-sessions/{sessionId}
@@ -397,6 +444,9 @@ devices/{deviceId}/uploads/{sessionId}/{percent-encoded-relative-path}
 15. quota, rate limit, 만료 세션 정리
 16. 배치 body hash·파일별 hash·중복 경로·trailing bytes 거부
 17. 배치 응답 유실 재시도와 부분 파일의 청크 전환
+18. capability 인증과 구형 receiver의 사전 hash fallback
+19. deferred manifest batch의 수신 hash 확정과 멱등 재시도
+20. deferred chunk가 receiver 재시작 뒤 완료 검증에서 hash를 복구함
 
 저장소 장애 주입 테스트에서 DB offset이 실제 내구성 저장보다 앞서가면 안 된다.
 
@@ -424,7 +474,7 @@ sudo /opt/jetson-control/configure-upload-target.sh \
 - Jetson과 수신 서버가 서로 다른 공인 네트워크에서도 업로드된다.
 - Android 앱을 종료해도 Jetson 업로드는 계속된다.
 - 일시적 인터넷 단절 뒤 파일 처음부터가 아니라 서버 offset부터 재개한다.
-- 완료된 모든 파일의 전체 SHA-256이 원본 manifest와 일치한다.
+- 완료된 모든 파일의 전체 SHA-256이 사전 manifest 값과 일치하거나 deferred manifest의 확정값으로 기록된다.
 - 경로 traversal, 타 장비 접근, token 로그 유출 테스트가 통과한다.
 - 중복 요청으로 파일 바이트나 session이 중복 생성되지 않는다.
 - 운영 대시보드에서 처리량, 실패, backlog, quota를 확인할 수 있다.
@@ -482,7 +532,7 @@ cd /home/geonws/JetsonControllerServer/JetsonControllerApp
   /data/server_storage/jetson-upload-receiver
 ```
 
-이 명령은 user service 환경에 `UPLOAD_RECEIVER_MAX_BATCH_BYTES=33554432`, `UPLOAD_RECEIVER_MAX_BATCH_FILES=256`을 기록한다. 기존 설치도 코드를 갱신한 뒤 같은 명령을 다시 실행해야 receiver의 배치 route와 정확한 HDD 저장 루트가 함께 반영된다. 이 명령은 실행 중인 Caddy 설정까지 갱신하지 않으므로 `Caddyfile`이 바뀐 코드 업데이트에서는 바로 아래의 공인 HTTPS 구성 명령도 다시 실행한다. 다른 경로를 임시로 사용하지 말고 receiver 데이터는 항상 `/data/server_storage/jetson-upload-receiver` 아래에 둔다.
+이 명령은 user service 환경에 `UPLOAD_RECEIVER_MAX_BATCH_BYTES=33554432`, `UPLOAD_RECEIVER_MAX_BATCH_FILES=256`을 기록한다. 기존 설치도 코드를 갱신한 뒤 같은 명령을 다시 실행해야 capability/deferred hash route, batch route와 정확한 HDD 저장 루트가 함께 반영된다. SQLite schema 변경은 없으며 기존 `sha256 TEXT NOT NULL` 열에서 아직 확정하지 않은 non-empty 파일을 빈 문자열로 나타낸다. 이 명령은 실행 중인 Caddy 설정까지 갱신하지 않으므로 `Caddyfile`이 바뀐 코드 업데이트에서는 바로 아래의 공인 HTTPS 구성 명령도 다시 실행한다. 다른 경로를 임시로 사용하지 말고 receiver 데이터는 항상 `/data/server_storage/jetson-upload-receiver` 아래에 둔다.
 
 공인 HTTPS를 처음 구성하거나 다시 적용:
 
