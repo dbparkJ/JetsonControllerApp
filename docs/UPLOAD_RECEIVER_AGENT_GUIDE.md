@@ -1,6 +1,6 @@
 # External Upload Receiver: AI Agent Implementation Guide
 
-이 문서는 Jetson Controller의 파일을 **같은 로컬 네트워크가 아닌 인터넷상의 서버**로 전송하기 위한 수신 서버 구현 계약이다. 구현 Agent는 이 문서의 API와 완료 조건을 변경하지 말고 서버 프레임워크, DB, 오브젝트 스토리지만 배포 환경에 맞게 선택한다.
+이 문서는 Jetson Controller의 파일을 **같은 로컬 네트워크가 아닌 인터넷상의 서버**로 전송하기 위한 수신 서버 구현 계약과 현재 서버의 실제 배포 절차다. 다른 구현은 이 문서의 API와 완료 조건을 변경하지 말고 서버 프레임워크, DB, 오브젝트 스토리지만 배포 환경에 맞게 선택한다.
 
 ## 1. 확정 아키텍처
 
@@ -32,7 +32,8 @@ Public upload receiver
 - 실패 시 0, 1, 3, 7초 간격으로 재시도
 - 실패한 PUT 뒤 서버 오프셋을 다시 조회하여 이어서 전송
 - 작업 상태는 `/var/lib/jetson-control/upload-jobs`에 원자적으로 저장
-- Jetson 재시작으로 실행 스레드가 사라진 작업은 `FAILED`로 복구
+- Jetson/API 재시작 뒤 진행 중 작업은 같은 `clientJobId`로 자동 재개
+- 완료 요청은 수 TiB 파일의 전체 해시 검증을 기다릴 수 있도록 응답 read timeout을 24시간으로 확장
 - 운영 모드에서는 `http://`와 로컬 복사 대상을 사용하지 않는다.
 
 ## 3. 인증과 TLS
@@ -64,6 +65,7 @@ CORS는 필요하지 않다. 호출자는 브라우저가 아닌 Jetson 데몬�
 - 절대 경로, 빈 경로, `.`/`..` 세그먼트, NUL, 역슬래시, 중복 경로를 거부한다.
 - 정규화 전후 경로가 달라지는 입력을 거부한다.
 - 하나의 세션에서 파일 수, 전체 바이트, 개별 파일 크기의 상한을 설정한다.
+- 장비별 열린 세션 수, 누적 세션/파일 metadata와 세션 생성 속도의 상한도 설정한다. 전체 바이트가 0인 manifest도 무제한 허용하면 안 된다.
 
 권장 초기 제한:
 
@@ -111,7 +113,7 @@ CORS는 필요하지 않다. 호출자는 브라우저가 아닌 Jetson 데몬�
 | `size_bytes` | 선언된 전체 크기 |
 | `sha256` | 선언된 전체 해시 |
 | `next_offset` | 서버가 영속화한 다음 바이트 위치 |
-| `state` | `PENDING`, `UPLOADING`, `VERIFIED` |
+| `state` | `PENDING`, `UPLOADING`, `RECEIVED`, `VERIFIED`, `FAILED` |
 | `staging_key`, `final_key` | 저장소 객체 키 |
 
 오프셋 변경은 해당 파일 행 잠금 또는 비교 후 갱신으로 직렬화한다. 메모리 변수만으로 진행률을 관리하면 안 된다.
@@ -366,3 +368,122 @@ sudo /opt/jetson-control/configure-upload-target.sh \
 - 운영 대시보드에서 처리량, 실패, backlog, quota를 확인할 수 있다.
 
 이 조건을 모두 만족하기 전에는 수신 서버를 운영 준비 완료로 표시하지 않는다.
+
+## 14. 이 저장소의 수신기 구현
+
+현재 구현은 `upload_receiver/`에 있다. Android 앱은 수신기에 직접 연결하지 않고 기존 Jetson Local Control API만 사용하므로 앱 코드는 변경하지 않았다.
+
+| 경로 | 역할 |
+|---|---|
+| `upload_receiver/upload_receiver/app.py` | FastAPI route, body 제한, JSON 오류 응답 |
+| `upload_receiver/upload_receiver/service.py` | 인증, 세션, quota, 청크 내구성 기록, 전체 해시, 재시작 복구 |
+| `upload_receiver/upload_receiver/database.py` | SQLite schema, WAL, `synchronous=FULL`, 트랜잭션 |
+| `upload_receiver/upload_receiver/admin.py` | 초기화, token 발급/교체, 장비 차단, staging 정리 |
+| `upload_receiver/Caddyfile` | 공인 HTTPS reverse proxy와 endpoint별 body 제한 |
+| `upload_receiver/systemd/` | HDD mount guard, receiver, HTTPS, cleanup, port-forward unit |
+| `upload_receiver/tests/test_receiver.py` | API·복구·경합·경로·hash·quota·token 자동화 시험 |
+
+구현의 저장 규칙은 다음과 같다.
+
+- FastAPI는 `127.0.0.1:8877`, 단일 worker로 실행하며 Caddy의 TCP 443만 공개한다.
+- token 원문 대신 서버 pepper를 이용한 HMAC-SHA256을 DB에 저장한다. token 파일은 원자적으로 쓰고 `0600`으로 제한한다.
+- 사용자 상대 경로는 파일시스템 경로로 사용하지 않는다. 각 파일은 불투명한 `file_id.blob` 이름으로 저장하고 최종 `manifest.json`에서 원래 경로와 대응시킨다.
+- 청크 파일 `fsync`가 성공한 뒤에만 SQLite offset을 올린다. 재시작 시 DB offset보다 긴 미승인 tail은 잘라낸다.
+- 완료 시 모든 staging 객체의 크기와 SHA-256을 다시 확인하고 같은 ext4 파일시스템 안에서 디렉터리를 원자적으로 이동한다. 이동 직후 재시작한 경우에도 final 객체와 manifest 전체를 검증한 뒤 `COMPLETED`로 복구한다.
+- 동일 `clientJobId`의 `FAILED` 세션은 같은 manifest일 때 안전하게 초기화하여 Jetson retry를 허용한다. `CANCELLED`는 명시적인 새 Jetson 작업 ID가 필요하다.
+- 기본 제한은 장비당 동시 PUT 2개, 열린 세션 8개, 분당 manifest 30개, 누적 세션 10,000개, 누적 파일 metadata 1,000,000개다.
+- `OPEN`/`FAILED`/`CANCELLED` staging 세션은 72시간 뒤 매일 정리한다. `COMPLETED` 객체는 자동 삭제하지 않는다.
+
+## 15. 이 PC의 실제 배포
+
+배포·검증일은 2026-08-13 KST다. `/data` 디렉터리 자체는 HDD가 아니라 root NVMe에 있다. 실제 3.6 TB ext4 HDD `/dev/sda1`의 mount point가 `/data/server_storage`이므로, 새 저장 루트는 반드시 그 아래를 사용한다.
+
+```text
+/data/server_storage/jetson-upload-receiver/
+|-- db/receiver.sqlite3
+|-- secrets/token-pepper
+|-- secrets/device-tokens/<deviceId>.token
+|-- storage/staging/<deviceId>/<sessionId>/*.blob
+|-- storage/objects/<deviceId>/<sessionId>/{manifest.json,*.blob}
+|-- storage/locks/
+|-- runtime/
+`-- caddy/{data,config}/
+```
+
+`ConditionPathIsMountPoint=/data/server_storage`, `RequiresMountsFor=/data/server_storage`와 시작 전 `mountpoint` 검사를 함께 사용한다. HDD mount가 빠진 부팅에서 같은 경로명의 NVMe 디렉터리에 조용히 기록하는 fallback을 허용하지 않는다.
+
+설치 또는 코드 업데이트:
+
+```bash
+cd /home/geonws/JetsonControllerServer/JetsonControllerApp
+./upload_receiver/scripts/install-user-service.sh \
+  /data/server_storage/jetson-upload-receiver
+```
+
+공인 HTTPS를 처음 구성하거나 다시 적용:
+
+```bash
+./upload_receiver/scripts/configure-public-https.sh \
+  125-142-22-24.sslip.io
+```
+
+현재 공개 base URL은 다음 값이다.
+
+```text
+https://125-142-22-24.sslip.io
+```
+
+공유기의 UPnP TCP 443 mapping은 이 PC의 TCP 443으로 연결되고 15분마다 확인한다. Caddy 인증서와 설정은 HDD의 `caddy/` 아래 보존한다. 현재 주소는 공인 IPv4를 이름에 포함하는 임시 운영 DNS다. 공인 IP가 바뀌면 기존 hostname은 새 서버를 가리키지 않으므로 새 `<공인-IP-with-dashes>.sslip.io` 주소로 HTTPS를 다시 구성하고 모든 Jetson target URL도 바꿔야 한다. 장기 운영에는 소유한 고정 DNS/DDNS 이름과 DHCP 예약 또는 고정 LAN 주소가 더 적합하다.
+
+상태 확인:
+
+```bash
+findmnt /data/server_storage
+systemctl --user --no-pager --full status \
+  jetson-upload-receiver.service \
+  jetson-upload-receiver-cleanup.timer \
+  jetson-upload-caddy.service \
+  jetson-upload-port-forward.timer
+curl --fail https://125-142-22-24.sslip.io/health/ready
+journalctl --user -u jetson-upload-receiver.service -n 100 --no-pager
+journalctl --user -u jetson-upload-caddy.service -n 100 --no-pager
+```
+
+장비 token 신규 발급/교체 예시는 다음과 같다. 원문을 터미널이나 Git에 출력하지 않고 `--output` 파일만 안전하게 Jetson으로 전달한다. `--force`는 기존 Jetson의 인증을 즉시 교체하므로 새 파일을 장치에 배포할 준비가 된 경우에만 사용한다.
+
+```bash
+export UPLOAD_RECEIVER_DATA_ROOT=/data/server_storage/jetson-upload-receiver
+export UPLOAD_RECEIVER_EXPECTED_MOUNT=/data/server_storage
+export UPLOAD_RECEIVER_REQUIRE_MOUNT=true
+export PYTHONPATH=upload_receiver
+
+upload_receiver/.venv/bin/python -m upload_receiver.admin issue-token \
+  --device-id <canonical-device-uuid> \
+  --quota-bytes <quota> \
+  --output /data/server_storage/jetson-upload-receiver/secrets/device-tokens/<deviceId>.token
+```
+
+DB, `storage/objects`, `token-pepper`, Caddy data를 함께 백업한다. pepper를 잃으면 DB의 token digest를 검증할 수 없고, DB와 objects를 서로 다른 시점으로 복원하면 metadata와 객체가 어긋난다. 백업에는 token 원문이 포함될 수 있으므로 저장 시 암호화하고 접근을 제한한다.
+
+## 16. 현재 장치가 바라볼 주소
+
+현재 장비 ID `d606c26d-98d6-4b09-99d7-c3da7dda4de0` 전용 token은 다음 서버 파일에 발급돼 있다. 파일 내용은 이 문서에 기록하지 않는다.
+
+```text
+/data/server_storage/jetson-upload-receiver/secrets/device-tokens/d606c26d-98d6-4b09-99d7-c3da7dda4de0.token
+```
+
+이 파일을 USB, `scp` 등 신뢰할 수 있는 경로로 Jetson의 임시 `./receiver.token`에 전달한 뒤 Jetson에서 실행한다.
+
+```bash
+sudo /opt/jetson-control/configure-upload-target.sh \
+  https://125-142-22-24.sslip.io \
+  ./receiver.token \
+  "Operations upload server"
+
+rm -f ./receiver.token
+```
+
+설정 결과 Jetson은 `/etc/jetson-control/upload_targets.json`의 `external.base_url`로 위 HTTPS 주소를 바라보고, token은 `/etc/jetson-control/upload-receiver.token`에 `0600`으로 복사된다. 이 관리자 script 방식을 사용하면 Android 앱에는 URL이나 token을 다시 넣지 않고 연결한 Jetson에서 표시되는 `Operations upload server` target만 선택한다. 최신 앱의 업로드 서버 관리 화면에서 같은 URL과 token을 입력해 앱 관리 target으로 등록하는 방법도 지원하지만, token 파일을 Jetson에 직접 전달할 수 있는 환경에서는 노출 면이 작은 관리자 script 방식을 권장한다.
+
+2026-08-13에는 공인 URL을 통한 배포 smoke file에 대해 세션 생성, offset 조회, PUT, complete, SQLite `COMPLETED`, HDD final 객체와 manifest의 내용 일치까지 검증했고, 최종 코드 재배포 뒤 31-byte 시험도 다시 통과했다. API/HDD/HTTPS 배포는 완료됐지만 이 문서 10절과 13절의 전체 운영 준비 완료 기준은 아직 아니다. 현재 `/metrics`는 localhost에서 최소 세션 상태와 전체 byte만 제공하며, 별도 dashboard와 처리량/checksum/offset/latency 장기 metric은 남은 운영 과제다. 실제 Jetson에서의 외부망 중단 재개와 대용량 파일 시험도 위 target을 장치에 적용한 뒤 수행한다.

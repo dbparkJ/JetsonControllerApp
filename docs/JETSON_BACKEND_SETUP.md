@@ -95,6 +95,27 @@ sudo backend/scripts/install.sh \
 
 수신 서버가 준비된 뒤 발급받은 token 파일을 설정 script에 전달한다. script가 token을 root 전용 경로로 복사하고 원본 경로를 설정에 남기지 않는다.
 
+2026-08-13에 이 저장소와 함께 구축한 수신기의 base URL은 `https://125-142-22-24.sslip.io`다. 장비 ID `d606c26d-98d6-4b09-99d7-c3da7dda4de0`에 묶인 token은 수신 서버의 다음 파일에 있으며, 원문은 문서나 명령행에 복사하지 않는다.
+
+```text
+/data/server_storage/jetson-upload-receiver/secrets/device-tokens/d606c26d-98d6-4b09-99d7-c3da7dda4de0.token
+```
+
+그 파일을 신뢰할 수 있는 방법으로 Jetson의 임시 `./receiver.token`에 전달한 뒤 다음처럼 설정한다.
+
+```bash
+sudo /opt/jetson-control/configure-upload-target.sh \
+  https://125-142-22-24.sslip.io \
+  ./receiver.token \
+  "Operations upload server"
+
+rm -f ./receiver.token
+```
+
+위 관리자 script 방식을 사용하면 Android 앱에 URL이나 token을 다시 입력할 필요 없이 Jetson의 target 목록에서 `Operations upload server`를 선택한다. 최신 앱의 업로드 서버 관리 화면에서 같은 URL과 token을 입력해 앱 관리 target으로 등록하는 방법도 있다. 이 경우 token은 QR secret으로 인증되고 인증서가 고정된 Local Control API 요청으로 Jetson에 전달되며, Jetson은 root 전용 파일로 저장하고 이후 API 응답으로 되돌려주지 않는다. 공인 IP가 바뀌면 `sslip.io` hostname도 바뀌므로 수신기 HTTPS와 해당 target을 함께 갱신한다. 서버의 전체 설치·점검·복구 절차는 [UPLOAD_RECEIVER_AGENT_GUIDE.md](UPLOAD_RECEIVER_AGENT_GUIDE.md)의 실제 배포 절을 따른다.
+
+일반적인 별도 수신 서버의 예시는 다음과 같다.
+
 ```bash
 sudo /opt/jetson-control/configure-upload-target.sh \
   https://uploads.example.com \
@@ -338,10 +359,11 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - 앱에는 절대 실제 경로 대신 root ID와 상대 경로를 전달한다.
 - 업로드 상태: `QUEUED`, `SCANNING`, `UPLOADING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 - 파일 전체 hash 계산, 외부 세션 생성, 파일별 offset 조회, 4 MiB PUT, 완료 순으로 처리한다.
-- 외부 서버 token은 Android 앱이나 Local Control API 응답에 포함되지 않는다.
+- 관리자 target의 token은 Android 앱에 전달하지 않는다. 앱 관리 target은 등록/교체 요청 때만 입력받고 Local Control API 응답에는 token을 절대 포함하지 않는다.
 - 앱이 등록한 서버와 token은 `/var/lib/jetson-control` 아래 root 전용 파일로 원자 저장한다. `/etc`의 관리자 대상은 앱에서 수정할 수 없다.
 - 재부팅 또는 API 재시작 후 진행 중 작업은 영속 상태에서 자동 재개한다.
 - 실패 작업의 retry는 같은 job ID와 receiver session을 재사용해 offset부터 이어간다.
+- receiver 완료 처리에서 수 TiB 전체 SHA-256 검증을 기다릴 수 있도록 완료 응답 read timeout만 24시간이며, 세션/offset/청크 요청은 기존 60초 timeout을 유지한다.
 
 ## 10. Python 파이프라인 자동 실행
 

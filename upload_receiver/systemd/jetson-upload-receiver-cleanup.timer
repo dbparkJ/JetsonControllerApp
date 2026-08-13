@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily cleanup of expired Jetson upload receiver staging data
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+Unit=jetson-upload-receiver-cleanup.service
+
+[Install]
+WantedBy=timers.target
+

@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.pairing
 
 import android.annotation.SuppressLint
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -16,10 +17,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FlashlightOff
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,6 +35,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -34,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +58,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -71,6 +86,64 @@ fun QrScannerScreen(
     onQrScanned: (String) -> Boolean,
     onBack: () -> Unit
 ) {
+    var showManualEntry by rememberSaveable { mutableStateOf(false) }
+    var manualValue by rememberSaveable { mutableStateOf("") }
+    val haptic = LocalHapticFeedback.current
+    val submitCode: (String) -> Boolean = { rawValue ->
+        val accepted = onQrScanned(rawValue.trim())
+        if (accepted) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+        accepted
+    }
+
+    if (showManualEntry) {
+        AlertDialog(
+            onDismissRequest = { showManualEntry = false },
+            icon = { Icon(Icons.Default.Edit, contentDescription = null) },
+            title = { Text("등록 코드 직접 입력") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "QR을 읽기 어렵다면 QR 아래의 전체 등록 코드를 입력하세요.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    OutlinedTextField(
+                        value = manualValue,
+                        onValueChange = { manualValue = it.take(4096) },
+                        label = { Text("등록 코드") },
+                        minLines = 3,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Ascii,
+                            imeAction = ImeAction.Done
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    errorMessage?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (submitCode(manualValue)) {
+                            showManualEntry = false
+                        }
+                    },
+                    enabled = manualValue.isNotBlank()
+                ) { Text("확인") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showManualEntry = false }) { Text("취소") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -91,11 +164,13 @@ fun QrScannerScreen(
             if (cameraPermissionGranted) {
                 CameraScannerContent(
                     errorMessage = errorMessage,
-                    onQrScanned = onQrScanned
+                    onQrScanned = submitCode,
+                    onManualEntry = { showManualEntry = true }
                 )
             } else {
                 CameraPermissionContent(
-                    onRequestPermission = onRequestCameraPermission
+                    onRequestPermission = onRequestCameraPermission,
+                    onManualEntry = { showManualEntry = true }
                 )
             }
         }
@@ -105,7 +180,8 @@ fun QrScannerScreen(
 @Composable
 private fun CameraScannerContent(
     errorMessage: String?,
-    onQrScanned: (String) -> Boolean
+    onQrScanned: (String) -> Boolean,
+    onManualEntry: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -136,6 +212,8 @@ private fun CameraScannerContent(
     var cameraProvider by remember {
         mutableStateOf<ProcessCameraProvider?>(null)
     }
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var torchEnabled by remember { mutableStateOf(false) }
     var cameraError by remember {
         mutableStateOf<String?>(null)
     }
@@ -180,7 +258,7 @@ private fun CameraScannerContent(
                         }
 
                     provider.unbindAll()
-                    provider.bindToLifecycle(
+                    camera = provider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         preview,
@@ -201,6 +279,7 @@ private fun CameraScannerContent(
             disposed = true
             analysis.clearAnalyzer()
             cameraProvider?.unbindAll()
+            camera = null
             scanner.close()
             analysisExecutor.shutdown()
         }
@@ -213,6 +292,30 @@ private fun CameraScannerContent(
         )
 
         QrOverlay()
+
+        if (camera?.cameraInfo?.hasFlashUnit() == true) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+                color = Color.Black.copy(alpha = 0.58f),
+                contentColor = Color.White,
+                shape = MaterialTheme.shapes.small
+            ) {
+                IconButton(
+                    onClick = {
+                        torchEnabled = !torchEnabled
+                        camera?.cameraControl?.enableTorch(torchEnabled)
+                    },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        if (torchEnabled) Icons.Default.FlashlightOff else Icons.Default.FlashlightOn,
+                        contentDescription = if (torchEnabled) "손전등 끄기" else "손전등 켜기"
+                    )
+                }
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -254,13 +357,21 @@ private fun CameraScannerContent(
                 color = Color.White.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            FilledTonalButton(onClick = onManualEntry) {
+                Icon(Icons.Default.Edit, contentDescription = null)
+                Text("등록 코드 직접 입력", modifier = Modifier.padding(start = 8.dp))
+            }
         }
     }
 }
 
 @Composable
 private fun CameraPermissionContent(
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    onManualEntry: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -298,6 +409,16 @@ private fun CameraPermissionContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("카메라 권한 허용")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        FilledTonalButton(
+            onClick = onManualEntry,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Edit, contentDescription = null)
+            Text("등록 코드 직접 입력", modifier = Modifier.padding(start = 8.dp))
         }
     }
 }

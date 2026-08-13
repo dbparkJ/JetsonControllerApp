@@ -111,7 +111,7 @@ class UploadViewModel(
         queuePollingJob?.cancel()
         queuePollingJob = viewModelScope.launch {
             while (generation == connectionGeneration) {
-                delay(2_000)
+                delay(5_000)
                 refreshQueue(generation, reportFailure = false)
             }
         }
@@ -187,7 +187,7 @@ class UploadViewModel(
                             _uiState.value = _uiState.value.copy(error = error.message)
                         }
                     }
-                delay(2_000)
+                delay(5_000)
             }
         }
     }

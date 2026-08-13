@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically refresh the Jetson upload receiver HTTPS port forward
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=15m
+Persistent=true
+Unit=jetson-upload-port-forward.service
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,49 @@
+{
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$UPLOAD_RECEIVER_DOMAIN} {
+	@manifest {
+		method POST
+		path /v1/upload-sessions
+	}
+	handle @manifest {
+		request_body {
+			max_size 32MiB
+		}
+		reverse_proxy 127.0.0.1:8877
+	}
+
+	@chunks {
+		method PUT
+		path /v1/upload-sessions/*/files
+	}
+	handle @chunks {
+		request_body {
+			max_size 5MB
+		}
+		reverse_proxy 127.0.0.1:8877 {
+			flush_interval -1
+		}
+	}
+
+	@receiver path /v1/* /health/live /health/ready
+	handle @receiver {
+		reverse_proxy 127.0.0.1:8877
+	}
+
+	handle {
+		header Content-Type application/json
+		respond `{ "detail": "Not found" }` 404 {
+			close
+		}
+	}
+
+	handle_errors {
+		header Content-Type application/json
+		respond `{ "detail": "Request rejected" }` {err.status_code}
+	}
+}

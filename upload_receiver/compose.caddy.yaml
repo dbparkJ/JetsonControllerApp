@@ -1,0 +1,22 @@
+services:
+  caddy:
+    image: caddy:2.11.4-alpine
+    container_name: jetson-upload-caddy
+    network_mode: host
+    restart: "on-failure:5"
+    user: "${UPLOAD_RECEIVER_UID:-1000}:${UPLOAD_RECEIVER_GID:-1000}"
+    environment:
+      UPLOAD_RECEIVER_DOMAIN: ${UPLOAD_RECEIVER_DOMAIN:?set UPLOAD_RECEIVER_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${UPLOAD_RECEIVER_DATA_ROOT:?set UPLOAD_RECEIVER_DATA_ROOT}/caddy/data:/data
+      - ${UPLOAD_RECEIVER_DATA_ROOT:?set UPLOAD_RECEIVER_DATA_ROOT}/caddy/config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true

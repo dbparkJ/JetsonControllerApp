@@ -25,6 +25,7 @@ ACTIVE_STATES = {"QUEUED", "SCANNING", "UPLOADING"}
 HTTP_CHUNK_SIZE = 4 * 1024 * 1024
 HTTP_RETRY_DELAYS = (0.0, 1.0, 3.0, 7.0)
 DEFAULT_MAX_CONCURRENT_JOBS = 2
+HTTP_COMPLETE_RESPONSE_TIMEOUT = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -638,6 +639,7 @@ class UploadManager:
                 "POST",
                 f"/v1/upload-sessions/{session_id}/complete",
                 {},
+                response_timeout=HTTP_COMPLETE_RESPONSE_TIMEOUT,
             )
         except Exception as error:
             if not isinstance(error, UploadCancelled) and not cancellation.is_set():
@@ -800,6 +802,7 @@ class UploadManager:
         method: str,
         endpoint: str,
         value: Optional[Dict[str, object]],
+        response_timeout: Optional[float] = None,
     ) -> Dict[str, object]:
         connection, base_path = self._http_connection(target)
         body = None if value is None else json.dumps(
@@ -811,6 +814,8 @@ class UploadManager:
             headers["Content-Length"] = str(len(body))
         try:
             connection.request(method, f"{base_path}{endpoint}", body=body, headers=headers)
+            if response_timeout is not None and connection.sock is not None:
+                connection.sock.settimeout(response_timeout)
             response = connection.getresponse()
             response_body = response.read(1024 * 1024)
             if response.status < 200 or response.status >= 300:
@@ -831,13 +836,21 @@ class UploadManager:
         method: str,
         endpoint: str,
         value: Optional[Dict[str, object]],
+        response_timeout: Optional[float] = None,
     ) -> Dict[str, object]:
         last_error: Optional[Exception] = None
         for delay in HTTP_RETRY_DELAYS:
             if delay:
                 time.sleep(delay)
             try:
-                return self._http_json(target, token, method, endpoint, value)
+                return self._http_json(
+                    target,
+                    token,
+                    method,
+                    endpoint,
+                    value,
+                    response_timeout=response_timeout,
+                )
             except (OSError, http.client.HTTPException, RuntimeError) as error:
                 last_error = error
         raise RuntimeError("External upload request failed after multiple retries") from last_error

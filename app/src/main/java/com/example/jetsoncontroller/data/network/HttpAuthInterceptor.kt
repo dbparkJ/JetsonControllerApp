@@ -18,6 +18,11 @@ class JetsonResponseSignatureException : IOException(
     "Jetson 응답 서명이 일치하지 않습니다."
 )
 
+class JetsonAuthenticationRecoveryException(
+    message: String,
+    cause: Throwable
+) : IOException(message, cause)
+
 class JetsonUnsignedServerErrorException(statusCode: Int) : IOException(
     "Jetson 백엔드 오류 응답을 인증할 수 없습니다. " +
         "백엔드를 업데이트한 뒤 다시 시도하세요. (HTTP $statusCode)"

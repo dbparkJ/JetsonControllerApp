@@ -1,0 +1,136 @@
+package com.example.jetsoncontroller.ui
+
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.jetsoncontroller.model.RegisteredDevice
+import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
+import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
+import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
+import com.example.jetsoncontroller.ui.devices.DeviceListScreen
+import com.example.jetsoncontroller.ui.devices.DeviceListUiState
+import com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingScreen
+import com.example.jetsoncontroller.ui.pairing.PairingPhase
+import com.example.jetsoncontroller.ui.pairing.PairingScreen
+import com.example.jetsoncontroller.ui.pairing.PairingUiState
+import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
+import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class CoreWorkflowScreenTest {
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun onboardingExplainsJourneyBeforeCamera() {
+        composeRule.setContent {
+            JetsonControllerTheme {
+                FirstDeviceOnboardingScreen(onScanQr = {}, onBack = {})
+            }
+        }
+
+        composeRule.onNodeWithText("Jetson을 등록합니다").assertIsDisplayed()
+        composeRule.onNodeWithText("장비 등록").assertIsDisplayed()
+        composeRule.onNodeWithText("Wi-Fi 설정").assertIsDisplayed()
+        composeRule.onNodeWithText("QR 스캔").assertIsDisplayed()
+    }
+
+    @Test
+    fun deniedCameraStillOffersManualRegistration() {
+        composeRule.setContent {
+            JetsonControllerTheme {
+                QrScannerScreen(
+                    cameraPermissionGranted = false,
+                    errorMessage = null,
+                    onRequestCameraPermission = {},
+                    onQrScanned = { false },
+                    onBack = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("등록 코드 직접 입력").performClick()
+        composeRule.onNodeWithText("QR을 읽기 어렵다면 QR 아래의 전체 등록 코드를 입력하세요.")
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun registeredDeviceDeleteRequiresConfirmation() {
+        val device = RegisteredDevice(
+            deviceId = "00000000-0000-0000-0000-000000000001",
+            deviceName = "MMS-Test"
+        )
+        composeRule.setContent {
+            JetsonControllerTheme {
+                DeviceListScreen(
+                    state = DeviceListUiState(
+                        permissionGranted = true,
+                        registeredDevices = listOf(device)
+                    ),
+                    onScanClick = {},
+                    onConnect = {},
+                    onReconnect = {},
+                    onForget = {},
+                    onAddDeviceClick = {},
+                    onBack = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("저장된 장비 삭제").performClick()
+        composeRule.onNodeWithText("MMS-Test 등록을 삭제할까요?").assertIsDisplayed()
+        composeRule.onNodeWithText("취소").assertIsDisplayed()
+    }
+
+    @Test
+    fun pairingShowsDetailedCurrentStage() {
+        composeRule.setContent {
+            JetsonControllerTheme {
+                PairingScreen(
+                    state = PairingUiState(phase = PairingPhase.AUTHENTICATING),
+                    onStartPairing = {},
+                    onCancel = {},
+                    onRetry = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("장비 확인").assertIsDisplayed()
+        composeRule.onNodeWithText("인증 중...").assertIsDisplayed()
+        composeRule.onNodeWithText("상태 동기화").assertIsDisplayed()
+    }
+
+    @Test
+    fun dashboardPrioritizesHealthAndCurrentWork() {
+        composeRule.setContent {
+            JetsonControllerTheme {
+                DashboardScreen(
+                    state = DashboardUiState(statusFreshness = StatusFreshness.CURRENT),
+                    pipelines = emptyList(),
+                    uploads = emptyList(),
+                    onDisconnect = {},
+                    onReboot = {},
+                    onShutdown = {},
+                    onStorageClick = {},
+                    onNetworkSettingsClick = {},
+                    onWifiDirectClick = {},
+                    onUploadQueueClick = {},
+                    onPipelinesClick = {},
+                    onSectionSelected = {},
+                    onDismissOperationMessage = {},
+                    onBack = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("정상 작동 중").assertIsDisplayed()
+        composeRule.onNodeWithText("진행 중인 작업").assertIsDisplayed()
+        composeRule.onNodeWithText("현재 진행 중인 작업이 없습니다.").assertIsDisplayed()
+    }
+}

@@ -310,13 +310,32 @@ class LocalApiClient(
             ) {
                 throw error
             }
-            sessionRefreshMutex.withLock {
-                if (sessionRevision == attemptedRevision) {
-                    hello().getOrThrow()
+            try {
+                sessionRefreshMutex.withLock {
+                    if (sessionRevision == attemptedRevision) {
+                        hello().getOrThrow()
+                    }
                 }
+                call()
+            } catch (retryError: Exception) {
+                throw authenticationRecoveryException(retryError)
             }
-            call()
         }
+    }
+
+    private fun authenticationRecoveryException(error: Exception): Exception = when (error) {
+        is JetsonResponseSignatureException,
+        is JetsonUnsignedServerErrorException -> JetsonAuthenticationRecoveryException(
+            "Jetson 백엔드가 현재 앱의 응답 인증 형식과 맞지 않습니다. " +
+                "Jetson 백엔드를 업데이트한 뒤 다시 연결해 주세요.",
+            error
+        )
+        is JetsonSessionExpiredException -> JetsonAuthenticationRecoveryException(
+            "Jetson과 인증 정보를 동기화하지 못했습니다. " +
+                "저장된 장비를 QR로 다시 등록해 주세요.",
+            error
+        )
+        else -> error
     }
 
     private suspend fun <T> suspendResult(

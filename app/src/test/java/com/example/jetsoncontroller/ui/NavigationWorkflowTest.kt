@@ -6,8 +6,8 @@ import org.junit.Test
 
 class NavigationWorkflowTest {
     @Test
-    fun `all connection entry routes open the control home when ready`() {
-        assertTrue(isConnectionEntryRoute("connection_hub"))
+    fun `explicit connection flows open control home while device hub stays visible`() {
+        assertFalse(isConnectionEntryRoute("connection_hub"))
         assertTrue(isConnectionEntryRoute("devices_ble"))
         assertTrue(isConnectionEntryRoute("wifi_direct"))
         assertFalse(isConnectionEntryRoute("dashboard"))

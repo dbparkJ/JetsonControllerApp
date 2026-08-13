@@ -25,6 +25,10 @@ data class DashboardUiState(
 
     val operationIsError: Boolean = false,
 
+    val statusFreshness: StatusFreshness = StatusFreshness.UNKNOWN,
+
+    val statusAgeSeconds: Long? = null,
+
     val status:
         JetsonStatus =
         JetsonStatus()

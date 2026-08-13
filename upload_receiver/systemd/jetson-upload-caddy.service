@@ -1,0 +1,32 @@
+[Unit]
+Description=Public HTTPS proxy for the Jetson upload receiver
+After=network-online.target jetson-upload-receiver.service
+Wants=network-online.target jetson-upload-receiver.service
+RequiresMountsFor=/data/server_storage
+ConditionPathIsMountPoint=/data/server_storage
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@APP_ROOT@
+EnvironmentFile=@PUBLIC_ENV_FILE@
+ExecStartPre=/usr/bin/mountpoint --quiet /data/server_storage
+ExecStartPre=@APP_ROOT@/.venv/bin/python @APP_ROOT@/scripts/ensure-port-forward.py --expected-domain ${UPLOAD_RECEIVER_DOMAIN}
+ExecStart=/usr/bin/docker compose --env-file @PUBLIC_ENV_FILE@ --file @APP_ROOT@/compose.caddy.yaml up --no-color
+ExecStop=/usr/bin/docker compose --env-file @PUBLIC_ENV_FILE@ --file @APP_ROOT@/compose.caddy.yaml down
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=5min
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@DATA_ROOT@
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target
+

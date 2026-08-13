@@ -5,7 +5,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -31,7 +31,7 @@ fun ControlNavigationBar(
         Triple(ControlSection.DATA, Icons.Default.FolderOpen, "데이터"),
         Triple(ControlSection.PIPELINES, Icons.AutoMirrored.Filled.PlaylistPlay, "작업"),
         Triple(ControlSection.SENSORS, Icons.Default.Sensors, "센서"),
-        Triple(ControlSection.SETTINGS, Icons.Default.Settings, "설정")
+        Triple(ControlSection.SETTINGS, Icons.Default.Notifications, "알림")
     )
     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
         items.forEach { (section, icon, label) ->
