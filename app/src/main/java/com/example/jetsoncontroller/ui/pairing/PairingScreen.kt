@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.jetsoncontroller.ui.components.AppBanner
+import com.example.jetsoncontroller.ui.components.ConnectionStepper
+import com.example.jetsoncontroller.ui.components.StatusTone
 
 @Composable
 fun PairingScreen(
@@ -85,6 +88,13 @@ private fun ConfirmationView(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
     ) {
+        ConnectionStepper(
+            labels = pairingStepLabels,
+            currentStep = 0
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         Surface(
             modifier = Modifier.size(80.dp),
             shape = CircleShape,
@@ -167,11 +177,27 @@ private fun ProgressView(
         PairingPhase.READY -> "연결 완료"
         else -> "연결 준비 중..."
     }
+    val currentStep = when (phase) {
+        PairingPhase.SEARCHING -> 0
+        PairingPhase.CONNECTING -> 1
+        PairingPhase.VERIFYING_IDENTITY -> 2
+        PairingPhase.AUTHENTICATING -> 3
+        PairingPhase.ENABLING_STATUS -> 4
+        PairingPhase.READY -> 5
+        else -> 0
+    }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
     ) {
+        ConnectionStepper(
+            labels = pairingStepLabels,
+            currentStep = currentStep
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         CircularProgressIndicator(
             modifier = Modifier.size(64.dp),
             strokeWidth = 4.dp
@@ -207,6 +233,13 @@ private fun ErrorView(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
     ) {
+        ConnectionStepper(
+            labels = pairingStepLabels,
+            currentStep = 0
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         Text(
             text = "연결 실패",
             style = MaterialTheme.typography.titleLarge,
@@ -216,12 +249,7 @@ private fun ErrorView(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        AppBanner(message = message, tone = StatusTone.ERROR)
 
         Spacer(modifier = Modifier.height(48.dp))
 
@@ -244,3 +272,11 @@ private fun ErrorView(
         }
     }
 }
+
+private val pairingStepLabels = listOf(
+    "장비 찾기",
+    "연결",
+    "장비 확인",
+    "인증",
+    "상태 동기화"
+)

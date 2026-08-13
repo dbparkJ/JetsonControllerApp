@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.ui.dashboard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,21 +11,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,11 +53,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.transport.TransportType
-import com.example.jetsoncontroller.ui.components.InlineMessage
-import com.example.jetsoncontroller.ui.components.MetricCard
-import com.example.jetsoncontroller.ui.components.SectionHeader
+import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineState
+import com.example.jetsoncontroller.model.UploadJob
+import com.example.jetsoncontroller.model.UploadJobState
+import com.example.jetsoncontroller.ui.components.AppBanner
 import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.MetricCard
+import com.example.jetsoncontroller.ui.components.SectionHeader
+import com.example.jetsoncontroller.ui.components.StatusBadge
+import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.theme.AppSpacing
 
 private enum class PowerAction { REBOOT, SHUTDOWN }
 
@@ -63,6 +72,8 @@ private enum class PowerAction { REBOOT, SHUTDOWN }
 @Composable
 fun DashboardScreen(
     state: DashboardUiState,
+    pipelines: List<ManagedPipeline>,
+    uploads: List<UploadJob>,
     onDisconnect: () -> Unit,
     onReboot: () -> Unit,
     onShutdown: () -> Unit,
@@ -76,6 +87,12 @@ fun DashboardScreen(
     onBack: () -> Unit
 ) {
     var pendingPowerAction by remember { mutableStateOf<PowerAction?>(null) }
+    val health = assessDashboardHealth(
+        status = state.status,
+        freshness = state.statusFreshness,
+        pipelines = pipelines,
+        uploads = uploads
+    )
 
     pendingPowerAction?.let { action ->
         val rebooting = action == PowerAction.REBOOT
@@ -87,9 +104,7 @@ fun DashboardScreen(
                     contentDescription = null
                 )
             },
-            title = {
-                Text(if (rebooting) "Jetson을 재부팅할까요?" else "Jetson을 종료할까요?")
-            },
+            title = { Text(if (rebooting) "Jetson을 재부팅할까요?" else "Jetson을 종료할까요?") },
             text = {
                 Text(
                     if (rebooting) {
@@ -118,11 +133,7 @@ fun DashboardScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(
-                            state.deviceName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Text(state.deviceName, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             transportLabel(state.transportType, state.endpoint),
                             style = MaterialTheme.typography.bodySmall,
@@ -134,7 +145,7 @@ fun DashboardScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "내 장비로 이동")
                     }
                 },
                 actions = {
@@ -144,216 +155,372 @@ fun DashboardScreen(
                 }
             )
         },
-        bottomBar = {
-            ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected)
-        }
+        bottomBar = { ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected) }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
+                .padding(paddingValues),
+            contentPadding = PaddingValues(bottom = AppSpacing.section)
         ) {
             if (state.operationInProgress) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
             }
 
             state.operationMessage?.let { message ->
-                Surface(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                    onClick = onDismissOperationMessage,
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    InlineMessage(message = message, isError = state.operationIsError)
+                item {
+                    AppBanner(
+                        message = message,
+                        tone = if (state.operationIsError) StatusTone.ERROR else StatusTone.SUCCESS,
+                        onDismiss = onDismissOperationMessage,
+                        modifier = Modifier.padding(
+                            horizontal = AppSpacing.screen,
+                            vertical = AppSpacing.medium
+                        )
+                    )
                 }
             }
 
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Spacer(Modifier.height(12.dp))
-                ConnectionSummary(state)
-                Spacer(Modifier.height(24.dp))
-                SectionHeader("시스템 상태")
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    MetricCard("CPU", "${state.status.cpuPercent}%", Modifier.weight(1f))
-                    MetricCard("GPU", "${state.status.gpuPercent}%", Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    MetricCard("온도", "${state.status.temperatureC} C", Modifier.weight(1f))
-                    MetricCard("저장 공간", "${state.status.storagePercent}%", Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(10.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("메모리", style = MaterialTheme.typography.labelMedium)
-                            Text(
-                                "${formatMemory(state.status.ramUsedMb)} / ${formatMemory(state.status.ramTotalMb)}",
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        val ramProgress = if (state.status.ramTotalMb > 0) {
-                            state.status.ramUsedMb.toFloat() / state.status.ramTotalMb
-                        } else 0f
-                        LinearProgressIndicator(
-                            progress = { ramProgress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth()
+            item {
+                Column(modifier = Modifier.padding(horizontal = AppSpacing.screen)) {
+                    Spacer(Modifier.height(AppSpacing.medium))
+                    HealthOverview(state = state, health = health)
+                    if (state.statusFreshness == StatusFreshness.STALE) {
+                        Spacer(Modifier.height(AppSpacing.medium))
+                        AppBanner(
+                            message = "마지막 상태 응답 이후 ${state.statusAgeSeconds ?: 0}초가 지났습니다. 표시된 수치는 최신 값이 아닐 수 있습니다.",
+                            tone = StatusTone.WARNING
                         )
                     }
+                    Spacer(Modifier.height(AppSpacing.section))
+                    SectionHeader("진행 중인 작업")
+                    Spacer(Modifier.height(AppSpacing.small))
+                    ActiveWork(
+                        pipelines = pipelines,
+                        uploads = uploads,
+                        onPipelinesClick = onPipelinesClick,
+                        onUploadQueueClick = onUploadQueueClick
+                    )
+                    Spacer(Modifier.height(AppSpacing.section))
+                    SectionHeader(
+                        title = if (state.statusFreshness == StatusFreshness.STALE) {
+                            "마지막 시스템 지표"
+                        } else {
+                            "시스템 지표"
+                        },
+                        trailing = {
+                            Text(
+                                statusAgeLabel(state),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    )
+                    Spacer(Modifier.height(AppSpacing.small))
+                    MetricsGrid(state)
+                    Spacer(Modifier.height(AppSpacing.section))
+                    SectionHeader("빠른 작업")
                 }
-
-                Spacer(Modifier.height(28.dp))
-                SectionHeader("작업")
             }
 
-            DashboardAction(
-                icon = Icons.Default.Wifi,
-                title = "Wi-Fi 설정",
-                description = "Jetson을 사용할 공유기에 연결",
-                enabled = state.capabilities.wifiProvisioning,
-                onClick = onNetworkSettingsClick
-            )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
-            DashboardAction(
-                icon = Icons.Default.Wifi,
-                title = "Wi-Fi Direct",
-                description = if (state.transportType == TransportType.WIFI_DIRECT) {
-                    "직접 연결 상태 확인"
-                } else {
-                    "공유기 없이 Jetson 제어망 연결"
-                },
-                enabled = true,
-                onClick = onWifiDirectClick
-            )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
-            DashboardAction(
-                icon = Icons.Default.FolderOpen,
-                title = "저장소 탐색",
-                description = if (state.transportType == TransportType.BLE) {
-                    "LAN 또는 Wi-Fi Direct 연결이 필요합니다"
-                } else {
-                    "수집 파일과 폴더 확인"
-                },
-                enabled = state.capabilities.fileBrowsing && state.transportType != TransportType.BLE,
-                onClick = onStorageClick
-            )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
-            DashboardAction(
-                icon = Icons.Default.CloudUpload,
-                title = "전송 큐",
-                description = if (state.transportType == TransportType.BLE) {
-                    "LAN 또는 Wi-Fi Direct 연결이 필요합니다"
-                } else {
-                    "대기 및 진행 중인 서버 전송"
-                },
-                enabled = state.capabilities.uploads && state.transportType != TransportType.BLE,
-                onClick = onUploadQueueClick
-            )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
-            DashboardAction(
-                icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                title = "자동 실행 작업",
-                description = if (state.transportType == TransportType.BLE) {
-                    "LAN 또는 Wi-Fi Direct 연결이 필요합니다"
-                } else {
-                    "Python 파이프라인 실행과 부팅 설정"
-                },
-                enabled = state.capabilities.pipelines && state.transportType != TransportType.BLE,
-                onClick = onPipelinesClick
-            )
+            item {
+                DashboardAction(
+                    icon = Icons.Default.Wifi,
+                    title = "Wi-Fi 설정",
+                    description = "Jetson을 사용할 공유기에 연결",
+                    enabled = state.capabilities.wifiProvisioning,
+                    onClick = onNetworkSettingsClick
+                )
+                DashboardDivider()
+                DashboardAction(
+                    icon = Icons.Default.Wifi,
+                    title = "Wi-Fi Direct",
+                    description = if (state.transportType == TransportType.WIFI_DIRECT) {
+                        "직접 연결 상태 확인"
+                    } else {
+                        "공유기 없이 Jetson 제어망 연결"
+                    },
+                    enabled = true,
+                    onClick = onWifiDirectClick
+                )
+                DashboardDivider()
+                DashboardAction(
+                    icon = Icons.Default.FolderOpen,
+                    title = "저장소 탐색",
+                    description = transportRequirementDescription(
+                        state.transportType,
+                        "수집 파일과 폴더 확인"
+                    ),
+                    enabled = state.capabilities.fileBrowsing && state.transportType != TransportType.BLE,
+                    onClick = onStorageClick
+                )
+                DashboardDivider()
+                DashboardAction(
+                    icon = Icons.Default.CloudUpload,
+                    title = "전송 큐",
+                    description = transportRequirementDescription(
+                        state.transportType,
+                        "대기 및 진행 중인 서버 전송"
+                    ),
+                    enabled = state.capabilities.uploads && state.transportType != TransportType.BLE,
+                    onClick = onUploadQueueClick
+                )
+                DashboardDivider()
+                DashboardAction(
+                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                    title = "자동 실행 작업",
+                    description = transportRequirementDescription(
+                        state.transportType,
+                        "Python 파이프라인 실행과 부팅 설정"
+                    ),
+                    enabled = state.capabilities.pipelines && state.transportType != TransportType.BLE,
+                    onClick = onPipelinesClick
+                )
+            }
 
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Spacer(Modifier.height(28.dp))
-                SectionHeader("장비 관리")
-                Spacer(Modifier.height(10.dp))
-                if (!state.capabilities.powerCommandsEnabled) {
-                    InlineMessage(
-                        message = "Jetson에서 전원 명령이 비활성화되어 있습니다.",
-                        isError = false
+            item {
+                Column(modifier = Modifier.padding(horizontal = AppSpacing.screen)) {
+                    Spacer(Modifier.height(AppSpacing.section))
+                    SectionHeader("관리자 작업")
+                    Spacer(Modifier.height(AppSpacing.small))
+                    Text(
+                        "재부팅과 종료는 실행 중인 수집 작업에 영향을 줍니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.height(12.dp))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { pendingPowerAction = PowerAction.REBOOT },
-                        modifier = Modifier.weight(1f),
-                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
-                    ) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = null)
-                        Text("재부팅", modifier = Modifier.padding(start = 8.dp))
+                    Spacer(Modifier.height(AppSpacing.medium))
+                    if (!state.capabilities.powerCommandsEnabled) {
+                        AppBanner(
+                            message = "Jetson에서 전원 명령이 비활성화되어 있습니다.",
+                            tone = StatusTone.INFO
+                        )
+                        Spacer(Modifier.height(AppSpacing.medium))
                     }
-                    OutlinedButton(
-                        onClick = { pendingPowerAction = PowerAction.SHUTDOWN },
-                        modifier = Modifier.weight(1f),
-                        enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
                     ) {
-                        Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
-                        Text("종료", modifier = Modifier.padding(start = 8.dp))
+                        OutlinedButton(
+                            onClick = { pendingPowerAction = PowerAction.REBOOT },
+                            modifier = Modifier.weight(1f),
+                            enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
+                        ) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = null)
+                            Text("재부팅", modifier = Modifier.padding(start = AppSpacing.small))
+                        }
+                        OutlinedButton(
+                            onClick = { pendingPowerAction = PowerAction.SHUTDOWN },
+                            modifier = Modifier.weight(1f),
+                            enabled = state.capabilities.powerCommandsEnabled && !state.operationInProgress
+                        ) {
+                            Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
+                            Text("종료", modifier = Modifier.padding(start = AppSpacing.small))
+                        }
                     }
                 }
-                Spacer(Modifier.height(28.dp))
             }
         }
     }
 }
 
 @Composable
-private fun ConnectionSummary(state: DashboardUiState) {
+private fun HealthOverview(
+    state: DashboardUiState,
+    health: DashboardHealth
+) {
+    val tone = when (health.level) {
+        DashboardHealthLevel.HEALTHY -> StatusTone.SUCCESS
+        DashboardHealthLevel.ATTENTION -> StatusTone.WARNING
+        DashboardHealthLevel.UNKNOWN -> StatusTone.INFO
+    }
+    val icon = when (health.level) {
+        DashboardHealthLevel.HEALTHY -> Icons.Default.CheckCircle
+        DashboardHealthLevel.ATTENTION -> Icons.Default.WarningAmber
+        DashboardHealthLevel.UNKNOWN -> Icons.AutoMirrored.Filled.HelpOutline
+    }
+    val container = when (tone) {
+        StatusTone.SUCCESS -> MaterialTheme.colorScheme.primaryContainer
+        StatusTone.WARNING -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val content = when (tone) {
+        StatusTone.SUCCESS -> MaterialTheme.colorScheme.onPrimaryContainer
+        StatusTone.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        color = container,
+        contentColor = content,
         shape = MaterialTheme.shapes.medium
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("온라인", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (state.status.wifiConnected && !state.status.wifiSsid.isNullOrBlank()) {
-                        "Wi-Fi: ${state.status.wifiSsid}"
-                    } else {
-                        "상태 정보가 자동으로 갱신됩니다"
-                    },
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = MaterialTheme.shapes.small
+        Column(modifier = Modifier.padding(AppSpacing.large)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = when (state.transportType) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        health.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(health.detail, style = MaterialTheme.typography.bodyMedium)
+                }
+                StatusBadge(
+                    label = when (state.transportType) {
                         TransportType.LAN -> "LAN"
                         TransportType.WIFI_DIRECT -> "Wi-Fi Direct"
                         TransportType.BLE -> "Bluetooth"
-                        null -> "연결 확인"
+                        null -> "확인 중"
                     },
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    tone = tone
+                )
+            }
+            if (health.issues.size > 1) {
+                Spacer(Modifier.height(AppSpacing.medium))
+                health.issues.drop(1).forEach { issue ->
+                    Text("• $issue", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveWork(
+    pipelines: List<ManagedPipeline>,
+    uploads: List<UploadJob>,
+    onPipelinesClick: () -> Unit,
+    onUploadQueueClick: () -> Unit
+) {
+    val activePipelines = pipelines.filter {
+        it.state in setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING)
+    }
+    val activeUploads = uploads.filter {
+        it.state in setOf(UploadJobState.QUEUED, UploadJobState.SCANNING, UploadJobState.UPLOADING)
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column {
+            if (activePipelines.isEmpty() && activeUploads.isEmpty()) {
+                Text(
+                    "현재 진행 중인 작업이 없습니다.",
+                    modifier = Modifier.padding(AppSpacing.large),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (activePipelines.isNotEmpty()) {
+                WorkRow(
+                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                    title = activePipelines.first().label,
+                    description = if (activePipelines.size == 1) {
+                        "파이프라인 실행 중"
+                    } else {
+                        "파이프라인 ${activePipelines.size}개 실행 중"
+                    },
+                    onClick = onPipelinesClick
+                )
+            }
+            if (activePipelines.isNotEmpty() && activeUploads.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(start = 60.dp))
+            }
+            if (activeUploads.isNotEmpty()) {
+                WorkRow(
+                    icon = Icons.Default.CloudUpload,
+                    title = activeUploads.first().currentFile ?: activeUploads.first().relativePath,
+                    description = if (activeUploads.size == 1) {
+                        "서버 업로드 ${uploadProgress(activeUploads.first())}"
+                    } else {
+                        "전송 대기열 ${activeUploads.size}개"
+                    },
+                    onClick = onUploadQueueClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(AppSpacing.large),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(Icons.Default.ChevronRight, contentDescription = null)
+    }
+}
+
+@Composable
+private fun MetricsGrid(state: DashboardUiState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
+    ) {
+        MetricCard("CPU", "${state.status.cpuPercent}%", Modifier.weight(1f))
+        MetricCard("GPU", "${state.status.gpuPercent}%", Modifier.weight(1f))
+    }
+    Spacer(Modifier.height(AppSpacing.small))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
+    ) {
+        MetricCard("온도", "${state.status.temperatureC} C", Modifier.weight(1f))
+        MetricCard("저장 공간", "${state.status.storagePercent}%", Modifier.weight(1f))
+    }
+    Spacer(Modifier.height(AppSpacing.small))
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("메모리", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "${formatMemory(state.status.ramUsedMb)} / ${formatMemory(state.status.ramTotalMb)}",
                     style = MaterialTheme.typography.labelMedium
                 )
             }
+            Spacer(Modifier.height(AppSpacing.small))
+            val progress = if (state.status.ramTotalMb > 0) {
+                state.status.ramUsedMb.toFloat() / state.status.ramTotalMb
+            } else {
+                0f
+            }
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -368,21 +535,12 @@ private fun DashboardAction(
 ) {
     val alpha = if (enabled) 1f else 0.45f
     ListItem(
-        headlineContent = {
-            Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
-        },
+        headlineContent = { Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)) },
         supportingContent = {
-            Text(
-                description,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
-            )
+            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
         },
         leadingContent = {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha)
-            )
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha))
         },
         trailingContent = {
             Icon(
@@ -396,6 +554,23 @@ private fun DashboardAction(
     )
 }
 
+@Composable
+private fun DashboardDivider() {
+    HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = AppSpacing.screen))
+}
+
+private fun statusAgeLabel(state: DashboardUiState): String = when (state.statusFreshness) {
+    StatusFreshness.UNKNOWN -> "응답 대기 중"
+    StatusFreshness.STALE -> "${state.statusAgeSeconds ?: 0}초 전"
+    StatusFreshness.CURRENT -> when (val age = state.statusAgeSeconds ?: 0) {
+        0L -> "방금 갱신"
+        else -> "${age}초 전"
+    }
+}
+
+private fun transportRequirementDescription(type: TransportType?, readyText: String): String =
+    if (type == TransportType.BLE) "LAN 또는 Wi-Fi Direct 연결이 필요합니다" else readyText
+
 private fun transportLabel(type: TransportType?, endpoint: String?): String {
     val label = when (type) {
         TransportType.LAN -> "LAN"
@@ -404,6 +579,13 @@ private fun transportLabel(type: TransportType?, endpoint: String?): String {
         null -> "연결 확인 중"
     }
     return if (endpoint.isNullOrBlank()) label else "$label · $endpoint"
+}
+
+private fun uploadProgress(job: UploadJob): String {
+    val total = job.bytesTotal ?: return "진행 중"
+    val transferred = job.bytesTransferred ?: 0L
+    if (total <= 0L) return "진행 중"
+    return "${(transferred * 100L / total).coerceIn(0L, 100L)}%"
 }
 
 private fun formatMemory(megabytes: Int): String = when {

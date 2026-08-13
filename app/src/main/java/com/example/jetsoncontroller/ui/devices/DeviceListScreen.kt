@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -29,8 +30,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +61,30 @@ fun DeviceListScreen(
     onAddDeviceClick: () -> Unit,
     onBack: () -> Unit
 ) {
+    var pendingForget by remember { mutableStateOf<RegisteredDevice?>(null) }
+
+    pendingForget?.let { device ->
+        AlertDialog(
+            onDismissRequest = { pendingForget = null },
+            icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+            title = { Text("${device.deviceName} 등록을 삭제할까요?") },
+            text = {
+                Text("저장된 인증 정보가 삭제됩니다. 다시 연결하려면 장비 QR을 재등록해야 합니다.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onForget(device)
+                        pendingForget = null
+                    }
+                ) { Text("삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingForget = null }) { Text("취소") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -145,7 +175,7 @@ fun DeviceListScreen(
                         reconnecting = state.reconnectingDeviceId == device.deviceId,
                         enabled = state.permissionGranted && state.reconnectingDeviceId == null,
                         onReconnect = { onReconnect(device) },
-                        onForget = { onForget(device) }
+                        onForget = { pendingForget = device }
                     )
                 }
             }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -17,31 +18,57 @@ class DashboardViewModel(
         JetsonRepository
 ) : ViewModel() {
 
+    private val visible = MutableStateFlow(false)
+    private val nowEpochMillis = MutableStateFlow(System.currentTimeMillis())
+
     init {
         viewModelScope.launch {
-            repository.transportState.collectLatest { transport ->
-                if (transport is TransportState.Connected) {
+            combine(repository.transportState, visible) { transport, isVisible ->
+                transport to isVisible
+            }.collectLatest { (transport, isVisible) ->
+                if (transport is TransportState.Connected && isVisible) {
                     while (true) {
                         if (transport.type != com.example.jetsoncontroller.data.transport.TransportType.BLE) {
                             repository.refreshStatus()
                         }
-                        delay(2_000L)
+                        nowEpochMillis.value = System.currentTimeMillis()
+                        delay(5_000L)
                     }
+                }
+            }
+        }
+        viewModelScope.launch {
+            visible.collectLatest { isVisible ->
+                while (isVisible) {
+                    nowEpochMillis.value = System.currentTimeMillis()
+                    delay(1_000L)
                 }
             }
         }
     }
 
+    private val statusWithFreshness = combine(
+        repository.status,
+        repository.statusUpdatedAtEpochMillis,
+        nowEpochMillis
+    ) { status, updatedAt, now ->
+        StatusSnapshot(
+            status = status,
+            freshness = statusFreshness(updatedAt, now),
+            ageSeconds = statusAgeSeconds(updatedAt, now)
+        )
+    }
+
     val uiState =
         combine(
             repository.connectionState,
-            repository.status,
+            statusWithFreshness,
             repository.transportState,
             repository.capabilities,
             repository.controlOperation
         ) {
                 connection,
-                status,
+                statusSnapshot,
                 transport,
                 capabilities,
                 operation ->
@@ -59,14 +86,16 @@ class DashboardViewModel(
                 connectionState =
                     connection,
                 status =
-                    status,
+                    statusSnapshot.status,
                 transportType = connectedTransport?.type,
                 deviceName = connectedTransport?.deviceName ?: bleName ?: "Jetson",
                 endpoint = connectedTransport?.endpoint,
                 capabilities = capabilities,
                 operationInProgress = operation.inProgress,
                 operationMessage = operation.message,
-                operationIsError = operation.isError
+                operationIsError = operation.isError,
+                statusFreshness = statusSnapshot.freshness,
+                statusAgeSeconds = statusSnapshot.ageSeconds
             )
         }.stateIn(
             scope = viewModelScope,
@@ -82,6 +111,13 @@ class DashboardViewModel(
 
     fun requestStatus() =
         repository.requestStatus()
+
+    fun setVisible(isVisible: Boolean) {
+        visible.value = isVisible
+        if (isVisible) {
+            nowEpochMillis.value = System.currentTimeMillis()
+        }
+    }
 
 
     fun startSystem() =
@@ -128,3 +164,9 @@ class DashboardViewModel(
         }
     }
 }
+
+private data class StatusSnapshot(
+    val status: com.example.jetsoncontroller.model.JetsonStatus,
+    val freshness: StatusFreshness,
+    val ageSeconds: Long?
+)

@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -91,6 +92,10 @@ class JetsonRepository(
     private val _status = MutableStateFlow(JetsonStatus())
     val status: StateFlow<JetsonStatus> = _status.asStateFlow()
 
+    private val _statusUpdatedAtEpochMillis = MutableStateFlow<Long?>(null)
+    val statusUpdatedAtEpochMillis: StateFlow<Long?> =
+        _statusUpdatedAtEpochMillis.asStateFlow()
+
     private val _capabilities = MutableStateFlow(ControlCapabilities())
     val capabilities: StateFlow<ControlCapabilities> = _capabilities.asStateFlow()
 
@@ -101,6 +106,7 @@ class JetsonRepository(
     val wifiDirectState = wifiDirectManager.state
     val wifiAccessPointState = wifiAccessPointScanner.state
     val lanEndpoints = lanDiscoveryManager.discoveredEndpoints
+    val lanLastSeenAtEpochMillis = lanDiscoveryManager.lastSeenAtEpochMillis
     val isLanDiscovering = lanDiscoveryManager.isDiscovering
     val lanDiscoveryError = lanDiscoveryManager.error
 
@@ -116,14 +122,28 @@ class JetsonRepository(
 
     init {
         scope.launch {
-            gattClient.status.collect { currentStatus ->
-                _status.value = currentStatus
+            gattClient.status.drop(1).collect { currentStatus ->
+                updateStatus(currentStatus)
             }
         }
 
         scope.launch {
             gattClient.connectionState.collect { state ->
-                if (state is ConnectionState.Ready) {
+                if (state is ConnectionState.Connecting) {
+                    val previousTransport = transportCoordinator.currentTransport()?.type
+                    ipConnectionGeneration.incrementAndGet()
+                    activeIpClient = null
+                    transportCoordinator.disconnect()
+                    if (
+                        previousTransport == TransportType.WIFI_DIRECT &&
+                        wifiDirectManager.state.value.connected
+                    ) {
+                        wifiDirectManager.disconnect()
+                    }
+                    _status.value = JetsonStatus()
+                    _statusUpdatedAtEpochMillis.value = null
+                    _capabilities.value = ControlCapabilities()
+                } else if (state is ConnectionState.Ready) {
                     ipConnectionGeneration.incrementAndGet()
                     activeIpClient = null
                     transportCoordinator.setActiveTransport(
@@ -203,7 +223,7 @@ class JetsonRepository(
                 return@onSuccess
             }
 
-            _status.value = statusResult.getOrThrow()
+            updateStatus(statusResult.getOrThrow())
             val capabilitiesResult = candidateClient.getCapabilities()
             if (ipConnectionGeneration.get() != generation) {
                 return@onSuccess
@@ -290,6 +310,8 @@ class JetsonRepository(
         }
         transportCoordinator.disconnect()
         activeIpClient = null
+        _status.value = JetsonStatus()
+        _statusUpdatedAtEpochMillis.value = null
         _capabilities.value = ControlCapabilities()
         _controlOperation.value = ControlOperationState()
     }
@@ -365,7 +387,7 @@ class JetsonRepository(
             )
             TransportType.WIFI_DIRECT,
             TransportType.LAN -> transport.getStatus()
-                .onSuccess { _status.value = it }
+                .onSuccess(::updateStatus)
                 .isSuccess
         }
     }
@@ -533,7 +555,7 @@ class JetsonRepository(
                         return@onSuccess
                     }
 
-                    _status.value = statusResult.getOrThrow()
+                    updateStatus(statusResult.getOrThrow())
                     val capabilitiesResult = candidateClient.getCapabilities()
                     if (ipConnectionGeneration.get() != generation) {
                         return@onSuccess
@@ -556,6 +578,9 @@ class JetsonRepository(
                         deviceId = hello.deviceId,
                         deviceName = hello.deviceName
                     )
+                    if (wifiDirectManager.state.value.connected) {
+                        wifiDirectManager.disconnect()
+                    }
                 }
                 .onFailure { error ->
                     if (ipConnectionGeneration.get() == generation) {
@@ -574,6 +599,11 @@ class JetsonRepository(
     suspend fun getRoots(): Result<List<RemoteRoot>> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.getRoots()
+    }
+
+    private fun updateStatus(status: JetsonStatus) {
+        _status.value = status
+        _statusUpdatedAtEpochMillis.value = System.currentTimeMillis()
     }
 
     suspend fun listDirectory(rootId: String, relativePath: String): Result<LocalControlApi.ListFilesResponse> {

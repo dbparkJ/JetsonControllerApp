@@ -5,7 +5,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -16,7 +22,6 @@ import androidx.navigation.navArgument
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.alerts.AlertPreferencesStore
 import com.example.jetsoncontroller.model.ConnectionState
-import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
@@ -27,6 +32,7 @@ import com.example.jetsoncontroller.ui.pairing.PairingViewModel
 import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
 import com.example.jetsoncontroller.ui.pairing.PairingPhase
 import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
+import com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingScreen
 import com.example.jetsoncontroller.ui.network.NetworkSettingsScreen
 import com.example.jetsoncontroller.ui.network.NetworkSettingsViewModel
 import com.example.jetsoncontroller.ui.wifi.WifiDirectScreen
@@ -53,6 +59,9 @@ private object Routes {
 
     const val CONNECTION_HUB =
         "connection_hub"
+
+    const val ONBOARDING =
+        "onboarding"
 
     const val DEVICES_BLE =
         "devices_ble"
@@ -266,6 +275,9 @@ fun JetsonApp(
     val lanDiscovering by
         repository.isLanDiscovering.collectAsStateWithLifecycle()
 
+    val lanLastSeenAtEpochMillis by
+        repository.lanLastSeenAtEpochMillis.collectAsStateWithLifecycle()
+
     val lanDiscoveryError by
         repository.lanDiscoveryError.collectAsStateWithLifecycle()
 
@@ -280,6 +292,7 @@ fun JetsonApp(
 
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
+    var openDashboardAfterHubConnection by remember { mutableStateOf(false) }
 
     val onSectionSelected: (ControlSection) -> Unit = { section ->
         val route = when (section) {
@@ -308,18 +321,15 @@ fun JetsonApp(
 
 
     LaunchedEffect(
-        deviceState.connectionState,
-        wifiDirectState.apiStatus,
         transportState,
         currentRoute
     ) {
-        val connected =
-            (deviceState.connectionState is ConnectionState.Ready) ||
-            wifiDirectState.apiStatus == WifiDirectApiStatus.READY ||
-            transportState is TransportState.Connected
-        val connectionRoute = isConnectionEntryRoute(currentRoute)
+        val connected = transportState is TransportState.Connected
+        val connectionRoute = isConnectionEntryRoute(currentRoute) ||
+            (currentRoute == Routes.CONNECTION_HUB && openDashboardAfterHubConnection)
 
         if (connected && connectionRoute) {
+            openDashboardAfterHubConnection = false
             navController.navigate(
                 Routes.DASHBOARD
             ) {
@@ -330,6 +340,12 @@ fun JetsonApp(
                 launchSingleTop =
                     true
             }
+        }
+    }
+
+    LaunchedEffect(lanConnectionError) {
+        if (lanConnectionError != null) {
+            openDashboardAfterHubConnection = false
         }
     }
 
@@ -349,18 +365,7 @@ fun JetsonApp(
             deviceState.connectionState
             is ConnectionState.RegistrationRequired
         ) {
-            navController.navigate(Routes.QR_SCANNER) {
-                launchSingleTop = true
-            }
-        }
-    }
-
-    LaunchedEffect(deviceState.registeredDevices, currentRoute) {
-        if (
-            currentRoute == Routes.CONNECTION_HUB &&
-            deviceState.registeredDevices.isEmpty()
-        ) {
-            navController.navigate(Routes.QR_SCANNER) {
+            navController.navigate(Routes.ONBOARDING) {
                 launchSingleTop = true
             }
         }
@@ -395,19 +400,30 @@ fun JetsonApp(
 
             ConnectionHubScreen(
                 onBleClick = { navController.navigate(Routes.DEVICES_BLE) },
-                onQrClick = { navController.navigate(Routes.QR_SCANNER) },
+                onAddDevice = { navController.navigate(Routes.ONBOARDING) },
+                onOpenDashboard = { navController.navigate(Routes.DASHBOARD) },
                 onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) },
                 lanEndpoints = lanEndpoints,
-                registeredDeviceIds = deviceState.registeredDevices
-                    .map { it.deviceId }
-                    .toSet(),
+                lastSeenAtEpochMillis = lanLastSeenAtEpochMillis,
+                registeredDevices = deviceState.registeredDevices,
+                transportState = transportState,
                 lanDiscovering = lanDiscovering,
                 lanError = lanConnectionError ?: lanDiscoveryError,
                 connectingLanDeviceId = connectingLanDeviceId,
                 localNetworkPermissionGranted = localNetworkPermissionGranted,
                 onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
                 onRefreshLan = { repository.startLanDiscovery() },
-                onConnectLan = repository::connectLan
+                onConnectLan = { endpoint ->
+                    openDashboardAfterHubConnection = true
+                    repository.connectLan(endpoint)
+                }
+            )
+        }
+
+        composable(Routes.ONBOARDING) {
+            FirstDeviceOnboardingScreen(
+                onScanQr = { navController.navigate(Routes.QR_SCANNER) },
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -530,10 +546,33 @@ fun JetsonApp(
         composable(
             Routes.DASHBOARD
         ) {
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_RESUME -> dashboardViewModel.setVisible(true)
+                        Lifecycle.Event.ON_PAUSE,
+                        Lifecycle.Event.ON_STOP -> dashboardViewModel.setVisible(false)
+                        else -> Unit
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                dashboardViewModel.setVisible(
+                    lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                )
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                    dashboardViewModel.setVisible(false)
+                }
+            }
 
             DashboardScreen(
                 state =
                     dashboardState,
+
+                pipelines = pipelineState.pipelines,
+
+                uploads = uploadState.queue,
 
                 onDisconnect = {
 
@@ -856,7 +895,6 @@ fun JetsonApp(
 }
 
 internal fun isConnectionEntryRoute(route: String?): Boolean = route in setOf(
-    "connection_hub",
     "devices_ble",
     "wifi_direct"
 )

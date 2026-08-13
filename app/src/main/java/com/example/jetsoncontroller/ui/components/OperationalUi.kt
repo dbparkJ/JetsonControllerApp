@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -49,34 +47,11 @@ fun InlineMessage(
     isError: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val container = if (isError) {
-        MaterialTheme.colorScheme.errorContainer
-    } else {
-        MaterialTheme.colorScheme.secondaryContainer
-    }
-    val content = if (isError) {
-        MaterialTheme.colorScheme.onErrorContainer
-    } else {
-        MaterialTheme.colorScheme.onSecondaryContainer
-    }
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = container,
-        contentColor = content,
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = if (isError) Icons.Default.ErrorOutline else Icons.Default.Info,
-                contentDescription = null
-            )
-            Text(text = message, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
+    AppBanner(
+        message = message,
+        tone = if (isError) StatusTone.ERROR else StatusTone.INFO,
+        modifier = modifier
+    )
 }
 
 @Composable

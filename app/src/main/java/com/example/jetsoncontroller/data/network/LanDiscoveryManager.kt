@@ -20,6 +20,10 @@ class LanDiscoveryManager(private val context: Context) {
     private val _discoveredEndpoints = MutableStateFlow<List<DeviceEndpoint>>(emptyList())
     val discoveredEndpoints: StateFlow<List<DeviceEndpoint>> = _discoveredEndpoints.asStateFlow()
 
+    private val _lastSeenAtEpochMillis = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val lastSeenAtEpochMillis: StateFlow<Map<String, Long>> =
+        _lastSeenAtEpochMillis.asStateFlow()
+
     private val _isDiscovering = MutableStateFlow(false)
     val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
 
@@ -135,5 +139,7 @@ class LanDiscoveryManager(private val context: Context) {
             current.add(endpoint)
         }
         _discoveredEndpoints.value = current
+        _lastSeenAtEpochMillis.value = _lastSeenAtEpochMillis.value +
+            (endpoint.deviceId.lowercase() to System.currentTimeMillis())
     }
 }

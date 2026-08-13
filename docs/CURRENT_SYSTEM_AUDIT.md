@@ -122,3 +122,17 @@ token 원문은 이 audit에 기록하지 않는다. 서버 보관 위치는 다
 현재 `sslip.io` 이름은 공인 IPv4 `125.142.22.24`를 포함한다. 공인 IP가 바뀌면 새 이름으로 Caddy와 Jetson upload target을 함께 갱신해야 한다. 고정 공인 IP 또는 소유한 DDNS로 이전하기 전까지는 이 변경 가능성을 운영 절차에 포함한다.
 
 API, HDD 저장, 공인 TLS와 장비 token 구축은 완료됐다. 다만 [UPLOAD_RECEIVER_AGENT_GUIDE.md](UPLOAD_RECEIVER_AGENT_GUIDE.md)의 전체 운영 준비 완료 기준 중 별도 관측성 dashboard, 처리량/checksum/offset/latency의 장기 metric, 실제 Jetson의 외부망 중단 재개·대용량 전송 시험은 아직 남아 있다. 현재 `/metrics`는 localhost receiver에만 있고 세션 상태 및 전체 declared/received byte의 최소 metric만 제공한다.
+
+## 7. Android UI/UX 재설계와 배포 drift 점검
+
+점검 및 구현: 2026-08-13 KST
+
+- Android 앱 `1.5.0`은 connection-first 진입을 device-first Home으로 교체했다.
+- 최초 장비 등록 전에 3단계 onboarding을 표시하고 QR 수동 입력, torch, haptic feedback을 추가했다.
+- pairing 세부 phase를 stepper로 표시하고 등록 장비 credential 삭제 전에 확인한다.
+- Dashboard 첫 화면은 overall health, 현재 pipeline/upload, 경고, 마지막 정상 갱신을 우선 표시한다.
+- Dashboard 상태 조회는 화면 가시성에 따라 동작하며 2초 고정 polling을 5초로 낮췄다.
+- 공통 status badge/banner는 색상 외 icon과 text를 함께 사용하고 동적 banner를 polite live region으로 노출한다.
+- 공인 receiver readiness는 정상이며 앱의 새 target 편집기는 운영 URL을 기본값으로 제공한다. token은 앱이나 저장소에 기록하지 않는다.
+
+현재 Jetson에서 `https://127.0.0.1:8765/v1/hello`는 정상이나, systemd가 로드한 `/opt/jetson-control/jetson_control` package는 `1.0.0`이다. 저장소 backend는 `1.2.0`이므로 최신 응답 오류 서명과 앱 관리 upload target API를 실제 장비에서 사용하려면 관리자 권한으로 backend를 재설치하고 API service를 재시작해야 한다. `/etc/jetson-control`과 `/var/lib/jetson-control`은 root 전용이며 이 단계에서 device secret이나 receiver token을 일반 사용자 영역으로 복사하지 않는다.

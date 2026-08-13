@@ -266,9 +266,15 @@ private fun UploadTargetEditorDialog(
     onSave: (targetId: String, label: String, baseUrl: String, token: String?) -> Unit
 ) {
     val isNew = target == null
-    var targetId by rememberSaveable(target?.id) { mutableStateOf(target?.id.orEmpty()) }
-    var label by rememberSaveable(target?.id) { mutableStateOf(target?.label.orEmpty()) }
-    var baseUrl by rememberSaveable(target?.id) { mutableStateOf(target?.baseUrl.orEmpty()) }
+    var targetId by rememberSaveable(target?.id) {
+        mutableStateOf(target?.id ?: OperationsUploadServer.TARGET_ID)
+    }
+    var label by rememberSaveable(target?.id) {
+        mutableStateOf(target?.label ?: OperationsUploadServer.LABEL)
+    }
+    var baseUrl by rememberSaveable(target?.id) {
+        mutableStateOf(target?.baseUrl ?: OperationsUploadServer.BASE_URL)
+    }
     var token by rememberSaveable(target?.id) { mutableStateOf("") }
     var tokenVisible by rememberSaveable(target?.id) { mutableStateOf(false) }
     val validId = targetId.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}"))
@@ -388,7 +394,7 @@ private fun UploadTargetEditorDialog(
     )
 }
 
-private fun isValidHttpsUrl(value: String): Boolean = runCatching {
+internal fun isValidHttpsUrl(value: String): Boolean = runCatching {
     val uri = URI(value.trim())
     uri.scheme.equals("https", ignoreCase = true) &&
         !uri.host.isNullOrBlank() &&
