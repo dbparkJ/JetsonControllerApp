@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +56,7 @@ fun UploadConfirmScreen(
     error: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onManageTargets: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
     var selectedTargetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -70,6 +73,14 @@ fun UploadConfirmScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onRefresh, enabled = !isLoading) {
+                        Icon(Icons.Default.Refresh, contentDescription = "서버 목록 새로고침")
+                    }
+                    IconButton(onClick = onManageTargets) {
+                        Icon(Icons.Default.Dns, contentDescription = "업로드 서버 관리")
                     }
                 }
             )
@@ -142,15 +153,21 @@ fun UploadConfirmScreen(
             if (targets.isEmpty() && !isLoading) {
                 EmptyState(
                     title = "업로드 대상이 없습니다",
-                    message = "Jetson의 업로드 대상 설정을 확인하세요.",
-                    actionLabel = "다시 확인",
-                    onAction = onRefresh
+                    message = "현재 선택할 수 있는 업로드 서버가 없습니다.",
+                    actionLabel = "서버 관리",
+                    onAction = onManageTargets
                 )
             } else {
                 targets.forEach { target ->
                     ListItem(
                         headlineContent = { Text(target.label) },
-                        supportingContent = { Text(target.id) },
+                        supportingContent = {
+                            Text(
+                                target.baseUrl ?: target.id,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         leadingContent = {
                             Icon(Icons.Default.Storage, contentDescription = null)
                         },

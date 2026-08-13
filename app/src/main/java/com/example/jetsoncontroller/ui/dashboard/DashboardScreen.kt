@@ -69,7 +69,7 @@ fun DashboardScreen(
     onStorageClick: () -> Unit,
     onNetworkSettingsClick: () -> Unit,
     onWifiDirectClick: () -> Unit,
-    onUploadHistoryClick: () -> Unit,
+    onUploadQueueClick: () -> Unit,
     onPipelinesClick: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
     onDismissOperationMessage: () -> Unit,
@@ -255,14 +255,14 @@ fun DashboardScreen(
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
             DashboardAction(
                 icon = Icons.Default.CloudUpload,
-                title = "업로드 기록",
+                title = "전송 큐",
                 description = if (state.transportType == TransportType.BLE) {
                     "LAN 또는 Wi-Fi Direct 연결이 필요합니다"
                 } else {
-                    "외부 서버 전송 상태와 결과"
+                    "대기 및 진행 중인 서버 전송"
                 },
                 enabled = state.capabilities.uploads && state.transportType != TransportType.BLE,
-                onClick = onUploadHistoryClick
+                onClick = onUploadQueueClick
             )
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = 20.dp))
             DashboardAction(

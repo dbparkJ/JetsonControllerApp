@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import http.client
 import hashlib
+import ipaddress
 import os
 import shutil
 import ssl
@@ -35,6 +36,7 @@ class UploadTarget:
     base_url: Optional[str] = None
     token_file: Optional[Path] = None
     verify_tls: bool = True
+    editable: bool = False
 
 
 class UploadManager:
@@ -51,6 +53,8 @@ class UploadManager:
             raise ValueError("max_concurrent_jobs must be at least 1")
         self.storage = storage
         self.targets_path = targets_path
+        self.managed_targets_path = state_dir / "managed-upload-targets.json"
+        self.managed_tokens_dir = state_dir / "upload-target-tokens"
         self.jobs_dir = state_dir / "upload-jobs"
         self.device_id = device_id
         self.allow_local_targets = allow_local_targets
@@ -61,7 +65,36 @@ class UploadManager:
         self._recover_interrupted_jobs()
 
     def targets(self) -> Dict[str, UploadTarget]:
-        raw = load_json_object(self.targets_path)
+        targets = self._load_targets(self.targets_path, editable=False)
+        managed_targets = self._load_targets(
+            self.managed_targets_path,
+            editable=True,
+            allow_missing=True,
+        )
+        duplicate_ids = targets.keys() & managed_targets.keys()
+        if duplicate_ids:
+            duplicate = sorted(duplicate_ids)[0]
+            raise ValueError(
+                f"Managed upload target {duplicate!r} conflicts with administrator configuration"
+            )
+        targets.update(managed_targets)
+        return targets
+
+    def _load_targets(
+        self,
+        path: Path,
+        *,
+        editable: bool,
+        allow_missing: bool = False,
+    ) -> Dict[str, UploadTarget]:
+        if allow_missing and not path.exists():
+            return {}
+        try:
+            raw = load_json_object(path)
+        except RuntimeError:
+            if allow_missing and not path.exists():
+                return {}
+            raise
         targets: Dict[str, UploadTarget] = {}
         for target_id, value in raw.items():
             validate_config_id(target_id, "upload target")
@@ -83,6 +116,7 @@ class UploadManager:
                     label=label,
                     kind="local",
                     path=Path(path_text).expanduser().resolve(),
+                    editable=editable,
                 )
             elif target_type == "http":
                 base_url = str(value.get("base_url", "")).strip().rstrip("/")
@@ -116,26 +150,225 @@ class UploadManager:
                     base_url=base_url,
                     token_file=Path(token_text).expanduser().resolve(),
                     verify_tls=verify_tls,
+                    editable=editable,
                 )
             else:
                 raise ValueError(f"Upload target {target_id!r} has an unsupported type")
         return targets
 
-    def targets_response(self) -> List[Dict[str, str]]:
+    def targets_response(self) -> List[Dict[str, object]]:
         return [
-            {"id": target.id, "label": target.label}
-            for target in self.targets().values()
+            {
+                "id": target.id,
+                "label": target.label,
+                "type": target.kind,
+                "baseUrl": target.base_url,
+                "editable": target.editable,
+            }
+            for target in sorted(
+                self.targets().values(), key=lambda value: value.label.lower()
+            )
         ]
 
-    def start(self, root_id: str, relative_path: str, target_id: str) -> Dict[str, object]:
-        source, target = self._resolve_source_and_target(
-            root_id, relative_path, target_id
+    def save_http_target(
+        self,
+        target_id: str,
+        label: str,
+        base_url: str,
+        token: Optional[str],
+    ) -> Dict[str, object]:
+        target_id = validate_config_id(target_id, "upload target")
+        normalized_label = self._validate_target_label(label)
+        normalized_url = self._validate_managed_base_url(base_url)
+
+        with self._lock:
+            administrator_targets = self._load_targets(
+                self.targets_path,
+                editable=False,
+            )
+            managed = self._load_managed_target_config()
+            if target_id in administrator_targets:
+                raise UploadConflict(
+                    "Administrator-managed upload targets cannot be changed from the app"
+                )
+            if self._target_has_active_jobs(target_id):
+                raise UploadConflict("An active upload is using this server")
+
+            existing = managed.get(target_id)
+            old_token_path = self._managed_token_path(existing)
+            new_token_path: Optional[Path] = None
+            if token is None or not token.strip():
+                if old_token_path is None or not old_token_path.is_file():
+                    raise ValueError("A server access token is required")
+                token_path = old_token_path
+            else:
+                token_path = self.managed_tokens_dir / (
+                    f"{target_id}-{uuid.uuid4().hex}.token"
+                )
+                self._write_secret(token_path, self._validate_target_token(token))
+                new_token_path = token_path
+
+            managed[target_id] = {
+                "label": normalized_label,
+                "type": "http",
+                "base_url": normalized_url,
+                "token_file": str(token_path),
+                "verify_tls": True,
+            }
+            try:
+                self._write_json(self.managed_targets_path, managed)
+            except Exception:
+                if new_token_path is not None:
+                    new_token_path.unlink(missing_ok=True)
+                raise
+            if new_token_path is not None and old_token_path != new_token_path:
+                if old_token_path is not None:
+                    old_token_path.unlink(missing_ok=True)
+
+        target = self.targets()[target_id]
+        return {
+            "id": target.id,
+            "label": target.label,
+            "type": target.kind,
+            "baseUrl": target.base_url,
+            "editable": target.editable,
+        }
+
+    def delete_http_target(self, target_id: str) -> None:
+        target_id = validate_config_id(target_id, "upload target")
+        with self._lock:
+            managed = self._load_managed_target_config()
+            if target_id not in managed:
+                raise KeyError(target_id)
+            if self._target_has_active_jobs(target_id):
+                raise UploadConflict("An active upload is using this server")
+
+            target_config = managed.pop(target_id)
+            token_path = self._managed_token_path(target_config)
+            self._write_json(self.managed_targets_path, managed)
+            if token_path is not None:
+                token_path.unlink(missing_ok=True)
+
+    def _target_has_active_jobs(self, target_id: str) -> bool:
+        return any(
+            job.get("targetId") == target_id and job.get("state") in ACTIVE_STATES
+            for job in self.list_jobs(active_only=True)
         )
 
+    def _managed_token_path(self, value: object) -> Optional[Path]:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("Managed upload target configuration is invalid")
+        token_text = str(value.get("token_file", "")).strip()
+        if not token_text:
+            return None
+        token_path = Path(token_text).expanduser().resolve()
+        try:
+            token_path.relative_to(self.managed_tokens_dir.resolve())
+        except ValueError as error:
+            raise ValueError("Managed upload target token path is invalid") from error
+        return token_path
+
+    def _load_managed_target_config(self) -> Dict[str, object]:
+        if not self.managed_targets_path.exists():
+            return {}
+        try:
+            return dict(load_json_object(self.managed_targets_path))
+        except RuntimeError:
+            if not self.managed_targets_path.exists():
+                return {}
+            raise
+
+    @staticmethod
+    def _validate_target_label(label: str) -> str:
+        normalized = label.strip()
+        if (
+            not normalized
+            or len(normalized.encode("utf-8")) > 64
+            or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+        ):
+            raise ValueError("Upload target label must contain 1 to 64 UTF-8 bytes")
+        return normalized
+
+    @staticmethod
+    def _validate_managed_base_url(base_url: str) -> str:
+        normalized = base_url.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        try:
+            parsed_port = parsed.port
+        except ValueError as error:
+            raise ValueError("Upload server URL has an invalid port") from error
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or (parsed_port is not None and parsed_port < 1)
+        ):
+            raise ValueError("Upload server must be a valid HTTPS base URL")
+        hostname = parsed.hostname.lower()
+        if hostname == "localhost" or hostname.endswith(".local"):
+            raise ValueError("Upload server must be reachable through the public internet")
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and not address.is_global:
+            raise ValueError("Upload server IP address must be public")
+        return normalized
+
+    @staticmethod
+    def _validate_target_token(token: str) -> str:
+        normalized = token.strip()
+        if not normalized or len(normalized) > 4096 or "\n" in normalized or "\r" in normalized:
+            raise ValueError("Upload server token must be a single line")
+        return normalized
+
+    def _write_secret(self, path: Path, value: str) -> None:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8") as output:
+                output.write(value)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _write_json(self, path: Path, value: Dict[str, object]) -> None:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8") as output:
+                json.dump(value, output, ensure_ascii=True, indent=2, sort_keys=True)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def start(self, root_id: str, relative_path: str, target_id: str) -> Dict[str, object]:
         job_id = uuid.uuid4().hex
         job = self._new_job(job_id, root_id, relative_path, target_id)
         cancellation = threading.Event()
         with self._lock:
+            source, target = self._resolve_source_and_target(
+                root_id, relative_path, target_id
+            )
             self._reserve_and_save(job_id, cancellation, job)
 
         self._launch_worker(job_id, source, target, cancellation)
@@ -220,11 +453,13 @@ class UploadManager:
         )
         worker.start()
 
-    def list_jobs(self) -> List[Dict[str, object]]:
+    def list_jobs(self, active_only: bool = False) -> List[Dict[str, object]]:
         jobs = []
         for path in self.jobs_dir.glob("*.json"):
             try:
-                jobs.append(self._load_path(path))
+                job = self._load_path(path)
+                if not active_only or job.get("state") in ACTIVE_STATES:
+                    jobs.append(job)
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
         jobs.sort(key=lambda job: str(job.get("createdAt", "")), reverse=True)

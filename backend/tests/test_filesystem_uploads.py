@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from jetson_control.filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
-from jetson_control.uploads import UploadCapacityExceeded, UploadManager
+from jetson_control.uploads import UploadCapacityExceeded, UploadConflict, UploadManager
 
 
 class UploadReceiverHandler(BaseHTTPRequestHandler):
@@ -267,6 +267,128 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
             server_thread.join(timeout=2)
+
+    def test_managed_http_targets_can_be_saved_updated_and_deleted(self) -> None:
+        created = self.uploads.save_http_target(
+            target_id="field-server",
+            label="Field server",
+            base_url="https://upload.example.com/v1/",
+            token="first-secret",
+        )
+
+        self.assertEqual(created["id"], "field-server")
+        self.assertEqual(created["baseUrl"], "https://upload.example.com/v1")
+        self.assertTrue(created["editable"])
+        token_files = list((self.state / "upload-target-tokens").glob("*.token"))
+        self.assertEqual(len(token_files), 1)
+        token_path = token_files[0]
+        self.assertEqual(token_path.read_text(encoding="utf-8"), "first-secret\n")
+        self.assertEqual(token_path.stat().st_mode & 0o777, 0o600)
+
+        updated = self.uploads.save_http_target(
+            target_id="field-server",
+            label="Field server 2",
+            base_url="https://upload.example.com/v2",
+            token=None,
+        )
+        self.assertEqual(updated["label"], "Field server 2")
+        self.assertEqual(token_path.read_text(encoding="utf-8"), "first-secret\n")
+        self.uploads.save_http_target(
+            target_id="field-server",
+            label="Field server 2",
+            base_url="https://upload.example.com/v2",
+            token="second-secret",
+        )
+        self.assertFalse(token_path.exists())
+        token_files = list((self.state / "upload-target-tokens").glob("*.token"))
+        self.assertEqual(len(token_files), 1)
+        token_path = token_files[0]
+        self.assertEqual(token_path.read_text(encoding="utf-8"), "second-secret\n")
+        targets = self.uploads.targets_response()
+        self.assertEqual(
+            {target["id"] for target in targets},
+            {"archive", "field-server"},
+        )
+        self.assertFalse(
+            next(target for target in targets if target["id"] == "archive")["editable"]
+        )
+
+        self.uploads.delete_http_target("field-server")
+        self.assertFalse(token_path.exists())
+        self.assertEqual(
+            [target["id"] for target in self.uploads.targets_response()],
+            ["archive"],
+        )
+
+    def test_managed_target_requires_https_and_cannot_replace_admin_target(self) -> None:
+        with self.assertRaises(ValueError):
+            self.uploads.save_http_target(
+                target_id="insecure",
+                label="Insecure",
+                base_url="http://upload.example.com",
+                token="secret",
+            )
+        with self.assertRaises(ValueError):
+            self.uploads.save_http_target(
+                target_id="local",
+                label="Local",
+                base_url="https://127.0.0.1:9443",
+                token="secret",
+            )
+        with self.assertRaises(UploadConflict):
+            self.uploads.save_http_target(
+                target_id="archive",
+                label="Replacement",
+                base_url="https://upload.example.com",
+                token="secret",
+            )
+
+    def test_active_job_filter_excludes_terminal_jobs(self) -> None:
+        active = UploadManager._new_job(
+            "0123456789abcdef0123456789abcdef",
+            "data",
+            "note.txt",
+            "archive",
+        )
+        completed = UploadManager._new_job(
+            "abcdef0123456789abcdef0123456789",
+            "data",
+            "folder",
+            "archive",
+        )
+        completed["state"] = "COMPLETED"
+        self.uploads._save_job(active)
+        self.uploads._save_job(completed)
+
+        self.assertEqual(
+            [job["id"] for job in self.uploads.list_jobs(active_only=True)],
+            [active["id"]],
+        )
+
+    def test_active_job_blocks_managed_target_changes(self) -> None:
+        self.uploads.save_http_target(
+            target_id="field-server",
+            label="Field server",
+            base_url="https://upload.example.com",
+            token="secret",
+        )
+        active = UploadManager._new_job(
+            "0123456789abcdef0123456789abcdef",
+            "data",
+            "note.txt",
+            "field-server",
+        )
+        self.uploads._save_job(active)
+
+        with self.assertRaises(UploadConflict):
+            self.uploads.save_http_target(
+                target_id="field-server",
+                label="Changed",
+                base_url="https://other.example.com",
+                token="new-secret",
+            )
+        with self.assertRaises(UploadConflict):
+            self.uploads.delete_http_target("field-server")
 
     def test_cancellation_cannot_be_overwritten_by_worker_completion(self) -> None:
         copy_started = threading.Event()

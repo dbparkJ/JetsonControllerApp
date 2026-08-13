@@ -34,8 +34,9 @@ import com.example.jetsoncontroller.ui.wifi.WifiDirectViewModel
 import com.example.jetsoncontroller.ui.storage.DeviceStorageScreen
 import com.example.jetsoncontroller.ui.storage.DeviceStorageViewModel
 import com.example.jetsoncontroller.ui.upload.UploadConfirmScreen
-import com.example.jetsoncontroller.ui.upload.UploadHistoryScreen
 import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
+import com.example.jetsoncontroller.ui.upload.UploadQueueScreen
+import com.example.jetsoncontroller.ui.upload.UploadTargetSettingsScreen
 import com.example.jetsoncontroller.ui.upload.UploadViewModel
 import com.example.jetsoncontroller.ui.pipelines.PipelineEditorScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineConfigScreen
@@ -82,8 +83,11 @@ private object Routes {
     const val UPLOAD_PROGRESS =
         "upload_progress"
 
-    const val UPLOAD_HISTORY =
-        "upload_history"
+    const val UPLOAD_QUEUE =
+        "upload_queue"
+
+    const val UPLOAD_SERVERS =
+        "upload_servers"
 
     const val PIPELINES =
         "pipelines"
@@ -313,7 +317,7 @@ fun JetsonApp(
             (deviceState.connectionState is ConnectionState.Ready) ||
             wifiDirectState.apiStatus == WifiDirectApiStatus.READY ||
             transportState is TransportState.Connected
-        val connectionRoute = currentRoute == Routes.DEVICES_BLE
+        val connectionRoute = isConnectionEntryRoute(currentRoute)
 
         if (connected && connectionRoute) {
             navController.navigate(
@@ -565,8 +569,8 @@ fun JetsonApp(
                     navController.navigate(Routes.WIFI_DIRECT)
                 },
                 
-                onUploadHistoryClick = {
-                    navController.navigate(Routes.UPLOAD_HISTORY)
+                onUploadQueueClick = {
+                    navController.navigate(Routes.UPLOAD_QUEUE)
                 },
 
                 onPipelinesClick = {
@@ -670,6 +674,9 @@ fun JetsonApp(
                 error = uploadState.error,
                 onBack = { navController.popBackStack() },
                 onRefresh = uploadViewModel::refresh,
+                onManageTargets = {
+                    navController.navigate(Routes.UPLOAD_SERVERS)
+                },
                 onConfirm = { targetId ->
                     uploadViewModel.startUpload(rootId, path, targetId)
                     navController.navigate(Routes.UPLOAD_PROGRESS) {
@@ -690,17 +697,38 @@ fun JetsonApp(
             )
         }
 
-        composable(Routes.UPLOAD_HISTORY) {
-            UploadHistoryScreen(
-                history = uploadState.history,
+        composable(Routes.UPLOAD_QUEUE) {
+            UploadQueueScreen(
+                queue = uploadState.queue,
+                targets = uploadState.targets,
                 isLoading = uploadState.isLoading,
                 error = uploadState.error,
-                onRefresh = uploadViewModel::refresh,
+                onRefresh = uploadViewModel::loadQueue,
+                onManageTargets = {
+                    navController.navigate(Routes.UPLOAD_SERVERS)
+                },
                 onJobClick = { job ->
                     uploadViewModel.openJob(job)
                     navController.navigate(Routes.UPLOAD_PROGRESS)
                 },
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.UPLOAD_SERVERS) {
+            UploadTargetSettingsScreen(
+                targets = uploadState.targets,
+                isLoading = uploadState.isLoading || uploadState.isSavingTarget,
+                message = uploadState.message,
+                error = uploadState.error,
+                onSave = uploadViewModel::saveTarget,
+                onDelete = uploadViewModel::deleteTarget,
+                onRefresh = uploadViewModel::refreshTargets,
+                onClearFeedback = uploadViewModel::clearFeedback,
+                onBack = {
+                    uploadViewModel.clearFeedback()
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -826,3 +854,9 @@ fun JetsonApp(
         }
     }
 }
+
+internal fun isConnectionEntryRoute(route: String?): Boolean = route in setOf(
+    "connection_hub",
+    "devices_ble",
+    "wifi_direct"
+)

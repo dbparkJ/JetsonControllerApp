@@ -1,20 +1,36 @@
 package com.example.jetsoncontroller.data.network
 
+import com.example.jetsoncontroller.model.UploadTarget
+import com.google.gson.Gson
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 
 class ApiCompatibilityTest {
     @Test
+    fun `legacy upload target responses remain readable`() {
+        val target = Gson().fromJson(
+            """{"id":"external","label":"External"}""",
+            UploadTarget::class.java
+        )
+
+        assertEquals("external", target.id)
+        assertNull(target.baseUrl)
+        assertFalse(target.editable)
+    }
+
+    @Test
     fun `unsigned status maps only recoverable responses to typed errors`() {
         assertTrue(unsignedResponseException(401) is JetsonSessionExpiredException)
         assertTrue(unsignedResponseException(404) is JetsonEndpointUnavailableException)
 
-        val integrityError = unsignedResponseException(500)
-        assertEquals(IOException::class.java, integrityError::class.java)
-        assertEquals("Jetson 응답 인증에 실패했습니다.", integrityError.message)
+        val serverError = unsignedResponseException(500)
+        assertTrue(serverError is JetsonUnsignedServerErrorException)
+        assertTrue(serverError.message.orEmpty().contains("HTTP 500"))
     }
 
     @Test
