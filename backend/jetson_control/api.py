@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 import time
 from pathlib import Path
@@ -28,6 +29,9 @@ from .uploads import UploadCapacityExceeded, UploadConflict, UploadManager
 from .wifi_direct import read_wifi_direct_status
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 class WifiRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -42,6 +46,14 @@ class StartUploadRequest(BaseModel):
     root_id: str = Field(alias="rootId")
     relative_path: str = Field(alias="relativePath")
     target_id: str = Field(alias="targetId")
+
+
+class SaveUploadTargetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=64)
+    base_url: str = Field(alias="baseUrl", min_length=1, max_length=2048)
+    token: Optional[str] = Field(default=None, max_length=4096)
 
 
 class RegisterPipelineRequest(BaseModel):
@@ -168,12 +180,23 @@ def create_app(
                     headers=error.headers,
                 )
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            LOGGER.exception("Unhandled Jetson API request error")
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Jetson backend internal error"},
+            )
         auth_context = getattr(request.state, "auth_context", None)
         if auth_context is None:
             return response
 
-        body = b"".join([chunk async for chunk in response.body_iterator])
+        body_iterator = getattr(response, "body_iterator", None)
+        if body_iterator is None:
+            body = bytes(getattr(response, "body", b""))
+        else:
+            body = b"".join([chunk async for chunk in body_iterator])
         headers = dict(response.headers)
         headers.pop("content-length", None)
         headers["X-Response-Signature"] = sign_response(
@@ -333,11 +356,46 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(error)) from error
 
     @app.get("/v1/upload/targets", dependencies=authenticated)
-    async def upload_targets() -> List[Dict[str, str]]:
+    async def upload_targets() -> List[Dict[str, object]]:
         try:
             return uploads.targets_response()
         except (RuntimeError, ValueError) as error:
             raise HTTPException(status_code=500, detail=str(error)) from error
+
+    @app.put("/v1/upload/targets/{target_id}", dependencies=authenticated)
+    async def save_upload_target(
+        target_id: str,
+        body: SaveUploadTargetRequest,
+    ) -> Dict[str, object]:
+        try:
+            return uploads.save_http_target(
+                target_id=target_id,
+                label=body.label,
+                base_url=body.base_url,
+                token=body.token,
+            )
+        except UploadConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+
+    @app.delete(
+        "/v1/upload/targets/{target_id}",
+        status_code=204,
+        dependencies=authenticated,
+    )
+    async def delete_upload_target(target_id: str) -> Response:
+        try:
+            uploads.delete_http_target(target_id)
+            return Response(status_code=204)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Upload target not found") from error
+        except UploadConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/v1/uploads", status_code=202, dependencies=authenticated)
     async def start_upload(body: StartUploadRequest) -> Dict[str, object]:
@@ -355,8 +413,8 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/v1/uploads", dependencies=authenticated)
-    async def list_uploads() -> List[Dict[str, object]]:
-        return uploads.list_jobs()
+    async def list_uploads(active: bool = False) -> List[Dict[str, object]]:
+        return uploads.list_jobs(active_only=active)
 
     @app.get("/v1/uploads/{job_id}", dependencies=authenticated)
     async def get_upload(job_id: str) -> Dict[str, object]:

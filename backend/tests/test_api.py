@@ -229,6 +229,28 @@ class ApiContractTest(unittest.TestCase):
             expected_signature,
         )
 
+    def test_unhandled_api_error_returns_signed_500(self) -> None:
+        self.pipelines.list_pipelines.side_effect = RuntimeError("simulated failure")
+
+        with self.assertLogs("jetson_control.api", level="ERROR"):
+            response = self.signed_request("GET", "/v1/pipelines")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], "Jetson backend internal error")
+        expected_signature = sign_response(
+            self.config.bootstrap_secret,
+            self.config.device_id,
+            self.auth.boot_nonce,
+            "request-0001",
+            self.request_timestamp,
+            response.status_code,
+            response.content,
+        )
+        self.assertEqual(
+            response.headers["X-Response-Signature"],
+            expected_signature,
+        )
+
     def test_authenticated_file_and_workspace_access(self) -> None:
         file_path = "/v1/fs/file?root=data&path=hello%20world.txt"
         response = self.signed_request("GET", file_path)
@@ -279,6 +301,42 @@ class ApiContractTest(unittest.TestCase):
                 break
             time.sleep(0.02)
         self.assertEqual(job["state"], "COMPLETED", job)
+
+    def test_upload_target_management_and_active_queue(self) -> None:
+        body = json.dumps(
+            {
+                "label": "Field receiver",
+                "baseUrl": "https://upload.example.com/v1",
+                "token": "server-token",
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        created = self.signed_request(
+            "PUT",
+            "/v1/upload/targets/field-server",
+            body,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(created.json()["baseUrl"], "https://upload.example.com/v1")
+        self.assertTrue(created.json()["editable"])
+        self.assertNotIn("token", created.json())
+
+        targets = self.signed_request("GET", "/v1/upload/targets")
+        self.assertEqual(targets.status_code, 200, targets.text)
+        self.assertEqual(
+            {target["id"] for target in targets.json()},
+            {"archive", "field-server"},
+        )
+
+        active = self.signed_request("GET", "/v1/uploads?active=true")
+        self.assertEqual(active.status_code, 200, active.text)
+        self.assertEqual(active.json(), [])
+
+        deleted = self.signed_request(
+            "DELETE",
+            "/v1/upload/targets/field-server",
+        )
+        self.assertEqual(deleted.status_code, 204, deleted.text)
 
     def test_pipeline_registration_resolves_paths_inside_storage_root(self) -> None:
         body = json.dumps(

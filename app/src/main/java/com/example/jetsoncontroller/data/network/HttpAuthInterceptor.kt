@@ -14,10 +14,20 @@ class JetsonEndpointUnavailableException : IOException(
     "이 기능을 사용하려면 Jetson 백엔드 업데이트가 필요합니다."
 )
 
+class JetsonResponseSignatureException : IOException(
+    "Jetson 응답 서명이 일치하지 않습니다."
+)
+
+class JetsonUnsignedServerErrorException(statusCode: Int) : IOException(
+    "Jetson 백엔드 오류 응답을 인증할 수 없습니다. " +
+        "백엔드를 업데이트한 뒤 다시 시도하세요. (HTTP $statusCode)"
+)
+
 internal fun unsignedResponseException(statusCode: Int): IOException = when (statusCode) {
     401 -> JetsonSessionExpiredException()
     404 -> JetsonEndpointUnavailableException()
-    else -> IOException("Jetson 응답 인증에 실패했습니다.")
+    in 500..599 -> JetsonUnsignedServerErrorException(statusCode)
+    else -> IOException("Jetson 응답 인증에 실패했습니다. (HTTP $statusCode)")
 }
 
 class HttpAuthInterceptor : Interceptor {
@@ -110,7 +120,7 @@ class HttpAuthInterceptor : Interceptor {
             )
         ) {
             response.close()
-            throw IOException("Jetson 응답 인증에 실패했습니다.")
+            throw JetsonResponseSignatureException()
         }
 
         return response.newBuilder()

@@ -189,6 +189,25 @@ class LocalApiClient(
     suspend fun getUploadTargets(): Result<List<UploadTarget>> =
         request("업로드 대상 조회") { requireApi().getUploadTargets() }
 
+    suspend fun saveUploadTarget(
+        targetId: String,
+        label: String,
+        baseUrl: String,
+        token: String?
+    ): Result<UploadTarget> = request("업로드 서버 저장") {
+        requireApi().saveUploadTarget(
+            targetId,
+            LocalControlApi.SaveUploadTargetRequest(label, baseUrl, token)
+        )
+    }
+
+    suspend fun deleteUploadTarget(targetId: String): Result<Unit> = suspendResult {
+        requireSuccess(
+            withSessionRetry { requireApi().deleteUploadTarget(targetId) },
+            "업로드 서버 삭제"
+        )
+    }
+
     suspend fun startUpload(
         rootId: String,
         relativePath: String,
@@ -199,8 +218,10 @@ class LocalApiClient(
         )
     }
 
-    suspend fun getUploadJobs(): Result<List<UploadJob>> =
-        request("업로드 기록 조회") { requireApi().getUploadJobs() }
+    suspend fun getUploadJobs(activeOnly: Boolean = false): Result<List<UploadJob>> =
+        request(if (activeOnly) "전송 큐 조회" else "업로드 작업 조회") {
+            requireApi().getUploadJobs(activeOnly)
+        }
 
     suspend fun getUploadJob(jobId: String): Result<UploadJob> =
         request("업로드 상태 조회") { requireApi().getUploadJob(jobId) }
@@ -282,7 +303,13 @@ class LocalApiClient(
         val attemptedRevision = sessionRevision
         return try {
             call()
-        } catch (_: JetsonSessionExpiredException) {
+        } catch (error: Exception) {
+            if (
+                error !is JetsonSessionExpiredException &&
+                error !is JetsonResponseSignatureException
+            ) {
+                throw error
+            }
             sessionRefreshMutex.withLock {
                 if (sessionRevision == attemptedRevision) {
                     hello().getOrThrow()

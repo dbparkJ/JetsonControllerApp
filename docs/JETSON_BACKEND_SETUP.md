@@ -79,6 +79,8 @@ sudo backend/scripts/install.sh \
 /etc/jetson-control/upload_targets.json
 /etc/jetson-control/tls.crt
 /etc/jetson-control/tls.key
+/var/lib/jetson-control/managed-upload-targets.json
+/var/lib/jetson-control/upload-target-tokens/
 /var/lib/jetson-control/upload-jobs/
 /opt/jetson-pipelines/
 /etc/systemd/system/jetson-control.service
@@ -175,8 +177,10 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `GET` | `/v1/fs/workspaces` | HMAC | pipeline 사용자의 `~/` 작업공간 root |
 | `GET` | `/v1/fs/workspace/list?root=&path=` | HMAC | 작업공간 내부 소스 선택 |
 | `GET` | `/v1/upload/targets` | HMAC | 외부 업로드 대상 |
+| `PUT` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 HTTPS 업로드 서버 추가·수정 |
+| `DELETE` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 업로드 서버 삭제 |
 | `POST` | `/v1/uploads` | HMAC | 업로드 작업 시작 |
-| `GET` | `/v1/uploads` | HMAC | 업로드 기록 |
+| `GET` | `/v1/uploads?active=true` | HMAC | 대기·실행 중인 전송 큐 |
 | `GET` | `/v1/uploads/{jobId}` | HMAC | 작업 상태 |
 | `POST` | `/v1/uploads/{jobId}/cancel` | HMAC | 작업 취소 |
 | `POST` | `/v1/uploads/{jobId}/retry` | HMAC | 실패 작업을 같은 ID로 재개 |
@@ -335,6 +339,7 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - 업로드 상태: `QUEUED`, `SCANNING`, `UPLOADING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 - 파일 전체 hash 계산, 외부 세션 생성, 파일별 offset 조회, 4 MiB PUT, 완료 순으로 처리한다.
 - 외부 서버 token은 Android 앱이나 Local Control API 응답에 포함되지 않는다.
+- 앱이 등록한 서버와 token은 `/var/lib/jetson-control` 아래 root 전용 파일로 원자 저장한다. `/etc`의 관리자 대상은 앱에서 수정할 수 없다.
 - 재부팅 또는 API 재시작 후 진행 중 작업은 영속 상태에서 자동 재개한다.
 - 실패 작업의 retry는 같은 job ID와 receiver session을 재사용해 offset부터 이어간다.
 

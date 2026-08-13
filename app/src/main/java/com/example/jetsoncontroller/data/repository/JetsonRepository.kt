@@ -604,14 +604,29 @@ class JetsonRepository(
         return client.getUploadTargets()
     }
 
+    suspend fun saveUploadTarget(
+        targetId: String,
+        label: String,
+        baseUrl: String,
+        token: String?
+    ): Result<UploadTarget> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.saveUploadTarget(targetId, label, baseUrl, token)
+    }
+
+    suspend fun deleteUploadTarget(targetId: String): Result<Unit> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.deleteUploadTarget(targetId)
+    }
+
     suspend fun startUpload(rootId: String, relativePath: String, targetId: String): Result<UploadJob> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.startUpload(rootId, relativePath, targetId)
     }
 
-    suspend fun getUploadJobs(): Result<List<UploadJob>> {
+    suspend fun getUploadJobs(activeOnly: Boolean = false): Result<List<UploadJob>> {
         val client = activeIpClient ?: return missingIpConnection()
-        return client.getUploadJobs()
+        return client.getUploadJobs(activeOnly)
     }
 
     suspend fun getUploadJob(jobId: String): Result<UploadJob> {

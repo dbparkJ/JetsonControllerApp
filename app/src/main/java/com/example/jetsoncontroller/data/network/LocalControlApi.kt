@@ -49,13 +49,26 @@ interface LocalControlApi {
     @GET("/v1/upload/targets")
     suspend fun getUploadTargets(): Response<List<UploadTarget>>
 
+    @PUT("/v1/upload/targets/{targetId}")
+    suspend fun saveUploadTarget(
+        @Path("targetId") targetId: String,
+        @Body request: SaveUploadTargetRequest
+    ): Response<UploadTarget>
+
+    @DELETE("/v1/upload/targets/{targetId}")
+    suspend fun deleteUploadTarget(
+        @Path("targetId") targetId: String
+    ): Response<Unit>
+
     @POST("/v1/uploads")
     suspend fun startUpload(
         @Body request: StartUploadRequest
     ): Response<UploadJob>
 
     @GET("/v1/uploads")
-    suspend fun getUploadJobs(): Response<List<UploadJob>>
+    suspend fun getUploadJobs(
+        @Query("active") activeOnly: Boolean = false
+    ): Response<List<UploadJob>>
 
     @GET("/v1/uploads/{jobId}")
     suspend fun getUploadJob(
@@ -134,6 +147,12 @@ interface LocalControlApi {
         val rootId: String,
         val relativePath: String,
         val targetId: String
+    )
+
+    data class SaveUploadTargetRequest(
+        val label: String,
+        val baseUrl: String,
+        val token: String? = null
     )
 
     data class CapabilitiesResponse(
