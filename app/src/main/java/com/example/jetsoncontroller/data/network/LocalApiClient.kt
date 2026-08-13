@@ -170,15 +170,21 @@ class LocalApiClient(
         }
 
     suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> =
-        request("작업공간 조회") { requireApi().getWorkspaceRoots() }
+        requestWithLegacyFallback(
+            operation = "작업공간 조회",
+            call = { requireApi().getWorkspaceRoots() },
+            fallback = { requireApi().getRoots() }
+        )
 
     suspend fun listWorkspaceFiles(
         rootId: String,
         path: String
     ): Result<LocalControlApi.ListFilesResponse> =
-        request("작업공간 파일 목록 조회") {
-            requireApi().listWorkspaceFiles(rootId, path)
-        }
+        requestWithLegacyFallback(
+            operation = "작업공간 파일 목록 조회",
+            call = { requireApi().listWorkspaceFiles(rootId, path) },
+            fallback = { requireApi().listFiles(rootId, path) }
+        )
 
     suspend fun getUploadTargets(): Result<List<UploadTarget>> =
         request("업로드 대상 조회") { requireApi().getUploadTargets() }
@@ -260,6 +266,18 @@ class LocalApiClient(
         requireBody(withSessionRetry(call), operation)
     }
 
+    private suspend fun <T> requestWithLegacyFallback(
+        operation: String,
+        call: suspend () -> Response<T>,
+        fallback: suspend () -> Response<T>
+    ): Result<T> = suspendResult {
+        val response = withLegacyEndpointFallback(
+            call = { withSessionRetry(call) },
+            fallback = { withSessionRetry(fallback) }
+        )
+        requireBody(response, operation)
+    }
+
     private suspend fun <T> withSessionRetry(call: suspend () -> T): T {
         val attemptedRevision = sessionRevision
         return try {
@@ -309,4 +327,13 @@ class LocalApiClient(
             hex.substring(index * 2, index * 2 + 2).toInt(16).toByte()
         }
     }
+}
+
+internal suspend fun <T> withLegacyEndpointFallback(
+    call: suspend () -> T,
+    fallback: suspend () -> T
+): T = try {
+    call()
+} catch (_: JetsonEndpointUnavailableException) {
+    fallback()
 }

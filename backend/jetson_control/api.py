@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.responses import JSONResponse
 
 from . import __version__
 from .auth import RequestAuthenticator, sign_hello, sign_response
@@ -125,33 +126,10 @@ def create_app(
     app.state.wifi_provisioner = wifi
     app.state.pipeline_manager = pipelines
 
-    @app.middleware("http")
-    async def sign_authenticated_response(request: Request, call_next):
-        response = await call_next(request)
-        auth_context = getattr(request.state, "auth_context", None)
-        if auth_context is None:
-            return response
+    async def authenticate_request(request: Request) -> None:
+        if getattr(request.state, "auth_context", None) is not None:
+            return
 
-        body = b"".join([chunk async for chunk in response.body_iterator])
-        headers = dict(response.headers)
-        headers.pop("content-length", None)
-        headers["X-Response-Signature"] = sign_response(
-            secret=device_config.bootstrap_secret,
-            device_id=device_config.device_id,
-            boot_nonce=request_auth.boot_nonce,
-            request_nonce=auth_context["request_nonce"],
-            request_timestamp=auth_context["request_timestamp"],
-            status_code=response.status_code,
-            body=body,
-        )
-        return Response(
-            content=body,
-            status_code=response.status_code,
-            headers=headers,
-            background=response.background,
-        )
-
-    async def require_auth(request: Request) -> None:
         body = await request.body()
         raw_path = request.scope.get("raw_path", request.url.path.encode("ascii"))
         query = request.scope.get("query_string", b"")
@@ -177,6 +155,45 @@ def create_app(
             "request_nonce": request.headers["X-Request-Nonce"],
             "request_timestamp": request.headers["X-Request-Timestamp"],
         }
+
+    @app.middleware("http")
+    async def authenticate_and_sign_v1_response(request: Request, call_next):
+        if request.url.path.startswith("/v1/") and request.url.path != "/v1/hello":
+            try:
+                await authenticate_request(request)
+            except HTTPException as error:
+                return JSONResponse(
+                    status_code=error.status_code,
+                    content={"detail": error.detail},
+                    headers=error.headers,
+                )
+
+        response = await call_next(request)
+        auth_context = getattr(request.state, "auth_context", None)
+        if auth_context is None:
+            return response
+
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        headers = dict(response.headers)
+        headers.pop("content-length", None)
+        headers["X-Response-Signature"] = sign_response(
+            secret=device_config.bootstrap_secret,
+            device_id=device_config.device_id,
+            boot_nonce=request_auth.boot_nonce,
+            request_nonce=auth_context["request_nonce"],
+            request_timestamp=auth_context["request_timestamp"],
+            status_code=response.status_code,
+            body=body,
+        )
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=headers,
+            background=response.background,
+        )
+
+    async def require_auth(request: Request) -> None:
+        await authenticate_request(request)
 
     authenticated = [Depends(require_auth)]
 

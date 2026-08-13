@@ -10,6 +10,16 @@ class JetsonSessionExpiredException : IOException(
     "Jetson 인증 세션이 만료되었습니다."
 )
 
+class JetsonEndpointUnavailableException : IOException(
+    "이 기능을 사용하려면 Jetson 백엔드 업데이트가 필요합니다."
+)
+
+internal fun unsignedResponseException(statusCode: Int): IOException = when (statusCode) {
+    401 -> JetsonSessionExpiredException()
+    404 -> JetsonEndpointUnavailableException()
+    else -> IOException("Jetson 응답 인증에 실패했습니다.")
+}
+
 class HttpAuthInterceptor : Interceptor {
 
     private data class Session(
@@ -83,12 +93,12 @@ class HttpAuthInterceptor : Interceptor {
         val responseBytes = responseBody?.bytes() ?: byteArrayOf()
         val responseSignature = response.header("X-Response-Signature")
 
-        if (response.code == 401 && responseSignature == null) {
+        if (responseSignature == null) {
             response.close()
-            throw JetsonSessionExpiredException()
+            throw unsignedResponseException(response.code)
         }
 
-        if (responseSignature == null || !HttpAuthSigner.verifyResponse(
+        if (!HttpAuthSigner.verifyResponse(
                 secret = currentSession.secret,
                 deviceId = headers.deviceId,
                 bootNonce = currentSession.bootNonce,

@@ -211,6 +211,24 @@ class ApiContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["entries"][0]["name"], "hello world.txt")
 
+    def test_authenticated_unknown_v1_route_returns_signed_404(self) -> None:
+        response = self.signed_request("GET", "/v1/not-supported")
+
+        self.assertEqual(response.status_code, 404)
+        expected_signature = sign_response(
+            self.config.bootstrap_secret,
+            self.config.device_id,
+            self.auth.boot_nonce,
+            "request-0001",
+            self.request_timestamp,
+            response.status_code,
+            response.content,
+        )
+        self.assertEqual(
+            response.headers["X-Response-Signature"],
+            expected_signature,
+        )
+
     def test_authenticated_file_and_workspace_access(self) -> None:
         file_path = "/v1/fs/file?root=data&path=hello%20world.txt"
         response = self.signed_request("GET", file_path)
