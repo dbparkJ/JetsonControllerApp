@@ -482,7 +482,7 @@ cd /home/geonws/JetsonControllerServer/JetsonControllerApp
   /data/server_storage/jetson-upload-receiver
 ```
 
-이 명령은 user service 환경에 `UPLOAD_RECEIVER_MAX_BATCH_BYTES=33554432`, `UPLOAD_RECEIVER_MAX_BATCH_FILES=256`을 기록한다. 기존 설치도 코드를 갱신한 뒤 같은 명령을 다시 실행해야 배치 route와 정확한 HDD 저장 루트가 함께 반영된다. 다른 경로를 임시로 사용하지 말고 receiver 데이터는 항상 `/data/server_storage/jetson-upload-receiver` 아래에 둔다.
+이 명령은 user service 환경에 `UPLOAD_RECEIVER_MAX_BATCH_BYTES=33554432`, `UPLOAD_RECEIVER_MAX_BATCH_FILES=256`을 기록한다. 기존 설치도 코드를 갱신한 뒤 같은 명령을 다시 실행해야 receiver의 배치 route와 정확한 HDD 저장 루트가 함께 반영된다. 이 명령은 실행 중인 Caddy 설정까지 갱신하지 않으므로 `Caddyfile`이 바뀐 코드 업데이트에서는 바로 아래의 공인 HTTPS 구성 명령도 다시 실행한다. 다른 경로를 임시로 사용하지 말고 receiver 데이터는 항상 `/data/server_storage/jetson-upload-receiver` 아래에 둔다.
 
 공인 HTTPS를 처음 구성하거나 다시 적용:
 
@@ -550,4 +550,4 @@ rm -f ./receiver.token
 
 설정 결과 Jetson은 `/etc/jetson-control/upload_targets.json`의 `external.base_url`로 위 HTTPS 주소를 바라보고, token은 `/etc/jetson-control/upload-receiver.token`에 `0600`으로 복사된다. 이 관리자 script 방식을 사용하면 Android 앱에는 URL이나 token을 다시 넣지 않고 연결한 Jetson에서 표시되는 `Operations upload server` target만 선택한다. 최신 앱의 업로드 서버 관리 화면에서 같은 URL과 token을 입력해 앱 관리 target으로 등록하는 방법도 지원하지만, token 파일을 Jetson에 직접 전달할 수 있는 환경에서는 노출 면이 작은 관리자 script 방식을 권장한다.
 
-2026-08-13에는 공인 URL을 통한 배포 smoke file에 대해 세션 생성, offset 조회, PUT, complete, SQLite `COMPLETED`, HDD final 객체와 manifest의 내용 일치까지 검증했고, 최종 코드 재배포 뒤 31-byte 시험도 다시 통과했다. API/HDD/HTTPS 배포는 완료됐지만 이 문서 10절과 13절의 전체 운영 준비 완료 기준은 아직 아니다. 현재 `/metrics`는 localhost에서 최소 세션 상태와 전체 byte만 제공하며, 별도 dashboard와 처리량/checksum/offset/latency 장기 metric은 남은 운영 과제다. 실제 Jetson에서의 외부망 중단 재개와 대용량 파일 시험도 위 target을 장치에 적용한 뒤 수행한다.
+2026-08-13에는 공인 URL을 통한 배포 smoke file에 대해 세션 생성, offset 조회, PUT, complete, SQLite `COMPLETED`, HDD final 객체와 manifest의 내용 일치까지 검증했고, 최종 코드 재배포 뒤 31-byte 시험도 다시 통과했다. 이후 최신 `main`으로 receiver와 Caddy를 재설치하고 공인 HTTPS에서 `fileBatch` capability(`32 MiB`, 256개), 일괄 offset 조회, 2개 파일 총 60바이트의 batch PUT, 같은 batch 재전송의 멱등성, complete와 HDD final 객체 일치까지 확인했다. 기존 DB, 완료 객체, 장비 token은 그대로 보존됐다. API/HDD/HTTPS 배포는 완료됐지만 이 문서 10절과 13절의 전체 운영 준비 완료 기준은 아직 아니다. 현재 `/metrics`는 localhost에서 최소 세션 상태와 전체 byte만 제공하며, 별도 dashboard와 처리량/checksum/offset/latency 장기 metric은 남은 운영 과제다. 실제 Jetson에서의 외부망 중단 재개와 대용량 파일 시험도 위 target을 장치에 적용한 뒤 수행한다.

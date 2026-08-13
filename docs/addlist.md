@@ -5,7 +5,7 @@
    - 최대 32 MiB 또는 256개 파일을 한 요청으로 보내는 batch protocol과 일괄 offset 조회를 구현했다.
    - 이전 receiver에는 기존 resumable upload로 자동 fallback한다.
    - receiver, reverse proxy, 저장 경로 설정과 재설치 절차는 `UPLOAD_RECEIVER_AGENT_GUIDE.md`에 기록했다.
-   - 공인 receiver의 readiness는 확인했지만 원격 SSH 장비 키가 만료되어 이 작업 환경에서 라이브 receiver 재설치는 하지 못했다. 서버에서 최신 `main`을 받은 뒤 문서의 재설치 명령을 실행해야 batch 전송이 활성화된다.
+   - 2026-08-13 서버에서 최신 `main`을 받은 뒤 receiver와 Caddy를 재설치했다. 공인 HTTPS에서 `fileBatch` capability, 일괄 offset 조회, 2개 파일 batch PUT, 같은 batch 재전송의 멱등성, complete와 HDD final 객체 일치까지 확인했다.
 2. [x] 설명용 문서만 남기도록 문서를 정리한다.
    - 재사용 가능한 설치·운영 가이드와 이 목록은 유지하고, 시점 의존적인 `CURRENT_SYSTEM_AUDIT.md`와 임시 명령 파일은 삭제했다.
 3. [x] 자동 실행 작업의 HTTP 405 인증 오류를 수정하고 실제 휴대폰에서 디버깅한다.
