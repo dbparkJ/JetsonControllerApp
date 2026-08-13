@@ -135,7 +135,11 @@ if [[ -n "${depthai_repo}" || -n "${depthai_venv}" ]]; then
     echo "--depthai-repo and --depthai-venv must be supplied together" >&2
     exit 2
   fi
-  pipeline_args=(--repo "${depthai_repo}" --venv "${depthai_venv}")
+  pipeline_args=(
+    --repo "${depthai_repo}"
+    --venv "${depthai_venv}"
+    --output-root "${storage_root:-/data/collections}"
+  )
   [[ "${start_depthai}" == "false" ]] || pipeline_args+=(--start-now)
   SUDO_USER="${pipeline_user}" "${script_dir}/install-depthai-pipeline.sh" "${pipeline_args[@]}"
 fi

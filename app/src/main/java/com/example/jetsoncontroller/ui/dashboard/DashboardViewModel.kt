@@ -32,7 +32,7 @@ class DashboardViewModel(
                             repository.refreshStatus()
                         }
                         nowEpochMillis.value = System.currentTimeMillis()
-                        delay(5_000L)
+                        delay(STATUS_POLL_INTERVAL_MS)
                     }
                 }
             }
@@ -164,6 +164,8 @@ class DashboardViewModel(
         }
     }
 }
+
+internal const val STATUS_POLL_INTERVAL_MS = 1_000L
 
 private data class StatusSnapshot(
     val status: com.example.jetsoncontroller.model.JetsonStatus,

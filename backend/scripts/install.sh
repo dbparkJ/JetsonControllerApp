@@ -9,6 +9,7 @@ fi
 enable_power=false
 storage_root=""
 storage_root_explicit=false
+storage_root_needs_update=false
 device_name=""
 pipeline_user=""
 wifi_direct_enabled_override=""
@@ -129,13 +130,9 @@ if [[ ! -f "${config_dir}/device.json" ]]; then
 fi
 
 if [[ -z "${storage_root}" ]]; then
-  if [[ -d "${invoking_home}/26_camera_record" ]]; then
-    storage_root="${invoking_home}/26_camera_record"
-  else
-    storage_root="${state_dir}/data"
-    invoking_group="$(id -gn "${invoking_user}")"
-    install -d -m 0755 -o "${invoking_user}" -g "${invoking_group}" "${storage_root}"
-  fi
+  storage_root="/data/collections"
+  pipeline_group="$(id -gn "${pipeline_user}")"
+  install -d -m 0755 -o "${pipeline_user}" -g "${pipeline_group}" "${storage_root}"
 elif [[ ! -d "${storage_root}" ]]; then
   echo "Storage root is not a directory: ${storage_root}" >&2
   exit 2
@@ -143,7 +140,32 @@ fi
 storage_root="$(realpath -e "${storage_root}")"
 
 if [[ ! -f "${config_dir}/storage_roots.json" || "${storage_root_explicit}" == "true" ]]; then
-  TARGET_PATH="${storage_root}" TARGET_HOME="${invoking_home}" python3 - "${config_dir}/storage_roots.json" <<'PY'
+  storage_root_needs_update=true
+elif python3 - "${config_dir}/storage_roots.json" \
+    "${invoking_home}/26_camera_record" "${state_dir}/data" <<'PY'
+import json
+import os
+import sys
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as source:
+        value = json.load(source)
+    recordings = value.get("recordings", {})
+    current = os.path.realpath(str(recordings.get("path", "")))
+except (OSError, ValueError, AttributeError):
+    raise SystemExit(1)
+
+legacy_defaults = {os.path.realpath(path) for path in sys.argv[2:]}
+raise SystemExit(0 if current in legacy_defaults else 1)
+PY
+then
+  storage_root_needs_update=true
+fi
+
+if [[ "${storage_root_needs_update}" == "true" ]]; then
+  TARGET_PATH="${storage_root}" TARGET_HOME="${invoking_home}" \
+  LEGACY_RECORDINGS="${invoking_home}/26_camera_record" \
+  python3 - "${config_dir}/storage_roots.json" <<'PY'
 import json
 import os
 import sys
@@ -158,6 +180,13 @@ if not isinstance(value, dict):
     raise SystemExit("storage_roots.json must contain an object")
 
 target_home = os.path.realpath(os.environ["TARGET_HOME"])
+legacy_recordings = os.path.realpath(os.environ["LEGACY_RECORDINGS"])
+existing_recordings = value.get("recordings", {})
+existing_recordings_path = (
+    os.path.realpath(str(existing_recordings.get("path", "")))
+    if isinstance(existing_recordings, dict)
+    else ""
+)
 value = {
     key: entry
     for key, entry in value.items()
@@ -165,8 +194,21 @@ value = {
     or os.path.realpath(str(entry.get("path", ""))) != target_home
 }
 target_path = os.environ["TARGET_PATH"]
+if (
+    existing_recordings_path == legacy_recordings
+    and legacy_recordings != target_path
+    and os.path.isdir(legacy_recordings)
+):
+    value.setdefault(
+        "legacy-recordings",
+        {
+            "label": "Previous collected data",
+            "path": legacy_recordings,
+            "path_hint": legacy_recordings,
+        },
+    )
 value["recordings"] = {
-    "label": "Recordings",
+    "label": "Collected data",
     "path": target_path,
     "path_hint": target_path,
 }

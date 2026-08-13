@@ -49,6 +49,26 @@ interface LocalControlApi {
     @GET("/v1/upload/targets")
     suspend fun getUploadTargets(): Response<List<UploadTarget>>
 
+    @GET("/v1/upload/library/sessions")
+    suspend fun getUploadLibrarySessions(
+        @Query("target") targetId: String,
+        @Query("offset") offset: Int = 0
+    ): Response<UploadLibrarySessionsResponse>
+
+    @GET("/v1/upload/library/files")
+    suspend fun getUploadLibraryFiles(
+        @Query("target") targetId: String,
+        @Query("session") sessionId: String,
+        @Query("path") path: String
+    ): Response<UploadLibraryFilesResponse>
+
+    @GET("/v1/upload/library/file")
+    suspend fun getUploadLibraryFile(
+        @Query("target") targetId: String,
+        @Query("session") sessionId: String,
+        @Query("path") path: String
+    ): Response<ResponseBody>
+
     @PUT("/v1/upload/targets/{targetId}")
     suspend fun saveUploadTarget(
         @Path("targetId") targetId: String,
@@ -120,6 +140,17 @@ interface LocalControlApi {
         @Path("pipelineId") pipelineId: String,
         @Body request: UpdatePipelineConfigRequest
     ): Response<PipelineConfigDocument>
+
+    @GET("/v1/pipelines/{pipelineId}/config/fields")
+    suspend fun getPipelineConfigFields(
+        @Path("pipelineId") pipelineId: String
+    ): Response<PipelineConfigFieldsDocument>
+
+    @PATCH("/v1/pipelines/{pipelineId}/config/fields")
+    suspend fun updatePipelineConfigFields(
+        @Path("pipelineId") pipelineId: String,
+        @Body request: UpdatePipelineConfigFieldsRequest
+    ): Response<PipelineConfigFieldsDocument>
 
     @POST("/v1/network/wifi")
     suspend fun configureWifi(

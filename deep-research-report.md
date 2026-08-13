@@ -214,10 +214,70 @@ flowchart TD
 
 | 단계 | 제품 범위 | 왜 필요한가 | 주요 기술 고려 |
 |---|---|---|---|
-| **MVP — UX Reset** | Device-first Home, guided onboarding, Health Hero, alert center, plain-language errors, danger-zone, semantic components, accessibility, last-updated | 현재 기능을 추가하지 않고도 실패율·학습비용을 가장 크게 줄일 수 있음 | 기존 API 계약 유지. UI/ViewModel refactor 중심. 기존 BLE/LAN/Wi‑Fi Direct 동작은 regression 금지. |
-| **Release A — Local Fleet** | 여러 등록 Jetson 카드, 즐겨찾기/그룹, online/offline/last seen, 자동 transport 선택, 장비 전환, local alerts aggregation | 현재 저장 credential과 LAN discovery를 사용자 가치로 승격 | Repository를 “single active transport”와 “fleet discovery state”로 분리. 동시에 여러 HTTPS status poll을 할 경우 bounded concurrency와 cadence 필요. |
-| **Release B — Observability & Sensors** | CPU/GPU/RAM/temp/storage history, power mode, fan/thermal, sensor quality, pipeline runtime history, alert timeline, diagnostics export | 단순 현재값에서 “이상이 언제 시작됐는가”로 발전 | `/v1/events` 또는 event stream, telemetry retention 정책, local Room DB 또는 server ring-buffer. NVIDIA `tegrastats`는 CPU/GPU/memory/temperature/power 정보를 제공하며 `nvpmodel`은 전력 모드 관리에 사용된다. citeturn2search3turn2search15 |
-| **Release C — Secure Fleet Operations** | 조직/사용자 역할, audit log, bulk deployment, pipeline version rollout/rollback, remote diagnostics, update/version drift | 여러 운영자가 여러 Jetson을 관리할 때 local shared-secret 모델만으로는 책임 추적/권한 분리가 불가능 | 장비 API를 인터넷에 직접 노출하지 말고 outbound relay/central service 고려. OIDC/user identity + RBAC + device certificate/mTLS 또는 동등 모델. 기존 per-device QR secret/HMAC/TLS pinning은 local bootstrap에 유지. |
+| **UX Reset** | Device-first Home, guided onboarding, Health Hero, alert center, plain-language errors, danger-zone, semantic components, accessibility, adaptive UI, last-updated, key/value 작업 설정 | 현재 기능의 실패율·학습비용을 가장 먼저 줄임 | 기존 API 계약과 실제 BLE/LAN/Wi-Fi Direct 동작을 보존하고 presentation 계층부터 정리한다. |
+| **Release A — Local Fleet & Data** | 여러 등록 Jetson, 즐겨찾기/그룹, online/offline/last seen, 같은 Wi-Fi 자동 LAN, 명시적 Wi-Fi Direct, 장비 전환, local alert aggregation, 수집/서버 데이터 gallery | 현재 저장 credential, LAN discovery, upload 기능을 다중 장비 운영 가치로 승격 | active transport와 fleet discovery state를 분리하고 status poll의 동시성과 cadence를 제한한다. receiver token은 Jetson proxy 밖으로 노출하지 않는다. |
+| **Release B — Observability & Automation** | CPU/GPU/RAM/temp/storage/power history, fan/thermal, sensor quality, pipeline runtime history, alert timeline, diagnostics, schema 기반 작업 설정, upload integrity history | 단순 현재값에서 “언제, 왜 이상해졌는가”와 “어떤 설정이 바뀌었는가”로 발전 | bounded event/telemetry retention, config revision, local Room 또는 server ring-buffer, allow-listed power API가 필요하다. NVIDIA `tegrastats`와 `nvpmodel`을 활용할 수 있다. citeturn2search3turn2search15 |
+| **Release C — Secure Fleet Operations** | 조직/사용자 역할, audit log, bulk deployment, pipeline rollout/rollback, remote diagnostics, update/version drift, 정책/쿼터/보존, backup/DR | 여러 운영자가 여러 Jetson을 관리할 때 local shared-secret만으로는 책임 추적과 권한 분리가 불가능 | 장비 API를 인터넷에 직접 노출하지 않고 outbound relay를 사용한다. OIDC + server-side RBAC + device certificate/mTLS를 도입하며 기존 QR/HMAC/TLS pinning은 local bootstrap에 유지한다. |
+
+### UX Reset 상세 범위
+
+UX Reset은 단순한 색상 변경이 아니라 기존 기능을 사용자의 작업 흐름으로 다시 묶는 단계다.
+
+| 기능군 | 확장 내용 | 완료 기준 |
+|---|---|---|
+| App shell | 장비 → 개요 → 데이터 → 작업 → 센서 → 알림 구조, phone bottom bar와 large-screen rail/list-detail | 현재 장비와 현재 위치를 어느 화면에서도 식별할 수 있음 |
+| Onboarding | QR 목적 설명, camera permission 전 맥락 제공, 수동 코드, torch, 성공 feedback, pairing stepper | camera를 사용할 수 없어도 등록 완료 가능 |
+| 상태/복구 | Health Hero, last-updated/stale, plain-language issue, 명시적 recovery CTA, 일관된 Snackbar/Banner | 오류 코드 지식 없이 다음 행동 선택 가능 |
+| 안전 | 장비 삭제 undo, pipeline remove·reboot·shutdown danger zone, 역할에 따른 위험 작업 노출 | 되돌리기 어려운 작업은 확인 없이 실행되지 않음 |
+| 접근성 | 문자열 resource화, 48dp target, live region, merged semantics, fontScale 200%, light/dark contrast | TalkBack으로 핵심 여정 완주, clipping blocker 없음 |
+| 작업 설정 | raw YAML editor 대신 server-parsed scalar key/value, boolean switch, numeric keyboard, revision 충돌 방지 | YAML 구조와 주석을 보존하며 value만 변경 |
+| 데이터 | 수집 데이터 독립 화면, 이미지 Fit, pinch/pan, 1–6배 확대, text preview | phone 화면 안에서 원본 비율로 확인 가능 |
+| 상태 주기 | 개요와 센서가 화면에 보일 때 1초 status refresh, background에서는 중지 | 1초 cadence와 stale 표시가 동시에 검증됨 |
+
+### Release A 상세 범위
+
+| 기능군 | 확장 내용 | API/저장 구조 | Release gate |
+|---|---|---|---|
+| Local Fleet | 여러 장비 카드, favorite/group, online/offline/last seen, 빠른 장비 전환 | credential registry + mDNS discovery cache + bounded status probe | 20대 등록 상태에서 UI와 연결 probe가 안정적 |
+| Transport policy | 같은 SSID면 LAN 자동 연결, LAN 불가 시 안내, 사용자가 누를 때만 Wi-Fi Direct, BLE fallback | mobile/Jetson SSID 상태 + transport coordinator policy | 자동 전환 중 이중 연결이나 credential 혼선 없음 |
+| Alert aggregation | 장비 health, pipeline 시작/실패, upload 시작/완료/실패/취소를 장비별 timeline으로 통합 | local event store + notification preference | reconnect/app restart에도 같은 event 중복 알림 없음 |
+| Local data center | 장비별 수집 폴더, gallery/list 전환, image/text preview, 선택 upload | `/v1/fs/*` + thumbnail capability | 10만 파일에서도 bounded paging과 취소 가능 |
+| Server data center | 완료 upload session, 가상 폴더, 사진/text preview, target 전환 | receiver `/v1/library/*` + Jetson token proxy | 다른 장비 token으로 session/file 접근 불가 |
+| Upload operations | 188 GiB 이상 batch/resume, hash와 upload 병렬화, 진행률, background 알림, 재시도 기록 | deferred hash + bounded file batch + idempotent session | 네트워크 단절/재부팅 후 재개 및 최종 checksum 통과 |
+| Offline read cache | 최근 장비 상태·알림·목록을 읽기 전용으로 유지 | Room cache with TTL | offline 정보가 현재값으로 오인되지 않음 |
+
+### Release B 상세 범위
+
+| 기능군 | 확장 내용 | API/저장 구조 | Release gate |
+|---|---|---|---|
+| Telemetry | CPU/GPU/RAM/temperature/storage/power/throttle history, 비교 범위, anomaly marker | `/v1/events` 또는 `/v1/telemetry`, bounded ring-buffer | retention/샘플링 상한과 clock skew test |
+| Sensor quality | camera FPS/last frame, GNSS fix/satellite/accuracy, IMU rate/last sample | capability 기반 `/v1/sensors` | 미지원 센서는 graceful “정보 없음” 처리 |
+| Collection preview | explicit opt-in live thumbnail, capture rate, dropped frame | authenticated low-rate thumbnail stream | raw stream 기본 비활성, bandwidth cap |
+| Automation history | pipeline desired/actual version, runtime, restart reason, config revision/diff, schedule | event log + immutable config revision | 누가 바꿨는지 제외하더라도 언제/무엇이 바뀌었는지 추적 |
+| Schema-based config | label, description, unit, min/max, enum, secret flag를 가진 설정 schema | pipeline config schema endpoint | invalid value는 UI와 server 양쪽에서 거절 |
+| Diagnostics | redacted log/status/config manifest, 사용자가 확인 후 export | `/v1/diagnostics` bounded archive | secret/token/Wi-Fi password 자동 검사 통과 |
+| Power/thermal | nvpmodel profile, fan/thermal context, throttle recovery | allow-listed `/v1/power-mode` | Admin 전용, arbitrary command 입력 불가 |
+| Server library index | thumbnail, search, date/sensor filter, retention state, integrity status | receiver metadata index + async thumbnail worker | 원본 immutable, worker 실패가 upload 완료를 되돌리지 않음 |
+
+### Release C 상세 범위
+
+| 기능군 | 확장 내용 | 보안/운영 구조 | Release gate |
+|---|---|---|---|
+| Human identity | 조직, ADMIN/OPERATOR/VIEWER, SSO/OIDC, session expiry | central identity + server-side authorization | 권한 없는 REST 요청 자체가 거절됨 |
+| Device identity | enrollment, certificate rotation/revocation, ownership transfer | per-device cert/mTLS + local QR bootstrap | 분실 장비를 원격 폐기하고 재등록 가능 |
+| Outbound relay | NAT 환경 remote command/event, online presence, command acknowledgement | Jetson outbound persistent channel | 장비 local API public exposure 없음 |
+| Audit | actor/device/action/result/config before-after, append-only export | tamper-evident audit store | 위험 작업의 사용자·시간·결과를 재구성 가능 |
+| Fleet deployment | signed artifact, staged rollout, pause/resume, health gate, rollback | desired state controller + provenance | canary 실패 시 자동 중단 및 이전 release 복구 |
+| Fleet policy | network, pipeline, power, alert, storage quota와 retention 정책 | versioned policy + per-device override | 충돌 우선순위와 dry-run 결과가 명확함 |
+| Remote data lifecycle | server-side copy/delete/export, legal hold, checksum audit | object lifecycle + authorization + audit | 삭제·보존 정책이 object와 metadata에 원자적으로 반영 |
+| Backup/DR | metadata backup, object inventory, restore drill, receiver failover | encrypted backup + restore runbook | 정기 복구 훈련에서 RPO/RTO 달성 |
+| Operations | version drift, service SLO, centralized alert routing, support bundle | fleet observability + incident workflow | 장애 탐지부터 대상 장비 식별까지 측정 가능 |
+
+### 현재 구현 상태와 다음 경계
+
+2026-08-13 트리에는 큰 upload의 bounded batch/resume와 deferred hash 계약, `/data/collections` 기본 루트, key/value 작업 설정, local image zoom, upload 시작/종료 알림, 1초 visible metrics, Wi-Fi 상태/자동 LAN 정책, 서버 library의 receiver·Jetson proxy·Android UI가 포함된다. Public receiver의 library 기능은 서버 배포 후 활성화된다.
+
+UX Reset의 나머지 접근성·문자열 resource화·adaptive shell, Release A의 다중 장비 동시 상태, Release B 전체 telemetry/sensor quality, Release C의 identity/RBAC/relay/audit는 후속 release 범위다. 이 경계를 명시해 UI에 버튼만 추가하고 backend 권한·retention·audit가 없는 상태를 “완료”로 간주하지 않는다.
 
 **확장 기능 우선순위**는 다음처럼 잡는 것이 좋다.
 

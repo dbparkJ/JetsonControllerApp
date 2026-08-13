@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import math
 import os
 import subprocess
+from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+
+from ruamel.yaml import YAML
 
 from .config import validate_config_id
 
@@ -29,6 +34,7 @@ CommandRunner = Callable[..., subprocess.CompletedProcess]
 
 class PipelineManager:
     MAX_CONFIG_BYTES = 512 * 1024
+    MAX_CONFIG_FIELDS = 2048
 
     def __init__(
         self,
@@ -145,6 +151,231 @@ class PipelineManager:
             except FileNotFoundError:
                 pass
         return self.config_document(pipeline_id)
+
+    def config_fields(self, pipeline_id: str) -> Dict[str, object]:
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        manifest = self._load_manifest(pipeline_id)
+        target = self._runtime_config_path(pipeline_id, manifest)
+        content = self._read_config_bytes(target)
+        document = self._parse_config(content)
+        return {
+            "pipelineId": pipeline_id,
+            "path": str(manifest["config"]),
+            "revision": hashlib.sha256(content).hexdigest(),
+            "fields": self._config_scalar_fields(document),
+        }
+
+    def update_config_fields(
+        self,
+        pipeline_id: str,
+        revision: str,
+        values: Mapping[str, str],
+    ) -> Dict[str, object]:
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        if len(values) > self.MAX_CONFIG_FIELDS:
+            raise ValueError("Pipeline config contains too many edited values")
+        if not revision or len(revision) != 64:
+            raise ValueError("Pipeline config revision is invalid")
+
+        manifest = self._load_manifest(pipeline_id)
+        target = self._runtime_config_path(pipeline_id, manifest)
+        content = self._read_config_bytes(target)
+        if not hashlib.sha256(content).hexdigest() == revision:
+            raise PipelineConflict("Pipeline config changed; reload before saving")
+
+        document = self._parse_config(content)
+        fields = {field["path"]: field for field in self._config_scalar_fields(document)}
+        unknown = set(values) - set(fields)
+        if unknown:
+            raise ValueError("Pipeline config field path is invalid")
+        edited_bytes = 0
+        for pointer, text in values.items():
+            if not isinstance(text, str) or "\x00" in text:
+                raise ValueError("Pipeline config value is invalid")
+            edited_bytes += len(text.encode("utf-8"))
+            if edited_bytes > self.MAX_CONFIG_BYTES:
+                raise ValueError("Pipeline config values are too large")
+            field_type = str(fields[pointer]["type"])
+            self._set_config_scalar(document, pointer, self._parse_scalar(text, field_type))
+
+        yaml = self._yaml()
+        output = StringIO()
+        yaml.dump(document, output)
+        encoded = output.getvalue().encode("utf-8")
+        if len(encoded) > self.MAX_CONFIG_BYTES:
+            raise ValueError("Pipeline config is too large")
+        self._atomic_replace_config(target, encoded)
+        return self.config_fields(pipeline_id)
+
+    def _read_config_bytes(self, target: Path) -> bytes:
+        if target.stat().st_size > self.MAX_CONFIG_BYTES:
+            raise PipelineError("Pipeline config is too large to edit")
+        content = target.read_bytes()
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise PipelineError("Pipeline config is not valid UTF-8") from error
+        return content
+
+    @staticmethod
+    def _yaml() -> YAML:
+        yaml = YAML(typ="rt")
+        yaml.preserve_quotes = True
+        yaml.allow_duplicate_keys = False
+        return yaml
+
+    def _parse_config(self, content: bytes) -> object:
+        try:
+            document = self._yaml().load(content.decode("utf-8"))
+        except Exception as error:
+            raise PipelineError("Pipeline config is not valid YAML") from error
+        if document is None:
+            document = {}
+        self._config_scalar_fields(document)
+        return document
+
+    def _config_scalar_fields(self, document: object) -> List[Dict[str, str]]:
+        if not isinstance(document, (Mapping, list)):
+            raise PipelineError("YAML config root must be a mapping or list")
+        fields: List[Dict[str, str]] = []
+        active_containers: set[int] = set()
+        seen_containers: set[int] = set()
+
+        def visit(value: object, segments: List[str]) -> None:
+            if isinstance(value, Mapping):
+                identity = id(value)
+                if identity in active_containers:
+                    raise PipelineError("Recursive YAML aliases cannot be edited")
+                if identity in seen_containers:
+                    raise PipelineError("YAML container aliases cannot be edited")
+                seen_containers.add(identity)
+                active_containers.add(identity)
+                try:
+                    for key, child in value.items():
+                        if not isinstance(key, str) or not key:
+                            raise PipelineError("YAML mapping keys must be non-empty strings")
+                        visit(child, [*segments, key])
+                finally:
+                    active_containers.remove(identity)
+                return
+            if isinstance(value, list):
+                identity = id(value)
+                if identity in active_containers:
+                    raise PipelineError("Recursive YAML aliases cannot be edited")
+                if identity in seen_containers:
+                    raise PipelineError("YAML container aliases cannot be edited")
+                seen_containers.add(identity)
+                active_containers.add(identity)
+                try:
+                    for index, child in enumerate(value):
+                        visit(child, [*segments, str(index)])
+                finally:
+                    active_containers.remove(identity)
+                return
+
+            field_type, text = self._scalar_description(value)
+            pointer = "/" + "/".join(self._escape_pointer(part) for part in segments)
+            fields.append(
+                {
+                    "path": pointer,
+                    "label": " > ".join(segments) if segments else "value",
+                    "type": field_type,
+                    "value": text,
+                }
+            )
+            if len(fields) > self.MAX_CONFIG_FIELDS:
+                raise PipelineError("Pipeline config has too many editable values")
+
+        visit(document, [])
+        return fields
+
+    @staticmethod
+    def _scalar_description(value: object) -> tuple[str, str]:
+        if value is None:
+            return "NULL", ""
+        if isinstance(value, bool):
+            return "BOOLEAN", "true" if value else "false"
+        if isinstance(value, int):
+            return "INTEGER", str(value)
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise PipelineError("Non-finite YAML numbers cannot be edited")
+            return "DECIMAL", str(value)
+        if isinstance(value, str):
+            return "STRING", value
+        raise PipelineError("YAML contains a value type that cannot be edited")
+
+    @staticmethod
+    def _parse_scalar(text: str, field_type: str) -> object:
+        try:
+            if field_type == "BOOLEAN":
+                if text == "true":
+                    return True
+                if text == "false":
+                    return False
+                raise ValueError
+            if field_type == "INTEGER":
+                return int(text, 10)
+            if field_type == "DECIMAL":
+                value = float(text)
+                if not math.isfinite(value):
+                    raise ValueError
+                return value
+            if field_type == "NULL":
+                return None if not text else text
+            if field_type == "STRING":
+                return text
+        except ValueError as error:
+            raise ValueError(f"Invalid {field_type.lower()} config value") from error
+        raise ValueError("Pipeline config field type is invalid")
+
+    @classmethod
+    def _set_config_scalar(cls, document: object, pointer: str, value: object) -> None:
+        segments = cls._pointer_segments(pointer)
+        if not segments:
+            raise ValueError("Root scalar YAML documents cannot be edited")
+        parent = document
+        for segment in segments[:-1]:
+            if isinstance(parent, Mapping):
+                parent = parent[segment]
+            elif isinstance(parent, list):
+                parent = parent[int(segment)]
+            else:
+                raise ValueError("Pipeline config field path is invalid")
+        leaf = segments[-1]
+        if isinstance(parent, Mapping):
+            parent[leaf] = value
+        elif isinstance(parent, list):
+            parent[int(leaf)] = value
+        else:
+            raise ValueError("Pipeline config field path is invalid")
+
+    @staticmethod
+    def _escape_pointer(value: str) -> str:
+        return value.replace("~", "~0").replace("/", "~1")
+
+    @staticmethod
+    def _pointer_segments(pointer: str) -> List[str]:
+        if not pointer.startswith("/"):
+            raise ValueError("Pipeline config field path is invalid")
+        if pointer == "/":
+            return []
+        return [part.replace("~1", "/").replace("~0", "~") for part in pointer[1:].split("/")]
+
+    @staticmethod
+    def _atomic_replace_config(target: Path, encoded: bytes) -> None:
+        metadata = target.stat()
+        temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}")
+        try:
+            with temporary.open("xb") as output:
+                output.write(encoded)
+                output.flush()
+                os.fsync(output.fileno())
+            os.chmod(temporary, metadata.st_mode)
+            os.chown(temporary, metadata.st_uid, metadata.st_gid)
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def register(
         self,

@@ -18,7 +18,7 @@
 | 실행 config | `configs/capture.yaml` |
 | virtualenv | `/home/jm/26_camera_record/.venv` |
 | Python | `3.8.10`; 위 venv에서 entrypoint `--help` 실행 확인 |
-| 기본 출력 | 작업 트리 기준 `image_records/` |
+| 기본 출력 | `/data/collections/image_records/` |
 
 원본 작업 트리는 source version history와 개발용으로 유지한다. 자동 실행 서비스는 이 디렉터리의 Python source를 직접 실행하지 않고, 등록 시점의 working tree를 시스템 release로 복사해 실행한다. 따라서 개발 중 파일 변경이 실행 중 프로세스에 섞이지 않는다.
 
@@ -30,7 +30,6 @@ ControllerApp 저장소, DepthAI Git 작업 트리, 해당 장비에서 생성�
 sudo backend/scripts/bootstrap-jetson.sh \
   --device-name MMS-JETSON-02 \
   --pipeline-user <user> \
-  --storage-root /home/<user>/26_camera_record \
   --enable-power \
   --depthai-repo /home/<user>/26_camera_record/depthai_refactored_ver2 \
   --depthai-venv /home/<user>/26_camera_record/.venv
@@ -157,7 +156,6 @@ Controller backend 코드, systemd unit, helper script가 바뀌면 Git 작업 �
 git pull --ff-only
 sudo backend/scripts/install.sh \
   --pipeline-user <user> \
-  --storage-root /home/<user>/26_camera_record \
   --enable-power
 sudo systemctl restart jetson-control.service jetson-control-api.service
 sudo systemctl restart jetson-wifi-direct.service
@@ -174,12 +172,14 @@ sudo /opt/jetson-control/register-pipeline.sh \
   --venv /home/<user>/26_camera_record/.venv \
   --entry synced_image_recorder.py \
   --config configs/capture.yaml \
-  --working-dir /home/<user>/26_camera_record/depthai_refactored_ver2 \
-  --write-path /home/<user>/26_camera_record/depthai_refactored_ver2/image_records \
+  --working-dir /data/collections \
+  --write-path /data/collections \
   --user <user> \
   --autostart \
   --restart-running
 ```
+
+`configs/capture.yaml`의 상대 `output_dir: image_records`는 위 working directory를 기준으로 `/data/collections/image_records`에 기록된다. 기존 `~/26_camera_record`의 수집물은 backend 재설치 후 앱에 `Previous collected data` root로 계속 노출된다.
 
 운영 순서는 `Git 최신화 -> backend install 재실행 -> 필요한 pipeline 재등록 -> doctor와 앱 연결 확인`으로 고정한다. 설정 파일을 직접 복사해 덮어쓰지 말고, 설치 script와 등록기를 통해 원자적으로 반영한다.
 

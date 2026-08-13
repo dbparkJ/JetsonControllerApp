@@ -77,6 +77,7 @@ class ApiContractTest(unittest.TestCase):
             self.config.device_id,
             allow_local_targets=True,
         )
+        self.uploads = uploads
         status_collector = Mock()
         status_collector.collect.return_value = {
             "cpuPercent": 12,
@@ -120,6 +121,22 @@ class ApiContractTest(unittest.TestCase):
             "pipelineId": "capture",
             "path": "config.yaml",
             "content": "fps: 15\n",
+        }
+        self.pipelines.config_fields.return_value = {
+            "pipelineId": "capture",
+            "path": "config.yaml",
+            "revision": "a" * 64,
+            "fields": [
+                {"path": "/fps", "label": "fps", "type": "INTEGER", "value": "30"}
+            ],
+        }
+        self.pipelines.update_config_fields.return_value = {
+            "pipelineId": "capture",
+            "path": "config.yaml",
+            "revision": "b" * 64,
+            "fields": [
+                {"path": "/fps", "label": "fps", "type": "INTEGER", "value": "15"}
+            ],
         }
 
         app = create_app(
@@ -338,6 +355,60 @@ class ApiContractTest(unittest.TestCase):
         )
         self.assertEqual(deleted.status_code, 204, deleted.text)
 
+    def test_upload_library_proxy_contract(self) -> None:
+        self.uploads.library_sessions = Mock(
+            return_value={
+                "sessions": [
+                    {
+                        "sessionId": "session-1",
+                        "sourceName": "capture",
+                        "totalBytes": 12,
+                        "fileCount": 1,
+                        "completedAt": "2026-08-13T00:00:00Z",
+                    }
+                ],
+                "nextOffset": None,
+            }
+        )
+        self.uploads.library_files = Mock(
+            return_value={
+                "sessionId": "session-1",
+                "path": "",
+                "entries": [
+                    {
+                        "name": "front.jpg",
+                        "relativePath": "front.jpg",
+                        "type": "FILE",
+                        "sizeBytes": 12,
+                        "modifiedAt": "2026-08-13T00:00:00Z",
+                    }
+                ],
+                "truncated": False,
+            }
+        )
+        self.uploads.library_file = Mock(return_value=("image/jpeg", b"preview"))
+
+        sessions_path = "/v1/upload/library/sessions?target=server&offset=0"
+        sessions = self.signed_request("GET", sessions_path)
+        self.assertEqual(sessions.status_code, 200, sessions.text)
+        self.assertEqual(sessions.json()["sessions"][0]["sessionId"], "session-1")
+        self.uploads.library_sessions.assert_called_once_with("server", offset=0)
+
+        files_path = (
+            "/v1/upload/library/files?target=server&session=session-1&path="
+        )
+        files = self.signed_request("GET", files_path)
+        self.assertEqual(files.status_code, 200, files.text)
+        self.assertEqual(files.json()["entries"][0]["name"], "front.jpg")
+
+        file_path = (
+            "/v1/upload/library/file?target=server&session=session-1&path=front.jpg"
+        )
+        preview = self.signed_request("GET", file_path)
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.content, b"preview")
+        self.assertEqual(preview.headers["content-type"], "image/jpeg")
+
     def test_pipeline_registration_resolves_paths_inside_storage_root(self) -> None:
         body = json.dumps(
             {
@@ -393,6 +464,24 @@ class ApiContractTest(unittest.TestCase):
         updated = self.signed_request("PUT", "/v1/pipelines/capture/config", body)
         self.assertEqual(updated.status_code, 200, updated.text)
         self.pipelines.update_config.assert_called_once_with("capture", "fps: 15\n")
+
+        fields = self.signed_request(
+            "GET", "/v1/pipelines/capture/config/fields"
+        )
+        self.assertEqual(fields.status_code, 200, fields.text)
+        self.assertEqual(fields.json()["fields"][0]["path"], "/fps")
+
+        fields_body = json.dumps(
+            {"revision": "a" * 64, "values": {"/fps": "15"}},
+            separators=(",", ":"),
+        ).encode()
+        updated_fields = self.signed_request(
+            "PATCH", "/v1/pipelines/capture/config/fields", fields_body
+        )
+        self.assertEqual(updated_fields.status_code, 200, updated_fields.text)
+        self.pipelines.update_config_fields.assert_called_once_with(
+            "capture", "a" * 64, {"/fps": "15"}
+        )
 
     def test_pipeline_path_traversal_is_rejected(self) -> None:
         body = json.dumps(

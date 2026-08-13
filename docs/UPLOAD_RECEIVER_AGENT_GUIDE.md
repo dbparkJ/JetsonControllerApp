@@ -1,5 +1,7 @@
 # External Upload Receiver: AI Agent Implementation Guide
 
+완료된 업로드를 앱에서 탐색하는 library API와 서버 배포 검증은 [UPLOAD_LIBRARY_SERVER_AGENT_GUIDE.md](UPLOAD_LIBRARY_SERVER_AGENT_GUIDE.md)를 함께 따른다.
+
 이 문서는 Jetson Controller의 파일을 **같은 로컬 네트워크가 아닌 인터넷상의 서버**로 전송하기 위한 수신 서버 구현 계약과 현재 서버의 실제 배포 절차다. 다른 구현은 이 문서의 API와 완료 조건을 변경하지 말고 서버 프레임워크, DB, 오브젝트 스토리지만 배포 환경에 맞게 선택한다.
 
 ## 1. 확정 아키텍처

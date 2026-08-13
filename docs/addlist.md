@@ -1,21 +1,49 @@
 # Add List
 
-1. [x] 작은 파일이 많은 폴더의 업로드를 빠르게 처리한다.
-   - `/home/jm/26_camera_record/depthai_refactored_ver2/image_records/2026-06-26_09-51-36_raw`의 10,042개 파일(29,127,864,491바이트) 분포를 기준으로 분석했다.
-   - 최대 32 MiB 또는 256개 파일을 한 요청으로 보내는 batch protocol과 일괄 offset 조회를 구현했다.
-   - 이전 receiver에는 기존 resumable upload로 자동 fallback한다.
-   - receiver, reverse proxy, 저장 경로 설정과 재설치 절차는 `UPLOAD_RECEIVER_AGENT_GUIDE.md`에 기록했다.
-   - 2026-08-13 서버에서 최신 `main`을 받은 뒤 receiver와 Caddy를 재설치했다. 공인 HTTPS에서 `fileBatch` capability, 일괄 offset 조회, 2개 파일 batch PUT, 같은 batch 재전송의 멱등성, complete와 HDD final 객체 일치까지 확인했다.
-2. [x] 설명용 문서만 남기도록 문서를 정리한다.
-   - 재사용 가능한 설치·운영 가이드와 이 목록은 유지하고, 시점 의존적인 `CURRENT_SYSTEM_AUDIT.md`와 임시 명령 파일은 삭제했다.
-3. [x] 자동 실행 작업의 HTTP 405 인증 오류를 수정하고 실제 휴대폰에서 디버깅한다.
-   - Jetson backend `1.3.0`을 설치하고 HTTPS API와 systemd 서비스를 확인했다.
-   - 기존 휴대폰 앱에서 `DepthAI Capture` 자동 실행 작업이 오류 없이 표시되는 것을 확인했다.
-   - 앱 `1.6.0`을 빌드하고 별도 임시 패키지로 설치해 기기 계측 시험 8개를 통과했다.
-   - 휴대폰에 설치된 `1.5.0`은 다른 서명 키로 빌드되어 있어 저장된 장비 인증 정보를 보존하기 위해 강제 교체하지 않았다.
-4. [x] Jetson이 이미 연결한 Wi-Fi를 목록에서 구분하고 재연결하지 않는다.
-   - 실제 Jetson과 연결된 휴대폰이 모두 `Geon` SSID를 사용하는 상태에서 확인했다.
-   - 현재 SSID에는 체크 표시와 `현재 Jetson이 연결됨` 상태를 보여 주고 선택을 비활성화했다.
-   - ViewModel 단위 시험과 실제 Android 기기 Compose 시험으로 재연결 폼이 열리지 않는 것을 확인했다.
-5. [x] receiver 저장소를 `/data` 아래의 지정 경로로 복구한다.
-   - 기본 저장 경로와 설치 문서를 `/data/server_storage/jetson-upload-receiver`로 통일하고 `/data/server_storage` mount 검사를 유지했다.
+> 2026-08-13 저장소 구현 기준이다. 아래 항목은 모두 소스와 문서 작업을 완료했으며, 실제 장비나 공인 서버에 재설치가 필요한 경우에는 배포 상태를 별도로 적었다.
+
+1. ~~multi part인가 그방법으로 올리는건 별로인가? 그리고 계산도 하면서 업로드를 하는 병렬적인 프로세스로 진행할 순 없는건가? 그렇게 되면 서버단에서 또 바꿔야할 로직은 docs로 정리해둬~~
+   - 처리: 단일 대형 요청 대신 재개 가능한 chunk 전송을 유지하고, 작은 파일은 `JETSONBATCH1` 형식으로 최대 32 MiB 또는 256개씩 묶었다. `deferred-v1`에서는 receiver가 수신과 동시에 SHA-256을 계산하므로 Jetson의 전체 사전 hash 단계를 제거하며, 구형 receiver에는 기존 전송으로 자동 fallback한다.
+   - 처리: receiver capability, batch 멱등성, 중단 재개, reverse proxy와 배포 절차를 `UPLOAD_RECEIVER_AGENT_GUIDE.md`에 정리했다.
+   - 배포 상태: 공인 receiver에는 최신 코드 재배포가 필요하다. 현재 원격 접속 키가 만료되어 이 저장소 작업에서는 서버 프로세스까지 교체하지 못했다.
+
+2. ~~Jetson에 업로드 하는 루트 위치도 /data 밑으로 잡아둔거 있자나 그쪽으로 사용할 수 있게 해줘~~
+   - 처리: 기본 수집 root를 `/data/collections`로 바꾸고 pipeline 사용자 소유로 생성한다. DepthAI 설치 작업의 working directory와 쓰기 허용 경로도 이 root를 사용하므로 상대 `output_dir: image_records`는 `/data/collections/image_records`에 기록된다.
+   - 처리: 기존 `~/26_camera_record`의 212 GB 데이터는 설정 전환 시 `Previous collected data` root로 남겨 앱에서 계속 탐색할 수 있게 했다.
+   - 배포 상태: 현재 실행 중인 Jetson에는 `sudo backend/scripts/install.sh`와 DepthAI pipeline 재등록이 필요하다. 이 세션에서는 sudo 암호를 사용할 수 없어 실행 중 설정은 변경하지 않았다.
+
+3. ~~자동화 실행중에 yaml 편집은 실제 텍스트 에디터를 이용하는게 아니라 키벨류 값을 가지고 벨류값만 바꿀 수 있게 디자인 해서 보여줘~~
+   - 처리: backend가 YAML scalar를 key/value field로 파싱하는 `GET/PATCH /v1/pipelines/{id}/config/fields`를 추가했다. comment와 구조를 보존하고 revision 충돌, 잘못된 타입, alias와 과대 입력을 거절한다.
+   - 처리: 앱은 boolean switch와 문자열·정수·실수 입력 필드만 보여 주며 변경된 value만 저장한다. raw YAML API는 기존 클라이언트 호환을 위해 유지하지만 새 화면에서는 사용하지 않는다.
+
+4. ~~수집된 데이터를 앱에서 볼 수 있게 업로드 탭말고 하나 기능 추가해줘 사진은 디스플레이 화면에 맞게 볼 수 있게 해주고, 확대 축소가 가능한 기능정도를 추가해줘~~
+   - 처리: 업로드 흐름과 분리된 `데이터` 화면에 `Jetson / 서버` 위치 탭을 추가했다. Jetson root와 폴더를 탐색하고 이미지 또는 UTF-8 파일을 바로 미리볼 수 있다.
+   - 처리: 이미지는 화면 비율에 맞춰 표시하고 pinch/pan과 1~6배 확대·축소, 화면 맞춤 버튼을 제공한다. 큰 이미지는 최대 2048 px 미리보기로 sampling해 메모리 사용을 제한한다.
+
+5. ~~시스템 지표는 1초에 한번씩 갱신하게 바꿔줘~~
+   - 처리: 개요와 센서 화면이 보이는 동안 status를 1초마다 갱신하고, 화면이 background로 가면 polling을 중지하도록 lifecycle에 연결했다.
+
+6. ~~알림에 업로드 시작과 종료 알림 추가해줘~~
+   - 처리: upload job의 `QUEUED/SCANNING/UPLOADING` 진입과 `COMPLETED/FAILED/CANCELLED` 전이를 감지하는 background monitor와 전용 notification channel을 추가했다.
+   - 처리: 알림 설정의 `업로드` 탭에서 시작 알림과 종료 알림을 각각 켜고 끌 수 있고, 잠깐 연결이 끊겨도 이전 상태를 유지해 종료 전이를 놓치지 않는다.
+
+7. ~~현재 장치가 어떤 wifi와 연결되어있는지 알 수 있는 탭도 추가해주고 모바일과 같은 wifi가 붙어있다면 LAN으로 연결되게 해줘 그치만 사용자가 Wifi direct기능을 사용하고 싶을때는 다른 버튼을 눌러 direct로 붙일 수 있게해줘~~
+   - 처리: 네트워크 설정에 `연결 상태 / Jetson Wi-Fi` 탭을 추가해 모바일 SSID, Jetson SSID, 동일 Wi-Fi 여부와 현재 전송 방식을 표시한다.
+   - 처리: 등록된 Jetson이 mDNS로 발견되고 양쪽 SSID가 정확히 같을 때만 LAN을 자동 선택한다. Wi-Fi Direct는 자동 전환하지 않고 사용자가 `Wi-Fi Direct로 연결` 버튼을 눌렀을 때만 시작한다.
+
+8. ~~pdf중에서 확장 및 제품 로드맵에 UX 리셋, A,B,C를 모두 추가해주고, 지금 확장하지 않았던 기능들 모두 추가로 확장해줘~~
+   - 처리: `deep-research-report.md`에 UX Reset과 Release A/B/C의 상세 범위, API·저장 구조, 보안 원칙과 release gate를 추가했다. 아직 구현하지 않은 fleet, telemetry, sensor quality, diagnostics, identity/RBAC, relay, audit, 배포, lifecycle, backup/DR도 후속 범위로 명시했다.
+   - 처리: 재현 가능한 Chromium renderer를 추가하고 `JetsonControllerApp UI_UX 재설계 및 제품 확장 실행 명세.pdf`를 17쪽 A4 문서로 다시 생성했다. 핵심 페이지를 이미지로 확인해 표 잘림과 겹침이 없음을 검증했다.
+
+9. ~~서버에 업로드 된 사진들과 파일들도 앱에서 확인할 수 있게 해줘 그렇게 하기위해선 또 서버쪽에 구축해야할 docs를 정리해서 주면 서버 agent에게 일을 시킬께~~
+   - 처리: receiver에 장비 token 소유권으로 제한된 완료 session, 가상 폴더, 12 MiB 미리보기 API를 추가했다. 폴더는 최대 500개 항목만 반환하고 파일은 regular file과 크기를 다시 검증한다.
+   - 처리: Jetson이 server token을 보관한 채 library 요청을 proxy하고, 앱의 `서버 데이터` 화면에서 서버 선택, session pagination, 폴더 이동, 사진 확대와 text preview를 제공한다.
+   - 처리: 서버 agent용 설치·검증·rollback 절차와 API 계약을 `UPLOAD_LIBRARY_SERVER_AGENT_GUIDE.md`에 정리했다.
+   - 배포 상태: 공인 receiver에 이 문서대로 library API를 배포한 뒤 앱에서 활성화된다. 현재 공개 서버에는 아직 반영되지 않았다.
+
+## 검증
+
+- Jetson backend unit/API 시험 63개 통과, 로컬 환경의 `python3-cryptography` 미설치 항목 2개는 skip했다.
+- Upload receiver 시험 31개 통과.
+- Android `testDebugUnitTest`, `lintDebug`, `assembleDebug`, `assembleDebugAndroidTest` 통과.
+- 설치 shell script 구문 검사와 17쪽 A4 PDF 메타데이터·시각 검사를 통과했다.

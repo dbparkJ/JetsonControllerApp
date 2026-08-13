@@ -7,6 +7,8 @@ import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineConfigField
+import com.example.jetsoncontroller.model.PipelineConfigValueType
 import com.example.jetsoncontroller.model.RegisterPipelineRequest
 import com.example.jetsoncontroller.model.RemoteEntryType
 import com.example.jetsoncontroller.model.RemoteFileEntry
@@ -76,12 +78,20 @@ data class PipelineUiState(
     val detailPipelineId: String? = null,
     val logLines: List<String> = emptyList(),
     val configPath: String = "",
-    val configContent: String = "",
+    val configRevision: String = "",
+    val configFields: List<PipelineConfigField> = emptyList(),
+    val originalConfigValues: Map<String, String> = emptyMap(),
     val detailLoading: Boolean = false,
     val configSaving: Boolean = false,
     val message: String? = null,
     val error: String? = null
-)
+) {
+    val configHasChanges: Boolean
+        get() = configFields.any { originalConfigValues[it.path] != it.value }
+
+    val configValuesValid: Boolean
+        get() = configFields.all { configFieldValueValid(it.type, it.value) }
+}
 
 class PipelineViewModel(
     private val repository: JetsonRepository
@@ -487,16 +497,21 @@ class PipelineViewModel(
                 detailPipelineId = pipelineId,
                 detailLoading = true,
                 configPath = "",
-                configContent = "",
+                configRevision = "",
+                configFields = emptyList(),
+                originalConfigValues = emptyMap(),
                 message = null,
                 error = null
             )
-            repository.getPipelineConfig(pipelineId)
+            repository.getPipelineConfigFields(pipelineId)
                 .onSuccess { document ->
                     if (generation == connectionGeneration) {
+                        val values = document.fields.associate { it.path to it.value }
                         _uiState.value = _uiState.value.copy(
                             configPath = document.path,
-                            configContent = document.content,
+                            configRevision = document.revision,
+                            configFields = document.fields,
+                            originalConfigValues = values,
                             detailLoading = false
                         )
                     }
@@ -505,29 +520,50 @@ class PipelineViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             detailLoading = false,
-                            error = error.message ?: "YAML 설정을 불러오지 못했습니다."
+                            error = error.message ?: "작업 설정을 불러오지 못했습니다."
                         )
                     }
                 }
         }
     }
 
-    fun setConfigContent(value: String) {
-        _uiState.value = _uiState.value.copy(configContent = value)
+    fun setConfigValue(path: String, value: String) {
+        _uiState.value = _uiState.value.copy(
+            configFields = _uiState.value.configFields.map { field ->
+                if (field.path == path) field.copy(value = value) else field
+            },
+            message = null,
+            error = null
+        )
     }
 
     fun saveConfig() {
         val pipelineId = _uiState.value.detailPipelineId ?: return
-        if (_uiState.value.configSaving) return
+        val current = _uiState.value
+        if (
+            current.configSaving || !current.configHasChanges ||
+            !current.configValuesValid || current.configRevision.isBlank()
+        ) return
+        val changedValues = current.configFields
+            .filter { current.originalConfigValues[it.path] != it.value }
+            .associate { it.path to it.value }
         val generation = connectionGeneration
         operationJob?.cancel()
         operationJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(configSaving = true, error = null)
-            repository.updatePipelineConfig(pipelineId, _uiState.value.configContent)
+            repository.updatePipelineConfigFields(
+                pipelineId,
+                current.configRevision,
+                changedValues
+            )
                 .onSuccess { document ->
                     if (generation == connectionGeneration) {
+                        val values = document.fields.associate { it.path to it.value }
                         _uiState.value = _uiState.value.copy(
-                            configContent = document.content,
+                            configPath = document.path,
+                            configRevision = document.revision,
+                            configFields = document.fields,
+                            originalConfigValues = values,
                             configSaving = false,
                             message = "${document.path} 설정을 저장했습니다. 재시작하면 적용됩니다."
                         )
@@ -537,7 +573,7 @@ class PipelineViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             configSaving = false,
-                            error = error.message ?: "YAML 설정을 저장하지 못했습니다."
+                            error = error.message ?: "작업 설정을 저장하지 못했습니다."
                         )
                     }
                 }
@@ -590,3 +626,12 @@ class PipelineViewModel(
         }
     }
 }
+
+internal fun configFieldValueValid(type: PipelineConfigValueType, value: String): Boolean =
+    when (type) {
+        PipelineConfigValueType.BOOLEAN -> value == "true" || value == "false"
+        PipelineConfigValueType.INTEGER -> value.toLongOrNull() != null
+        PipelineConfigValueType.DECIMAL -> value.toDoubleOrNull()?.isFinite() == true
+        PipelineConfigValueType.STRING,
+        PipelineConfigValueType.NULL -> '\u0000' !in value
+    }

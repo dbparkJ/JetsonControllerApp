@@ -6,11 +6,15 @@ import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.RegisterPipelineRequest
 import com.example.jetsoncontroller.model.PipelineConfigDocument
+import com.example.jetsoncontroller.model.PipelineConfigFieldsDocument
 import com.example.jetsoncontroller.model.PipelineLog
 import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.model.UpdatePipelineConfigRequest
+import com.example.jetsoncontroller.model.UpdatePipelineConfigFieldsRequest
 import com.example.jetsoncontroller.model.UploadJob
+import com.example.jetsoncontroller.model.UploadLibraryFilesResponse
+import com.example.jetsoncontroller.model.UploadLibrarySessionsResponse
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.google.gson.Gson
@@ -189,6 +193,39 @@ class LocalApiClient(
     suspend fun getUploadTargets(): Result<List<UploadTarget>> =
         request("업로드 대상 조회") { requireApi().getUploadTargets() }
 
+    suspend fun getUploadLibrarySessions(
+        targetId: String,
+        offset: Int = 0
+    ): Result<UploadLibrarySessionsResponse> =
+        request("서버 데이터 조회") {
+            requireApi().getUploadLibrarySessions(targetId, offset)
+        }
+
+    suspend fun getUploadLibraryFiles(
+        targetId: String,
+        sessionId: String,
+        path: String
+    ): Result<UploadLibraryFilesResponse> =
+        request("서버 파일 목록 조회") {
+            requireApi().getUploadLibraryFiles(targetId, sessionId, path)
+        }
+
+    suspend fun getUploadLibraryFile(
+        targetId: String,
+        sessionId: String,
+        path: String
+    ): Result<RemoteFileContent> = suspendResult {
+        val response = withSessionRetry {
+            requireApi().getUploadLibraryFile(targetId, sessionId, path)
+        }
+        val body = requireBody(response, "서버 파일 열기")
+        RemoteFileContent(
+            name = path.substringAfterLast('/'),
+            mimeType = body.contentType()?.toString() ?: "application/octet-stream",
+            bytes = body.bytes()
+        )
+    }
+
     suspend fun saveUploadTarget(
         targetId: String,
         label: String,
@@ -269,6 +306,23 @@ class LocalApiClient(
             requireApi().updatePipelineConfig(
                 pipelineId,
                 UpdatePipelineConfigRequest(content)
+            )
+        }
+
+    suspend fun getPipelineConfigFields(
+        pipelineId: String
+    ): Result<PipelineConfigFieldsDocument> =
+        request("작업 설정 조회") { requireApi().getPipelineConfigFields(pipelineId) }
+
+    suspend fun updatePipelineConfigFields(
+        pipelineId: String,
+        revision: String,
+        values: Map<String, String>
+    ): Result<PipelineConfigFieldsDocument> =
+        request("작업 설정 저장") {
+            requireApi().updatePipelineConfigFields(
+                pipelineId,
+                UpdatePipelineConfigFieldsRequest(revision, values)
             )
         }
 

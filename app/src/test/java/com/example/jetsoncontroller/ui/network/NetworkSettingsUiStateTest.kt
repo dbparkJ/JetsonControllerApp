@@ -16,4 +16,16 @@ class NetworkSettingsUiStateTest {
         assertFalse(state.isCurrentJetsonWifi("lab wi-fi"))
         assertFalse(state.copy(wifiConnected = false).isCurrentJetsonWifi("Lab Wi-Fi"))
     }
+
+    @Test
+    fun `same wifi compares mobile and Jetson ssid exactly`() {
+        val state = NetworkSettingsUiState(
+            mobileWifiSsid = "Field",
+            currentWifiSsid = "Field",
+            wifiConnected = true
+        )
+        assertTrue(state.sameWifi)
+        assertFalse(state.copy(currentWifiSsid = "Other").sameWifi)
+        assertFalse(state.copy(mobileWifiSsid = null).sameWifi)
+    }
 }

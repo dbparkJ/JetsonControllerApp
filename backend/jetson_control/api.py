@@ -25,7 +25,12 @@ from .pipelines import (
 )
 from .status import StatusCollector
 from .tls import certificate_sha256
-from .uploads import UploadCapacityExceeded, UploadConflict, UploadManager
+from .uploads import (
+    UploadCapacityExceeded,
+    UploadConflict,
+    UploadLibraryUnavailable,
+    UploadManager,
+)
 from .wifi_direct import read_wifi_direct_status
 
 
@@ -79,6 +84,13 @@ class UpdatePipelineConfigRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str
+
+
+class UpdatePipelineConfigFieldsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: str = Field(min_length=64, max_length=64)
+    values: Dict[str, str]
 
 
 def create_app(
@@ -397,6 +409,58 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
+    @app.get("/v1/upload/library/sessions", dependencies=authenticated)
+    async def upload_library_sessions(
+        target: str,
+        offset: int = 0,
+    ) -> Dict[str, object]:
+        try:
+            return uploads.library_sessions(target, offset=offset)
+        except UploadLibraryUnavailable as error:
+            raise HTTPException(status_code=501, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get("/v1/upload/library/files", dependencies=authenticated)
+    async def upload_library_files(
+        target: str,
+        session: str,
+        path: str = "",
+    ) -> Dict[str, object]:
+        try:
+            return uploads.library_files(target, session, path)
+        except UploadLibraryUnavailable as error:
+            raise HTTPException(status_code=501, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get("/v1/upload/library/file", dependencies=authenticated)
+    async def upload_library_file(
+        target: str,
+        session: str,
+        path: str,
+    ) -> Response:
+        try:
+            media_type, content = uploads.library_file(
+                target,
+                session,
+                path,
+                max_bytes=12 * 1024 * 1024,
+            )
+            return Response(content=content, media_type=media_type)
+        except UploadLibraryUnavailable as error:
+            raise HTTPException(status_code=501, detail=str(error)) from error
+        except FileTooLarge as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
     @app.post("/v1/uploads", status_code=202, dependencies=authenticated)
     async def start_upload(body: StartUploadRequest) -> Dict[str, object]:
         try:
@@ -547,6 +611,33 @@ def create_app(
             return pipelines.update_config(pipeline_id, body.content)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/v1/pipelines/{pipeline_id}/config/fields", dependencies=authenticated)
+    async def pipeline_config_fields(pipeline_id: str) -> Dict[str, object]:
+        try:
+            return pipelines.config_fields(pipeline_id)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.patch("/v1/pipelines/{pipeline_id}/config/fields", dependencies=authenticated)
+    async def update_pipeline_config_fields(
+        pipeline_id: str,
+        body: UpdatePipelineConfigFieldsRequest,
+    ) -> Dict[str, object]:
+        try:
+            return pipelines.update_config_fields(
+                pipeline_id,
+                body.revision,
+                body.values,
+            )
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except PipelineConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except (ValueError, PipelineError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 

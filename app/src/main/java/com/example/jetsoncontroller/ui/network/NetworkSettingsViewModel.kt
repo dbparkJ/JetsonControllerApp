@@ -25,6 +25,7 @@ class NetworkSettingsViewModel(
                 _uiState.update {
                     it.copy(
                         accessPoints = scanState.accessPoints,
+                        mobileWifiSsid = scanState.currentSsid,
                         scanningAccessPoints = scanState.scanning,
                         accessPointError = scanState.error
                     )

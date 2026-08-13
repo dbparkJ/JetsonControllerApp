@@ -22,12 +22,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 
 class JetsonRepository(
     context: Context,
@@ -118,6 +120,9 @@ class JetsonRepository(
     val lanConnectionError: StateFlow<String?> =
         _lanConnectionError.asStateFlow()
 
+    private val autoLanEnabled = MutableStateFlow(false)
+    private val autoLanAttempts = ConcurrentHashMap.newKeySet<String>()
+
     val transportState = transportCoordinator.state
 
     init {
@@ -189,6 +194,35 @@ class JetsonRepository(
                         transportCoordinator.disconnect()
                     }
                 }
+        }
+
+        scope.launch {
+            combine(
+                lanDiscoveryManager.discoveredEndpoints,
+                registeredDevices,
+                transportCoordinator.state,
+                autoLanEnabled,
+                wifiAccessPointScanner.state
+            ) { endpoints, registered, transport, enabled, wifiState ->
+                if (
+                    !enabled || transport !is TransportState.Disconnected ||
+                    wifiState.currentSsid.isNullOrBlank() ||
+                    _connectingLanDeviceId.value != null
+                ) {
+                    return@combine null
+                }
+                endpoints.firstOrNull { endpoint ->
+                    registered.any { device ->
+                        device.deviceId.equals(endpoint.deviceId, ignoreCase = true)
+                    }
+                }
+            }.collect { endpoint ->
+                endpoint ?: return@collect
+                val attemptKey = "${endpoint.deviceId}@${endpoint.host}:${endpoint.port}"
+                if (autoLanAttempts.add(attemptKey)) {
+                    connectLan(endpoint, requireSameWifi = true)
+                }
+            }
         }
     }
 
@@ -512,14 +546,22 @@ class JetsonRepository(
 
     fun startLanDiscovery() {
         _lanConnectionError.value = null
+        autoLanAttempts.clear()
+        autoLanEnabled.value = true
+        wifiAccessPointScanner.refreshCurrentConnection()
         lanDiscoveryManager.startDiscovery()
     }
 
     fun stopLanDiscovery() {
+        autoLanEnabled.value = false
         lanDiscoveryManager.stopDiscovery()
     }
 
     fun connectLan(endpoint: DeviceEndpoint) {
+        connectLan(endpoint, requireSameWifi = false)
+    }
+
+    private fun connectLan(endpoint: DeviceEndpoint, requireSameWifi: Boolean) {
         val generation = ipConnectionGeneration.incrementAndGet()
         _connectingLanDeviceId.value = endpoint.deviceId
         _lanConnectionError.value = null
@@ -555,7 +597,19 @@ class JetsonRepository(
                         return@onSuccess
                     }
 
-                    updateStatus(statusResult.getOrThrow())
+                    val status = statusResult.getOrThrow()
+                    if (
+                        requireSameWifi && !wifiNetworksMatch(
+                            wifiAccessPointScanner.state.value.currentSsid,
+                            status.wifiConnected,
+                            status.wifiSsid
+                        )
+                    ) {
+                        _lanConnectionError.value =
+                            "모바일과 Jetson의 Wi-Fi가 같지 않아 자동 LAN 연결을 건너뛰었습니다."
+                        return@onSuccess
+                    }
+                    updateStatus(status)
                     val capabilitiesResult = candidateClient.getCapabilities()
                     if (ipConnectionGeneration.get() != generation) {
                         return@onSuccess
@@ -632,6 +686,32 @@ class JetsonRepository(
     suspend fun getUploadTargets(): Result<List<UploadTarget>> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.getUploadTargets()
+    }
+
+    suspend fun getUploadLibrarySessions(
+        targetId: String,
+        offset: Int = 0
+    ): Result<UploadLibrarySessionsResponse> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getUploadLibrarySessions(targetId, offset)
+    }
+
+    suspend fun getUploadLibraryFiles(
+        targetId: String,
+        sessionId: String,
+        path: String
+    ): Result<UploadLibraryFilesResponse> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getUploadLibraryFiles(targetId, sessionId, path)
+    }
+
+    suspend fun getUploadLibraryFile(
+        targetId: String,
+        sessionId: String,
+        path: String
+    ): Result<RemoteFileContent> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getUploadLibraryFile(targetId, sessionId, path)
     }
 
     suspend fun saveUploadTarget(
@@ -715,6 +795,22 @@ class JetsonRepository(
         return client.updatePipelineConfig(pipelineId, content)
     }
 
+    suspend fun getPipelineConfigFields(
+        pipelineId: String
+    ): Result<PipelineConfigFieldsDocument> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getPipelineConfigFields(pipelineId)
+    }
+
+    suspend fun updatePipelineConfigFields(
+        pipelineId: String,
+        revision: String,
+        values: Map<String, String>
+    ): Result<PipelineConfigFieldsDocument> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.updatePipelineConfigFields(pipelineId, revision, values)
+    }
+
     fun clearControlMessage() {
         _controlOperation.value = ControlOperationState()
     }
@@ -743,3 +839,10 @@ class JetsonRepository(
         JetsonCommand.SET_WIFI -> "Wi-Fi 설정"
     }
 }
+
+internal fun wifiNetworksMatch(
+    mobileSsid: String?,
+    jetsonConnected: Boolean,
+    jetsonSsid: String?
+): Boolean = jetsonConnected && !mobileSsid.isNullOrBlank() &&
+    !jetsonSsid.isNullOrBlank() && mobileSsid == jetsonSsid

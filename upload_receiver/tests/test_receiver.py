@@ -38,6 +38,7 @@ class ReceiverApiTest(unittest.TestCase):
             max_files_per_session=100,
             max_session_bytes=1024 * 1024 * 1024,
             max_concurrent_puts_per_device=2,
+            max_preview_bytes=16,
         )
         administrator = ReceiverService(self.settings, create_pepper=True)
         self.token = administrator.issue_token(DEVICE_ID, quota_bytes=512 * 1024 * 1024)
@@ -175,6 +176,150 @@ class ReceiverApiTest(unittest.TestCase):
             capabilities.json()["deferredFileHashes"],
             {"version": 1, "manifestHashMode": "deferred-v1"},
         )
+        self.assertEqual(
+            capabilities.json()["library"],
+            {"version": 1, "maxPreviewBytes": 16},
+        )
+
+    def test_completed_upload_library_lists_and_reads_owned_files(self) -> None:
+        files = [
+            ("camera/front.jpg", b"jpeg-preview"),
+            ("camera/rear.jpg", b"rear-preview"),
+            ("notes.txt", b"field notes"),
+        ]
+        created = self.create(
+            self.manifest(files, client_job_id="7" * 32)
+        )
+        session_id = created.json()["sessionId"]
+        for path, body in files:
+            self.assertEqual(self.put(session_id, path, body).status_code, 200)
+        completed = self.client.post(
+            f"/v1/upload-sessions/{session_id}/complete",
+            headers=self.auth(),
+            json={},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+
+        sessions = self.client.get("/v1/library/sessions", headers=self.auth())
+        self.assertEqual(sessions.status_code, 200, sessions.text)
+        self.assertEqual(sessions.json()["sessions"][0]["sessionId"], session_id)
+        self.assertEqual(sessions.json()["sessions"][0]["fileCount"], 3)
+
+        root = self.client.get(
+            f"/v1/library/sessions/{session_id}/files",
+            headers=self.auth(),
+        )
+        self.assertEqual(root.status_code, 200, root.text)
+        self.assertEqual(
+            [(entry["name"], entry["type"]) for entry in root.json()["entries"]],
+            [("camera", "DIRECTORY"), ("notes.txt", "FILE")],
+        )
+        camera = self.client.get(
+            f"/v1/library/sessions/{session_id}/files",
+            params={"path": "camera"},
+            headers=self.auth(),
+        )
+        self.assertEqual(
+            [entry["name"] for entry in camera.json()["entries"]],
+            ["front.jpg", "rear.jpg"],
+        )
+        preview = self.client.get(
+            f"/v1/library/sessions/{session_id}/file",
+            params={"path": "camera/front.jpg"},
+            headers=self.auth(),
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.content, b"jpeg-preview")
+        self.assertEqual(preview.headers["content-type"], "image/jpeg")
+
+        foreign = self.client.get(
+            f"/v1/library/sessions/{session_id}/files",
+            headers=self.auth(self.second_token),
+        )
+        self.assertEqual(foreign.status_code, 403)
+
+    def test_library_preview_enforces_size_limit(self) -> None:
+        body = b"x" * 17
+        created = self.create(
+            self.manifest([("large.bin", body)], client_job_id="8" * 32)
+        )
+        session_id = created.json()["sessionId"]
+        self.assertEqual(self.put(session_id, "large.bin", body).status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{session_id}/complete",
+                headers=self.auth(),
+                json={},
+            ).status_code,
+            200,
+        )
+        response = self.client.get(
+            f"/v1/library/sessions/{session_id}/file",
+            params={"path": "large.bin"},
+            headers=self.auth(),
+        )
+        self.assertEqual(response.status_code, 413)
+
+    def test_library_file_listing_is_bounded(self) -> None:
+        receiver = self.client.app.state.receiver
+        device = receiver.authenticate(f"Bearer {self.token}")
+        session_id = "library-limit"
+        timestamp = "2026-08-13T00:00:00+00:00"
+        file_rows = [
+            (
+                session_id,
+                f"file-{index:03d}.txt",
+                f"library-file-{index:03d}",
+                0,
+                EMPTY_SHA256,
+                0,
+                "VERIFIED",
+                f"staging/{index:03d}",
+                f"objects/{index:03d}",
+            )
+            for index in range(501)
+        ]
+        with receiver.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO upload_sessions (
+                    session_id, device_id, client_job_id, source_name, state,
+                    total_bytes, file_count, manifest_hash, manifest_json,
+                    failure_code, created_at, updated_at, completed_at
+                ) VALUES (?, ?, ?, ?, 'COMPLETED', 0, ?, ?, '{}', NULL, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    device.device_id,
+                    "library-limit-job",
+                    "large-directory",
+                    len(file_rows),
+                    EMPTY_SHA256,
+                    timestamp,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO upload_files (
+                    session_id, relative_path, file_id, size_bytes, sha256,
+                    next_offset, state, staging_key, final_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                file_rows,
+            )
+
+        response = self.client.get(
+            f"/v1/library/sessions/{session_id}/files",
+            headers=self.auth(),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        listing = response.json()
+        self.assertTrue(listing["truncated"])
+        self.assertEqual(len(listing["entries"]), 500)
+        self.assertEqual(listing["entries"][0]["name"], "file-000.txt")
+        self.assertEqual(listing["entries"][-1]["name"], "file-499.txt")
 
     def test_upload_resume_complete_and_idempotency(self) -> None:
         first = b"first chunk"

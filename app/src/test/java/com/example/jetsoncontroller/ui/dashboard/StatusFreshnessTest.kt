@@ -5,6 +5,11 @@ import org.junit.Test
 
 class StatusFreshnessTest {
     @Test
+    fun `dashboard polls system metrics once per second`() {
+        assertEquals(1_000L, STATUS_POLL_INTERVAL_MS)
+    }
+
+    @Test
     fun missingTimestamp_isUnknown() {
         assertEquals(StatusFreshness.UNKNOWN, statusFreshness(null, 20_000L))
     }

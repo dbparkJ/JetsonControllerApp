@@ -3,11 +3,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import mimetypes
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
@@ -115,7 +116,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "maxBytes": effective_settings.max_batch_bytes,
                 "maxFiles": effective_settings.max_batch_files,
             },
+            "library": {
+                "version": 1,
+                "maxPreviewBytes": effective_settings.max_preview_bytes,
+            },
         }
+
+    @application.get("/v1/library/sessions")
+    async def library_sessions(
+        request: Request,
+        limit: int = 100,
+        offset: int = 0,
+    ):
+        receiver = service(request)
+        device = await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        return await run_in_threadpool(
+            receiver.list_library_sessions,
+            device,
+            limit=limit,
+            offset=offset,
+        )
+
+    @application.get("/v1/library/sessions/{session_id}/files")
+    async def library_files(session_id: str, request: Request, path: str = ""):
+        receiver = service(request)
+        device = await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        return await run_in_threadpool(
+            receiver.list_library_files,
+            device,
+            session_id,
+            path,
+        )
+
+    @application.get("/v1/library/sessions/{session_id}/file")
+    async def library_file(session_id: str, request: Request, path: str):
+        receiver = service(request)
+        device = await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        name, content = await run_in_threadpool(
+            receiver.read_library_file,
+            device,
+            session_id,
+            path,
+        )
+        return Response(
+            content=content,
+            media_type=mimetypes.guess_type(name)[0] or "application/octet-stream",
+        )
 
     @application.post("/v1/upload-sessions")
     async def create_session(request: Request):

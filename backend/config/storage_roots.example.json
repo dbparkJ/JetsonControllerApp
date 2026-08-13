@@ -1,8 +1,8 @@
 {
   "recordings": {
-    "label": "Recordings",
-    "path": "/data/recordings",
-    "path_hint": "/data/recordings"
+    "label": "Collected data",
+    "path": "/data/collections",
+    "path_hint": "/data/collections"
   },
   "maps": {
     "label": "Maps",

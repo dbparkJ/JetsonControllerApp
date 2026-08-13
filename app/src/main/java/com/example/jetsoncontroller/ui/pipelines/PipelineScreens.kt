@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -59,9 +60,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineConfigField
+import com.example.jetsoncontroller.model.PipelineConfigValueType
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.RemoteEntryType
 import com.example.jetsoncontroller.model.RemoteFileEntry
@@ -274,7 +278,7 @@ private fun PipelineItem(
                 }
                 TextButton(onClick = onConfig, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Description, contentDescription = null)
-                    Text("YAML", modifier = Modifier.padding(start = 4.dp))
+                    Text("설정", modifier = Modifier.padding(start = 4.dp))
                 }
                 TextButton(
                     onClick = onOutput,
@@ -444,7 +448,7 @@ fun PipelineEditorScreen(
             item {
                 SelectorRow(
                     icon = Icons.Default.Description,
-                    title = "YAML 설정",
+                    title = "작업 설정 파일",
                     value = draft.config,
                     enabled = draft.repositoryRoot != null && !state.isLoading,
                     onClick = { onPick(PipelinePickerTarget.CONFIG) }
@@ -728,7 +732,7 @@ fun PipelineLogScreen(
 fun PipelineConfigScreen(
     state: PipelineUiState,
     onBack: () -> Unit,
-    onContentChange: (String) -> Unit,
+    onValueChange: (String, String) -> Unit,
     onSave: () -> Unit
 ) {
     BackHandler(onBack = onBack)
@@ -737,7 +741,7 @@ fun PipelineConfigScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("YAML 설정")
+                        Text("작업 설정")
                         if (state.configPath.isNotBlank()) {
                             Text(
                                 state.configPath,
@@ -757,33 +761,108 @@ fun PipelineConfigScreen(
                 actions = {
                     IconButton(
                         onClick = onSave,
-                        enabled = !state.detailLoading && !state.configSaving
+                        enabled = !state.detailLoading && !state.configSaving &&
+                            state.configHasChanges && state.configValuesValid
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = "YAML 저장")
+                        Icon(Icons.Default.Save, contentDescription = "설정 저장")
                     }
                 }
             )
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp)
-        ) {
-            state.error?.let {
-                InlineMessage(it, isError = true, modifier = Modifier.padding(bottom = 12.dp))
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().imePadding(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                state.error?.let { error ->
+                    item { InlineMessage(error, isError = true) }
+                }
+                state.message?.let { message ->
+                    item { InlineMessage(message, isError = false) }
+                }
+                if (state.configFields.isEmpty() && !state.detailLoading && state.error == null) {
+                    item {
+                        EmptyState(
+                            title = "편집할 설정 값이 없습니다",
+                            message = "이 작업 설정에는 변경 가능한 키와 값이 없습니다."
+                        )
+                    }
+                }
+                items(state.configFields, key = { it.path }) { field ->
+                    PipelineConfigFieldEditor(
+                        field = field,
+                        enabled = !state.detailLoading && !state.configSaving,
+                        onValueChange = { onValueChange(field.path, it) }
+                    )
+                }
             }
-            state.message?.let {
-                InlineMessage(it, isError = false, modifier = Modifier.padding(bottom = 12.dp))
+            if (state.detailLoading || state.configSaving) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
             }
-            OutlinedTextField(
-                value = state.configContent,
-                onValueChange = onContentChange,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                enabled = !state.detailLoading && !state.configSaving,
-                textStyle = MaterialTheme.typography.bodySmall,
-                label = { Text("YAML") }
-            )
         }
     }
+}
+
+@Composable
+private fun PipelineConfigFieldEditor(
+    field: PipelineConfigField,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit
+) {
+    if (field.type == PipelineConfigValueType.BOOLEAN) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    field.label,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Switch(
+                    checked = field.value == "true",
+                    onCheckedChange = { onValueChange(it.toString()) },
+                    enabled = enabled
+                )
+            }
+        }
+        return
+    }
+
+    val keyboardType = when (field.type) {
+        PipelineConfigValueType.INTEGER -> KeyboardType.Number
+        PipelineConfigValueType.DECIMAL -> KeyboardType.Decimal
+        else -> KeyboardType.Text
+    }
+    val valid = configFieldValueValid(field.type, field.value)
+    OutlinedTextField(
+        value = field.value,
+        onValueChange = { onValueChange(it.take(4096)) },
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
+        label = { Text(field.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        singleLine = field.type != PipelineConfigValueType.STRING,
+        minLines = if (field.type == PipelineConfigValueType.STRING) 1 else 1,
+        maxLines = if (field.type == PipelineConfigValueType.STRING) 4 else 1,
+        isError = !valid,
+        supportingText = if (!valid) {
+            {
+                Text(
+                    if (field.type == PipelineConfigValueType.INTEGER) "정수를 입력하세요."
+                    else "유효한 숫자를 입력하세요."
+                )
+            }
+        } else null
+    )
 }
 
 private fun selectionLabel(root: RemoteRoot?, path: String): String = when {
@@ -796,7 +875,7 @@ private fun pickerTitle(target: PipelinePickerTarget?): String = when (target) {
     PipelinePickerTarget.REPOSITORY -> "Git 레포 선택"
     PipelinePickerTarget.VIRTUALENV -> "가상환경 선택"
     PipelinePickerTarget.ENTRYPOINT -> "메인 Python 선택"
-    PipelinePickerTarget.CONFIG -> "YAML 설정 선택"
+    PipelinePickerTarget.CONFIG -> "작업 설정 파일 선택"
     null -> "경로 선택"
 }
 

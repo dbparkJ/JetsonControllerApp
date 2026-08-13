@@ -692,6 +692,57 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             ],
         )
 
+    def test_json_response_size_is_bounded(self) -> None:
+        class OversizedResponseUploadManager(UploadManager):
+            def _http_connection(self, _target):
+                class Response:
+                    status = 200
+
+                    @staticmethod
+                    def read(limit):
+                        return b"x" * limit
+
+                class Connection:
+                    sock = None
+
+                    @staticmethod
+                    def request(*_args, **_kwargs):
+                        pass
+
+                    @staticmethod
+                    def getresponse():
+                        return Response()
+
+                    @staticmethod
+                    def close():
+                        pass
+
+                return Connection(), ""
+
+        manager = OversizedResponseUploadManager(
+            self.storage,
+            self.targets,
+            self.state / "oversized-json-response",
+            "device-test",
+            allow_local_targets=True,
+        )
+        target = UploadTarget(
+            id="receiver",
+            label="Receiver",
+            kind="http",
+            base_url="https://uploads.example.com",
+            token_file=self.base / "unused-token",
+        )
+        with self.assertRaisesRegex(RuntimeError, "response is too large"):
+            manager._http_json(
+                target,
+                "token",
+                "GET",
+                "/v1/library/sessions",
+                None,
+                max_response_bytes=8,
+            )
+
     def test_cancellation_cannot_be_overwritten_by_worker_completion(self) -> None:
         copy_started = threading.Event()
         release_copy = threading.Event()

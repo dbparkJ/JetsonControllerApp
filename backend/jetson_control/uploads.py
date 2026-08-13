@@ -18,7 +18,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlencode, urlsplit
 
 from .config import load_json_object, validate_config_id
-from .filesystem import StorageRegistry
+from .filesystem import FileTooLarge, StorageRegistry
 
 
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
@@ -34,6 +34,8 @@ DEFERRED_FILE_HASH_MODE = "deferred-v1"
 CLIENT_MAX_BATCH_BYTES = 32 * 1024 * 1024
 CLIENT_MAX_BATCH_FILES = 256
 HASH_PROGRESS_INTERVAL_SECONDS = 0.5
+HTTP_JSON_MAX_RESPONSE_BYTES = 1024 * 1024
+HTTP_LIBRARY_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -184,6 +186,114 @@ class UploadManager:
                 self.targets().values(), key=lambda value: value.label.lower()
             )
         ]
+
+    def library_sessions(
+        self,
+        target_id: str,
+        *,
+        offset: int = 0,
+    ) -> Dict[str, object]:
+        if offset < 0 or offset > 10_000:
+            raise ValueError("Upload library offset is invalid")
+        target, token = self._library_target(target_id)
+        response = self._library_json(
+            target,
+            token,
+            f"/v1/library/sessions?{urlencode({'limit': 100, 'offset': offset})}",
+        )
+        if not isinstance(response.get("sessions"), list):
+            raise RuntimeError("Upload server returned an invalid library response")
+        return response
+
+    def library_files(
+        self,
+        target_id: str,
+        session_id: str,
+        relative_path: str,
+    ) -> Dict[str, object]:
+        target, token = self._library_target(target_id)
+        session_id = validate_config_id(session_id, "upload session")
+        relative_path = self._validate_library_path(relative_path, allow_empty=True)
+        query = urlencode({"path": relative_path})
+        response = self._library_json(
+            target,
+            token,
+            f"/v1/library/sessions/{session_id}/files?{query}",
+        )
+        if not isinstance(response.get("entries"), list):
+            raise RuntimeError("Upload server returned an invalid file listing")
+        return response
+
+    def library_file(
+        self,
+        target_id: str,
+        session_id: str,
+        relative_path: str,
+        *,
+        max_bytes: int,
+    ) -> Tuple[str, bytes]:
+        target, token = self._library_target(target_id)
+        session_id = validate_config_id(session_id, "upload session")
+        relative_path = self._validate_library_path(relative_path, allow_empty=False)
+        query = urlencode({"path": relative_path})
+        return self._http_bytes(
+            target,
+            token,
+            f"/v1/library/sessions/{session_id}/file?{query}",
+            max_bytes=max_bytes,
+        )
+
+    def _library_target(self, target_id: str) -> Tuple[UploadTarget, str]:
+        target_id = validate_config_id(target_id, "upload target")
+        try:
+            target = self.targets()[target_id]
+        except KeyError as error:
+            raise ValueError("Upload target was not found") from error
+        if target.kind != "http":
+            raise ValueError("Upload target does not provide a remote library")
+        return target, self._read_target_token(target)
+
+    def _library_json(
+        self,
+        target: UploadTarget,
+        token: str,
+        endpoint: str,
+    ) -> Dict[str, object]:
+        try:
+            return self._http_json(
+                target,
+                token,
+                "GET",
+                endpoint,
+                None,
+                max_response_bytes=HTTP_LIBRARY_MAX_RESPONSE_BYTES,
+            )
+        except UploadReceiverHttpError as error:
+            if error.status_code in {404, 405}:
+                raise UploadLibraryUnavailable(
+                    "Upload server library is not installed"
+                ) from error
+            raise
+
+    @staticmethod
+    def _validate_library_path(value: str, *, allow_empty: bool) -> str:
+        if value == "" and allow_empty:
+            return value
+        if (
+            not value
+            or value.startswith("/")
+            or "\\" in value
+            or "\x00" in value
+            or len(value.encode("utf-8")) > 4096
+        ):
+            raise ValueError("Upload library path is invalid")
+        parts = value.split("/")
+        if any(
+            not part or part in {".", ".."} or len(part.encode("utf-8")) > 255
+            for part in parts
+        ):
+            raise ValueError("Upload library path is invalid")
+        return value
 
     def save_http_target(
         self,
@@ -1250,7 +1360,10 @@ class UploadManager:
         endpoint: str,
         value: Optional[Dict[str, object]],
         response_timeout: Optional[float] = None,
+        max_response_bytes: int = HTTP_JSON_MAX_RESPONSE_BYTES,
     ) -> Dict[str, object]:
+        if max_response_bytes < 1:
+            raise ValueError("HTTP response size limit is invalid")
         connection, base_path = self._http_connection(target)
         body = None if value is None else json.dumps(
             value, ensure_ascii=True, separators=(",", ":")
@@ -1264,9 +1377,11 @@ class UploadManager:
             if response_timeout is not None and connection.sock is not None:
                 connection.sock.settimeout(response_timeout)
             response = connection.getresponse()
-            response_body = response.read(1024 * 1024)
             if response.status < 200 or response.status >= 300:
                 raise UploadReceiverHttpError(response.status)
+            response_body = response.read(max_response_bytes + 1)
+            if len(response_body) > max_response_bytes:
+                raise RuntimeError("Upload receiver response is too large")
             if not response_body:
                 return {}
             parsed = json.loads(response_body.decode("utf-8"))
@@ -1301,6 +1416,53 @@ class UploadManager:
             except (OSError, http.client.HTTPException, RuntimeError) as error:
                 last_error = error
         raise RuntimeError("External upload request failed after multiple retries") from last_error
+
+    def _http_bytes(
+        self,
+        target: UploadTarget,
+        token: str,
+        endpoint: str,
+        *,
+        max_bytes: int,
+    ) -> Tuple[str, bytes]:
+        if max_bytes < 1:
+            raise ValueError("Preview size limit is invalid")
+        connection, base_path = self._http_connection(target)
+        try:
+            connection.request(
+                "GET",
+                f"{base_path}{endpoint}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "*/*",
+                },
+            )
+            response = connection.getresponse()
+            if response.status < 200 or response.status >= 300:
+                if response.status in {404, 405}:
+                    raise UploadLibraryUnavailable(
+                        "Upload server library file is unavailable"
+                    )
+                if response.status == 413:
+                    raise FileTooLarge("Upload server file is too large to preview")
+                raise UploadReceiverHttpError(response.status)
+            declared = response.getheader("Content-Length")
+            if declared is not None:
+                try:
+                    declared_size = int(declared)
+                except ValueError as error:
+                    raise RuntimeError(
+                        "Upload server returned invalid file metadata"
+                    ) from error
+                if declared_size > max_bytes:
+                    raise FileTooLarge("Upload server file is too large to preview")
+            body = response.read(max_bytes + 1)
+            if len(body) > max_bytes:
+                raise FileTooLarge("Upload server file is too large to preview")
+            media_type = response.getheader("Content-Type", "application/octet-stream")
+            return media_type.split(";", 1)[0].strip(), body
+        finally:
+            connection.close()
 
     @staticmethod
     def _http_connection(target: UploadTarget) -> Tuple[http.client.HTTPConnection, str]:
@@ -1514,6 +1676,10 @@ class UploadReceiverHttpError(RuntimeError):
     def __init__(self, status_code: int) -> None:
         self.status_code = status_code
         super().__init__(f"Upload receiver rejected the request (HTTP {status_code})")
+
+
+class UploadLibraryUnavailable(RuntimeError):
+    pass
 
 
 class UploadConflict(RuntimeError):

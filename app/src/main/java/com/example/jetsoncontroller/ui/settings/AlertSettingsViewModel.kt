@@ -42,6 +42,14 @@ class AlertSettingsViewModel(
         preferences.setPipelineFailedEnabled(enabled)
     }
 
+    fun setUploadStartedEnabled(enabled: Boolean) = viewModelScope.launch {
+        preferences.setUploadStartedEnabled(enabled)
+    }
+
+    fun setUploadEndedEnabled(enabled: Boolean) = viewModelScope.launch {
+        preferences.setUploadEndedEnabled(enabled)
+    }
+
     class Factory(
         private val preferences: AlertPreferencesStore
     ) : ViewModelProvider.Factory {

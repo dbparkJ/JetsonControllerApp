@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jetson_control.pipelines import PipelineManager
+from jetson_control.pipelines import PipelineConflict, PipelineManager
 
 
 def manifest(pipeline_id: str = "capture"):
@@ -132,6 +132,66 @@ class PipelineManagerTest(unittest.TestCase):
             (self.root / "capture" / "current" / "configs" / "capture.yaml").read_text(),
             "camera:\n  fps: 15\n",
         )
+
+    def test_structured_config_fields_preserve_yaml_and_check_revision(self) -> None:
+        config_path = self.root / "capture" / "current" / "configs" / "capture.yaml"
+        config_path.write_text(
+            "# capture settings\n"
+            "camera:\n"
+            "  fps: 30  # frames per second\n"
+            "  enabled: true\n"
+            "  exposure: 1.25\n"
+            "names:\n"
+            "  - front\n"
+            "optional:\n",
+            encoding="utf-8",
+        )
+
+        document = self.manager.config_fields("capture")
+        fields = {field["path"]: field for field in document["fields"]}
+        self.assertEqual(fields["/camera/fps"]["type"], "INTEGER")
+        self.assertEqual(fields["/camera/enabled"]["value"], "true")
+        self.assertEqual(fields["/names/0"]["type"], "STRING")
+        self.assertEqual(fields["/optional"]["type"], "NULL")
+
+        updated = self.manager.update_config_fields(
+            "capture",
+            document["revision"],
+            {
+                "/camera/fps": "15",
+                "/camera/enabled": "false",
+                "/camera/exposure": "2.5",
+                "/names/0": "rear",
+            },
+        )
+        updated_fields = {field["path"]: field for field in updated["fields"]}
+        self.assertEqual(updated_fields["/camera/fps"]["value"], "15")
+        self.assertEqual(updated_fields["/camera/enabled"]["value"], "false")
+        saved = config_path.read_text(encoding="utf-8")
+        self.assertIn("# capture settings", saved)
+        self.assertIn("# frames per second", saved)
+
+        with self.assertRaises(PipelineConflict):
+            self.manager.update_config_fields(
+                "capture",
+                document["revision"],
+                {"/camera/fps": "10"},
+            )
+
+    def test_structured_config_rejects_non_scalar_values(self) -> None:
+        config_path = self.root / "capture" / "current" / "configs" / "capture.yaml"
+        config_path.write_text("created: 2026-08-13\n", encoding="utf-8")
+        with self.assertRaisesRegex(Exception, "cannot be edited"):
+            self.manager.config_fields("capture")
+
+    def test_structured_config_rejects_container_aliases(self) -> None:
+        config_path = self.root / "capture" / "current" / "configs" / "capture.yaml"
+        config_path.write_text(
+            "primary: &camera\n  fps: 30\nsecondary: *camera\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(Exception, "aliases cannot be edited"):
+            self.manager.config_fields("capture")
 
     def test_logs_use_exact_unit_and_bounded_line_count(self) -> None:
         response = self.manager.logs("capture", 5000)

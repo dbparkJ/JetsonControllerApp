@@ -43,6 +43,7 @@ enum class WifiSecurity {
 
 data class WifiAccessPointState(
     val accessPoints: List<WifiAccessPoint> = emptyList(),
+    val currentSsid: String? = null,
     val scanning: Boolean = false,
     val error: String? = null
 )
@@ -109,6 +110,11 @@ class WifiAccessPointScanner(context: Context) {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    fun refreshCurrentConnection() {
+        _state.value = _state.value.copy(currentSsid = readCurrentSsid())
+    }
+
     private fun register() {
         if (registered) {
             return
@@ -149,9 +155,28 @@ class WifiAccessPointScanner(context: Context) {
 
         _state.value = WifiAccessPointState(
             accessPoints = accessPoints,
+            currentSsid = readCurrentSsid(),
             scanning = scanning,
             error = null
         )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun readCurrentSsid(): String? {
+        if (
+            ContextCompat.checkSelfPermission(
+                appContext,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED || !wifiManager.isWifiEnabled
+        ) return null
+        return try {
+            @Suppress("DEPRECATION")
+            wifiManager.connectionInfo?.ssid
+                ?.removeSurrounding("\"")
+                ?.takeIf { it.isNotBlank() && it != WifiManager.UNKNOWN_SSID }
+        } catch (_: SecurityException) {
+            null
+        }
     }
 
     fun stop() {

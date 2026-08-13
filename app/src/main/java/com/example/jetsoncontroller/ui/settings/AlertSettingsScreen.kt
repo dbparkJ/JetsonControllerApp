@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +60,8 @@ fun AlertSettingsScreen(
     onTemperatureThresholdChange: (Int) -> Unit,
     onPipelineStartedEnabledChange: (Boolean) -> Unit,
     onPipelineFailedEnabledChange: (Boolean) -> Unit,
+    onUploadStartedEnabledChange: (Boolean) -> Unit,
+    onUploadEndedEnabledChange: (Boolean) -> Unit,
     onSectionSelected: (ControlSection) -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -93,6 +97,12 @@ fun AlertSettingsScreen(
                     text = { Text("작업") },
                     icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) }
                 )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    text = { Text("업로드") },
+                    icon = { Icon(Icons.Default.CloudUpload, contentDescription = null) }
+                )
             }
 
             when (selectedTab) {
@@ -104,13 +114,52 @@ fun AlertSettingsScreen(
                     onTemperatureThresholdChange = onTemperatureThresholdChange,
                     modifier = Modifier.weight(1f)
                 )
-                else -> PipelineAlertSettings(
+                1 -> PipelineAlertSettings(
                     settings = settings,
                     onPipelineStartedEnabledChange = onPipelineStartedEnabledChange,
                     onPipelineFailedEnabledChange = onPipelineFailedEnabledChange,
                     modifier = Modifier.weight(1f)
                 )
+                else -> UploadAlertSettings(
+                    settings = settings,
+                    onUploadStartedEnabledChange = onUploadStartedEnabledChange,
+                    onUploadEndedEnabledChange = onUploadEndedEnabledChange,
+                    modifier = Modifier.weight(1f)
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun UploadAlertSettings(
+    settings: AlertSettings,
+    onUploadStartedEnabledChange: (Boolean) -> Unit,
+    onUploadEndedEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            NotificationSetting(
+                icon = Icons.Default.CloudUpload,
+                title = "업로드 시작",
+                description = "수집 데이터 전송이 시작되면 알립니다.",
+                enabled = settings.uploadStartedEnabled,
+                onEnabledChange = onUploadStartedEnabledChange
+            )
+        }
+        item {
+            NotificationSetting(
+                icon = Icons.Default.TaskAlt,
+                title = "업로드 종료",
+                description = "전송 완료, 실패 또는 취소 상태를 알립니다.",
+                enabled = settings.uploadEndedEnabled,
+                onEnabledChange = onUploadEndedEnabledChange
+            )
         }
     }
 }

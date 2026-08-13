@@ -938,6 +938,159 @@ class ReceiverService:
             self._drop_session_hashers(session_id)
             return "CANCELLED"
 
+    def list_library_sessions(
+        self,
+        device: Device,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        if limit < 1 or limit > 200 or offset < 0 or offset > 10_000:
+            raise ReceiverError(400, "Library pagination is invalid")
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT session_id, source_name, total_bytes, file_count,
+                       created_at, completed_at
+                FROM upload_sessions
+                WHERE device_id=? AND state='COMPLETED'
+                ORDER BY completed_at DESC, session_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (device.device_id, limit + 1, offset),
+            ).fetchall()
+        return {
+            "sessions": [
+                {
+                    "sessionId": row["session_id"],
+                    "sourceName": row["source_name"],
+                    "totalBytes": row["total_bytes"],
+                    "fileCount": row["file_count"],
+                    "createdAt": row["created_at"],
+                    "completedAt": row["completed_at"],
+                }
+                for row in rows[:limit]
+            ],
+            "nextOffset": offset + limit if len(rows) > limit else None,
+        }
+
+    def list_library_files(
+        self,
+        device: Device,
+        session_id: str,
+        directory: str,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        session_id = self.validate_session_id(session_id)
+        directory = self.validate_directory_path(directory)
+        prefix = f"{directory}/" if directory else ""
+        lower_bound = prefix
+        upper_bound = f"{prefix}\U0010ffff"
+
+        with self.database.connect() as connection:
+            session = self._owned_session(connection, device, session_id)
+            if session["state"] != "COMPLETED":
+                raise ReceiverError(409, "Upload session is not available in the library")
+            rows = connection.execute(
+                """
+                WITH candidates AS (
+                    SELECT substr(relative_path, ?) AS remainder, size_bytes
+                    FROM upload_files
+                    WHERE session_id=? AND relative_path>=? AND relative_path<?
+                ), segments AS (
+                    SELECT
+                        CASE
+                            WHEN instr(remainder, '/') = 0 THEN remainder
+                            ELSE substr(remainder, 1, instr(remainder, '/') - 1)
+                        END AS name,
+                        CASE WHEN instr(remainder, '/') = 0 THEN 0 ELSE 1 END
+                            AS is_directory,
+                        size_bytes
+                    FROM candidates
+                    WHERE remainder <> ''
+                ), children AS (
+                    SELECT
+                        name,
+                        MAX(is_directory) AS is_directory,
+                        MAX(CASE WHEN is_directory = 0 THEN size_bytes END) AS size_bytes
+                    FROM segments
+                    GROUP BY name
+                )
+                SELECT name, is_directory, size_bytes
+                FROM children
+                WHERE name <> ''
+                ORDER BY is_directory DESC, name COLLATE NOCASE, name
+                LIMIT 501
+                """,
+                (len(prefix) + 1, session_id, lower_bound, upper_bound),
+            ).fetchall()
+
+        truncated = len(rows) > 500
+        entries = [
+            {
+                "name": row["name"],
+                "relativePath": f"{prefix}{row['name']}",
+                "type": "DIRECTORY" if row["is_directory"] else "FILE",
+                "sizeBytes": None if row["is_directory"] else row["size_bytes"],
+                "modifiedAt": None if row["is_directory"] else session["completed_at"],
+            }
+            for row in rows[:500]
+        ]
+        return {
+            "sessionId": session_id,
+            "path": directory,
+            "entries": entries,
+            "truncated": truncated,
+        }
+
+    def read_library_file(
+        self,
+        device: Device,
+        session_id: str,
+        relative_path: str,
+    ) -> tuple[str, bytes]:
+        self.ensure_storage_available()
+        session_id = self.validate_session_id(session_id)
+        relative_path = self.validate_relative_path(relative_path)
+        with self.database.connect() as connection:
+            session = self._owned_session(connection, device, session_id)
+            if session["state"] != "COMPLETED":
+                raise ReceiverError(409, "Upload session is not available in the library")
+            row = connection.execute(
+                """
+                SELECT size_bytes, final_key FROM upload_files
+                WHERE session_id=? AND relative_path=?
+                """,
+                (session_id, relative_path),
+            ).fetchone()
+        if row is None:
+            raise ReceiverError(404, "Library file was not found")
+        size_bytes = int(row["size_bytes"])
+        if size_bytes > self.settings.max_preview_bytes:
+            raise ReceiverError(413, "Library file is too large to preview")
+
+        target = self._key_path(str(row["final_key"]), self.settings.objects_root)
+        try:
+            descriptor = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
+        except (FileNotFoundError, NotADirectoryError) as error:
+            raise ReceiverError(404, "Library file was not found") from error
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size != size_bytes:
+                raise ReceiverError(503, "Library file storage is inconsistent")
+            chunks = []
+            received = 0
+            while received < size_bytes:
+                chunk = os.read(descriptor, min(1024 * 1024, size_bytes - received))
+                if not chunk:
+                    raise ReceiverError(503, "Library file storage is inconsistent")
+                chunks.append(chunk)
+                received += len(chunk)
+        finally:
+            os.close(descriptor)
+        return relative_path.rsplit("/", 1)[-1], b"".join(chunks)
+
     def health_ready(self) -> bool:
         now = time.monotonic()
         with self._readiness_guard:
@@ -1705,6 +1858,10 @@ class ReceiverService:
         if posixpath.normpath(value) != value:
             raise ReceiverError(400, "File path is not normalized")
         return value
+
+    @classmethod
+    def validate_directory_path(cls, value: str) -> str:
+        return "" if value == "" else cls.validate_relative_path(value)
 
     @staticmethod
     def _parse_timestamp(value: str) -> datetime:

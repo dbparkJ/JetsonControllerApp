@@ -34,9 +34,12 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,15 +50,19 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +76,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -95,15 +103,17 @@ fun NetworkSettingsScreen(
     wifiScanPermissionGranted: Boolean,
     onRequestWifiScanPermission: () -> Unit,
     onScanAccessPoints: () -> Unit,
-    onSelectAccessPoint: (WifiAccessPoint) -> Unit
+    onSelectAccessPoint: (WifiAccessPoint) -> Unit,
+    onWifiDirectClick: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     var manualEntryExpanded by rememberSaveable { mutableStateOf(false) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Wi-Fi 설정") },
+                title = { Text("네트워크") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -131,15 +141,38 @@ fun NetworkSettingsScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .imePadding()
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
+        Column(Modifier.fillMaxSize().padding(paddingValues)) {
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("연결 상태") },
+                    icon = { Icon(Icons.Default.Router, contentDescription = null) }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Jetson Wi-Fi") },
+                    icon = { Icon(Icons.Default.Wifi, contentDescription = null) }
+                )
+            }
+            if (selectedTab == 0) {
+                NetworkConnectionStatus(
+                    state = state,
+                    wifiScanPermissionGranted = wifiScanPermissionGranted,
+                    onRequestWifiScanPermission = onRequestWifiScanPermission,
+                    onWifiDirectClick = onWifiDirectClick,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .imePadding()
+                        .navigationBarsPadding(),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                     ConnectionMethodLabel(state.transportType)
@@ -233,8 +266,107 @@ fun NetworkSettingsScreen(
                     )
                 }
             }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun NetworkConnectionStatus(
+    state: NetworkSettingsUiState,
+    wifiScanPermissionGranted: Boolean,
+    onRequestWifiScanPermission: () -> Unit,
+    onWifiDirectClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { ConnectionMethodLabel(state.transportType) }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Column {
+                    NetworkIdentityRow(
+                        icon = Icons.Default.Smartphone,
+                        label = "모바일",
+                        value = state.mobileWifiSsid ?: "Wi-Fi 확인 필요"
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                    NetworkIdentityRow(
+                        icon = Icons.Default.Router,
+                        label = "Jetson",
+                        value = if (state.wifiConnected) {
+                            state.currentWifiSsid ?: "연결된 Wi-Fi"
+                        } else {
+                            "Wi-Fi 연결 안 됨"
+                        }
+                    )
+                }
+            }
+        }
+        item {
+            when {
+                state.sameWifi && state.transportType == TransportType.LAN -> InlineMessage(
+                    "같은 Wi-Fi에서 LAN으로 자동 연결되었습니다.",
+                    isError = false
+                )
+                state.sameWifi -> InlineMessage(
+                    "모바일과 Jetson이 같은 Wi-Fi에 연결되어 있습니다.",
+                    isError = false
+                )
+                !wifiScanPermissionGranted -> InlineMessage(
+                    "모바일 Wi-Fi를 확인하려면 위치 권한이 필요합니다.",
+                    isError = false
+                )
+                !state.mobileWifiSsid.isNullOrBlank() && !state.currentWifiSsid.isNullOrBlank() ->
+                    InlineMessage(
+                        "모바일과 Jetson의 Wi-Fi가 서로 다릅니다.",
+                        isError = true
+                    )
+            }
+        }
+        if (!wifiScanPermissionGranted) {
+            item {
+                OutlinedButton(
+                    onClick = onRequestWifiScanPermission,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Wi-Fi 확인 권한 허용")
+                }
+            }
+        }
+        item {
+            OutlinedButton(
+                onClick = onWifiDirectClick,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.WifiTethering, contentDescription = null)
+                Text("Wi-Fi Direct로 연결", modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetworkIdentityRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String
+) {
+    ListItem(
+        headlineContent = { Text(label) },
+        supportingContent = {
+            Text(value, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        leadingContent = { Icon(icon, contentDescription = null) }
+    )
 }
 
 @Composable

@@ -9,6 +9,7 @@ data class NetworkSettingsUiState(
     val hidden: Boolean = false,
     val selectedAccessPointSsid: String? = null,
     val currentWifiSsid: String? = null,
+    val mobileWifiSsid: String? = null,
     val wifiConnected: Boolean = false,
     val transportType: TransportType? = null,
     val accessPoints: List<WifiAccessPoint> = emptyList(),
@@ -21,3 +22,7 @@ data class NetworkSettingsUiState(
 
 internal fun NetworkSettingsUiState.isCurrentJetsonWifi(candidateSsid: String): Boolean =
     wifiConnected && !currentWifiSsid.isNullOrBlank() && currentWifiSsid == candidateSsid
+
+internal val NetworkSettingsUiState.sameWifi: Boolean
+    get() = wifiConnected && !mobileWifiSsid.isNullOrBlank() &&
+        mobileWifiSsid == currentWifiSsid

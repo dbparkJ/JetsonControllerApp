@@ -49,6 +49,7 @@ class Settings:
     max_stored_files_per_device: int = 1_000_000
     max_manifest_requests_per_minute: int = 30
     readiness_cache_seconds: int = 5
+    max_preview_bytes: int = 12 * 1024 * 1024
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -96,6 +97,9 @@ class Settings:
             ),
             readiness_cache_seconds=_positive_int(
                 "UPLOAD_RECEIVER_READINESS_CACHE_SECONDS", 5
+            ),
+            max_preview_bytes=_positive_int(
+                "UPLOAD_RECEIVER_MAX_PREVIEW_BYTES", 12 * 1024 * 1024
             ),
         )
 

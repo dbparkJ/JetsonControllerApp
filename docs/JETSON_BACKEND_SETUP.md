@@ -55,14 +55,13 @@ Jetson에서 저장소 root 기준으로 실행한다.
 sudo backend/scripts/install.sh \
   --device-name MMS-JETSON-01 \
   --pipeline-user jm \
-  --enable-power \
-  --storage-root /home/jm/26_camera_record
+  --enable-power
 ```
 
 - `--enable-power`: 앱의 재부팅/종료를 활성화한다.
 - `--device-name`: 새 장비의 광고 이름이다. 생략하면 UUID 기반 이름을 만든다.
 - `--pipeline-user`: 카메라·serial 장치를 사용하는 Python 작업의 Linux 계정이다.
-- `--storage-root`: 앱에 노출할 데이터 디렉터리다. 사용자 홈 전체를 지정하지 않는다.
+- `--storage-root`: 앱에 노출할 데이터 디렉터리다. 생략하면 `/data/collections`를 생성해 pipeline 사용자 소유로 설정한다. 이전 기본값인 `~/26_camera_record` 또는 `/var/lib/jetson-control/data`는 다음 설치 때 이 경로로 자동 전환된다. 기존 `~/26_camera_record` 데이터는 `Previous collected data` root로 함께 남고, 관리자가 직접 지정한 다른 경로는 유지된다.
 - Wi-Fi Direct는 기본 활성화된다. 무선 칩이 P2P GO를 지원하지 않는 장비만 `--disable-wifi-direct`를 사용한다.
 - 기본 P2P 주파수는 2.4 GHz 채널 1인 `2412` MHz다. 현장 규격에 맞춰 `--wifi-direct-frequency <MHz>`로 바꿀 수 있다.
 - 기존 `/etc/jetson-control/device.json`은 덮어쓰지 않는다. QR에 사용한 장비 UUID와 secret이 유지된다.
@@ -175,9 +174,9 @@ Storage root 예시:
 ```json
 {
   "recordings": {
-    "label": "Recordings",
-    "path": "/home/jm/26_camera_record",
-    "path_hint": "/home/jm/26_camera_record"
+    "label": "Collected data",
+    "path": "/data/collections",
+    "path_hint": "/data/collections"
   }
 }
 ```
@@ -197,6 +196,9 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `GET` | `/v1/fs/file?root=&path=` | HMAC | 12 MiB 이하 수집 파일 미리보기 |
 | `GET` | `/v1/fs/workspaces` | HMAC | pipeline 사용자의 `~/` 작업공간 root |
 | `GET` | `/v1/fs/workspace/list?root=&path=` | HMAC | 작업공간 내부 소스 선택 |
+| `GET` | `/v1/upload/library/sessions?target=&offset=` | HMAC | 외부 서버 완료 upload 목록 프록시 |
+| `GET` | `/v1/upload/library/files?target=&session=&path=` | HMAC | 외부 서버 upload의 가상 폴더 목록 프록시 |
+| `GET` | `/v1/upload/library/file?target=&session=&path=` | HMAC | 외부 서버 파일의 12 MiB 제한 미리보기 프록시 |
 | `GET` | `/v1/upload/targets` | HMAC | 외부 업로드 대상 |
 | `PUT` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 HTTPS 업로드 서버 추가·수정 |
 | `DELETE` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 업로드 서버 삭제 |
@@ -214,6 +216,8 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `DELETE` | `/v1/pipelines/{id}` | HMAC | 작업 등록 해제 |
 | `GET` | `/v1/pipelines/{id}/logs` | HMAC | 최근 systemd journal 로그 |
 | `GET`, `PUT` | `/v1/pipelines/{id}/config` | HMAC | 현재 release의 YAML 읽기와 원자 저장 |
+| `GET` | `/v1/pipelines/{id}/config/fields` | HMAC | 편집 가능한 scalar key/value와 revision 조회 |
+| `PATCH` | `/v1/pipelines/{id}/config/fields` | HMAC | revision 확인 후 선택한 value만 원자 저장 |
 
 ### TLS bootstrap
 

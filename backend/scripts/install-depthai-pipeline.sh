@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "Run as root: sudo $0 [--repo <path>] [--venv <path>] [--start-now]" >&2
+  echo "Run as root: sudo $0 [--repo <path>] [--venv <path>] [--output-root <path>] [--start-now]" >&2
   exit 1
 fi
 
@@ -10,6 +10,7 @@ target_user="${SUDO_USER:-jm}"
 target_home="$(getent passwd "${target_user}" | cut -d: -f6)"
 repo="${target_home}/26_camera_record/depthai_refactored_ver2"
 venv="${target_home}/26_camera_record/.venv"
+output_root="/data/collections"
 start_now=false
 
 while [[ "$#" -gt 0 ]]; do
@@ -24,6 +25,11 @@ while [[ "$#" -gt 0 ]]; do
       venv="$2"
       shift 2
       ;;
+    --output-root)
+      [[ "$#" -ge 2 ]] || { echo "--output-root requires a path" >&2; exit 2; }
+      output_root="$2"
+      shift 2
+      ;;
     --start-now)
       start_now=true
       shift
@@ -34,6 +40,14 @@ while [[ "$#" -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${output_root}" != /* ]]; then
+  echo "--output-root must be an absolute path" >&2
+  exit 2
+fi
+target_group="$(id -gn "${target_user}")"
+install -d -m 0755 -o "${target_user}" -g "${target_group}" "${output_root}"
+output_root="$(realpath -e "${output_root}")"
 
 registrar="/opt/jetson-control/register-pipeline.sh"
 if [[ ! -x "${registrar}" ]]; then
@@ -50,8 +64,8 @@ command=(
   --venv "${venv}"
   --entry synced_image_recorder.py
   --config configs/capture.yaml
-  --working-dir "${repo}"
-  --write-path "${repo}/image_records"
+  --working-dir "${output_root}"
+  --write-path "${output_root}"
   --user "${target_user}"
   --autostart
 )

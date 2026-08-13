@@ -39,6 +39,8 @@ import com.example.jetsoncontroller.ui.wifi.WifiDirectScreen
 import com.example.jetsoncontroller.ui.wifi.WifiDirectViewModel
 import com.example.jetsoncontroller.ui.storage.DeviceStorageScreen
 import com.example.jetsoncontroller.ui.storage.DeviceStorageViewModel
+import com.example.jetsoncontroller.ui.storage.ServerStorageScreen
+import com.example.jetsoncontroller.ui.storage.ServerStorageViewModel
 import com.example.jetsoncontroller.ui.upload.UploadConfirmScreen
 import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
 import com.example.jetsoncontroller.ui.upload.UploadQueueScreen
@@ -82,6 +84,8 @@ private object Routes {
         "network_settings"
         
     const val STORAGE = "storage"
+
+    const val SERVER_STORAGE = "server_storage"
 
     const val STORAGE_ROUTE =
         "storage?rootId={rootId}&path={path}"
@@ -204,6 +208,15 @@ fun JetsonApp(
                     repository
                 )
         )
+
+    val serverStorageViewModel:
+        ServerStorageViewModel =
+        viewModel(
+            factory =
+                ServerStorageViewModel.Factory(
+                    repository
+                )
+        )
         
     val uploadViewModel:
         UploadViewModel =
@@ -253,6 +266,11 @@ fun JetsonApp(
             
     val storageState by
         storageViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
+
+    val serverStorageState by
+        serverStorageViewModel
             .uiState
             .collectAsStateWithLifecycle()
             
@@ -324,9 +342,14 @@ fun JetsonApp(
         transportState,
         currentRoute
     ) {
-        val connected = transportState is TransportState.Connected
+        val connectedTransport = transportState as? TransportState.Connected
+        val connected = connectedTransport != null
         val connectionRoute = isConnectionEntryRoute(currentRoute) ||
-            (currentRoute == Routes.CONNECTION_HUB && openDashboardAfterHubConnection)
+            (
+                currentRoute == Routes.CONNECTION_HUB &&
+                    (openDashboardAfterHubConnection || connectedTransport?.type ==
+                        com.example.jetsoncontroller.data.transport.TransportType.LAN)
+            )
 
         if (connected && connectionRoute) {
             openDashboardAfterHubConnection = false
@@ -546,25 +569,7 @@ fun JetsonApp(
         composable(
             Routes.DASHBOARD
         ) {
-            val lifecycleOwner = LocalLifecycleOwner.current
-            DisposableEffect(lifecycleOwner) {
-                val observer = LifecycleEventObserver { _, event ->
-                    when (event) {
-                        Lifecycle.Event.ON_RESUME -> dashboardViewModel.setVisible(true)
-                        Lifecycle.Event.ON_PAUSE,
-                        Lifecycle.Event.ON_STOP -> dashboardViewModel.setVisible(false)
-                        else -> Unit
-                    }
-                }
-                lifecycleOwner.lifecycle.addObserver(observer)
-                dashboardViewModel.setVisible(
-                    lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-                )
-                onDispose {
-                    lifecycleOwner.lifecycle.removeObserver(observer)
-                    dashboardViewModel.setVisible(false)
-                }
-            }
+            StatusPollingLifecycleEffect(dashboardViewModel)
 
             DashboardScreen(
                 state =
@@ -648,7 +653,8 @@ fun JetsonApp(
                 wifiScanPermissionGranted = wifiScanPermissionGranted,
                 onRequestWifiScanPermission = onRequestWifiScanPermission,
                 onScanAccessPoints = networkSettingsViewModel::scanAccessPoints,
-                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint
+                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint,
+                onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) }
             )
         }
         
@@ -689,6 +695,34 @@ fun JetsonApp(
                         "upload_confirm/${Uri.encode(rootId)}?path=${Uri.encode(path)}"
                     )
                 },
+                onSectionSelected = onSectionSelected,
+                onServerDataClick = {
+                    navController.navigate(Routes.SERVER_STORAGE) {
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+
+        composable(Routes.SERVER_STORAGE) {
+            ServerStorageScreen(
+                state = serverStorageState,
+                onBack = {
+                    if (!serverStorageViewModel.navigateBack()) {
+                        navController.popBackStack()
+                    }
+                },
+                onDeviceDataClick = {
+                    navController.navigate(Routes.STORAGE) {
+                        launchSingleTop = true
+                    }
+                },
+                onRefresh = serverStorageViewModel::refresh,
+                onTargetSelected = serverStorageViewModel::selectTarget,
+                onSessionClick = serverStorageViewModel::openSession,
+                onDirectoryClick = serverStorageViewModel::openDirectory,
+                onFileClick = serverStorageViewModel::openFile,
+                onLoadMore = serverStorageViewModel::loadMoreSessions,
                 onSectionSelected = onSectionSelected
             )
         }
@@ -863,12 +897,13 @@ fun JetsonApp(
             PipelineConfigScreen(
                 state = pipelineState,
                 onBack = { navController.popBackStack() },
-                onContentChange = pipelineViewModel::setConfigContent,
+                onValueChange = pipelineViewModel::setConfigValue,
                 onSave = pipelineViewModel::saveConfig
             )
         }
 
         composable(Routes.SENSORS) {
+            StatusPollingLifecycleEffect(dashboardViewModel)
             SensorScreen(
                 status = dashboardState.status,
                 onSectionSelected = onSectionSelected
@@ -888,8 +923,35 @@ fun JetsonApp(
                     alertSettingsViewModel::setPipelineStartedEnabled,
                 onPipelineFailedEnabledChange =
                     alertSettingsViewModel::setPipelineFailedEnabled,
+                onUploadStartedEnabledChange =
+                    alertSettingsViewModel::setUploadStartedEnabled,
+                onUploadEndedEnabledChange =
+                    alertSettingsViewModel::setUploadEndedEnabled,
                 onSectionSelected = onSectionSelected
             )
+        }
+    }
+}
+
+@Composable
+private fun StatusPollingLifecycleEffect(viewModel: DashboardViewModel) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.setVisible(true)
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> viewModel.setVisible(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        viewModel.setVisible(
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        )
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.setVisible(false)
         }
     }
 }

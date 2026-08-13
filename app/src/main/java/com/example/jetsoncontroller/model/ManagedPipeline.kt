@@ -61,3 +61,30 @@ data class PipelineConfigDocument(
 data class UpdatePipelineConfigRequest(
     val content: String
 )
+
+enum class PipelineConfigValueType {
+    STRING,
+    INTEGER,
+    DECIMAL,
+    BOOLEAN,
+    NULL
+}
+
+data class PipelineConfigField(
+    val path: String,
+    val label: String,
+    val type: PipelineConfigValueType,
+    val value: String
+)
+
+data class PipelineConfigFieldsDocument(
+    val pipelineId: String,
+    val path: String,
+    val revision: String,
+    val fields: List<PipelineConfigField> = emptyList()
+)
+
+data class UpdatePipelineConfigFieldsRequest(
+    val revision: String,
+    val values: Map<String, String>
+)

@@ -16,6 +16,8 @@ import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.PipelineState
+import com.example.jetsoncontroller.model.UploadJob
+import com.example.jetsoncontroller.model.UploadJobState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -35,6 +37,7 @@ class DeviceAlertMonitor(
         createChannels()
         startHealthAlerts()
         startPipelineAlerts()
+        startUploadAlerts()
     }
 
     private fun startHealthAlerts() {
@@ -123,6 +126,48 @@ class DeviceAlertMonitor(
         }
     }
 
+    private fun startUploadAlerts() {
+        scope.launch {
+            var previousStates: Map<String, UploadJobState>? = null
+            repository.transportState.collectLatest { transport ->
+                if (transport !is TransportState.Connected || transport.type == TransportType.BLE) {
+                    return@collectLatest
+                }
+
+                while (currentCoroutineContext().isActive) {
+                    repository.getUploadJobs(activeOnly = false).onSuccess { jobs ->
+                        val decision = UploadAlertEvaluator.evaluate(previousStates, jobs)
+                        previousStates = decision.currentStates
+                        val settings = preferences.settings.first()
+
+                        if (notificationsAllowed() && settings.uploadStartedEnabled) {
+                            decision.started.forEach { job ->
+                                notify(
+                                    uploadNotificationId(UPLOAD_STARTED_NOTIFICATION_BASE, job.id),
+                                    UPLOAD_CHANNEL_ID,
+                                    "업로드 시작됨",
+                                    "${uploadDisplayName(job)} 데이터를 서버로 전송하기 시작했습니다."
+                                )
+                            }
+                        }
+                        if (notificationsAllowed() && settings.uploadEndedEnabled) {
+                            decision.ended.forEach { job ->
+                                val (title, message) = uploadEndMessage(job)
+                                notify(
+                                    uploadNotificationId(UPLOAD_ENDED_NOTIFICATION_BASE, job.id),
+                                    UPLOAD_CHANNEL_ID,
+                                    title,
+                                    message
+                                )
+                            }
+                        }
+                    }
+                    delay(UPLOAD_POLL_INTERVAL_MS)
+                }
+            }
+        }
+    }
+
     private fun notificationsAllowed(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(
@@ -139,6 +184,15 @@ class DeviceAlertMonitor(
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "저장공간 및 장비 온도 임계치 알림"
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                UPLOAD_CHANNEL_ID,
+                "Jetson 업로드 알림",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "수집 데이터 업로드 시작 및 종료 알림"
             }
         )
         manager.createNotificationChannel(
@@ -177,14 +231,34 @@ class DeviceAlertMonitor(
     private fun pipelineNotificationId(base: Int, pipelineId: String): Int =
         base + (pipelineId.hashCode() and PIPELINE_NOTIFICATION_ID_MASK)
 
+    private fun uploadNotificationId(base: Int, uploadId: String): Int =
+        base + (uploadId.hashCode() and PIPELINE_NOTIFICATION_ID_MASK)
+
+    private fun uploadDisplayName(job: UploadJob): String =
+        job.relativePath.substringAfterLast('/').ifBlank { "수집 데이터" }
+
+    private fun uploadEndMessage(job: UploadJob): Pair<String, String> {
+        val name = uploadDisplayName(job)
+        return when (job.state) {
+            UploadJobState.COMPLETED -> "업로드 완료" to "$name 데이터 전송이 완료되었습니다."
+            UploadJobState.FAILED -> "업로드 종료" to "$name 데이터 전송이 실패했습니다."
+            UploadJobState.CANCELLED -> "업로드 종료" to "$name 데이터 전송이 취소되었습니다."
+            else -> "업로드 종료" to "$name 데이터 전송이 종료되었습니다."
+        }
+    }
+
     private companion object {
         const val HEALTH_CHANNEL_ID = "jetson_device_alerts"
         const val PIPELINE_CHANNEL_ID = "jetson_pipeline_alerts"
+        const val UPLOAD_CHANNEL_ID = "jetson_upload_alerts"
         const val STORAGE_NOTIFICATION_ID = 2001
         const val TEMPERATURE_NOTIFICATION_ID = 2002
         const val PIPELINE_STARTED_NOTIFICATION_BASE = 10_000
         const val PIPELINE_FAILED_NOTIFICATION_BASE = 30_000
+        const val UPLOAD_STARTED_NOTIFICATION_BASE = 50_000
+        const val UPLOAD_ENDED_NOTIFICATION_BASE = 70_000
         const val PIPELINE_NOTIFICATION_ID_MASK = 0x3fff
         const val PIPELINE_POLL_INTERVAL_MS = 5_000L
+        const val UPLOAD_POLL_INTERVAL_MS = 2_000L
     }
 }
