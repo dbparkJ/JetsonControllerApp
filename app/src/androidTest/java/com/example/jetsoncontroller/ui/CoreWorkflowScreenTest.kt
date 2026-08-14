@@ -1,12 +1,20 @@
 package com.example.jetsoncontroller.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.jetsoncontroller.data.alerts.AlertDestination
+import com.example.jetsoncontroller.data.alerts.AlertRecord
+import com.example.jetsoncontroller.data.alerts.AlertSeverity
+import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.RegisteredDevice
+import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
+import com.example.jetsoncontroller.ui.alerts.AlertCenterUiState
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
@@ -20,6 +28,7 @@ import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
@@ -114,6 +123,8 @@ class CoreWorkflowScreenTest {
                     state = DashboardUiState(statusFreshness = StatusFreshness.CURRENT),
                     pipelines = emptyList(),
                     uploads = emptyList(),
+                    unreadAlertCount = 0,
+                    onAlertsClick = {},
                     onDisconnect = {},
                     onReboot = {},
                     onShutdown = {},
@@ -132,5 +143,67 @@ class CoreWorkflowScreenTest {
         composeRule.onNodeWithText("정상 작동 중").assertIsDisplayed()
         composeRule.onNodeWithText("진행 중인 작업").assertIsDisplayed()
         composeRule.onNodeWithText("현재 진행 중인 작업이 없습니다.").assertIsDisplayed()
+    }
+
+    @Test
+    fun dashboardAttentionCanBeDismissed() {
+        composeRule.setContent {
+            JetsonControllerTheme {
+                DashboardScreen(
+                    state = DashboardUiState(
+                        statusFreshness = StatusFreshness.CURRENT,
+                        status = JetsonStatus(temperatureC = 85f)
+                    ),
+                    pipelines = emptyList(),
+                    uploads = emptyList(),
+                    unreadAlertCount = 0,
+                    onAlertsClick = {},
+                    onDisconnect = {},
+                    onReboot = {},
+                    onShutdown = {},
+                    onStorageClick = {},
+                    onNetworkSettingsClick = {},
+                    onWifiDirectClick = {},
+                    onUploadQueueClick = {},
+                    onPipelinesClick = {},
+                    onSectionSelected = {},
+                    onDismissOperationMessage = {},
+                    onBack = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("확인이 필요합니다").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("상태 알림 닫기").performClick()
+        composeRule.onAllNodesWithText("확인이 필요합니다").assertCountEquals(0)
+    }
+
+    @Test
+    fun alertHistoryOpensItsDestination() {
+        val alert = AlertRecord(
+            id = "storage-warning",
+            title = "Jetson 저장공간 경고",
+            message = "저장공간 사용량이 95%입니다.",
+            destination = AlertDestination.STORAGE,
+            severity = AlertSeverity.WARNING,
+            createdAtEpochMillis = 1L
+        )
+        var openedAlertId: String? = null
+
+        composeRule.setContent {
+            JetsonControllerTheme {
+                AlertCenterScreen(
+                    state = AlertCenterUiState(listOf(alert), unreadCount = 1),
+                    onBack = {},
+                    onAlertClick = { openedAlertId = it.id },
+                    onDelete = {},
+                    onMarkAllRead = {},
+                    onClear = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Jetson 저장공간 경고").performClick()
+        composeRule.runOnIdle { assertEquals(alert.id, openedAlertId) }
     }
 }

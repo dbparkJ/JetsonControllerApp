@@ -52,6 +52,8 @@ fun UploadConfirmScreen(
     rootId: String,
     path: String,
     targets: List<UploadTarget>,
+    serverUploadEnabled: Boolean,
+    serverUploadDisabledReason: String?,
     isLoading: Boolean,
     error: String?,
     onBack: () -> Unit,
@@ -93,7 +95,7 @@ fun UploadConfirmScreen(
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .padding(16.dp),
-                    enabled = selectedTargetId != null && !isLoading
+                    enabled = serverUploadEnabled && selectedTargetId != null && !isLoading
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
@@ -142,6 +144,14 @@ fun UploadConfirmScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
             )
 
+            if (!serverUploadEnabled && !serverUploadDisabledReason.isNullOrBlank()) {
+                InlineMessage(
+                    message = serverUploadDisabledReason,
+                    isError = false,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+            }
+
             error?.let {
                 InlineMessage(
                     message = it,
@@ -174,10 +184,13 @@ fun UploadConfirmScreen(
                         trailingContent = {
                             RadioButton(
                                 selected = selectedTargetId == target.id,
-                                onClick = { selectedTargetId = target.id }
+                                onClick = { selectedTargetId = target.id },
+                                enabled = serverUploadEnabled
                             )
                         },
-                        modifier = Modifier.clickable { selectedTargetId = target.id }
+                        modifier = Modifier.clickable(enabled = serverUploadEnabled) {
+                            selectedTargetId = target.id
+                        }
                     )
                     HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                 }

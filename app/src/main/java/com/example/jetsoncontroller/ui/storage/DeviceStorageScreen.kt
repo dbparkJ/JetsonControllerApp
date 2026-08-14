@@ -71,6 +71,8 @@ import com.example.jetsoncontroller.ui.components.InlineMessage
 @Composable
 fun DeviceStorageScreen(
     state: DeviceStorageUiState,
+    serverUploadEnabled: Boolean,
+    serverUploadDisabledReason: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onDirectoryClick: (RemoteFileEntry) -> Unit,
@@ -131,7 +133,9 @@ fun DeviceStorageScreen(
                         onRefresh = onRefresh,
                         onDirectoryClick = onDirectoryClick,
                         onFileClick = onFileClick,
-                        onUploadClick = onUploadClick
+                        onUploadClick = onUploadClick,
+                        serverUploadEnabled = serverUploadEnabled,
+                        serverUploadDisabledReason = serverUploadDisabledReason
                     )
                     state.error != null -> EmptyState(
                         title = "수집 데이터 저장소를 열 수 없습니다",
@@ -154,7 +158,9 @@ private fun DirectoryList(
     onRefresh: () -> Unit,
     onDirectoryClick: (RemoteFileEntry) -> Unit,
     onFileClick: (RemoteFileEntry) -> Unit,
-    onUploadClick: (String, String) -> Unit
+    onUploadClick: (String, String) -> Unit,
+    serverUploadEnabled: Boolean,
+    serverUploadDisabledReason: String?
 ) {
     val root = state.currentRoot ?: return
     LazyColumn(
@@ -178,12 +184,21 @@ private fun DirectoryList(
                     )
                     Button(
                         onClick = { onUploadClick(root.id, state.currentPath) },
-                        enabled = !state.isLoading
+                        enabled = serverUploadEnabled && !state.isLoading
                     ) {
                         Icon(Icons.Default.Upload, contentDescription = null)
                         Text("업로드", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
+            }
+        }
+        if (!serverUploadEnabled && !serverUploadDisabledReason.isNullOrBlank()) {
+            item {
+                InlineMessage(
+                    message = serverUploadDisabledReason,
+                    isError = false,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                )
             }
         }
         state.error?.let { error ->

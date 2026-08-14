@@ -18,13 +18,17 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,6 +58,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.transport.TransportType
+import com.example.jetsoncontroller.data.transport.canStartServerUpload
+import com.example.jetsoncontroller.data.transport.serverUploadUnavailableMessage
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.UploadJob
@@ -65,6 +72,7 @@ import com.example.jetsoncontroller.ui.components.SectionHeader
 import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.theme.AppSpacing
+import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 
 private enum class PowerAction { REBOOT, SHUTDOWN }
 
@@ -74,6 +82,8 @@ fun DashboardScreen(
     state: DashboardUiState,
     pipelines: List<ManagedPipeline>,
     uploads: List<UploadJob>,
+    unreadAlertCount: Int,
+    onAlertsClick: () -> Unit,
     onDisconnect: () -> Unit,
     onReboot: () -> Unit,
     onShutdown: () -> Unit,
@@ -87,12 +97,14 @@ fun DashboardScreen(
     onBack: () -> Unit
 ) {
     var pendingPowerAction by remember { mutableStateOf<PowerAction?>(null) }
+    var dismissedHealthKey by rememberSaveable { mutableStateOf<String?>(null) }
     val health = assessDashboardHealth(
         status = state.status,
         freshness = state.statusFreshness,
         pipelines = pipelines,
         uploads = uploads
     )
+    val healthKey = dashboardHealthKey(health)
 
     pendingPowerAction?.let { action ->
         val rebooting = action == PowerAction.REBOOT
@@ -149,6 +161,7 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    AlertIconButton(unreadAlertCount, onAlertsClick)
                     IconButton(onClick = onDisconnect) {
                         Icon(Icons.Default.LinkOff, contentDescription = "연결 해제")
                     }
@@ -184,7 +197,19 @@ fun DashboardScreen(
             item {
                 Column(modifier = Modifier.padding(horizontal = AppSpacing.screen)) {
                     Spacer(Modifier.height(AppSpacing.medium))
-                    HealthOverview(state = state, health = health)
+                    ConnectionModeSummary(state.transportType, state.endpoint)
+                    Spacer(Modifier.height(AppSpacing.medium))
+                    if (dismissedHealthKey != healthKey) {
+                        HealthOverview(
+                            state = state,
+                            health = health,
+                            onDismiss = if (health.level == DashboardHealthLevel.ATTENTION) {
+                                { dismissedHealthKey = healthKey }
+                            } else {
+                                null
+                            }
+                        )
+                    }
                     if (state.statusFreshness == StatusFreshness.STALE) {
                         Spacer(Modifier.height(AppSpacing.medium))
                         AppBanner(
@@ -257,12 +282,13 @@ fun DashboardScreen(
                 DashboardDivider()
                 DashboardAction(
                     icon = Icons.Default.CloudUpload,
-                    title = "전송 큐",
-                    description = transportRequirementDescription(
-                        state.transportType,
+                    title = "서버 업로드",
+                    description = if (canStartServerUpload(state.transportType)) {
                         "대기 및 진행 중인 서버 전송"
-                    ),
-                    enabled = state.capabilities.uploads && state.transportType != TransportType.BLE,
+                    } else {
+                        serverUploadUnavailableMessage(state.transportType)
+                    },
+                    enabled = state.capabilities.uploads && canStartServerUpload(state.transportType),
                     onClick = onUploadQueueClick
                 )
                 DashboardDivider()
@@ -326,7 +352,8 @@ fun DashboardScreen(
 @Composable
 private fun HealthOverview(
     state: DashboardUiState,
-    health: DashboardHealth
+    health: DashboardHealth,
+    onDismiss: (() -> Unit)?
 ) {
     val tone = when (health.level) {
         DashboardHealthLevel.HEALTHY -> StatusTone.SUCCESS
@@ -370,20 +397,88 @@ private fun HealthOverview(
                     )
                     Text(health.detail, style = MaterialTheme.typography.bodyMedium)
                 }
-                StatusBadge(
-                    label = when (state.transportType) {
-                        TransportType.LAN -> "LAN"
-                        TransportType.WIFI_DIRECT -> "Wi-Fi Direct"
-                        TransportType.BLE -> "Bluetooth"
-                        null -> "확인 중"
-                    },
-                    tone = tone
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    StatusBadge(
+                        label = when (state.transportType) {
+                            TransportType.LAN -> "LAN"
+                            TransportType.WIFI_DIRECT -> "Wi-Fi Direct"
+                            TransportType.BLE -> "Bluetooth"
+                            null -> "확인 중"
+                        },
+                        tone = tone
+                    )
+                    if (onDismiss != null) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "상태 알림 닫기")
+                        }
+                    }
+                }
             }
             if (health.issues.size > 1) {
                 Spacer(Modifier.height(AppSpacing.medium))
                 health.issues.drop(1).forEach { issue ->
                     Text("• $issue", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionModeSummary(
+    transportType: TransportType?,
+    endpoint: String?
+) {
+    val icon = when (transportType) {
+        TransportType.LAN -> Icons.Default.Router
+        TransportType.WIFI_DIRECT -> Icons.Default.WifiTethering
+        TransportType.BLE -> Icons.Default.Bluetooth
+        null -> Icons.Default.LinkOff
+    }
+    val title = when (transportType) {
+        TransportType.LAN -> "LAN 연결"
+        TransportType.WIFI_DIRECT -> "Wi-Fi Direct 연결"
+        TransportType.BLE -> "Bluetooth 연결"
+        null -> "연결 확인 중"
+    }
+    val detail = when (transportType) {
+        TransportType.LAN -> "같은 공유기 제어망 · 서버 업로드 비활성"
+        TransportType.WIFI_DIRECT -> "Jetson 직접 제어망 · 서버 업로드 사용 가능"
+        TransportType.BLE -> "장비 등록 및 네트워크 설정 전용"
+        null -> "현재 연결 방식을 확인하고 있습니다."
+    }
+    val containerColor = when (transportType) {
+        TransportType.WIFI_DIRECT -> MaterialTheme.colorScheme.primaryContainer
+        TransportType.LAN -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainer
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = containerColor,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier.padding(AppSpacing.large),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!endpoint.isNullOrBlank()) {
+                    Text(
+                        endpoint,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -591,4 +686,12 @@ private fun uploadProgress(job: UploadJob): String {
 private fun formatMemory(megabytes: Int): String = when {
     megabytes >= 1024 -> "%.1f GB".format(megabytes / 1024f)
     else -> "$megabytes MB"
+}
+
+private fun dashboardHealthKey(health: DashboardHealth): String = buildString {
+    append(health.level.name)
+    append('|')
+    append(health.title)
+    append('|')
+    append(health.issues.joinToString("|"))
 }

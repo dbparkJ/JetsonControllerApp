@@ -83,8 +83,15 @@ class WifiDirectManager(
                 connectingPeerAddress = null,
                 error = "Wi-Fi Direct 연결 채널이 끊어졌습니다. 다시 시도해 주세요."
             )
+            channel = null
+        }
+    }
+
+    private fun ensureChannel(): WifiP2pManager.Channel? {
+        if (channel == null) {
             channel = createChannel()
         }
+        return channel
     }
 
     private val receiver = object : BroadcastReceiver() {
@@ -137,7 +144,7 @@ class WifiDirectManager(
 
     fun register(): Boolean {
         if (registered) {
-            return true
+            return ensureChannel() != null
         }
 
         if (!supported) {
@@ -188,6 +195,9 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun startDiscovery() {
+        if (_state.value.discovering) {
+            return
+        }
         if (!hasNearbyWifiPermission()) {
             fail("주변 기기 권한을 허용한 뒤 다시 검색해 주세요.")
             return
@@ -208,7 +218,7 @@ class WifiDirectManager(
         }
 
         val readyManager = manager
-        val readyChannel = channel
+        val readyChannel = ensureChannel()
         if (readyManager == null || readyChannel == null) {
             fail("Wi-Fi Direct를 초기화할 수 없습니다.")
             return
@@ -248,7 +258,7 @@ class WifiDirectManager(
         }
 
         val readyManager = manager ?: return
-        val readyChannel = channel ?: return
+        val readyChannel = ensureChannel() ?: return
 
         try {
             readyManager.requestPeers(readyChannel) { peerList ->
@@ -276,13 +286,16 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun connect(peer: WifiDirectPeer) {
+        if (_state.value.connected || _state.value.connectingPeerAddress != null) {
+            return
+        }
         if (!hasNearbyWifiPermission()) {
             fail("주변 기기 권한을 허용한 뒤 다시 연결해 주세요.")
             return
         }
 
         val readyManager = manager
-        val readyChannel = channel
+        val readyChannel = ensureChannel()
         if (readyManager == null || readyChannel == null) {
             fail("Wi-Fi Direct를 초기화할 수 없습니다.")
             return
@@ -329,7 +342,7 @@ class WifiDirectManager(
         }
 
         val readyManager = manager ?: return
-        val readyChannel = channel ?: return
+        val readyChannel = ensureChannel() ?: return
 
         try {
             readyManager.requestConnectionInfo(readyChannel) { info ->
@@ -388,7 +401,7 @@ class WifiDirectManager(
     @SuppressLint("MissingPermission")
     fun disconnect() {
         val readyManager = manager ?: return
-        val readyChannel = channel ?: return
+        val readyChannel = ensureChannel() ?: return
 
         try {
             readyManager.removeGroup(

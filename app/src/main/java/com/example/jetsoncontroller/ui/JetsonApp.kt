@@ -20,9 +20,16 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.alerts.AlertDestination
+import com.example.jetsoncontroller.data.alerts.AlertHistoryStore
 import com.example.jetsoncontroller.data.alerts.AlertPreferencesStore
 import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.data.transport.TransportState
+import com.example.jetsoncontroller.data.transport.TransportType
+import com.example.jetsoncontroller.data.transport.canStartServerUpload
+import com.example.jetsoncontroller.data.transport.serverUploadUnavailableMessage
+import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
+import com.example.jetsoncontroller.ui.alerts.AlertCenterViewModel
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
 import com.example.jetsoncontroller.ui.devices.DeviceListScreen
@@ -120,6 +127,8 @@ private object Routes {
     const val SENSORS = "sensors"
 
     const val SETTINGS = "settings"
+
+    const val ALERTS = "alerts"
 }
 
 
@@ -128,6 +137,7 @@ fun JetsonApp(
     repository:
         JetsonRepository,
     alertPreferences: AlertPreferencesStore,
+    alertHistory: AlertHistoryStore,
     bluetoothPermissionGranted:
         Boolean,
     cameraPermissionGranted:
@@ -239,6 +249,9 @@ fun JetsonApp(
     val alertSettingsViewModel: AlertSettingsViewModel =
         viewModel(factory = AlertSettingsViewModel.Factory(alertPreferences))
 
+    val alertCenterViewModel: AlertCenterViewModel =
+        viewModel(factory = AlertCenterViewModel.Factory(alertHistory))
+
     val deviceState by
         deviceViewModel
             .uiState
@@ -287,6 +300,9 @@ fun JetsonApp(
     val alertSettings by
         alertSettingsViewModel.settings.collectAsStateWithLifecycle()
 
+    val alertCenterState by
+        alertCenterViewModel.uiState.collectAsStateWithLifecycle()
+
     val lanEndpoints by
         repository.lanEndpoints.collectAsStateWithLifecycle()
 
@@ -310,7 +326,11 @@ fun JetsonApp(
 
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
-    var openDashboardAfterHubConnection by remember { mutableStateOf(false) }
+    var pendingDashboardTransport by remember { mutableStateOf<TransportType?>(null) }
+    val connectedTransportType =
+        (transportState as? TransportState.Connected)?.type
+    val serverUploadEnabled = canStartServerUpload(connectedTransportType)
+    val serverUploadDisabledReason = serverUploadUnavailableMessage(connectedTransportType)
 
     val onSectionSelected: (ControlSection) -> Unit = { section ->
         val route = when (section) {
@@ -338,21 +358,9 @@ fun JetsonApp(
     }
 
 
-    LaunchedEffect(
-        transportState,
-        currentRoute
-    ) {
-        val connectedTransport = transportState as? TransportState.Connected
-        val connected = connectedTransport != null
-        val connectionRoute = isConnectionEntryRoute(currentRoute) ||
-            (
-                currentRoute == Routes.CONNECTION_HUB &&
-                    (openDashboardAfterHubConnection || connectedTransport?.type ==
-                        com.example.jetsoncontroller.data.transport.TransportType.LAN)
-            )
-
-        if (connected && connectionRoute) {
-            openDashboardAfterHubConnection = false
+    LaunchedEffect(transportState, pendingDashboardTransport) {
+        if (connectionAttemptCompleted(pendingDashboardTransport, transportState)) {
+            pendingDashboardTransport = null
             navController.navigate(
                 Routes.DASHBOARD
             ) {
@@ -368,7 +376,9 @@ fun JetsonApp(
 
     LaunchedEffect(lanConnectionError) {
         if (lanConnectionError != null) {
-            openDashboardAfterHubConnection = false
+            if (pendingDashboardTransport == TransportType.LAN) {
+                pendingDashboardTransport = null
+            }
         }
     }
 
@@ -426,6 +436,8 @@ fun JetsonApp(
                 onAddDevice = { navController.navigate(Routes.ONBOARDING) },
                 onOpenDashboard = { navController.navigate(Routes.DASHBOARD) },
                 onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) },
+                unreadAlertCount = alertCenterState.unreadCount,
+                onAlertsClick = { navController.navigate(Routes.ALERTS) },
                 lanEndpoints = lanEndpoints,
                 lastSeenAtEpochMillis = lanLastSeenAtEpochMillis,
                 registeredDevices = deviceState.registeredDevices,
@@ -437,7 +449,7 @@ fun JetsonApp(
                 onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
                 onRefreshLan = { repository.startLanDiscovery() },
                 onConnectLan = { endpoint ->
-                    openDashboardAfterHubConnection = true
+                    pendingDashboardTransport = TransportType.LAN
                     repository.connectLan(endpoint)
                 }
             )
@@ -463,6 +475,7 @@ fun JetsonApp(
                 },
                 onConnect = {
                     device ->
+                    pendingDashboardTransport = TransportType.BLE
                     deviceViewModel
                         .connect(
                             device
@@ -470,6 +483,7 @@ fun JetsonApp(
                 },
                 onReconnect = {
                     device ->
+                    pendingDashboardTransport = TransportType.BLE
                     deviceViewModel.reconnect(device)
                 },
                 onForget = {
@@ -479,7 +493,12 @@ fun JetsonApp(
                 onAddDeviceClick = {
                     navController.navigate(Routes.QR_SCANNER)
                 },
-                onBack = { navController.popBackStack() }
+                onBack = {
+                    if (pendingDashboardTransport == TransportType.BLE) {
+                        pendingDashboardTransport = null
+                    }
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -551,7 +570,12 @@ fun JetsonApp(
             WifiDirectScreen(
                 state = wifiDirectState,
                 permissionGranted = nearbyWifiPermissionGranted,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    if (pendingDashboardTransport == TransportType.WIFI_DIRECT) {
+                        pendingDashboardTransport = null
+                    }
+                    navController.popBackStack()
+                },
                 onPermissionClick = onRequestNearbyWifiPermission,
                 onDiscoveryClick = {
                     if (nearbyWifiPermissionGranted) {
@@ -560,7 +584,10 @@ fun JetsonApp(
                         onRequestNearbyWifiPermission()
                     }
                 },
-                onConnectClick = { wifiDirectViewModel.connect(it) },
+                onConnectClick = {
+                    pendingDashboardTransport = TransportType.WIFI_DIRECT
+                    wifiDirectViewModel.connect(it)
+                },
                 onRetryApi = { wifiDirectViewModel.retryApi() }
             )
         }
@@ -579,16 +606,22 @@ fun JetsonApp(
 
                 uploads = uploadState.queue,
 
+                unreadAlertCount = alertCenterState.unreadCount,
+
+                onAlertsClick = { navController.navigate(Routes.ALERTS) },
+
                 onDisconnect = {
 
                     dashboardViewModel
                         .disconnect()
 
-                    navController
-                        .popBackStack(
-                            Routes.CONNECTION_HUB,
-                            inclusive = false
-                        )
+                    pendingDashboardTransport = null
+                    if (!navController.popBackStack(Routes.CONNECTION_HUB, inclusive = false)) {
+                        navController.navigate(Routes.CONNECTION_HUB) {
+                            popUpTo(0)
+                            launchSingleTop = true
+                        }
+                    }
                 },
 
                 onReboot = {
@@ -626,7 +659,32 @@ fun JetsonApp(
                 onDismissOperationMessage =
                     dashboardViewModel::clearOperationMessage,
 
-                onBack = { navController.popBackStack() }
+                onBack = {
+                    pendingDashboardTransport = null
+                    if (!navController.popBackStack(Routes.CONNECTION_HUB, inclusive = false)) {
+                        navController.navigate(Routes.CONNECTION_HUB) {
+                            popUpTo(0)
+                            launchSingleTop = true
+                        }
+                    }
+                }
+            )
+        }
+
+        composable(Routes.ALERTS) {
+            AlertCenterScreen(
+                state = alertCenterState,
+                onBack = { navController.popBackStack() },
+                onAlertClick = { alert ->
+                    alertCenterViewModel.markRead(alert.id)
+                    navController.navigate(alertDestinationRoute(alert.destination)) {
+                        popUpTo(Routes.ALERTS) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onDelete = alertCenterViewModel::delete,
+                onMarkAllRead = alertCenterViewModel::markAllRead,
+                onClear = alertCenterViewModel::clear
             )
         }
 
@@ -682,6 +740,8 @@ fun JetsonApp(
             }
             DeviceStorageScreen(
                 state = storageState,
+                serverUploadEnabled = serverUploadEnabled,
+                serverUploadDisabledReason = serverUploadDisabledReason,
                 onBack = {
                     if (!storageViewModel.navigateBack()) {
                         navController.popBackStack()
@@ -743,6 +803,8 @@ fun JetsonApp(
                 rootId = rootId,
                 path = path,
                 targets = uploadState.targets,
+                serverUploadEnabled = serverUploadEnabled,
+                serverUploadDisabledReason = serverUploadDisabledReason,
                 isLoading = uploadState.isLoading,
                 error = uploadState.error,
                 onBack = { navController.popBackStack() },
@@ -960,7 +1022,17 @@ private fun StatusPollingLifecycleEffect(viewModel: DashboardViewModel) {
     }
 }
 
-internal fun isConnectionEntryRoute(route: String?): Boolean = route in setOf(
-    "devices_ble",
-    "wifi_direct"
-)
+internal fun connectionAttemptCompleted(
+    expectedTransport: TransportType?,
+    transportState: TransportState
+): Boolean = expectedTransport != null &&
+    transportState is TransportState.Connected &&
+    transportState.type == expectedTransport
+
+private fun alertDestinationRoute(destination: AlertDestination): String = when (destination) {
+    AlertDestination.DASHBOARD -> Routes.DASHBOARD
+    AlertDestination.STORAGE -> Routes.STORAGE
+    AlertDestination.SENSORS -> Routes.SENSORS
+    AlertDestination.PIPELINES -> Routes.PIPELINES
+    AlertDestination.UPLOAD_QUEUE -> Routes.UPLOAD_QUEUE
+}

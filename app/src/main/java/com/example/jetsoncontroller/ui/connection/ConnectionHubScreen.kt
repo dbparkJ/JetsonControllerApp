@@ -54,6 +54,7 @@ import com.example.jetsoncontroller.ui.components.SectionHeader
 import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.theme.AppSpacing
+import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +63,8 @@ fun ConnectionHubScreen(
     onAddDevice: () -> Unit,
     onOpenDashboard: () -> Unit,
     onWifiDirectClick: () -> Unit,
+    unreadAlertCount: Int,
+    onAlertsClick: () -> Unit,
     registeredDevices: List<RegisteredDevice>,
     transportState: TransportState,
     lanEndpoints: List<DeviceEndpoint>,
@@ -91,6 +94,7 @@ fun ConnectionHubScreen(
                     }
                 },
                 actions = {
+                    AlertIconButton(unreadAlertCount, onAlertsClick)
                     IconButton(onClick = onAddDevice) {
                         Icon(Icons.Default.Add, contentDescription = "새 장비 등록")
                     }

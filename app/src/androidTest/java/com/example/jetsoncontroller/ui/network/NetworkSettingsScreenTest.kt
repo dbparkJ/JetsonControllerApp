@@ -63,6 +63,7 @@ class NetworkSettingsScreenTest {
         }
 
         composeRule.onAllNodesWithTag("wifi-selected-network-form").assertCountEquals(0)
+        composeRule.onNodeWithText("Jetson Wi-Fi").performClick()
         composeRule.onNodeWithText("Office Wi-Fi").performClick()
         composeRule.onNodeWithTag("wifi-selected-network-form").assertIsDisplayed()
         composeRule.onNodeWithText("비밀번호").assertIsDisplayed()
@@ -99,6 +100,7 @@ class NetworkSettingsScreenTest {
             }
         }
 
+        composeRule.onNodeWithText("Jetson Wi-Fi").performClick()
         composeRule.onNodeWithText("현재 Jetson이 연결됨 · WPA 개인용 네트워크")
             .assertIsDisplayed()
         composeRule.onNodeWithTag("wifi-access-point-Lab Wi-Fi")

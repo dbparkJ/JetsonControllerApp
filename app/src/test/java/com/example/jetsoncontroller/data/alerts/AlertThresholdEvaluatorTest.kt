@@ -42,13 +42,14 @@ class AlertThresholdEvaluatorTest {
     }
 
     @Test
-    fun `does not latch when notification permission is missing`() {
+    fun `records and latches in-app alert when notification permission is missing`() {
         val decision = AlertThresholdEvaluator.evaluate(
             JetsonStatus(storagePercent = 95),
             AlertSettings(storageThresholdPercent = 85),
             notificationsAllowed = false
         )
         assertFalse(decision.notifyStorage)
-        assertFalse(decision.storageLatched)
+        assertTrue(decision.storageTriggered)
+        assertTrue(decision.storageLatched)
     }
 }

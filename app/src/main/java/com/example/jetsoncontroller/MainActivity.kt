@@ -174,6 +174,8 @@ class MainActivity :
                         app.repository,
                     alertPreferences =
                         app.alertPreferences,
+                    alertHistory =
+                        app.alertHistory,
                     bluetoothPermissionGranted =
                         bluetoothPermissionGranted,
                     cameraPermissionGranted =

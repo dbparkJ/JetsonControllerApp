@@ -240,8 +240,7 @@ class JetsonRepository(
             if (credentialStore.getSecret(hello.deviceId) == null) {
                 val message =
                     "API 장비가 등록되어 있지 않습니다. 먼저 QR로 장비를 등록해 주세요."
-                wifiDirectManager.markApiError(message)
-                transportCoordinator.setError(TransportType.WIFI_DIRECT, message)
+                reportWifiDirectApiError(message)
                 return@onSuccess
             }
 
@@ -252,8 +251,7 @@ class JetsonRepository(
             if (statusResult.isFailure) {
                 val message = statusResult.exceptionOrNull()?.message
                     ?: "Jetson API 인증에 실패했습니다."
-                wifiDirectManager.markApiError(message)
-                transportCoordinator.setError(TransportType.WIFI_DIRECT, message)
+                reportWifiDirectApiError(message)
                 return@onSuccess
             }
 
@@ -265,8 +263,7 @@ class JetsonRepository(
             if (capabilitiesResult.isFailure) {
                 val message = capabilitiesResult.exceptionOrNull()?.message
                     ?: "Jetson 기능 정보를 확인하지 못했습니다."
-                wifiDirectManager.markApiError(message)
-                transportCoordinator.setError(TransportType.WIFI_DIRECT, message)
+                reportWifiDirectApiError(message)
                 return@onSuccess
             }
             _capabilities.value = capabilitiesResult.getOrThrow().toModel()
@@ -282,6 +279,7 @@ class JetsonRepository(
                 deviceId = hello.deviceId,
                 deviceName = hello.deviceName
             )
+            gattClient.disconnect()
         }.onFailure { error ->
             if (ipConnectionGeneration.get() != generation) {
                 return@onFailure
@@ -289,7 +287,14 @@ class JetsonRepository(
             val message =
                 "Jetson API($host:$LOCAL_API_PORT)에 연결하지 못했습니다: " +
                     (error.message ?: "응답 없음")
-            wifiDirectManager.markApiError(message)
+            reportWifiDirectApiError(message)
+        }
+    }
+
+    private fun reportWifiDirectApiError(message: String) {
+        wifiDirectManager.markApiError(message)
+        val activeType = transportCoordinator.currentTransport()?.type
+        if (activeType == null || activeType == TransportType.WIFI_DIRECT) {
             transportCoordinator.setError(TransportType.WIFI_DIRECT, message)
         }
     }
@@ -632,6 +637,7 @@ class JetsonRepository(
                         deviceId = hello.deviceId,
                         deviceName = hello.deviceName
                     )
+                    gattClient.disconnect()
                     if (wifiDirectManager.state.value.connected) {
                         wifiDirectManager.disconnect()
                     }
@@ -730,6 +736,12 @@ class JetsonRepository(
     }
 
     suspend fun startUpload(rootId: String, relativePath: String, targetId: String): Result<UploadJob> {
+        val transportType = transportCoordinator.currentTransport()?.type
+        if (!canStartServerUpload(transportType)) {
+            return Result.failure(
+                IllegalStateException(serverUploadUnavailableMessage(transportType))
+            )
+        }
         val client = activeIpClient ?: return missingIpConnection()
         return client.startUpload(rootId, relativePath, targetId)
     }
@@ -750,6 +762,12 @@ class JetsonRepository(
     }
 
     suspend fun retryUpload(jobId: String): Result<UploadJob> {
+        val transportType = transportCoordinator.currentTransport()?.type
+        if (!canStartServerUpload(transportType)) {
+            return Result.failure(
+                IllegalStateException(serverUploadUnavailableMessage(transportType))
+            )
+        }
         val client = activeIpClient ?: return missingIpConnection()
         return client.retryUpload(jobId)
     }

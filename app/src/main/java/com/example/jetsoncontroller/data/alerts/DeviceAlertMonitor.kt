@@ -31,6 +31,7 @@ class DeviceAlertMonitor(
     private val context: Context,
     private val repository: JetsonRepository,
     private val preferences: AlertPreferencesStore,
+    private val history: AlertHistoryStore,
     private val scope: CoroutineScope
 ) {
     fun start() {
@@ -55,21 +56,27 @@ class DeviceAlertMonitor(
                     notificationsAllowed()
                 )
 
-                if (decision.notifyStorage) {
-                    notify(
-                        STORAGE_NOTIFICATION_ID,
-                        HEALTH_CHANNEL_ID,
-                        "Jetson 저장공간 경고",
-                        "저장공간 사용량이 ${status.storagePercent}%입니다. 수집 데이터를 확인하세요."
+                if (decision.storageTriggered) {
+                    publishAlert(
+                        notificationId = STORAGE_NOTIFICATION_ID,
+                        channelId = HEALTH_CHANNEL_ID,
+                        title = "Jetson 저장공간 경고",
+                        message = "저장공간 사용량이 ${status.storagePercent}%입니다. 수집 데이터를 확인하세요.",
+                        destination = AlertDestination.STORAGE,
+                        severity = AlertSeverity.WARNING,
+                        showSystemNotification = decision.notifyStorage
                     )
                 }
 
-                if (decision.notifyTemperature) {
-                    notify(
-                        TEMPERATURE_NOTIFICATION_ID,
-                        HEALTH_CHANNEL_ID,
-                        "Jetson 온도 경고",
-                        "장비 온도가 ${status.temperatureC} C입니다. 냉각 상태를 확인하세요."
+                if (decision.temperatureTriggered) {
+                    publishAlert(
+                        notificationId = TEMPERATURE_NOTIFICATION_ID,
+                        channelId = HEALTH_CHANNEL_ID,
+                        title = "Jetson 온도 경고",
+                        message = "장비 온도가 ${status.temperatureC} C입니다. 냉각 상태를 확인하세요.",
+                        destination = AlertDestination.SENSORS,
+                        severity = AlertSeverity.WARNING,
+                        showSystemNotification = decision.notifyTemperature
                     )
                 }
 
@@ -94,28 +101,41 @@ class DeviceAlertMonitor(
 
                 var previousStates: Map<String, PipelineState>? = null
                 while (currentCoroutineContext().isActive) {
-                    repository.getPipelines().onSuccess { pipelines ->
+                    val pipelines = repository.getPipelines().getOrNull()
+                    if (pipelines != null) {
                         val decision = PipelineAlertEvaluator.evaluate(previousStates, pipelines)
                         previousStates = decision.currentStates
                         val settings = preferences.settings.first()
 
-                        if (notificationsAllowed() && settings.pipelineStartedEnabled) {
+                        if (settings.pipelineStartedEnabled) {
                             decision.started.forEach { pipeline ->
-                                notify(
-                                    pipelineNotificationId(PIPELINE_STARTED_NOTIFICATION_BASE, pipeline.id),
-                                    PIPELINE_CHANNEL_ID,
-                                    "작업 시작됨",
-                                    "${pipeline.label} 작업이 실행을 시작했습니다."
+                                publishAlert(
+                                    notificationId = pipelineNotificationId(
+                                        PIPELINE_STARTED_NOTIFICATION_BASE,
+                                        pipeline.id
+                                    ),
+                                    channelId = PIPELINE_CHANNEL_ID,
+                                    title = "작업 시작됨",
+                                    message = "${pipeline.label} 작업이 실행을 시작했습니다.",
+                                    destination = AlertDestination.PIPELINES,
+                                    severity = AlertSeverity.INFO,
+                                    showSystemNotification = notificationsAllowed()
                                 )
                             }
                         }
-                        if (notificationsAllowed() && settings.pipelineFailedEnabled) {
+                        if (settings.pipelineFailedEnabled) {
                             decision.failed.forEach { pipeline ->
-                                notify(
-                                    pipelineNotificationId(PIPELINE_FAILED_NOTIFICATION_BASE, pipeline.id),
-                                    PIPELINE_CHANNEL_ID,
-                                    "작업 오류 종료",
-                                    "${pipeline.label} 작업이 오류로 종료되었습니다. 로그를 확인하세요."
+                                publishAlert(
+                                    notificationId = pipelineNotificationId(
+                                        PIPELINE_FAILED_NOTIFICATION_BASE,
+                                        pipeline.id
+                                    ),
+                                    channelId = PIPELINE_CHANNEL_ID,
+                                    title = "작업 오류 종료",
+                                    message = "${pipeline.label} 작업이 오류로 종료되었습니다. 로그를 확인하세요.",
+                                    destination = AlertDestination.PIPELINES,
+                                    severity = AlertSeverity.ERROR,
+                                    showSystemNotification = notificationsAllowed()
                                 )
                             }
                         }
@@ -135,29 +155,42 @@ class DeviceAlertMonitor(
                 }
 
                 while (currentCoroutineContext().isActive) {
-                    repository.getUploadJobs(activeOnly = false).onSuccess { jobs ->
+                    val jobs = repository.getUploadJobs(activeOnly = false).getOrNull()
+                    if (jobs != null) {
                         val decision = UploadAlertEvaluator.evaluate(previousStates, jobs)
                         previousStates = decision.currentStates
                         val settings = preferences.settings.first()
 
-                        if (notificationsAllowed() && settings.uploadStartedEnabled) {
+                        if (settings.uploadStartedEnabled) {
                             decision.started.forEach { job ->
-                                notify(
-                                    uploadNotificationId(UPLOAD_STARTED_NOTIFICATION_BASE, job.id),
-                                    UPLOAD_CHANNEL_ID,
-                                    "업로드 시작됨",
-                                    "${uploadDisplayName(job)} 데이터를 서버로 전송하기 시작했습니다."
+                                publishAlert(
+                                    notificationId = uploadNotificationId(
+                                        UPLOAD_STARTED_NOTIFICATION_BASE,
+                                        job.id
+                                    ),
+                                    channelId = UPLOAD_CHANNEL_ID,
+                                    title = "업로드 시작됨",
+                                    message = "${uploadDisplayName(job)} 데이터를 서버로 전송하기 시작했습니다.",
+                                    destination = AlertDestination.UPLOAD_QUEUE,
+                                    severity = AlertSeverity.INFO,
+                                    showSystemNotification = notificationsAllowed()
                                 )
                             }
                         }
-                        if (notificationsAllowed() && settings.uploadEndedEnabled) {
+                        if (settings.uploadEndedEnabled) {
                             decision.ended.forEach { job ->
                                 val (title, message) = uploadEndMessage(job)
-                                notify(
-                                    uploadNotificationId(UPLOAD_ENDED_NOTIFICATION_BASE, job.id),
-                                    UPLOAD_CHANNEL_ID,
-                                    title,
-                                    message
+                                publishAlert(
+                                    notificationId = uploadNotificationId(
+                                        UPLOAD_ENDED_NOTIFICATION_BASE,
+                                        job.id
+                                    ),
+                                    channelId = UPLOAD_CHANNEL_ID,
+                                    title = title,
+                                    message = message,
+                                    destination = AlertDestination.UPLOAD_QUEUE,
+                                    severity = uploadEndSeverity(job),
+                                    showSystemNotification = notificationsAllowed()
                                 )
                             }
                         }
@@ -206,6 +239,21 @@ class DeviceAlertMonitor(
         )
     }
 
+    private suspend fun publishAlert(
+        notificationId: Int,
+        channelId: String,
+        title: String,
+        message: String,
+        destination: AlertDestination,
+        severity: AlertSeverity,
+        showSystemNotification: Boolean
+    ) {
+        history.add(title, message, destination, severity)
+        if (showSystemNotification) {
+            notify(notificationId, channelId, title, message)
+        }
+    }
+
     private fun notify(id: Int, channelId: String, title: String, message: String) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -245,6 +293,12 @@ class DeviceAlertMonitor(
             UploadJobState.CANCELLED -> "업로드 종료" to "$name 데이터 전송이 취소되었습니다."
             else -> "업로드 종료" to "$name 데이터 전송이 종료되었습니다."
         }
+    }
+
+    private fun uploadEndSeverity(job: UploadJob): AlertSeverity = when (job.state) {
+        UploadJobState.COMPLETED -> AlertSeverity.SUCCESS
+        UploadJobState.FAILED -> AlertSeverity.ERROR
+        else -> AlertSeverity.INFO
     }
 
     private companion object {

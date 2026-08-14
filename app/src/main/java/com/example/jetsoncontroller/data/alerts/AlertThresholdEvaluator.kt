@@ -5,6 +5,8 @@ import com.example.jetsoncontroller.model.JetsonStatus
 data class AlertDecision(
     val storageLatched: Boolean,
     val temperatureLatched: Boolean,
+    val storageTriggered: Boolean,
+    val temperatureTriggered: Boolean,
     val notifyStorage: Boolean,
     val notifyTemperature: Boolean
 )
@@ -15,22 +17,24 @@ object AlertThresholdEvaluator {
         settings: AlertSettings,
         notificationsAllowed: Boolean
     ): AlertDecision {
-        val notifyStorage = settings.storageEnabled &&
+        val storageTriggered = settings.storageEnabled &&
             status.storagePercent >= settings.storageThresholdPercent &&
-            !settings.storageAlertLatched && notificationsAllowed
+            !settings.storageAlertLatched
+        val notifyStorage = storageTriggered && notificationsAllowed
         val storageLatched = when {
             !settings.storageEnabled -> false
-            notifyStorage -> true
+            storageTriggered -> true
             status.storagePercent <= settings.storageThresholdPercent - 3 -> false
             else -> settings.storageAlertLatched
         }
 
-        val notifyTemperature = settings.temperatureEnabled &&
+        val temperatureTriggered = settings.temperatureEnabled &&
             status.temperatureC >= settings.temperatureThresholdC &&
-            !settings.temperatureAlertLatched && notificationsAllowed
+            !settings.temperatureAlertLatched
+        val notifyTemperature = temperatureTriggered && notificationsAllowed
         val temperatureLatched = when {
             !settings.temperatureEnabled -> false
-            notifyTemperature -> true
+            temperatureTriggered -> true
             status.temperatureC <= settings.temperatureThresholdC - 3 -> false
             else -> settings.temperatureAlertLatched
         }
@@ -38,6 +42,8 @@ object AlertThresholdEvaluator {
         return AlertDecision(
             storageLatched = storageLatched,
             temperatureLatched = temperatureLatched,
+            storageTriggered = storageTriggered,
+            temperatureTriggered = temperatureTriggered,
             notifyStorage = notifyStorage,
             notifyTemperature = notifyTemperature
         )
