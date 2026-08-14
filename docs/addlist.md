@@ -1,6 +1,6 @@
 # Add List
 
-> 2026-08-13 저장소 구현 기준이다. 아래 항목은 모두 소스와 문서 작업을 완료했으며, 실제 장비나 공인 서버에 재설치가 필요한 경우에는 배포 상태를 별도로 적었다.
+> 2026-08-14 저장소 및 배포 상태 기준이다. 아래 항목은 모두 완료했으며, 실제 장비와 공인 서버 반영 결과는 배포 상태에 별도로 적었다.
 
 1. ~~multi part인가 그방법으로 올리는건 별로인가? 그리고 계산도 하면서 업로드를 하는 병렬적인 프로세스로 진행할 순 없는건가? 그렇게 되면 서버단에서 또 바꿔야할 로직은 docs로 정리해둬~~
    - 처리: 단일 대형 요청 대신 재개 가능한 chunk 전송을 유지하고, 작은 파일은 `JETSONBATCH1` 형식으로 최대 32 MiB 또는 256개씩 묶었다. `deferred-v1`에서는 receiver가 수신과 동시에 SHA-256을 계산하므로 Jetson의 전체 사전 hash 단계를 제거하며, 구형 receiver에는 기존 전송으로 자동 fallback한다.
@@ -9,8 +9,9 @@
 
 2. ~~Jetson에 업로드 하는 루트 위치도 /data 밑으로 잡아둔거 있자나 그쪽으로 사용할 수 있게 해줘~~
    - 처리: 기본 수집 root를 `/data/collections`로 바꾸고 pipeline 사용자 소유로 생성한다. DepthAI 설치 작업의 working directory와 쓰기 허용 경로도 이 root를 사용하므로 상대 `output_dir: image_records`는 `/data/collections/image_records`에 기록된다.
-   - 처리: 기존 `~/26_camera_record`의 212 GB 데이터는 설정 전환 시 `Previous collected data` root로 남겨 앱에서 계속 탐색할 수 있게 했다.
-   - 배포 상태: 현재 실행 중인 Jetson에는 `sudo backend/scripts/install.sh`와 DepthAI pipeline 재등록이 필요하다. 이 세션에서는 sudo 암호를 사용할 수 없어 실행 중 설정은 변경하지 않았다.
+   - 처리: 기존 `~/26_camera_record` 데이터는 `Previous collected data` root로 남겨 앱에서 계속 탐색할 수 있게 했다. 2026-08-14 현재 217 GB가 유지되어 있으며 이동하거나 삭제하지 않았다.
+   - 처리: root 등록기가 사용자 소유 Git 작업 트리를 읽을 때 구형 Git의 소유권 보호에 막히지 않도록, 요청 경로의 상위 디렉터리만 임시 global config에서 신뢰하고 명령 직후 삭제한다. 시스템 또는 사용자 Git 설정은 변경하지 않는다.
+   - 배포 상태: Jetson backend 1.6.0 설치 후 `depthai-capture`를 새 snapshot으로 재등록했다. manifest와 systemd의 working directory 및 쓰기 허용 경로가 `/data/collections`인 것과 상대 `output_dir: image_records` 설정을 확인했다. 장비가 준비되지 않은 상태에서 촬영이 시작되지 않도록 서비스는 `inactive/disabled`로 유지하고 기존 실패 상태만 초기화했다.
 
 3. ~~자동화 실행중에 yaml 편집은 실제 텍스트 에디터를 이용하는게 아니라 키벨류 값을 가지고 벨류값만 바꿀 수 있게 디자인 해서 보여줘~~
    - 처리: backend가 YAML scalar를 key/value field로 파싱하는 `GET/PATCH /v1/pipelines/{id}/config/fields`를 추가했다. comment와 구조를 보존하고 revision 충돌, 잘못된 타입, alias와 과대 입력을 거절한다.
@@ -48,7 +49,8 @@
 
 ## 검증
 
-- Jetson backend unit/API 시험 70개 통과, 로컬 환경의 `python3-cryptography` 미설치 항목 2개는 skip했다.
+- Jetson backend unit/API 시험 71개 통과, 로컬 환경의 `python3-cryptography` 미설치 항목 2개는 skip했다.
 - Upload receiver 시험 31개 통과.
 - Android 단위 시험 42개와 `lintDebug`, `assembleDebug`, `assembleDebugAndroidTest`를 통과했다.
 - 설치 shell script 구문 검사와 17쪽 A4 PDF 메타데이터·시각 검사를 통과했다.
+- `depthai-capture` 등록 manifest, systemd override, `/data/collections` 사용자 쓰기 권한과 기존 217 GB legacy root 보존을 실장비에서 확인했다.

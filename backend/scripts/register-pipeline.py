@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
@@ -77,8 +78,57 @@ def relative_path(value: str, kind: str) -> Path:
     return normalized
 
 
+def git_safe_directories(repo: Path) -> List[Path]:
+    directories = []
+    for candidate in (repo, *repo.parents):
+        if candidate == candidate.parent:
+            break
+        directories.append(candidate)
+    return directories
+
+
+def git_run(
+    repo: Path,
+    *arguments: str,
+    timeout: int = 60,
+    text: bool = True,
+) -> subprocess.CompletedProcess:
+    # Git 2.25 security backports only honor safe.directory in protected config.
+    # Use a throwaway global config so root can inspect this user-owned worktree.
+    with tempfile.TemporaryDirectory(prefix="jetson-pipeline-git-") as temporary_home:
+        global_config = Path(temporary_home) / ".gitconfig"
+        for directory in git_safe_directories(repo):
+            checked(
+                [
+                    "git",
+                    "config",
+                    "--file",
+                    str(global_config),
+                    "--add",
+                    "safe.directory",
+                    str(directory),
+                ]
+            )
+        environment = os.environ.copy()
+        environment["HOME"] = temporary_home
+        environment.pop("XDG_CONFIG_HOME", None)
+        environment.pop("GIT_CONFIG_GLOBAL", None)
+        return subprocess.run(
+            ["git", "-C", str(repo), *arguments],
+            check=False,
+            capture_output=True,
+            text=text,
+            timeout=timeout,
+            env=environment,
+        )
+
+
 def git(repo: Path, *arguments: str, timeout: int = 60) -> str:
-    return checked(["git", "-C", str(repo), *arguments], timeout=timeout)
+    result = git_run(repo, *arguments, timeout=timeout)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git command failed").strip()
+        raise RuntimeError(detail)
+    return result.stdout.strip()
 
 
 def atomic_json(path: Path, value: object, mode: int, uid: int, gid: int) -> None:
@@ -106,22 +156,16 @@ def atomic_text(path: Path, value: str, mode: int = 0o644) -> None:
 
 
 def git_files(repo: Path) -> List[Path]:
-    result = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo),
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            ".",
-        ],
-        check=False,
-        capture_output=True,
-        timeout=60,
+    result = git_run(
+        repo,
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        ".",
+        text=False,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.decode("utf-8", "replace").strip())
@@ -329,7 +373,7 @@ def register(args: argparse.Namespace) -> None:
         raise RuntimeError("Pipeline is already running; stop it or use --restart-running")
 
     revision = git(repo, "rev-parse", "HEAD")
-    branch_result = run(["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"])
+    branch_result = git_run(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
     branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "(detached)"
     dirty = bool(
         git(

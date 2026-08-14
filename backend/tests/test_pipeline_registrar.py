@@ -138,6 +138,30 @@ class PipelineRegistrarTest(unittest.TestCase):
             "/home/Test\\x20Path/100%%/\\xed\\x95\\x9c\\xea\\xb8\\x80",
         )
 
+    def test_git_uses_temporary_scoped_safe_directories(self) -> None:
+        self.assertEqual(
+            registrar.git_safe_directories(Path("/home/operator/capture/project")),
+            [
+                Path("/home/operator/capture/project"),
+                Path("/home/operator/capture"),
+                Path("/home/operator"),
+                Path("/home"),
+            ],
+        )
+
+        safe_directories = registrar.git(
+            self.repo,
+            "config",
+            "--global",
+            "--get-all",
+            "safe.directory",
+        ).splitlines()
+        self.assertEqual(
+            safe_directories,
+            [str(path) for path in registrar.git_safe_directories(self.repo)],
+        )
+        self.assertNotIn("*", safe_directories)
+
 
 if __name__ == "__main__":
     unittest.main()
