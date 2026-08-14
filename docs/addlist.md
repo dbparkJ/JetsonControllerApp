@@ -39,11 +39,16 @@
    - 처리: receiver에 장비 token 소유권으로 제한된 완료 session, 가상 폴더, 12 MiB 미리보기 API를 추가했다. 폴더는 최대 500개 항목만 반환하고 파일은 regular file과 크기를 다시 검증한다.
    - 처리: Jetson이 server token을 보관한 채 library 요청을 proxy하고, 앱의 `서버 데이터` 화면에서 서버 선택, session pagination, 폴더 이동, 사진 확대와 text preview를 제공한다.
    - 처리: 서버 agent용 설치·검증·rollback 절차와 API 계약을 `UPLOAD_LIBRARY_SERVER_AGENT_GUIDE.md`에 정리했다.
-   - 배포 상태: 공인 receiver에 library API를 배포했고 기존 완료 세션과 JPEG·CSV, 새 deferred upload의 폴더·미리보기 byte 및 MIME type을 HDD 원본과 대조했다. 실제 앱에서 활성화하려면 Jetson backend를 최신 버전으로 재설치해야 한다.
+   - 배포 상태: 공인 receiver에 library API를 배포했고 기존 완료 세션과 JPEG·CSV, 새 deferred upload의 폴더·미리보기 byte 및 MIME type을 HDD 원본과 대조했다. 2026-08-14 Jetson backend 1.6.0까지 재설치해 실제 HMAC proxy 응답 서명을 확인했다.
+
+10. ~~로그는 실시간으로 변경되는 걸 볼 수 있게 하고, 자동 재시작 시 기존 로그를 저장한 뒤 새 로그로 기록하며 앱에서도 로그 파일을 확인할 수 있게 해줘~~
+   - 처리: pipeline stdout/stderr를 journald와 `/var/log/jetson-pipelines/<id>/run-*.log`에 동시에 기록하고 systemd 실행마다 새 파일을 생성한다. pipeline별 최근 100개·합계 1 GiB·실행당 128 MiB 제한으로 오래된 로그를 자동 정리한다.
+   - 처리: backend에 실행 파일 목록과 offset 기반 128 KiB 증분 읽기 API를 추가했다. 앱은 1초마다 최신 크기를 확인해 새 내용만 이어 붙이고, 자동 재시작의 새 파일을 따라가거나 보관된 이전 실행을 직접 선택할 수 있다.
+   - 배포 상태: 2026-08-14 Jetson backend 1.6.0을 설치했다. 실행 중 파일 크기가 3초 사이 2511 B에서 2593 B로 증가하는 것과, 정상 재시작 전후 로그 2개가 각각 footer와 종료 코드를 보존하는 것, HMAC API 목록·구간 응답 서명을 실장비에서 확인했다. 앱 1.8.0 APK는 빌드했으며 휴대폰이 USB에서 분리되어 덮어설치만 대기 중이다.
 
 ## 검증
 
-- Jetson backend unit/API 시험 63개 통과, 로컬 환경의 `python3-cryptography` 미설치 항목 2개는 skip했다.
+- Jetson backend unit/API 시험 70개 통과, 로컬 환경의 `python3-cryptography` 미설치 항목 2개는 skip했다.
 - Upload receiver 시험 31개 통과.
-- Android `testDebugUnitTest`, `lintDebug`, `assembleDebug`, `assembleDebugAndroidTest` 통과.
+- Android 단위 시험 42개와 `lintDebug`, `assembleDebug`, `assembleDebugAndroidTest`를 통과했다.
 - 설치 shell script 구문 검사와 17쪽 A4 PDF 메타데이터·시각 검사를 통과했다.

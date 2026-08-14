@@ -196,13 +196,14 @@ Jetson에 LAN 또는 Wi-Fi Direct로 연결한 뒤 `대시보드 > 자동 실행
 
 앱의 실행 소스 선택기는 `pipeline_user`의 `~/` 아래만 탐색한다. 레포를 선택하면 `<repo>/.venv`를 기본 가상환경으로 채우며 다른 홈 하위 venv도 직접 선택할 수 있다. backend 등록기는 실제 Git root, venv Python, Python syntax, config 확장자, 파일 유형을 다시 검증한다. 임의 shell command는 앱에서 등록할 수 없다.
 
-등록된 작업 카드에서는 최근 journal 로그, 현재 release의 YAML 설정, 첫 출력 폴더를 각각 별도 화면으로 연다. YAML 저장은 실행 snapshot에 원자 반영되며 작업 재시작 후 적용된다. 소스 레포를 다시 등록하면 새 snapshot의 YAML이 기준이 된다.
+등록된 작업 카드에서는 실시간 실행 로그, 현재 release의 YAML 설정, 첫 출력 폴더를 각각 별도 화면으로 연다. 로그는 자동 재시작마다 `/var/log/jetson-pipelines/<id>/run-*.log`로 분리되어 앱에서 이전 실행까지 선택할 수 있다. YAML 저장은 실행 snapshot에 원자 반영되며 작업 재시작 후 적용된다. 소스 레포를 다시 등록하면 새 snapshot의 YAML이 기준이 된다.
 
 ## 9. 운영 명령
 
 ```bash
 systemctl status jetson-pipeline@depthai-capture.service
 journalctl -u jetson-pipeline@depthai-capture.service -f
+ls -lh /var/log/jetson-pipelines/depthai-capture/
 
 sudo systemctl start jetson-pipeline@depthai-capture.service
 sudo systemctl stop jetson-pipeline@depthai-capture.service
@@ -211,6 +212,8 @@ sudo systemctl restart jetson-pipeline@depthai-capture.service
 sudo systemctl enable jetson-pipeline@depthai-capture.service
 sudo systemctl disable jetson-pipeline@depthai-capture.service
 ```
+
+파일 로그는 pipeline별 최근 100개, 합계 1 GiB, 실행당 128 MiB까지 자동 보관한다. 실행 파일 한도를 넘긴 출력은 journald의 기존 회전 정책으로 계속 확인할 수 있다.
 
 pipeline 사용자에게 필요한 장치 group을 장비 정책에 맞게 부여한다. 일반적인 후보는 `video`, `dialout`, `plugdev`지만 실제 `/dev` node의 owner/group을 먼저 확인한다. group 변경 후에는 사용자 session 재로그인 또는 재부팅이 필요하다.
 

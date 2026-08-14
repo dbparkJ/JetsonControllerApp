@@ -880,11 +880,15 @@ fun JetsonApp(
             arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
         ) { backStackEntry ->
             val pipelineId = backStackEntry.arguments?.getString("pipelineId").orEmpty()
-            LaunchedEffect(pipelineId) { pipelineViewModel.loadLogs(pipelineId) }
+            DisposableEffect(pipelineId) {
+                pipelineViewModel.startLogStreaming(pipelineId)
+                onDispose { pipelineViewModel.stopLogStreaming() }
+            }
             PipelineLogScreen(
                 state = pipelineState,
                 onBack = { navController.popBackStack() },
-                onRefresh = { pipelineViewModel.loadLogs(pipelineId) }
+                onRefresh = pipelineViewModel::refreshLogs,
+                onLogSelected = pipelineViewModel::selectLogFile
             )
         }
 

@@ -4,14 +4,23 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import stat
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 
 PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
+LOG_FILE = re.compile(r"^run-\d{8}T\d{6}\.\d{6}Z-\d+\.log$")
 REGISTRY_ROOT = Path(os.environ.get("JETSON_PIPELINE_REGISTRY", "/opt/jetson-pipelines"))
+MAX_LOG_FILES = 100
+MAX_LOG_TOTAL_BYTES = 1024 * 1024 * 1024
+MAX_RUN_LOG_BYTES = 128 * 1024 * 1024
+LOG_TRUNCATED = b"\n=== file log limit reached; output continues in journald ===\n"
+LOG_WRITE_FAILED = b"\n=== file log write failed; output continues in journald ===\n"
 
 
 def fail(message: str) -> "NoReturn":
@@ -33,6 +42,111 @@ def required_string(manifest: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value:
         fail(f"Manifest field is invalid: {key}")
     return value
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def prepare_log_directory() -> Path:
+    value = os.environ.get("LOGS_DIRECTORY", "")
+    directory = Path(value)
+    if not value or not directory.is_absolute():
+        fail("Pipeline log directory is unavailable")
+    try:
+        metadata = os.lstat(directory)
+    except OSError as error:
+        fail(f"Could not access pipeline log directory: {error}")
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        fail("Pipeline log directory is unsafe")
+    return directory
+
+
+def prune_logs(directory: Path) -> None:
+    candidates = []
+    try:
+        entries = list(directory.iterdir())
+    except OSError as error:
+        fail(f"Could not inspect pipeline logs: {error}")
+    for path in entries:
+        if not LOG_FILE.fullmatch(path.name):
+            continue
+        try:
+            metadata = os.lstat(path)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            continue
+        candidates.append((metadata.st_mtime_ns, metadata.st_size, path))
+
+    retained_bytes = 0
+    byte_budget = max(0, MAX_LOG_TOTAL_BYTES - MAX_RUN_LOG_BYTES)
+    for index, (_, size, path) in enumerate(sorted(candidates, reverse=True)):
+        if index < MAX_LOG_FILES - 1 and retained_bytes + size <= byte_budget:
+            retained_bytes += size
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+class RunLogWriter:
+    def __init__(self, directory: Path) -> None:
+        started = utc_now()
+        self.started_at = started.isoformat().replace("+00:00", "Z")
+        self.path = directory / (
+            f"run-{started.strftime('%Y%m%dT%H%M%S.%fZ')}-{os.getpid()}.log"
+        )
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(self.path, flags, 0o640)
+        self.output = os.fdopen(descriptor, "wb", buffering=0)
+        self.written = 0
+        self.truncated = False
+
+    @staticmethod
+    def _journal(data: bytes) -> None:
+        try:
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
+        except (AttributeError, BrokenPipeError, OSError):
+            pass
+
+    def emit(self, data: bytes) -> None:
+        if not data:
+            return
+        self._journal(data)
+        if self.truncated:
+            return
+        remaining = MAX_RUN_LOG_BYTES - self.written
+        try:
+            if remaining > 0:
+                chunk = data[:remaining]
+                if self.output.write(chunk) != len(chunk):
+                    raise OSError("short pipeline log write")
+                self.written += len(chunk)
+            if len(data) > remaining:
+                if self.output.write(LOG_TRUNCATED) != len(LOG_TRUNCATED):
+                    raise OSError("short pipeline log marker write")
+                self.written += len(LOG_TRUNCATED)
+                self.truncated = True
+        except OSError:
+            self.truncated = True
+            self._journal(LOG_WRITE_FAILED)
+
+    def close(self) -> None:
+        try:
+            try:
+                os.fsync(self.output.fileno())
+            except OSError:
+                self._journal(LOG_WRITE_FAILED)
+        finally:
+            try:
+                self.output.close()
+            except OSError:
+                self._journal(LOG_WRITE_FAILED)
 
 
 def main() -> int:
@@ -117,8 +231,71 @@ def main() -> int:
         str(config),
         *arguments,
     ]
-    os.execve(str(python), command, environment)
-    return 1
+    log_directory = prepare_log_directory()
+    prune_logs(log_directory)
+    writer = RunLogWriter(log_directory)
+    child: Optional[subprocess.Popen] = None
+    pending_signal: Optional[int] = None
+
+    def forward_signal(signum: int, _frame: object) -> None:
+        nonlocal pending_signal
+        pending_signal = signum
+        if child is not None and child.poll() is None:
+            try:
+                child.send_signal(signum)
+            except ProcessLookupError:
+                pass
+
+    signal.signal(signal.SIGINT, forward_signal)
+    signal.signal(signal.SIGTERM, forward_signal)
+    header = (
+        "=== Jetson pipeline run ===\n"
+        f"started_at={writer.started_at}\n"
+        f"pipeline_id={pipeline_id}\n"
+        f"release={release}\n"
+    ).encode("utf-8")
+    writer.emit(header)
+    try:
+        try:
+            child = subprocess.Popen(
+                command,
+                executable=str(python),
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=0,
+            )
+        except OSError as error:
+            writer.emit(f"launcher_error={error}\n".encode("utf-8", errors="replace"))
+            return 1
+        writer.emit(f"process_id={child.pid}\n\n".encode("ascii"))
+        if pending_signal is not None and child.poll() is None:
+            child.send_signal(pending_signal)
+        if child.stdout is None:
+            writer.emit(b"launcher_error=child output pipe is unavailable\n")
+            child.terminate()
+            return 1
+        while True:
+            try:
+                chunk = os.read(child.stdout.fileno(), 64 * 1024)
+            except InterruptedError:
+                continue
+            if not chunk:
+                break
+            writer.emit(chunk)
+        return_code = child.wait()
+        exit_code = 128 - return_code if return_code < 0 else return_code
+        finished_at = utc_now().isoformat().replace("+00:00", "Z")
+        writer.emit(
+            (
+                "\n=== Jetson pipeline run finished ===\n"
+                f"finished_at={finished_at}\n"
+                f"exit_code={exit_code}\n"
+            ).encode("ascii")
+        )
+        return exit_code
+    finally:
+        writer.close()
 
 
 if __name__ == "__main__":

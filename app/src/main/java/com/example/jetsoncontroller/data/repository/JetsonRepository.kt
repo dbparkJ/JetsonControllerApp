@@ -782,6 +782,21 @@ class JetsonRepository(
         return client.getPipelineLogs(pipelineId)
     }
 
+    suspend fun getPipelineLogFiles(pipelineId: String): Result<PipelineLogFilesResponse> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getPipelineLogFiles(pipelineId)
+    }
+
+    suspend fun getPipelineLogChunk(
+        pipelineId: String,
+        logId: String,
+        offset: Long,
+        limit: Int
+    ): Result<PipelineLogChunk> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getPipelineLogChunk(pipelineId, logId, offset, limit)
+    }
+
     suspend fun getPipelineConfig(pipelineId: String): Result<PipelineConfigDocument> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.getPipelineConfig(pipelineId)

@@ -9,6 +9,7 @@ import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineConfigField
 import com.example.jetsoncontroller.model.PipelineConfigValueType
+import com.example.jetsoncontroller.model.PipelineLogFile
 import com.example.jetsoncontroller.model.RegisterPipelineRequest
 import com.example.jetsoncontroller.model.RemoteEntryType
 import com.example.jetsoncontroller.model.RemoteFileEntry
@@ -76,7 +77,12 @@ data class PipelineUiState(
     val busyPipelineId: String? = null,
     val registrationComplete: Boolean = false,
     val detailPipelineId: String? = null,
-    val logLines: List<String> = emptyList(),
+    val logFiles: List<PipelineLogFile> = emptyList(),
+    val selectedLogId: String? = null,
+    val logContent: String = "",
+    val logNextOffset: Long = 0,
+    val logFollowingLatest: Boolean = true,
+    val logLive: Boolean = false,
     val configPath: String = "",
     val configRevision: String = "",
     val configFields: List<PipelineConfigField> = emptyList(),
@@ -96,12 +102,20 @@ data class PipelineUiState(
 class PipelineViewModel(
     private val repository: JetsonRepository
 ) : ViewModel() {
+    companion object {
+        private const val LOG_POLL_INTERVAL_MS = 1_000L
+        private const val LOG_CHUNK_BYTES = 128 * 1024
+        private const val LOG_CONTENT_CHARS = 512 * 1024
+    }
+
     private val _uiState = MutableStateFlow(PipelineUiState())
     val uiState = _uiState.asStateFlow()
 
     private var operationJob: Job? = null
     private var pollingJob: Job? = null
     private var pickerJob: Job? = null
+    private var logPollingJob: Job? = null
+    private var activeLogPipelineId: String? = null
     private var connectionGeneration = 0L
 
     init {
@@ -111,6 +125,8 @@ class PipelineViewModel(
                 operationJob?.cancel()
                 pollingJob?.cancel()
                 pickerJob?.cancel()
+                logPollingJob?.cancel()
+                activeLogPipelineId = null
                 if (transport is TransportState.Connected && transport.type != TransportType.BLE) {
                     refresh(connectionGeneration)
                     startPolling(connectionGeneration)
@@ -459,34 +475,165 @@ class PipelineViewModel(
         }
     }
 
-    fun loadLogs(pipelineId: String) {
+    fun startLogStreaming(pipelineId: String) {
+        activeLogPipelineId = pipelineId
+        _uiState.value = _uiState.value.copy(
+            detailPipelineId = pipelineId,
+            logFiles = emptyList(),
+            selectedLogId = null,
+            logContent = "",
+            logNextOffset = 0,
+            logFollowingLatest = true,
+            logLive = false,
+            detailLoading = true,
+            error = null
+        )
+        launchLogPolling(pipelineId)
+    }
+
+    fun stopLogStreaming() {
+        activeLogPipelineId = null
+        logPollingJob?.cancel()
+        logPollingJob = null
+        _uiState.value = _uiState.value.copy(logLive = false, detailLoading = false)
+    }
+
+    fun selectLogFile(logId: String) {
+        val pipelineId = activeLogPipelineId ?: return
+        val current = _uiState.value
+        val selected = current.logFiles.firstOrNull { it.id == logId } ?: return
+        _uiState.value = current.copy(
+            selectedLogId = selected.id,
+            logContent = "",
+            logNextOffset = (selected.sizeBytes - LOG_CHUNK_BYTES).coerceAtLeast(0),
+            logFollowingLatest = selected.id == current.logFiles.firstOrNull()?.id,
+            detailLoading = true,
+            error = null
+        )
+        launchLogPolling(pipelineId)
+    }
+
+    fun refreshLogs() {
+        val pipelineId = activeLogPipelineId ?: return
+        val current = _uiState.value
+        val selected = current.logFiles.firstOrNull { it.id == current.selectedLogId }
+        _uiState.value = current.copy(
+            logContent = "",
+            logNextOffset = selected
+                ?.let { (it.sizeBytes - LOG_CHUNK_BYTES).coerceAtLeast(0) }
+                ?: 0,
+            detailLoading = true,
+            error = null
+        )
+        launchLogPolling(pipelineId)
+    }
+
+    private fun launchLogPolling(pipelineId: String) {
         val generation = connectionGeneration
-        operationJob?.cancel()
-        operationJob = viewModelScope.launch {
+        logPollingJob?.cancel()
+        logPollingJob = viewModelScope.launch {
+            while (
+                generation == connectionGeneration &&
+                activeLogPipelineId == pipelineId
+            ) {
+                pollPipelineLogs(pipelineId, generation)
+                delay(LOG_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private suspend fun pollPipelineLogs(pipelineId: String, generation: Long) {
+        val response = repository.getPipelineLogFiles(pipelineId).getOrElse { error ->
+            if (generation == connectionGeneration && activeLogPipelineId == pipelineId) {
+                _uiState.value = _uiState.value.copy(
+                    detailLoading = false,
+                    logLive = false,
+                    error = error.message ?: "실행 로그를 불러오지 못했습니다."
+                )
+            }
+            return
+        }
+        if (generation != connectionGeneration || activeLogPipelineId != pipelineId) return
+
+        val files = response.files
+        if (files.isEmpty()) {
             _uiState.value = _uiState.value.copy(
-                detailPipelineId = pipelineId,
-                detailLoading = true,
-                logLines = emptyList(),
+                logFiles = emptyList(),
+                selectedLogId = null,
+                logContent = "",
+                logNextOffset = 0,
+                detailLoading = false,
+                logLive = true,
                 error = null
             )
-            repository.getPipelineLogs(pipelineId)
-                .onSuccess { log ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            logLines = log.lines,
-                            detailLoading = false
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            detailLoading = false,
-                            error = error.message ?: "실행 로그를 불러오지 못했습니다."
-                        )
-                    }
-                }
+            return
         }
+
+        val current = _uiState.value
+        val newest = files.first()
+        var selectedId = current.selectedLogId
+        var followingLatest = current.logFollowingLatest
+        var content = current.logContent
+        var offset = current.logNextOffset
+        if (
+            selectedId == null ||
+            files.none { it.id == selectedId } ||
+            (followingLatest && selectedId != newest.id)
+        ) {
+            selectedId = newest.id
+            followingLatest = true
+            content = ""
+            offset = (newest.sizeBytes - LOG_CHUNK_BYTES).coerceAtLeast(0)
+        }
+        var selected = files.first { it.id == selectedId }
+        if (offset > selected.sizeBytes) {
+            content = ""
+            offset = (selected.sizeBytes - LOG_CHUNK_BYTES).coerceAtLeast(0)
+        }
+
+        var reads = 0
+        while (offset < selected.sizeBytes && reads < 4) {
+            val chunk = repository.getPipelineLogChunk(
+                pipelineId = pipelineId,
+                logId = selected.id,
+                offset = offset,
+                limit = LOG_CHUNK_BYTES
+            ).getOrElse { error ->
+                if (generation == connectionGeneration && activeLogPipelineId == pipelineId) {
+                    _uiState.value = _uiState.value.copy(
+                        logFiles = files,
+                        detailLoading = false,
+                        logLive = false,
+                        error = error.message ?: "실행 로그 내용을 불러오지 못했습니다."
+                    )
+                }
+                return
+            }
+            if (generation != connectionGeneration || activeLogPipelineId != pipelineId) return
+            val previousOffset = offset
+            content = trimPipelineLogContent(
+                content + chunk.content,
+                LOG_CONTENT_CHARS
+            )
+            offset = chunk.nextOffset
+            selected = selected.copy(
+                modifiedAt = chunk.modifiedAt,
+                sizeBytes = chunk.sizeBytes
+            )
+            reads += 1
+            if (chunk.eof || chunk.nextOffset == previousOffset) break
+        }
+        val updatedFiles = files.map { if (it.id == selected.id) selected else it }
+        _uiState.value = _uiState.value.copy(
+            logFiles = updatedFiles,
+            selectedLogId = selected.id,
+            logContent = content,
+            logNextOffset = offset,
+            logFollowingLatest = followingLatest,
+            detailLoading = false,
+            logLive = true,
+            error = null
+        )
     }
 
     fun loadConfig(pipelineId: String) {
@@ -635,3 +782,14 @@ internal fun configFieldValueValid(type: PipelineConfigValueType, value: String)
         PipelineConfigValueType.STRING,
         PipelineConfigValueType.NULL -> '\u0000' !in value
     }
+
+internal fun trimPipelineLogContent(value: String, maxChars: Int): String {
+    if (value.length <= maxChars) return value
+    val tail = value.takeLast(maxChars)
+    val firstLineEnd = tail.indexOf('\n')
+    return if (firstLineEnd >= 0 && firstLineEnd + 1 < tail.length) {
+        tail.substring(firstLineEnd + 1)
+    } else {
+        tail
+    }
+}

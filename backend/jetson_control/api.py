@@ -129,6 +129,7 @@ def create_app(
         registry_root=runtime_paths.pipeline_registry,
         registrar=runtime_paths.pipeline_registrar,
         pipeline_user=device_config.pipeline_user,
+        logs_root=runtime_paths.pipeline_logs,
     )
     certificate_fingerprint = tls_fingerprint or certificate_sha256(
         runtime_paths.tls_certificate
@@ -588,6 +589,32 @@ def create_app(
     async def pipeline_logs(pipeline_id: str, lines: int = 200) -> Dict[str, object]:
         try:
             return pipelines.logs(pipeline_id, lines)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/v1/pipelines/{pipeline_id}/log-files", dependencies=authenticated)
+    async def pipeline_log_files(pipeline_id: str) -> Dict[str, object]:
+        try:
+            return pipelines.log_files(pipeline_id)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get(
+        "/v1/pipelines/{pipeline_id}/log-files/{log_id}",
+        dependencies=authenticated,
+    )
+    async def pipeline_log_file(
+        pipeline_id: str,
+        log_id: str,
+        offset: int = 0,
+        limit: int = 128 * 1024,
+    ) -> Dict[str, object]:
+        try:
+            return pipelines.read_log_file(pipeline_id, log_id, offset, limit)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except (ValueError, PipelineError) as error:

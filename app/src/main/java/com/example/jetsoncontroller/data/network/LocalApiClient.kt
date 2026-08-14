@@ -8,6 +8,8 @@ import com.example.jetsoncontroller.model.RegisterPipelineRequest
 import com.example.jetsoncontroller.model.PipelineConfigDocument
 import com.example.jetsoncontroller.model.PipelineConfigFieldsDocument
 import com.example.jetsoncontroller.model.PipelineLog
+import com.example.jetsoncontroller.model.PipelineLogChunk
+import com.example.jetsoncontroller.model.PipelineLogFilesResponse
 import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.model.UpdatePipelineConfigRequest
@@ -294,6 +296,19 @@ class LocalApiClient(
 
     suspend fun getPipelineLogs(pipelineId: String): Result<PipelineLog> =
         request("실행 로그 조회") { requireApi().getPipelineLogs(pipelineId) }
+
+    suspend fun getPipelineLogFiles(pipelineId: String): Result<PipelineLogFilesResponse> =
+        request("실행 로그 파일 조회") { requireApi().getPipelineLogFiles(pipelineId) }
+
+    suspend fun getPipelineLogChunk(
+        pipelineId: String,
+        logId: String,
+        offset: Long,
+        limit: Int
+    ): Result<PipelineLogChunk> =
+        request("실행 로그 내용 조회") {
+            requireApi().getPipelineLogChunk(pipelineId, logId, offset, limit)
+        }
 
     suspend fun getPipelineConfig(pipelineId: String): Result<PipelineConfigDocument> =
         request("YAML 설정 조회") { requireApi().getPipelineConfig(pipelineId) }

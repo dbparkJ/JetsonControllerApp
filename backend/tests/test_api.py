@@ -112,6 +112,28 @@ class ApiContractTest(unittest.TestCase):
             "pipelineId": "capture",
             "lines": ["capture started"],
         }
+        self.pipelines.log_files.return_value = {
+            "pipelineId": "capture",
+            "files": [
+                {
+                    "id": "run-20260814T000000.000001Z-100.log",
+                    "startedAt": "2026-08-14T00:00:00.000001Z",
+                    "modifiedAt": "2026-08-14T00:00:01Z",
+                    "sizeBytes": 15,
+                    "active": True,
+                }
+            ],
+        }
+        self.pipelines.read_log_file.return_value = {
+            "pipelineId": "capture",
+            "logId": "run-20260814T000000.000001Z-100.log",
+            "content": "capture started",
+            "offset": 0,
+            "nextOffset": 15,
+            "sizeBytes": 15,
+            "modifiedAt": "2026-08-14T00:00:01Z",
+            "eof": True,
+        }
         self.pipelines.config_document.return_value = {
             "pipelineId": "capture",
             "path": "config.yaml",
@@ -455,6 +477,21 @@ class ApiContractTest(unittest.TestCase):
         self.assertEqual(logs.status_code, 200, logs.text)
         self.assertEqual(logs.json()["lines"], ["capture started"])
         self.pipelines.logs.assert_called_once_with("capture", 300)
+
+        files = self.signed_request("GET", "/v1/pipelines/capture/log-files")
+        self.assertEqual(files.status_code, 200, files.text)
+        log_id = files.json()["files"][0]["id"]
+        self.assertTrue(files.json()["files"][0]["active"])
+        chunk = self.signed_request(
+            "GET",
+            f"/v1/pipelines/capture/log-files/{log_id}?offset=0&limit=4096",
+        )
+        self.assertEqual(chunk.status_code, 200, chunk.text)
+        self.assertEqual(chunk.json()["content"], "capture started")
+        self.pipelines.log_files.assert_called_once_with("capture")
+        self.pipelines.read_log_file.assert_called_once_with(
+            "capture", log_id, 0, 4096
+        )
 
         config = self.signed_request("GET", "/v1/pipelines/capture/config")
         self.assertEqual(config.status_code, 200, config.text)

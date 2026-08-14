@@ -72,6 +72,14 @@ class RuntimePaths:
             )
         )
     )
+    pipeline_logs: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get(
+                "JETSON_CONTROL_PIPELINE_LOGS",
+                "/var/log/jetson-pipelines",
+            )
+        )
+    )
 
 
 @dataclass(frozen=True)

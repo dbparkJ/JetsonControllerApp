@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import codecs
 import json
 import hashlib
 import math
 import os
+import re
+import stat
 import subprocess
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
@@ -15,6 +19,7 @@ from .config import validate_config_id
 
 
 PIPELINE_ACTIONS = frozenset({"start", "stop", "restart", "enable", "disable"})
+PIPELINE_LOG_ID = re.compile(r"^run-(\d{8}T\d{6}\.\d{6}Z)-\d+\.log$")
 
 
 class PipelineError(RuntimeError):
@@ -35,6 +40,8 @@ CommandRunner = Callable[..., subprocess.CompletedProcess]
 class PipelineManager:
     MAX_CONFIG_BYTES = 512 * 1024
     MAX_CONFIG_FIELDS = 2048
+    MAX_LOG_FILES = 100
+    MAX_LOG_READ_BYTES = 128 * 1024
 
     def __init__(
         self,
@@ -42,11 +49,13 @@ class PipelineManager:
         registrar: Path,
         pipeline_user: str,
         command_runner: Optional[CommandRunner] = None,
+        logs_root: Path = Path("/var/log/jetson-pipelines"),
     ) -> None:
         self.registry_root = registry_root
         self.registrar = registrar
         self.pipeline_user = pipeline_user
         self.command_runner = command_runner or subprocess.run
+        self.logs_root = logs_root
 
     def list_pipelines(self) -> List[Dict[str, object]]:
         if not self.registry_root.exists():
@@ -108,6 +117,128 @@ class PipelineManager:
             "pipelineId": pipeline_id,
             "lines": result.stdout.splitlines(),
         }
+
+    def log_files(self, pipeline_id: str) -> Dict[str, object]:
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        self._load_manifest(pipeline_id)
+        directory = self._log_directory(pipeline_id)
+        if directory is None:
+            return {"pipelineId": pipeline_id, "files": []}
+
+        files = []
+        try:
+            entries = list(directory.iterdir())
+        except OSError as error:
+            raise PipelineError(f"Could not list pipeline logs: {error}") from error
+        for path in entries:
+            match = PIPELINE_LOG_ID.fullmatch(path.name)
+            if match is None:
+                continue
+            try:
+                metadata = os.lstat(path)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                continue
+            try:
+                started = datetime.strptime(
+                    match.group(1), "%Y%m%dT%H%M%S.%fZ"
+                ).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            files.append(
+                {
+                    "id": path.name,
+                    "startedAt": started.isoformat().replace("+00:00", "Z"),
+                    "modifiedAt": self._iso_timestamp(metadata.st_mtime),
+                    "sizeBytes": metadata.st_size,
+                    "active": False,
+                    "_mtimeNs": metadata.st_mtime_ns,
+                }
+            )
+        files.sort(key=lambda item: (int(item["_mtimeNs"]), str(item["id"])), reverse=True)
+        files = files[: self.MAX_LOG_FILES]
+        if files:
+            status = self._status(pipeline_id)
+            files[0]["active"] = (
+                status.get("ActiveState") == "active"
+                and status.get("SubState") == "running"
+            )
+        for item in files:
+            item.pop("_mtimeNs", None)
+        return {"pipelineId": pipeline_id, "files": files}
+
+    def read_log_file(
+        self,
+        pipeline_id: str,
+        log_id: str,
+        offset: int = 0,
+        limit: int = MAX_LOG_READ_BYTES,
+    ) -> Dict[str, object]:
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        self._load_manifest(pipeline_id)
+        if PIPELINE_LOG_ID.fullmatch(log_id) is None:
+            raise ValueError("Pipeline log id is invalid")
+        if offset < 0:
+            raise ValueError("Pipeline log offset must not be negative")
+        if limit < 1 or limit > self.MAX_LOG_READ_BYTES:
+            raise ValueError("Pipeline log read limit is invalid")
+        directory = self._log_directory(pipeline_id)
+        if directory is None:
+            raise PipelineNotFound("Pipeline log file does not exist")
+        path = directory / log_id
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags)
+        except FileNotFoundError as error:
+            raise PipelineNotFound("Pipeline log file does not exist") from error
+        except OSError as error:
+            raise PipelineError(f"Could not open pipeline log: {error}") from error
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise PipelineError("Pipeline log path is not a regular file")
+            if offset > metadata.st_size:
+                raise ValueError("Pipeline log offset is beyond the file")
+            data = os.pread(descriptor, limit, offset)
+            metadata = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        content = decoder.decode(data, final=False)
+        pending, _ = decoder.getstate()
+        consumed = len(data) - len(pending)
+        next_offset = offset + consumed
+        return {
+            "pipelineId": pipeline_id,
+            "logId": log_id,
+            "content": content,
+            "offset": offset,
+            "nextOffset": next_offset,
+            "sizeBytes": metadata.st_size,
+            "modifiedAt": self._iso_timestamp(metadata.st_mtime),
+            "eof": next_offset >= metadata.st_size and not pending,
+        }
+
+    def _log_directory(self, pipeline_id: str) -> Optional[Path]:
+        directory = self.logs_root / pipeline_id
+        try:
+            metadata = os.lstat(directory)
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise PipelineError(f"Could not access pipeline logs: {error}") from error
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise PipelineError("Pipeline log directory is unsafe")
+        return directory
+
+    @staticmethod
+    def _iso_timestamp(timestamp: float) -> str:
+        return datetime.fromtimestamp(timestamp, timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        )
 
     def config_document(self, pipeline_id: str) -> Dict[str, str]:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")

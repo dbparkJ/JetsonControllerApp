@@ -130,6 +130,19 @@ interface LocalControlApi {
         @Query("lines") lines: Int = 300
     ): Response<PipelineLog>
 
+    @GET("/v1/pipelines/{pipelineId}/log-files")
+    suspend fun getPipelineLogFiles(
+        @Path("pipelineId") pipelineId: String
+    ): Response<PipelineLogFilesResponse>
+
+    @GET("/v1/pipelines/{pipelineId}/log-files/{logId}")
+    suspend fun getPipelineLogChunk(
+        @Path("pipelineId") pipelineId: String,
+        @Path("logId") logId: String,
+        @Query("offset") offset: Long,
+        @Query("limit") limit: Int
+    ): Response<PipelineLogChunk>
+
     @GET("/v1/pipelines/{pipelineId}/config")
     suspend fun getPipelineConfig(
         @Path("pipelineId") pipelineId: String

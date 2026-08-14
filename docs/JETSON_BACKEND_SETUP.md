@@ -36,13 +36,13 @@ Android app
 | `backend/jetson_control/uploads.py` | 영속 작업, 외부 HTTPS 청크 전송, 재시도/취소 |
 | `backend/jetson_control/network.py` | BLE/API Wi-Fi payload 검증과 NetworkManager 실행 |
 | `backend/jetson_control/wifi_direct.py` | P2P 검색, peer 요청, NetworkManager GO/DHCP와 runtime 상태 |
-| `backend/jetson_control/pipelines.py` | 등록된 Python 파이프라인 조회와 systemd 제어 |
+| `backend/jetson_control/pipelines.py` | 등록된 Python 파이프라인 제어와 실행별 로그 조회 |
 | `backend/scripts/install.sh` | 기존 장비 ID/secret을 보존하는 설치/업데이트 |
 | `backend/scripts/bootstrap-jetson.sh` | 새 Jetson의 package, BlueZ, backend, pipeline 일괄 설치 |
 | `backend/scripts/install-bluez-5.55.sh` | BlueZ 5.55 검증·설치·systemd override |
 | `backend/scripts/register-pipeline.py` | Git 작업 트리 스냅샷과 systemd instance 등록 |
 | `backend/scripts/install-depthai-pipeline.sh` | 현재 DepthAI 수집 pipeline preset 등록 |
-| `backend/scripts/run-pipeline.py` | manifest를 검증하고 선택한 venv Python 실행 |
+| `backend/scripts/run-pipeline.py` | manifest를 검증하고 venv Python 출력을 journal과 실행별 파일에 동시 기록 |
 | `backend/scripts/configure-upload-target.sh` | 외부 HTTPS 대상 설정 |
 | `backend/scripts/doctor.sh` | 설치 상태 점검 |
 | `backend/systemd/jetson-wifi-direct.service` | Wi-Fi Direct 부팅 자동 시작과 장애 재시작 |
@@ -82,6 +82,7 @@ sudo backend/scripts/install.sh \
 /var/lib/jetson-control/upload-target-tokens/
 /var/lib/jetson-control/upload-jobs/
 /opt/jetson-pipelines/
+/var/log/jetson-pipelines/<pipeline-id>/run-*.log
 /etc/systemd/system/jetson-control.service
 /etc/systemd/system/jetson-control-api.service
 /etc/systemd/system/jetson-wifi-direct.service
@@ -215,6 +216,8 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `POST` | `/v1/pipelines/{id}/{action}` | HMAC | start/stop/restart/enable/disable |
 | `DELETE` | `/v1/pipelines/{id}` | HMAC | 작업 등록 해제 |
 | `GET` | `/v1/pipelines/{id}/logs` | HMAC | 최근 systemd journal 로그 |
+| `GET` | `/v1/pipelines/{id}/log-files` | HMAC | 실행별 로그 파일 목록과 현재 실행 여부 |
+| `GET` | `/v1/pipelines/{id}/log-files/{logId}?offset=&limit=` | HMAC | 최대 128 KiB 로그 구간 증분 읽기 |
 | `GET`, `PUT` | `/v1/pipelines/{id}/config` | HMAC | 현재 release의 YAML 읽기와 원자 저장 |
 | `GET` | `/v1/pipelines/{id}/config/fields` | HMAC | 편집 가능한 scalar key/value와 revision 조회 |
 | `PATCH` | `/v1/pipelines/{id}/config/fields` | HMAC | revision 확인 후 선택한 value만 원자 저장 |
@@ -384,7 +387,9 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 
 backend는 임의 shell 문자열을 저장하지 않는다. 등록기는 Git tracked 파일과 ignore되지 않은 untracked 파일만 `/opt/jetson-pipelines/<id>/releases/`에 복사하고, commit·branch·dirty 상태를 manifest에 남긴다. `.git`, ignored dataset, cache는 실행 사본에 들어가지 않는다. `current` symlink가 활성 release를 가리키며 `jetson-pipeline@<id>.service`가 선택한 virtualenv Python으로 실행한다.
 
-앱의 YAML 편집기는 `current` release 안의 등록된 `.yaml` 또는 `.yml` 파일만 UTF-8 텍스트로 읽고 원자 저장한다. 저장 후 작업을 재시작하면 반영된다. 로그 화면은 해당 작업의 정확한 systemd unit에서 최근 300줄을 읽으며, 출력 버튼은 등록 시 지정한 쓰기 경로가 수집 storage root 안에 있을 때 그 폴더를 바로 연다.
+앱의 YAML 편집기는 `current` release 안의 등록된 `.yaml` 또는 `.yml` 파일만 UTF-8 텍스트로 읽고 원자 저장한다. 저장 후 작업을 재시작하면 반영된다. 출력 버튼은 등록 시 지정한 쓰기 경로가 수집 storage root 안에 있을 때 그 폴더를 바로 연다.
+
+pipeline runner는 stdout과 stderr를 journald에 계속 보내면서 `/var/log/jetson-pipelines/<id>/`에도 기록한다. systemd가 자동 재시작할 때마다 `run-<UTC>-<pid>.log`를 새로 만들어 이전 오류 로그를 보존한다. 앱은 로그 파일 목록을 매초 확인하고 선택한 파일의 새 바이트만 최대 128 KiB씩 받아 최신 실행을 실시간으로 따라가며, 이전 실행도 목록에서 다시 열 수 있다. 디스크 보호를 위해 pipeline별 최근 100개, 전체 1 GiB, 실행 파일당 128 MiB로 제한하고 파일 한도 이후 출력은 journald에 계속 남긴다.
 
 관리 action은 정확히 `start`, `stop`, `restart`, `enable`, `disable`만 허용한다. 등록 해제 시 unit은 중지·비활성화하고 release는 `/opt/jetson-pipelines/.archive/`로 이동해 보존한다.
 

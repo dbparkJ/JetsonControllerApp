@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -77,11 +78,13 @@ class PipelineManagerTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.commands = FakeCommands()
+        self.logs_root = self.root / "logs"
         self.manager = PipelineManager(
             registry_root=self.root,
             registrar=Path("/opt/jetson-control/register-pipeline.py"),
             pipeline_user="jm",
             command_runner=self.commands,
+            logs_root=self.logs_root,
         )
 
     def tearDown(self) -> None:
@@ -210,6 +213,63 @@ class PipelineManagerTest(unittest.TestCase):
             ],
             self.commands.commands,
         )
+
+    def test_lists_and_incrementally_reads_run_log_files(self) -> None:
+        directory = self.logs_root / "capture"
+        directory.mkdir(parents=True)
+        older = directory / "run-20260814T000000.000001Z-100.log"
+        newer = directory / "run-20260814T000001.000001Z-101.log"
+        older.write_text("old run\n", encoding="utf-8")
+        newer.write_text("first line\nsecond line\n", encoding="utf-8")
+        os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+        (directory / "notes.txt").write_text("ignored", encoding="utf-8")
+        (directory / "run-20260814T000002.000001Z-102.log").symlink_to(newer)
+
+        response = self.manager.log_files("capture")
+        self.assertEqual(
+            [item["id"] for item in response["files"]],
+            [newer.name, older.name],
+        )
+        self.assertFalse(response["files"][0]["active"])
+
+        first = self.manager.read_log_file("capture", newer.name, 0, 8)
+        self.assertEqual(first["content"], "first li")
+        self.assertEqual(first["nextOffset"], 8)
+        self.assertFalse(first["eof"])
+        second = self.manager.read_log_file(
+            "capture", newer.name, first["nextOffset"], 128
+        )
+        self.assertEqual(first["content"] + second["content"], newer.read_text())
+        self.assertTrue(second["eof"])
+
+    def test_log_file_reads_reject_unsafe_or_unbounded_requests(self) -> None:
+        directory = self.logs_root / "capture"
+        directory.mkdir(parents=True)
+        name = "run-20260814T000000.000001Z-100.log"
+        (directory / name).write_text("capture", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "log id"):
+            self.manager.read_log_file("capture", "../pipeline.json")
+        with self.assertRaisesRegex(ValueError, "offset"):
+            self.manager.read_log_file("capture", name, -1)
+        with self.assertRaisesRegex(ValueError, "limit"):
+            self.manager.read_log_file("capture", name, 0, 1024 * 1024)
+
+    def test_log_chunk_keeps_partial_utf8_for_the_next_read(self) -> None:
+        directory = self.logs_root / "capture"
+        directory.mkdir(parents=True)
+        name = "run-20260814T000000.000001Z-100.log"
+        (directory / name).write_text("ab한글\n", encoding="utf-8")
+
+        first = self.manager.read_log_file("capture", name, 0, 4)
+        self.assertEqual(first["content"], "ab")
+        self.assertEqual(first["nextOffset"], 2)
+        second = self.manager.read_log_file("capture", name, first["nextOffset"], 128)
+        self.assertEqual(first["content"] + second["content"], "ab한글\n")
+
+    def test_missing_log_directory_returns_an_empty_list(self) -> None:
+        self.assertEqual(self.manager.log_files("capture")["files"], [])
 
 
 if __name__ == "__main__":

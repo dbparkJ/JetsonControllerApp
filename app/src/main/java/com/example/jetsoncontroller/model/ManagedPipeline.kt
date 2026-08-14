@@ -52,6 +52,30 @@ data class PipelineLog(
     val lines: List<String> = emptyList()
 )
 
+data class PipelineLogFile(
+    val id: String,
+    val startedAt: String,
+    val modifiedAt: String,
+    val sizeBytes: Long,
+    val active: Boolean = false
+)
+
+data class PipelineLogFilesResponse(
+    val pipelineId: String,
+    val files: List<PipelineLogFile> = emptyList()
+)
+
+data class PipelineLogChunk(
+    val pipelineId: String,
+    val logId: String,
+    val content: String,
+    val offset: Long,
+    val nextOffset: Long,
+    val sizeBytes: Long,
+    val modifiedAt: String,
+    val eof: Boolean
+)
+
 data class PipelineConfigDocument(
     val pipelineId: String,
     val path: String,

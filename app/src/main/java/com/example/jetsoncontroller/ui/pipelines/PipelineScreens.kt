@@ -16,12 +16,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
@@ -35,6 +39,8 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -52,20 +58,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineConfigField
 import com.example.jetsoncontroller.model.PipelineConfigValueType
+import com.example.jetsoncontroller.model.PipelineLogFile
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.RemoteEntryType
 import com.example.jetsoncontroller.model.RemoteFileEntry
@@ -75,6 +85,10 @@ import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.SectionHeader
 import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
+import kotlinx.coroutines.flow.collectLatest
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -675,8 +689,15 @@ fun PipelinePickerScreen(
 fun PipelineLogScreen(
     state: PipelineUiState,
     onBack: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onLogSelected: (String) -> Unit
 ) {
+    val scrollState = rememberScrollState()
+    LaunchedEffect(state.selectedLogId, state.logFollowingLatest) {
+        snapshotFlow { scrollState.maxValue }.collectLatest { maximum ->
+            scrollState.scrollTo(maximum)
+        }
+    }
     BackHandler(onBack = onBack)
     Scaffold(
         topBar = {
@@ -695,33 +716,154 @@ fun PipelineLogScreen(
             )
         }
     ) { paddingValues ->
-        Box(Modifier.fillMaxSize().padding(paddingValues)) {
-            when {
-                state.error != null -> InlineMessage(
+        Column(Modifier.fillMaxSize().padding(paddingValues)) {
+            PipelineLogToolbar(
+                files = state.logFiles,
+                selectedLogId = state.selectedLogId,
+                followingLatest = state.logFollowingLatest,
+                live = state.logLive,
+                onSelected = onLogSelected
+            )
+            if (state.error != null) {
+                InlineMessage(
                     message = state.error,
                     isError = true,
-                    modifier = Modifier.padding(20.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
                 )
-                state.logLines.isEmpty() && !state.detailLoading -> EmptyState(
-                    title = "표시할 로그가 없습니다",
-                    message = "작업을 실행하면 최근 로그가 여기에 표시됩니다."
-                )
-                else -> SelectionContainer {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp)
-                    ) {
-                        item {
+            }
+            HorizontalDivider()
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                when {
+                    state.logFiles.isEmpty() && !state.detailLoading -> EmptyState(
+                        title = "저장된 실행 로그가 없습니다",
+                        message = "작업을 시작하면 실행마다 별도 로그 파일이 생성됩니다."
+                    )
+                    state.logContent.isEmpty() && !state.detailLoading -> EmptyState(
+                        title = "로그 내용이 없습니다",
+                        message = "선택한 실행에서는 아직 출력이 기록되지 않았습니다."
+                    )
+                    else -> SelectionContainer {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState)
+                                .padding(16.dp)
+                        ) {
                             Text(
-                                state.logLines.joinToString("\n"),
-                                style = MaterialTheme.typography.bodySmall
+                                state.logContent,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace
+                                )
                             )
                         }
                     }
                 }
+                if (state.detailLoading) {
+                    LinearProgressIndicator(
+                        Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                    )
+                }
             }
-            if (state.detailLoading) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+        }
+    }
+}
+
+@Composable
+private fun PipelineLogToolbar(
+    files: List<PipelineLogFile>,
+    selectedLogId: String?,
+    followingLatest: Boolean,
+    live: Boolean,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = files.firstOrNull { it.id == selectedLogId }
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { expanded = true },
+                    enabled = files.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Description, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        selected?.let(::pipelineLogFileLabel) ?: "실행 로그 선택",
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    files.forEachIndexed { index, file ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(
+                                        pipelineLogFileLabel(file),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        when {
+                                            file.active -> "현재 실행"
+                                            index == 0 -> "최근 실행"
+                                            else -> "보관 로그"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Description, contentDescription = null)
+                            },
+                            onClick = {
+                                expanded = false
+                                onSelected(file.id)
+                            }
+                        )
+                    }
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Circle,
+                        contentDescription = null,
+                        modifier = Modifier.size(8.dp),
+                        tint = if (live) Color(0xFF237A45)
+                        else MaterialTheme.colorScheme.outline
+                    )
+                    Text(
+                        when {
+                            selected?.active == true && live -> "실시간"
+                            followingLatest && live -> "재시작 감시"
+                            else -> "보관 로그"
+                        },
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+                selected?.let {
+                    Text(
+                        formatPipelineLogSize(it.sizeBytes),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
@@ -894,6 +1036,25 @@ private fun pipelineStateLabel(state: PipelineState): String = when (state) {
     PipelineState.FAILED -> "오류"
     PipelineState.RETRYING -> "재시도 대기"
     PipelineState.UNKNOWN -> "확인 필요"
+}
+
+private val pipelineLogTimeFormatter: DateTimeFormatter = DateTimeFormatter
+    .ofPattern("yyyy-MM-dd HH:mm:ss")
+    .withZone(ZoneId.systemDefault())
+
+private fun pipelineLogFileLabel(file: PipelineLogFile): String {
+    val timestamp = try {
+        pipelineLogTimeFormatter.format(Instant.parse(file.startedAt))
+    } catch (_: Exception) {
+        file.startedAt
+    }
+    return "$timestamp · ${formatPipelineLogSize(file.sizeBytes)}"
+}
+
+private fun formatPipelineLogSize(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }
 
 @Composable
