@@ -24,6 +24,7 @@ from .pipelines import (
     PipelineNotFound,
 )
 from .status import StatusCollector
+from .sensors import SensorBridgeStore
 from .tls import certificate_sha256
 from .uploads import (
     UploadCapacityExceeded,
@@ -113,9 +114,11 @@ def create_app(
     workspace_service = workspace_storage or WorkspaceRegistry.for_user(
         device_config.pipeline_user
     )
+    sensor_bridge = SensorBridgeStore(runtime_paths.sensor_bridge_dir)
     status_service = status_collector or StatusCollector(
         device_config,
         storage_path=storage_service.primary_path(),
+        sensor_bridge=sensor_bridge,
     )
     commands = command_runner or CommandRunner(device_config)
     uploads = upload_manager or UploadManager(
@@ -144,6 +147,7 @@ def create_app(
     app.state.device_config = device_config
     app.state.authenticator = request_auth
     app.state.status_collector = status_service
+    app.state.sensor_bridge = sensor_bridge
     app.state.command_runner = commands
     app.state.storage = storage_service
     app.state.workspace_storage = workspace_service
@@ -297,6 +301,28 @@ def create_app(
     @app.get("/v1/status", dependencies=authenticated)
     async def device_status() -> Dict[str, object]:
         return status_service.collect()
+
+    @app.get("/v1/camera/preview/frame", dependencies=authenticated)
+    async def camera_preview_frame() -> Response:
+        bridge_status = sensor_bridge.status()
+        if not bridge_status.fresh or not bool(bridge_status.camera.get("active")):
+            raise HTTPException(status_code=409, detail="Camera sensor is not active")
+        if not bool(bridge_status.camera.get("previewAvailable")):
+            raise HTTPException(status_code=404, detail="Camera preview is not available")
+        try:
+            content = sensor_bridge.preview_frame()
+        except OSError as error:
+            raise HTTPException(status_code=404, detail="Camera preview is not available") from error
+        return Response(
+            content=content,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Preview-Timestamp": str(
+                    bridge_status.camera.get("previewUpdatedAtEpochMillis") or ""
+                ),
+            },
+        )
 
     @app.post("/v1/commands/{action}", dependencies=authenticated)
     async def run_command(

@@ -142,6 +142,11 @@ class LocalApiClient(
     suspend fun getStatus(): Result<JetsonStatus> =
         request("상태 조회") { requireApi().getStatus() }
 
+    suspend fun getCameraPreviewFrame(): Result<ByteArray> = suspendResult {
+        val response = withSessionRetry { requireApi().getCameraPreviewFrame() }
+        requireBody(response, "카메라 프리뷰").bytes()
+    }
+
     suspend fun getCapabilities(): Result<LocalControlApi.CapabilitiesResponse> =
         request("기능 조회") { requireApi().getCapabilities() }
 

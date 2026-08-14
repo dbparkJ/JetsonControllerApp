@@ -16,6 +16,14 @@ UNIT_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.@:-]{0,127}$")
 
 @dataclass(frozen=True)
 class RuntimePaths:
+    sensor_bridge_dir: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get(
+                "JETSON_CONTROL_SENSOR_BRIDGE_DIR",
+                "/var/lib/jetson-sensors",
+            )
+        )
+    )
     device_config: Path = field(
         default_factory=lambda: Path(
             os.environ.get(

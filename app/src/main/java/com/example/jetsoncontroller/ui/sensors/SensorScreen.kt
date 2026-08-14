@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.sensors
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,10 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -35,6 +37,8 @@ import com.example.jetsoncontroller.ui.components.SectionHeader
 @Composable
 fun SensorScreen(
     status: JetsonStatus,
+    onCameraClick: () -> Unit,
+    onGnssClick: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit
 ) {
     Scaffold(
@@ -50,27 +54,68 @@ fun SensorScreen(
         ) {
             item { SectionHeader("연결된 센서") }
             item {
+                val camera = status.cameraSensor
                 SensorStatusRow(
                     icon = Icons.Default.CameraAlt,
                     name = "카메라",
-                    configured = status.cameraConfigured,
-                    running = status.cameraRunning
+                    presentation = sensorPresentation(
+                        configured = status.cameraConfigured || camera.configured,
+                        connected = camera.connected,
+                        active = camera.active,
+                        telemetryAvailable = status.sensorTelemetryAvailable,
+                        telemetryFresh = status.sensorTelemetryFresh,
+                        legacyRunning = status.cameraRunning
+                    ),
+                    detail = if (
+                        camera.active && camera.frameWidth != null && camera.frameHeight != null
+                    ) {
+                        "${camera.frameWidth} × ${camera.frameHeight} · 실시간 프리뷰"
+                    } else null,
+                    onClick = onCameraClick
                 )
             }
             item {
+                val gnss = status.gnssSensor
                 SensorStatusRow(
                     icon = Icons.Default.Explore,
                     name = "GNSS",
-                    configured = status.gnssConfigured,
-                    running = status.gnssRunning
+                    presentation = sensorPresentation(
+                        configured = status.gnssConfigured || gnss.configured,
+                        connected = gnss.connected,
+                        active = gnss.active,
+                        telemetryAvailable = status.sensorTelemetryAvailable,
+                        telemetryFresh = status.sensorTelemetryFresh,
+                        legacyRunning = status.gnssRunning
+                    ),
+                    detail = if (gnss.active) {
+                        listOfNotNull(
+                            gnssFixLabel(gnss.fixType),
+                            gnss.ntripMountpoint?.takeIf { gnss.ntripConnected }
+                        ).joinToString(" · ")
+                    } else null,
+                    onClick = onGnssClick
                 )
             }
             item {
+                val imu = status.imuSensor
                 SensorStatusRow(
                     icon = Icons.Default.Sensors,
                     name = "IMU",
-                    configured = status.imuConfigured,
-                    running = status.imuRunning
+                    presentation = sensorPresentation(
+                        configured = status.imuConfigured || imu.configured,
+                        connected = imu.connected,
+                        active = imu.active,
+                        telemetryAvailable = status.sensorTelemetryAvailable,
+                        telemetryFresh = status.sensorTelemetryFresh,
+                        legacyRunning = status.imuRunning
+                    ),
+                    detail = imu.source?.let { source ->
+                        when (source) {
+                            "external" -> "외부 IMU"
+                            "oak+external" -> "OAK + 외부 IMU"
+                            else -> "OAK IMU"
+                        }
+                    }
                 )
             }
         }
@@ -81,11 +126,15 @@ fun SensorScreen(
 private fun SensorStatusRow(
     icon: ImageVector,
     name: String,
-    configured: Boolean,
-    running: Boolean
+    presentation: SensorPresentation,
+    detail: String? = null,
+    onClick: (() -> Unit)? = null
 ) {
+    val active = presentation.activity == SensorActivity.ACTIVE
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
@@ -97,30 +146,34 @@ private fun SensorStatusRow(
                 icon,
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
-                tint = if (running) MaterialTheme.colorScheme.primary
+                tint = if (active) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Column(Modifier.weight(1f).padding(start = 14.dp)) {
                 Text(name, fontWeight = FontWeight.SemiBold)
                 Text(
-                    when {
-                        !configured -> "아직 서비스가 설정되지 않았습니다"
-                        running -> "정상 동작 중"
-                        else -> "연결됨 · 대기 또는 중지"
-                    },
+                    detail ?: presentation.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Surface(
-                color = if (running) MaterialTheme.colorScheme.primaryContainer
+                color = if (active) MaterialTheme.colorScheme.primaryContainer
                 else MaterialTheme.colorScheme.surfaceVariant,
                 shape = MaterialTheme.shapes.small
             ) {
                 Text(
-                    if (running) "활성" else if (configured) "대기" else "미설정",
+                    presentation.badge,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                     style = MaterialTheme.typography.labelMedium
+                )
+            }
+            if (onClick != null) {
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.padding(start = 6.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

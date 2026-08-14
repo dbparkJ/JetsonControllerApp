@@ -3,11 +3,12 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 import psutil
 
 from .config import DeviceConfig
+from .sensors import SensorBridgeStore
 
 
 class StatusCollector:
@@ -16,9 +17,15 @@ class StatusCollector:
         Path("/sys/devices/17000000.gpu/load"),
     )
 
-    def __init__(self, config: DeviceConfig, storage_path: Path = Path("/")) -> None:
+    def __init__(
+        self,
+        config: DeviceConfig,
+        storage_path: Path = Path("/"),
+        sensor_bridge: Optional[SensorBridgeStore] = None,
+    ) -> None:
         self.config = config
         self.storage_path = storage_path
+        self.sensor_bridge = sensor_bridge or SensorBridgeStore()
 
     @staticmethod
     def _clamp_percent(value: float) -> int:
@@ -143,6 +150,16 @@ class StatusCollector:
             name: bool(self.config.service_flags.get(name, ""))
             for name in ("camera", "gnss", "imu")
         }
+        sensors = self.sensor_bridge.status()
+        sensor_values = {
+            "camera": sensors.camera,
+            "gnss": sensors.gnss,
+            "imu": sensors.imu,
+        }
+        if sensors.available:
+            for name, values in sensor_values.items():
+                configured[name] = configured[name] or bool(values.get("configured"))
+                flags[name] = sensors.fresh and bool(values.get("active"))
         wifi_connected, wifi_ssid = self.wifi_status()
         return {
             "cpuPercent": self.cpu_percent(),
@@ -164,6 +181,15 @@ class StatusCollector:
             "imuConfigured": configured["imu"],
             "wifiConnected": wifi_connected,
             "wifiSsid": wifi_ssid or None,
+            "sensorTelemetryAvailable": sensors.available,
+            "sensorTelemetryFresh": sensors.fresh,
+            "sensorTelemetryUpdatedAtEpochMillis": sensors.updated_at_epoch_millis,
+            "sensorTelemetryAgeSeconds": sensors.age_seconds,
+            "pipelineSensorBridgeActive": bool(sensors.pipeline.get("active")),
+            "pipelineSensorBridgeError": sensors.pipeline.get("error"),
+            "cameraSensor": sensors.camera,
+            "gnssSensor": sensors.gnss,
+            "imuSensor": sensors.imu,
         }
 
     def ble_packet_values(self) -> Tuple[int, int, int, int, int, int, int, int]:

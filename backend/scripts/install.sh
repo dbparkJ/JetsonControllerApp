@@ -73,6 +73,7 @@ source_root="$(cd "${script_dir}/.." && pwd)"
 install_root="/opt/jetson-control"
 config_dir="/etc/jetson-control"
 state_dir="/var/lib/jetson-control"
+sensor_bridge_dir="/var/lib/jetson-sensors"
 pipeline_root="/opt/jetson-pipelines"
 
 invoking_user="${SUDO_USER:-root}"
@@ -100,6 +101,8 @@ fi
 install -d -m 0755 -o root -g root "${install_root}"
 install -d -m 0700 -o root -g root "${config_dir}" "${state_dir}"
 install -d -m 0755 -o root -g root "${state_dir}/upload-jobs" "${state_dir}/uploads"
+pipeline_group="$(id -gn "${pipeline_user}")"
+install -d -m 0750 -o "${pipeline_user}" -g "${pipeline_group}" "${sensor_bridge_dir}"
 install -d -m 0755 -o root -g root "${pipeline_root}"
 
 rm -rf "${install_root}/jetson_control.new"
@@ -131,7 +134,6 @@ fi
 
 if [[ -z "${storage_root}" ]]; then
   storage_root="/data/collections"
-  pipeline_group="$(id -gn "${pipeline_user}")"
   install -d -m 0755 -o "${pipeline_user}" -g "${pipeline_group}" "${storage_root}"
 elif [[ ! -d "${storage_root}" ]]; then
   echo "Storage root is not a directory: ${storage_root}" >&2

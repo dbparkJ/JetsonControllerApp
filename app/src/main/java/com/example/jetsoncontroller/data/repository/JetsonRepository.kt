@@ -661,6 +661,11 @@ class JetsonRepository(
         return client.getRoots()
     }
 
+    suspend fun getCameraPreviewFrame(): Result<ByteArray> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.getCameraPreviewFrame()
+    }
+
     private fun updateStatus(status: JetsonStatus) {
         _status.value = status
         _statusUpdatedAtEpochMillis.value = System.currentTimeMillis()

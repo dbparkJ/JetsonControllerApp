@@ -60,6 +60,9 @@ import com.example.jetsoncontroller.ui.pipelines.PipelineLogScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelinePickerScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineViewModel
 import com.example.jetsoncontroller.ui.sensors.SensorScreen
+import com.example.jetsoncontroller.ui.sensors.CameraPreviewScreen
+import com.example.jetsoncontroller.ui.sensors.CameraPreviewViewModel
+import com.example.jetsoncontroller.ui.sensors.GnssMapScreen
 import com.example.jetsoncontroller.ui.settings.AlertSettingsScreen
 import com.example.jetsoncontroller.ui.settings.AlertSettingsViewModel
 import com.example.jetsoncontroller.ui.components.ControlSection
@@ -125,6 +128,10 @@ private object Routes {
         "pipeline_config/{pipelineId}"
 
     const val SENSORS = "sensors"
+
+    const val CAMERA_PREVIEW = "camera_preview"
+
+    const val GNSS_MAP = "gnss_map"
 
     const val SETTINGS = "settings"
 
@@ -246,6 +253,9 @@ fun JetsonApp(
                 )
         )
 
+    val cameraPreviewViewModel: CameraPreviewViewModel =
+        viewModel(factory = CameraPreviewViewModel.Factory(repository))
+
     val alertSettingsViewModel: AlertSettingsViewModel =
         viewModel(factory = AlertSettingsViewModel.Factory(alertPreferences))
 
@@ -294,6 +304,11 @@ fun JetsonApp(
 
     val pipelineState by
         pipelineViewModel
+            .uiState
+            .collectAsStateWithLifecycle()
+
+    val cameraPreviewState by
+        cameraPreviewViewModel
             .uiState
             .collectAsStateWithLifecycle()
 
@@ -868,8 +883,10 @@ fun JetsonApp(
         }
 
         composable(Routes.PIPELINES) {
+            StatusPollingLifecycleEffect(dashboardViewModel)
             PipelineListScreen(
                 state = pipelineState,
+                jetsonStatus = dashboardState.status,
                 onBack = { navController.popBackStack() },
                 onRefresh = pipelineViewModel::refresh,
                 onAdd = {
@@ -891,6 +908,7 @@ fun JetsonApp(
                         "storage?rootId=${Uri.encode(rootId)}&path=${Uri.encode(path)}"
                     )
                 },
+                onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
                 onSectionSelected = onSectionSelected,
                 onClearMessage = pipelineViewModel::clearMessage
             )
@@ -972,7 +990,46 @@ fun JetsonApp(
             StatusPollingLifecycleEffect(dashboardViewModel)
             SensorScreen(
                 status = dashboardState.status,
+                onCameraClick = { navController.navigate(Routes.CAMERA_PREVIEW) },
+                onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
                 onSectionSelected = onSectionSelected
+            )
+        }
+
+        composable(Routes.CAMERA_PREVIEW) {
+            StatusPollingLifecycleEffect(dashboardViewModel)
+            val camera = dashboardState.status.cameraSensor
+            val cameraActive = if (dashboardState.status.sensorTelemetryAvailable) {
+                dashboardState.status.sensorTelemetryFresh && camera.active
+            } else {
+                dashboardState.status.cameraRunning
+            }
+            LaunchedEffect(cameraActive) {
+                cameraPreviewViewModel.setSensorActive(cameraActive)
+            }
+            DisposableEffect(Unit) {
+                cameraPreviewViewModel.setVisible(true)
+                onDispose { cameraPreviewViewModel.setVisible(false) }
+            }
+            CameraPreviewScreen(
+                state = cameraPreviewState,
+                camera = camera,
+                telemetryFresh = if (dashboardState.status.sensorTelemetryAvailable) {
+                    dashboardState.status.sensorTelemetryFresh
+                } else {
+                    dashboardState.status.cameraRunning
+                },
+                onBack = { navController.popBackStack() },
+                onRefresh = cameraPreviewViewModel::refresh
+            )
+        }
+
+        composable(Routes.GNSS_MAP) {
+            StatusPollingLifecycleEffect(dashboardViewModel)
+            GnssMapScreen(
+                gnss = dashboardState.status.gnssSensor,
+                telemetryFresh = dashboardState.status.sensorTelemetryFresh,
+                onBack = { navController.popBackStack() }
             )
         }
 

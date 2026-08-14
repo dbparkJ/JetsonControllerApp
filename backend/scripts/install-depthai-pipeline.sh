@@ -11,6 +11,7 @@ target_home="$(getent passwd "${target_user}" | cut -d: -f6)"
 repo="${target_home}/26_camera_record/depthai_refactored_ver2"
 venv="${target_home}/26_camera_record/.venv"
 output_root="/data/collections"
+sensor_bridge_dir="/var/lib/jetson-sensors"
 start_now=false
 
 while [[ "$#" -gt 0 ]]; do
@@ -47,6 +48,7 @@ if [[ "${output_root}" != /* ]]; then
 fi
 target_group="$(id -gn "${target_user}")"
 install -d -m 0755 -o "${target_user}" -g "${target_group}" "${output_root}"
+install -d -m 0750 -o "${target_user}" -g "${target_group}" "${sensor_bridge_dir}"
 output_root="$(realpath -e "${output_root}")"
 
 registrar="/opt/jetson-control/register-pipeline.sh"
@@ -66,6 +68,7 @@ command=(
   --config configs/capture.yaml
   --working-dir "${output_root}"
   --write-path "${output_root}"
+  --write-path "${sensor_bridge_dir}"
   --user "${target_user}"
   --autostart
 )

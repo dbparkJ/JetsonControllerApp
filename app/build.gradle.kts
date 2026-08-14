@@ -1,7 +1,23 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val localProperties = Properties().apply {
+    val propertiesFile = rootProject.file("local.properties")
+    if (propertiesFile.isFile) {
+        propertiesFile.inputStream().use(::load)
+    }
+}
+val vworldApiKey = providers.gradleProperty("VWORLD_API_KEY")
+    .orElse(providers.environmentVariable("VWORLD_API_KEY"))
+    .orNull
+    ?: localProperties.getProperty("vworld.apiKey", "")
+val escapedVworldApiKey = vworldApiKey
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.example.jetsoncontroller"
@@ -13,8 +29,10 @@ android {
         applicationId = "com.example.jetsoncontroller"
         minSdk = 31
         targetSdk = 37
-        versionCode = 11
-        versionName = "1.9.0"
+        versionCode = 12
+        versionName = "1.10.0"
+
+        buildConfigField("String", "VWORLD_API_KEY", "\"$escapedVworldApiKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -57,6 +76,7 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.okhttp.core)
+    implementation(libs.maplibre.android)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

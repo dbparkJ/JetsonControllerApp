@@ -13,13 +13,16 @@ interface LocalControlApi {
     @GET("/v1/status")
     suspend fun getStatus(): Response<JetsonStatus>
 
+    @GET("/v1/camera/preview/frame")
+    suspend fun getCameraPreviewFrame(): Response<ResponseBody>
+
     @GET("/v1/capabilities")
     suspend fun getCapabilities(): Response<CapabilitiesResponse>
 
     @POST("/v1/commands/{command}")
     suspend fun sendCommand(
         @Path("command") command: String,
-        @Body body: Map<String, Any>
+        @Body body: Map<String, @JvmSuppressWildcards Any>
     ): Response<Unit>
 
     @GET("/v1/fs/roots")

@@ -28,6 +28,8 @@ class ApiContractTest(unittest.TestCase):
         source.mkdir()
         (source / "hello world.txt").write_text("hello", encoding="utf-8")
         destination = base / "destination"
+        sensor_bridge = base / "sensors"
+        sensor_bridge.mkdir()
 
         roots_path = base / "roots.json"
         roots_path.write_text(
@@ -52,6 +54,7 @@ class ApiContractTest(unittest.TestCase):
             storage_roots=roots_path,
             upload_targets=targets_path,
             state_dir=base / "state",
+            sensor_bridge_dir=sensor_bridge,
         )
         self.config = DeviceConfig(
             device_id="00000000-0000-0000-0000-000000000001",
@@ -243,6 +246,64 @@ class ApiContractTest(unittest.TestCase):
             response.headers["X-Response-Signature"],
             expected_response_signature,
         )
+
+    def test_authenticated_camera_preview_contract(self) -> None:
+        now_millis = int(time.time() * 1000)
+        self.paths.sensor_bridge_dir.joinpath("status.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "updatedAtEpochMillis": now_millis,
+                    "pipeline": {"active": True},
+                    "camera": {
+                        "configured": True,
+                        "connected": True,
+                        "active": True,
+                        "previewAvailable": True,
+                        "previewUpdatedAtEpochMillis": now_millis,
+                    },
+                    "gnss": {},
+                    "imu": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        preview = b"\xff\xd8camera-preview\xff\xd9"
+        self.paths.sensor_bridge_dir.joinpath("camera-preview.jpg").write_bytes(preview)
+
+        path = "/v1/camera/preview/frame"
+        self.assertEqual(self.client.get(path).status_code, 401)
+        response = self.signed_request("GET", path)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers["content-type"], "image/jpeg")
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertEqual(response.content, preview)
+        self.assertIn("X-Response-Signature", response.headers)
+
+    def test_camera_preview_rejects_stale_sensor_heartbeat(self) -> None:
+        self.paths.sensor_bridge_dir.joinpath("status.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "updatedAtEpochMillis": int((time.time() - 10) * 1000),
+                    "pipeline": {"active": True},
+                    "camera": {
+                        "configured": True,
+                        "connected": True,
+                        "active": True,
+                        "previewAvailable": True,
+                    },
+                    "gnss": {},
+                    "imu": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        response = self.signed_request("GET", "/v1/camera/preview/frame")
+
+        self.assertEqual(response.status_code, 409)
 
     def test_file_query_is_part_of_signature(self) -> None:
         path = "/v1/fs/list?root=data&path="
