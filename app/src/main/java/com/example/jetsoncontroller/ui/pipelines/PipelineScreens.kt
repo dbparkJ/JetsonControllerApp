@@ -794,7 +794,7 @@ private fun PipelineLogToolbar(
                     Icon(Icons.Default.Description, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
                     Text(
-                        selected?.let(::pipelineLogFileLabel) ?: "실행 로그 선택",
+                        selected?.let(::pipelineLogStartedLabel) ?: "실행 로그 선택",
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -851,7 +851,7 @@ private fun PipelineLogToolbar(
                     Text(
                         when {
                             selected?.active == true && live -> "실시간"
-                            followingLatest && live -> "재시작 감시"
+                            followingLatest && live -> "자동 갱신"
                             else -> "보관 로그"
                         },
                         style = MaterialTheme.typography.labelMedium
@@ -1042,14 +1042,14 @@ private val pipelineLogTimeFormatter: DateTimeFormatter = DateTimeFormatter
     .ofPattern("yyyy-MM-dd HH:mm:ss")
     .withZone(ZoneId.systemDefault())
 
-private fun pipelineLogFileLabel(file: PipelineLogFile): String {
-    val timestamp = try {
-        pipelineLogTimeFormatter.format(Instant.parse(file.startedAt))
-    } catch (_: Exception) {
-        file.startedAt
-    }
-    return "$timestamp · ${formatPipelineLogSize(file.sizeBytes)}"
+private fun pipelineLogStartedLabel(file: PipelineLogFile): String = try {
+    pipelineLogTimeFormatter.format(Instant.parse(file.startedAt))
+} catch (_: Exception) {
+    file.startedAt
 }
+
+private fun pipelineLogFileLabel(file: PipelineLogFile): String =
+    "${pipelineLogStartedLabel(file)} · ${formatPipelineLogSize(file.sizeBytes)}"
 
 private fun formatPipelineLogSize(bytes: Long): String = when {
     bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
