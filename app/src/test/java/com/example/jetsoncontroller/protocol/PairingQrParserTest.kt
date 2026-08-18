@@ -1,10 +1,23 @@
 package com.example.jetsoncontroller.protocol
 
+import com.example.jetsoncontroller.model.PairingInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class PairingQrParserTest {
+
+    @Test
+    fun pairingInfo_exposesCanonicalAndLegacyBleNames() {
+        val info = PairingInfo(
+            version = 1,
+            deviceId = "9b58f0b4-70bd-4ddb-a9a8-d3e879d9d137",
+            bootstrapSecretHex = "00".repeat(32)
+        )
+
+        assertEquals("MMS-D137", info.expectedBleName)
+        assertEquals("MMS-9D137", info.legacyExpectedBleName)
+    }
 
     @Test
     fun parse_validQr_returnsNormalizedPairingInfo() {
@@ -22,6 +35,8 @@ class PairingQrParserTest {
             "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
             result.bootstrapSecretHex
         )
+        assertEquals("MMS-0000", result.expectedBleName)
+        assertEquals("MMS-40000", result.legacyExpectedBleName)
     }
 
     @Test

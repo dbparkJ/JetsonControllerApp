@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.model
 
+import java.util.Locale
+
 data class PairingInfo(
     val version: Int,
     val deviceId: String,
@@ -7,12 +9,29 @@ data class PairingInfo(
 ) {
 
     val shortId: String
-        get() =
-            deviceId
-                .replace("-", "")
-                .takeLast(4)
-                .uppercase()
+        get() = deviceIdSuffix(deviceId, length = 4)
+
+    val legacyShortId: String
+        get() = deviceIdSuffix(deviceId, length = 5)
 
     val expectedBleName: String
-        get() = "MMS-$shortId"
+        get() = canonicalBleNameForDeviceId(deviceId)
+
+    val legacyExpectedBleName: String
+        get() = legacyBleNameForDeviceId(deviceId)
 }
+
+fun canonicalBleNameForDeviceId(deviceId: String): String =
+    "MMS-${deviceIdSuffix(deviceId, length = 4)}"
+
+fun legacyBleNameForDeviceId(deviceId: String): String =
+    "MMS-${deviceIdSuffix(deviceId, length = 5)}"
+
+private fun deviceIdSuffix(
+    deviceId: String,
+    length: Int
+): String =
+    deviceId
+        .replace("-", "")
+        .takeLast(length)
+        .uppercase(Locale.ROOT)

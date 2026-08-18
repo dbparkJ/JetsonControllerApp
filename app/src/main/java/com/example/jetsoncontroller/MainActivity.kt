@@ -188,6 +188,14 @@ class MainActivity :
                         localNetworkPermissionGranted,
                     notificationPermissionGranted =
                         notificationPermissionGranted,
+                    onRequestBluetoothPermission = {
+                        permissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.BLUETOOTH_SCAN,
+                                Manifest.permission.BLUETOOTH_CONNECT
+                            )
+                        )
+                    },
                     onRequestCameraPermission = {
                         permissionLauncher.launch(
                             arrayOf(Manifest.permission.CAMERA)

@@ -255,6 +255,11 @@ value.setdefault("wifi_direct_address", "192.168.49.1/24")
 value["pipeline_user"] = os.environ["PIPELINE_USER"]
 if os.environ["DEVICE_NAME"]:
     value["device_name"] = os.environ["DEVICE_NAME"]
+else:
+    compact_device_id = str(value["device_id"]).replace("-", "").upper()
+    legacy_default_name = f"MMS-{compact_device_id[-5:]}"
+    if value.get("device_name") == legacy_default_name:
+        value["device_name"] = f"MMS-{compact_device_id[-4:]}"
 if os.environ["ENABLE_POWER"] == "true":
     value["allow_power_commands"] = True
 else:

@@ -479,8 +479,7 @@ class BleGattClient(
             if (completedSession != null) {
                 scope.launch {
                     credentialStore.saveCredential(
-                        completedSession.info,
-                        completedSession.displayName
+                        completedSession.info
                     )
                 }
             }

@@ -157,6 +157,8 @@ fun JetsonApp(
         Boolean,
     notificationPermissionGranted:
         Boolean,
+    onRequestBluetoothPermission:
+        () -> Unit,
     onRequestCameraPermission:
         () -> Unit,
     onRequestNearbyWifiPermission:
@@ -472,7 +474,10 @@ fun JetsonApp(
 
         composable(Routes.ONBOARDING) {
             FirstDeviceOnboardingScreen(
-                onScanQr = { navController.navigate(Routes.QR_SCANNER) },
+                onScanQr = {
+                    pairingViewModel.beginQrPairing()
+                    navController.navigate(Routes.QR_SCANNER)
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -488,6 +493,8 @@ fun JetsonApp(
                     deviceViewModel
                         .toggleScan()
                 },
+                onRequestBluetoothPermission =
+                    onRequestBluetoothPermission,
                 onConnect = {
                     device ->
                     pendingDashboardTransport = TransportType.BLE
@@ -506,6 +513,7 @@ fun JetsonApp(
                     deviceViewModel.forget(device)
                 },
                 onAddDeviceClick = {
+                    pairingViewModel.beginQrPairing()
                     navController.navigate(Routes.QR_SCANNER)
                 },
                 onBack = {
@@ -538,12 +546,7 @@ fun JetsonApp(
                     accepted
                 },
                 onBack = {
-                    if (
-                        deviceState.connectionState
-                        is ConnectionState.RegistrationRequired
-                    ) {
-                        pairingViewModel.cancelPairing()
-                    }
+                    pairingViewModel.cancelPairing()
                     navController.popBackStack()
                 }
             )
@@ -555,14 +558,22 @@ fun JetsonApp(
             PairingScreen(
                 state = pairingState,
                 onStartPairing = {
-                    pairingViewModel.startPairing()
+                    if (bluetoothPermissionGranted) {
+                        pairingViewModel.startPairing()
+                    } else {
+                        onRequestBluetoothPermission()
+                    }
                 },
                 onCancel = {
                     pairingViewModel.cancelPairing()
                     navController.popBackStack(Routes.CONNECTION_HUB, false)
                 },
                 onRetry = {
-                    pairingViewModel.retry()
+                    if (bluetoothPermissionGranted) {
+                        pairingViewModel.retry()
+                    } else {
+                        onRequestBluetoothPermission()
+                    }
                 }
             )
         }

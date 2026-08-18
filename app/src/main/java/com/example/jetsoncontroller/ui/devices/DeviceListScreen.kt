@@ -55,6 +55,7 @@ import com.example.jetsoncontroller.ui.components.SectionHeader
 fun DeviceListScreen(
     state: DeviceListUiState,
     onScanClick: () -> Unit,
+    onRequestBluetoothPermission: () -> Unit,
     onConnect: (JetsonDevice) -> Unit,
     onReconnect: (RegisteredDevice) -> Unit,
     onForget: (RegisteredDevice) -> Unit,
@@ -154,9 +155,28 @@ fun DeviceListScreen(
 
             if (!state.permissionGranted) {
                 item {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        InlineMessage(
+                            message = "주변 기기 권한을 허용해야 Bluetooth 장비를 검색할 수 있습니다.",
+                            isError = false
+                        )
+                        FilledTonalButton(
+                            onClick = onRequestBluetoothPermission,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("주변 기기 권한 허용")
+                        }
+                    }
+                }
+            }
+
+            state.scanError?.let { error ->
+                item {
                     InlineMessage(
-                        message = "주변 기기 권한을 허용해야 Bluetooth 장비를 검색할 수 있습니다.",
-                        isError = false
+                        message = error,
+                        isError = true
                     )
                 }
             }

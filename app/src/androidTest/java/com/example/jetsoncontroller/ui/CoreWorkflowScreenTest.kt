@@ -83,6 +83,7 @@ class CoreWorkflowScreenTest {
                         registeredDevices = listOf(device)
                     ),
                     onScanClick = {},
+                    onRequestBluetoothPermission = {},
                     onConnect = {},
                     onReconnect = {},
                     onForget = {},

@@ -21,7 +21,7 @@ fi
 
 device_id="$(cat /proc/sys/kernel/random/uuid)"
 secret_hex="$(openssl rand -hex 32)"
-short_id="$(printf '%s' "${device_id}" | tr -d '-' | tail -c 5 | tr '[:lower:]' '[:upper:]')"
+short_id="$(printf '%s' "${device_id}" | tr -d '-' | tail -c 4 | tr '[:lower:]' '[:upper:]')"
 device_name="${1:-MMS-${short_id}}"
 if [[ -z "${device_name}" || "${#device_name}" -gt 64 || "${device_name}" == *$'\n'* || "${device_name}" == *$'\r'* ]]; then
   echo "Device name must contain 1 to 64 characters without newlines." >&2

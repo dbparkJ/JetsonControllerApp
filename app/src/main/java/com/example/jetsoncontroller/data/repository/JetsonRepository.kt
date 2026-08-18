@@ -2,6 +2,7 @@ package com.example.jetsoncontroller.data.repository
 
 import android.content.Context
 import com.example.jetsoncontroller.data.bluetooth.BleGattClient
+import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.BleScanner
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.data.network.LanDiscoveryManager
@@ -63,6 +64,10 @@ class JetsonRepository(
     val isScanning:
         StateFlow<Boolean> =
         scanner.isScanning
+
+    val scanState:
+        StateFlow<BleScanState> =
+        scanner.scanState
 
     val connectionState:
         StateFlow<ConnectionState> =
@@ -506,13 +511,35 @@ class JetsonRepository(
         }
 
         scanner.stopScan()
+        // Clear a previous Ready/Error state before starting a new discovery attempt.
+        // RegistrationRequired is handled above so its verified GATT connection is kept.
+        gattClient.disconnect()
         scanner.startScan(jetsonOnly = true)
         return false
     }
 
+    /**
+     * Starts a clean QR pairing session without discarding a GATT connection that is
+     * already waiting for the QR credential of the same physical device.
+     */
+    fun prepareForQrPairing() {
+        scanner.stopScan()
+        if (gattClient.connectionState.value !is ConnectionState.RegistrationRequired) {
+            gattClient.disconnect()
+        }
+    }
+
     fun connectForPairing(device: JetsonDevice, info: PairingInfo) {
         scanner.stopScan()
-        gattClient.connectForPairing(device.device, device.name, info)
+        gattClient.connectForPairing(
+            device = device.device,
+            displayName =
+                canonicalPairingDisplayName(
+                    pairingInfo = info,
+                    advertisedDisplayName = device.name
+                ),
+            pairingInfo = info
+        )
     }
 
     fun cancelPairing() {
@@ -877,6 +904,13 @@ class JetsonRepository(
         JetsonCommand.SET_WIFI -> "Wi-Fi 설정"
     }
 }
+
+@Suppress("UNUSED_PARAMETER")
+internal fun canonicalPairingDisplayName(
+    pairingInfo: PairingInfo,
+    advertisedDisplayName: String
+): String =
+    pairingInfo.expectedBleName
 
 internal fun wifiNetworksMatch(
     mobileSsid: String?,
