@@ -581,15 +581,21 @@ upload_receiver/.venv/bin/python -m upload_receiver.admin issue-token \
 
 DB, `storage/objects`, `token-pepper`, Caddy data를 함께 백업한다. pepper를 잃으면 DB의 token digest를 검증할 수 없고, DB와 objects를 서로 다른 시점으로 복원하면 metadata와 객체가 어긋난다. 백업에는 token 원문이 포함될 수 있으므로 저장 시 암호화하고 접근을 제한한다.
 
-## 16. 현재 장치가 바라볼 주소
+## 16. 현재 장치들이 바라볼 주소
 
-현재 장비 ID `d606c26d-98d6-4b09-99d7-c3da7dda4de0` 전용 token은 다음 서버 파일에 발급돼 있다. 파일 내용은 이 문서에 기록하지 않는다.
+현재 등록 장비는 모두 `https://125-142-22-24.sslip.io`를 바라본다. Token은 장비 UUID에 1:1로 묶이며 파일 내용은 이 문서에 기록하지 않는다.
+
+| 장비 | 장비 ID | quota | 등록·검증일 |
+|---|---|---:|---|
+| 기존 장비 | `d606c26d-98d6-4b09-99d7-c3da7dda4de0` | 3 TiB | 2026-08-13 |
+| `MMS-D137` | `9e7b51ac-1ca3-4f61-86c4-849704c9d137` | 1 TiB | 2026-08-18 |
 
 ```text
 /data/server_storage/jetson-upload-receiver/secrets/device-tokens/d606c26d-98d6-4b09-99d7-c3da7dda4de0.token
+/data/server_storage/jetson-upload-receiver/secrets/device-tokens/9e7b51ac-1ca3-4f61-86c4-849704c9d137.token
 ```
 
-이 파일을 USB, `scp` 등 신뢰할 수 있는 경로로 Jetson의 임시 `./receiver.token`에 전달한 뒤 Jetson에서 실행한다.
+대상 장비 ID와 일치하는 파일을 USB, `scp` 등 신뢰할 수 있는 경로로 Jetson의 임시 `./receiver.token`에 전달한 뒤 Jetson에서 실행한다.
 
 ```bash
 sudo /opt/jetson-control/configure-upload-target.sh \
@@ -602,4 +608,4 @@ rm -f ./receiver.token
 
 설정 결과 Jetson은 `/etc/jetson-control/upload_targets.json`의 `external.base_url`로 위 HTTPS 주소를 바라보고, token은 `/etc/jetson-control/upload-receiver.token`에 `0600`으로 복사된다. 이 관리자 script 방식을 사용하면 Android 앱에는 URL이나 token을 다시 넣지 않고 연결한 Jetson에서 표시되는 `Operations upload server` target만 선택한다. 최신 앱의 업로드 서버 관리 화면에서 같은 URL과 token을 입력해 앱 관리 target으로 등록하는 방법도 지원하지만, token 파일을 Jetson에 직접 전달할 수 있는 환경에서는 노출 면이 작은 관리자 script 방식을 권장한다.
 
-2026-08-13에는 공인 URL을 통한 배포 smoke file에 대해 세션 생성, offset 조회, PUT, complete, SQLite `COMPLETED`, HDD final 객체와 manifest의 내용 일치까지 검증했고, 최종 코드 재배포 뒤 31-byte 시험도 다시 통과했다. 이후 최신 `main`으로 receiver와 Caddy를 재설치하고 공인 HTTPS에서 `fileBatch` capability(`32 MiB`, 256개), 일괄 offset 조회, batch 재전송의 멱등성, complete와 HDD final 객체 일치까지 확인했다. 같은 날 `deferred-v1`과 library API가 추가된 최신 코드를 다시 배포해 deferred batch 2파일의 수신 hash 확정, 기존 required-hash 파일의 2청크 resumable 전송, 완료 세션 목록·폴더·미리보기와 HDD 원본 byte 일치도 검증했다. 기존 DB, 완료 객체, 장비 token은 그대로 보존됐다. API/HDD/HTTPS 배포는 완료됐지만 이 문서 10절과 13절의 전체 운영 준비 완료 기준은 아직 아니다. 현재 `/metrics`는 localhost에서 최소 세션 상태와 전체 byte만 제공하며, 별도 dashboard와 처리량/checksum/offset/latency 장기 metric은 남은 운영 과제다. 실제 Jetson에서의 외부망 중단 재개와 대용량 파일 시험도 위 target을 장치에 적용한 뒤 수행한다.
+2026-08-13에는 공인 URL을 통한 배포 smoke file에 대해 세션 생성, offset 조회, PUT, complete, SQLite `COMPLETED`, HDD final 객체와 manifest의 내용 일치까지 검증했고, 최종 코드 재배포 뒤 31-byte 시험도 다시 통과했다. 이후 최신 `main`으로 receiver와 Caddy를 재설치하고 공인 HTTPS에서 `fileBatch` capability(`32 MiB`, 256개), 일괄 offset 조회, batch 재전송의 멱등성, complete와 HDD final 객체 일치까지 확인했다. 같은 날 `deferred-v1`과 library API가 추가된 최신 코드를 다시 배포해 deferred batch 2파일의 수신 hash 확정, 기존 required-hash 파일의 2청크 resumable 전송, 완료 세션 목록·폴더·미리보기와 HDD 원본 byte 일치도 검증했다. 2026-08-18에는 `MMS-D137`에 전용 token과 `Operations upload server` target을 등록하고 장치 자체에서 33-byte deferred upload, complete, library preview를 수행해 SQLite 소유권·hash와 HDD 객체까지 대조했다. 기존 DB, 완료 객체와 다른 장비 token은 그대로 보존됐다. API/HDD/HTTPS 배포는 완료됐지만 이 문서 10절과 13절의 전체 운영 준비 완료 기준은 아직 아니다. 현재 `/metrics`는 localhost에서 최소 세션 상태와 전체 byte만 제공하며, 별도 dashboard와 처리량/checksum/offset/latency 장기 metric은 남은 운영 과제다. 실제 Jetson에서의 외부망 중단 재개와 대용량 파일 시험도 위 target을 장치에 적용한 뒤 수행한다.

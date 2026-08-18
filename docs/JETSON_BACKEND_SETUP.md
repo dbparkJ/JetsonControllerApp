@@ -95,13 +95,14 @@ sudo backend/scripts/install.sh \
 
 수신 서버가 준비된 뒤 발급받은 token 파일을 설정 script에 전달한다. script가 token을 root 전용 경로로 복사하고 원본 경로를 설정에 남기지 않는다.
 
-2026-08-13에 이 저장소와 함께 구축한 수신기의 base URL은 `https://125-142-22-24.sslip.io`다. 장비 ID `d606c26d-98d6-4b09-99d7-c3da7dda4de0`에 묶인 token은 수신 서버의 다음 파일에 있으며, 원문은 문서나 명령행에 복사하지 않는다.
+2026-08-13에 이 저장소와 함께 구축한 수신기의 base URL은 `https://125-142-22-24.sslip.io`다. Token은 장비 ID마다 별도로 발급하며 다른 Jetson의 token을 재사용하지 않는다. 현재 등록된 token 파일은 다음과 같고, 원문은 문서나 명령행에 복사하지 않는다.
 
 ```text
 /data/server_storage/jetson-upload-receiver/secrets/device-tokens/d606c26d-98d6-4b09-99d7-c3da7dda4de0.token
+/data/server_storage/jetson-upload-receiver/secrets/device-tokens/9e7b51ac-1ca3-4f61-86c4-849704c9d137.token
 ```
 
-그 파일을 신뢰할 수 있는 방법으로 Jetson의 임시 `./receiver.token`에 전달한 뒤 다음처럼 설정한다.
+대상 Jetson의 장비 ID와 일치하는 파일을 신뢰할 수 있는 방법으로 임시 `./receiver.token`에 전달한 뒤 다음처럼 설정한다.
 
 ```bash
 sudo /opt/jetson-control/configure-upload-target.sh \
@@ -112,7 +113,7 @@ sudo /opt/jetson-control/configure-upload-target.sh \
 rm -f ./receiver.token
 ```
 
-위 관리자 script 방식을 사용하면 Android 앱에 URL이나 token을 다시 입력할 필요 없이 Jetson의 target 목록에서 `Operations upload server`를 선택한다. 최신 앱의 업로드 서버 관리 화면에서 같은 URL과 token을 입력해 앱 관리 target으로 등록하는 방법도 있다. 이 경우 token은 QR secret으로 인증되고 인증서가 고정된 Local Control API 요청으로 Jetson에 전달되며, Jetson은 root 전용 파일로 저장하고 이후 API 응답으로 되돌려주지 않는다. 공인 IP가 바뀌면 `sslip.io` hostname도 바뀌므로 수신기 HTTPS와 해당 target을 함께 갱신한다. 서버의 전체 설치·점검·복구 절차는 [UPLOAD_RECEIVER_AGENT_GUIDE.md](UPLOAD_RECEIVER_AGENT_GUIDE.md)의 실제 배포 절을 따른다.
+위 관리자 script 방식을 사용하면 Android 앱에 URL이나 token을 다시 입력할 필요 없이 Jetson의 target 목록에서 `Operations upload server`를 선택한다. 최신 앱의 업로드 서버 관리 화면에서 같은 URL과 token을 입력해 앱 관리 target으로 등록하는 방법도 있다. 이 경우 token은 QR secret으로 인증되고 인증서가 고정된 Local Control API 요청으로 Jetson에 전달되며, Jetson은 root 전용 파일로 저장하고 이후 API 응답으로 되돌려주지 않는다. 공인 IP가 바뀌면 `sslip.io` hostname도 바뀌므로 수신기 HTTPS와 해당 target을 함께 갱신한다. 서버의 전체 설치·점검·복구 절차는 [UPLOAD_RECEIVER_AGENT_GUIDE.md](UPLOAD_RECEIVER_AGENT_GUIDE.md)의 실제 배포 절을 따른다. 2026-08-18에는 `MMS-D137`을 이 절차로 등록하고 Jetson 자체 네트워크에서 deferred upload, complete, library preview와 서버 HDD 객체 일치까지 검증했다.
 
 일반적인 별도 수신 서버의 예시는 다음과 같다.
 
