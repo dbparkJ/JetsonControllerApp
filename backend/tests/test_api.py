@@ -177,7 +177,7 @@ class ApiContractTest(unittest.TestCase):
             pipeline_manager=self.pipelines,
             tls_fingerprint=self.tls_fingerprint,
         )
-        self.client = TestClient(app)
+        self.client = TestClient(app, client=("192.168.10.20", 50000))
         self.nonce_counter = 0
 
     def tearDown(self) -> None:
@@ -401,6 +401,48 @@ class ApiContractTest(unittest.TestCase):
                 break
             time.sleep(0.02)
         self.assertEqual(job["state"], "COMPLETED", job)
+
+    def test_upload_start_is_rejected_over_wifi_direct(self) -> None:
+        body = json.dumps(
+            {"rootId": "data", "relativePath": "", "targetId": "archive"},
+            separators=(",", ":"),
+        ).encode("utf-8")
+        lan_client = self.client
+        p2p_client = TestClient(
+            lan_client.app,
+            client=("192.168.49.20", 50000),
+        )
+        self.client = p2p_client
+        try:
+            response = self.signed_request("POST", "/v1/uploads", body)
+        finally:
+            self.client = lan_client
+            p2p_client.close()
+
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertIn("LAN", response.json()["detail"])
+        self.assertEqual(self.uploads.list_jobs(), [])
+
+    def test_upload_retry_is_rejected_over_wifi_direct(self) -> None:
+        self.uploads.retry = Mock()
+        lan_client = self.client
+        p2p_client = TestClient(
+            lan_client.app,
+            client=("192.168.49.20", 50000),
+        )
+        self.client = p2p_client
+        try:
+            response = self.signed_request(
+                "POST",
+                "/v1/uploads/job-over-p2p/retry",
+            )
+        finally:
+            self.client = lan_client
+            p2p_client.close()
+
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertIn("LAN", response.json()["detail"])
+        self.uploads.retry.assert_not_called()
 
     def test_upload_target_management_and_active_queue(self) -> None:
         body = json.dumps(

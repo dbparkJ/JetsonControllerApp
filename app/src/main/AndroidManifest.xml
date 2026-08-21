@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
+    <!--
+        Do not assert neverForLocation here. Android documents that the flag can
+        filter some BLE advertisements, and the app already requests location
+        for local Wi-Fi discovery.
+    -->
     <uses-permission
-        android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
+        android:name="android.permission.BLUETOOTH_SCAN" />
 
     <uses-permission
         android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -44,8 +47,7 @@
         android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <uses-permission
-        android:name="android.permission.ACCESS_COARSE_LOCATION"
-        android:maxSdkVersion="32" />
+        android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <uses-feature
         android:name="android.hardware.camera"

@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.bluetooth
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -94,6 +95,64 @@ class BleAdvertisementMergerTest {
                 metadata = metadata,
                 address = "AA:BB:CC:DD:EE:FF"
             )
+        )
+    }
+
+    @Test
+    fun scanDebugSummaryCountsUniqueMetadataWithoutIdentifiers() {
+        val observations =
+            listOf(
+                BleAdvertisementMetadata(
+                    name = "MMS-D137",
+                    advertisedServiceUuids =
+                        setOf(JetsonGattSpec.SERVICE_UUID.toString())
+                ),
+                BleAdvertisementMetadata(
+                    name = "Headphones"
+                ),
+                BleAdvertisementMetadata(
+                    advertisedServiceUuids =
+                        setOf("0000180f-0000-1000-8000-00805f9b34fb")
+                )
+            )
+
+        assertEquals(
+            BleScanDebugSummary(
+                totalResults = 42,
+                uniqueDevices = 3,
+                namedDevices = 2,
+                serviceAdvertisingDevices = 2,
+                jetsonCandidates = 1
+            ),
+            BleScanDebugInfo.summarize(
+                totalResults = 42,
+                observations = observations
+            )
+        )
+    }
+
+    @Test
+    fun scanDebugNameOnlyRevealsSanitizedJetsonNames() {
+        assertEquals(
+            "MMS-D137",
+            BleScanDebugInfo.safeCandidateName("MMS-D137")
+        )
+        assertEquals(
+            "MMS-<redacted>",
+            BleScanDebugInfo.safeCandidateName("MMS-D137/private")
+        )
+        assertEquals(
+            "<present>",
+            BleScanDebugInfo.safeCandidateName("Personal phone")
+        )
+        assertEquals(
+            "<none>",
+            BleScanDebugInfo.safeCandidateName(null)
+        )
+        assertFalse(
+            BleScanDebugInfo
+                .safeCandidateName("MMS-D137/private")
+                .contains("private")
         )
     }
 }

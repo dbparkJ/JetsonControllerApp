@@ -57,6 +57,23 @@ AUTH_CONTEXT = b"JETSONCTRL1|"
 CHALLENGE_TTL_SECONDS = 30
 SESSION_TTL_SECONDS = 600
 
+# BlueZ 5.55 serializes ServiceUUIDs into the primary advertising packet and
+# LocalName into the scan response. Keep both structures comfortably below the
+# 31-byte legacy limit; some Realtek/Samsung combinations are unreliable at the
+# exact boundary even though BlueZ accepts it.
+LEGACY_ADVERTISING_LIMIT = 31
+DISCOVERABLE_FLAGS_AD_SIZE = 3
+UUID128_AD_SIZE = 18
+AD_STRUCTURE_HEADER_SIZE = 2
+SCAN_RESPONSE_HEADROOM = 5
+MAX_ADVERTISED_NAME_BYTES = (
+    LEGACY_ADVERTISING_LIMIT
+    - AD_STRUCTURE_HEADER_SIZE
+    - SCAN_RESPONSE_HEADROOM
+)
+MAX_WIFI_SSID_BYTES = 32
+WIFI_STATUS_FLAG_CONNECTED = 0x01
+
 
 class InvalidArgs(dbus.exceptions.DBusException):
     _dbus_error_name = "org.freedesktop.DBus.Error.InvalidArgs"
@@ -103,6 +120,38 @@ def sliced(data: bytes, options: Dict[str, object]) -> dbus.Array:
     if offset < 0 or offset > len(data):
         raise InvalidOffset()
     return dbus_bytes(data[offset:])
+
+
+def advertised_local_name(device_name: str) -> str:
+    encoded = device_name.encode("utf-8")
+    if len(encoded) <= MAX_ADVERTISED_NAME_BYTES:
+        return device_name
+    return encoded[:MAX_ADVERTISED_NAME_BYTES].decode("utf-8", errors="ignore")
+
+
+def utf8_prefix(value: str, maximum_bytes: int) -> bytes:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= maximum_bytes:
+        return encoded
+    return encoded[:maximum_bytes].decode("utf-8", errors="ignore").encode("utf-8")
+
+
+def encode_status_packet(
+    values: Tuple[int, int, int, int, int, int, int, int, bool, str]
+) -> bytes:
+    base = struct.pack("<BBBbBBII", *values[:8])
+    wifi_connected = bool(values[8])
+    wifi_ssid = utf8_prefix(values[9], MAX_WIFI_SSID_BYTES) if wifi_connected else b""
+    wifi_flags = WIFI_STATUS_FLAG_CONNECTED if wifi_connected else 0
+    return base + struct.pack("<BB", wifi_flags, len(wifi_ssid)) + wifi_ssid
+
+
+def legacy_advertising_payload_sizes(device_name: str) -> Tuple[int, int]:
+    """Return primary ADV and scan-response sizes produced by BlueZ 5.55."""
+    local_name = advertised_local_name(device_name).encode("utf-8")
+    primary_size = DISCOVERABLE_FLAGS_AD_SIZE + UUID128_AD_SIZE
+    scan_response_size = AD_STRUCTURE_HEADER_SIZE + len(local_name)
+    return primary_size, scan_response_size
 
 
 def parse_command_frame(data: bytes) -> Tuple[int, bytes]:
@@ -365,7 +414,7 @@ class StatusCharacteristic(Characteristic):
         self.timer: Optional[int] = None
 
     def packet(self) -> bytes:
-        return struct.pack("<BBBbBBII", *self.collector.ble_packet_values())
+        return encode_status_packet(self.collector.ble_packet_values())
 
     def ReadValue(self, options) -> dbus.Array:
         device = device_from(options)
@@ -496,7 +545,7 @@ class Advertisement(dbus.service.Object):
 
     def __init__(self, bus, device_name: str) -> None:
         self.path = self.PATH
-        self.device_name = device_name
+        self.device_name = advertised_local_name(device_name)
         super().__init__(bus, self.path)
 
     def get_path(self) -> dbus.ObjectPath:
@@ -506,6 +555,10 @@ class Advertisement(dbus.service.Object):
         return {
             ADVERTISEMENT_INTERFACE: {
                 "Type": dbus.String("peripheral"),
+                # Per-advertisement discoverability adds the standard LE
+                # General Discoverable flags to the primary packet without
+                # exposing the adapter to classic Bluetooth pairing.
+                "Discoverable": dbus.Boolean(True),
                 "ServiceUUIDs": dbus.Array([SERVICE_UUID], signature="s"),
                 "LocalName": dbus.String(self.device_name),
             }

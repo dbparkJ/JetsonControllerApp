@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -102,40 +103,68 @@ class StatusCollector:
             return False
 
     def wifi_status(self) -> Tuple[bool, str]:
+        environment = dict(os.environ)
+        environment.update({"LC_ALL": "C", "LANG": "C"})
         try:
-            result = subprocess.run(
+            device = subprocess.run(
                 [
                     "/usr/bin/nmcli",
-                    "-t",
-                    "-f",
-                    "DEVICE,TYPE,STATE,CONNECTION",
+                    "--terse",
+                    "--escape",
+                    "no",
+                    "--get-values",
+                    "GENERAL.STATE,GENERAL.CON-UUID,GENERAL.CONNECTION",
                     "device",
-                    "status",
+                    "show",
+                    self.config.wifi_interface,
                 ],
                 check=False,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 timeout=3,
+                env=environment,
             )
         except (OSError, subprocess.SubprocessError):
             return False, ""
-        if result.returncode != 0:
+        if device.returncode != 0:
             return False, ""
-        for line in result.stdout.splitlines():
-            parts = line.split(":", 3)
-            if len(parts) != 4:
-                continue
-            device, connection_type, state, connection = parts
-            if (
-                device == self.config.wifi_interface
-                and connection_type == "wifi"
-                and state == "connected"
-                and connection
-                and connection != "--"
-            ):
-                return True, connection
-        return False, ""
+
+        values = device.stdout.splitlines()
+        if not values or values[0].partition(" ")[0] != "100":
+            return False, ""
+
+        connection_uuid = values[1].strip() if len(values) > 1 else ""
+        connection_name = values[2].strip() if len(values) > 2 else ""
+        if not connection_uuid:
+            return True, connection_name
+
+        try:
+            connection = subprocess.run(
+                [
+                    "/usr/bin/nmcli",
+                    "--terse",
+                    "--escape",
+                    "no",
+                    "--get-values",
+                    "802-11-wireless.ssid",
+                    "connection",
+                    "show",
+                    "uuid",
+                    connection_uuid,
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+                env=environment,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return True, connection_name
+
+        ssid = connection.stdout.rstrip("\r\n") if connection.returncode == 0 else ""
+        return True, ssid or connection_name
 
     def collect(self) -> Dict[str, object]:
         ram_used, ram_total = self.ram_megabytes()
@@ -192,7 +221,9 @@ class StatusCollector:
             "imuSensor": sensors.imu,
         }
 
-    def ble_packet_values(self) -> Tuple[int, int, int, int, int, int, int, int]:
+    def ble_packet_values(
+        self,
+    ) -> Tuple[int, int, int, int, int, int, int, int, bool, str]:
         status = self.collect()
         service_bits = sum(
             (1 << bit) if bool(status[key]) else 0
@@ -209,4 +240,6 @@ class StatusCollector:
             service_bits,
             int(status["ramUsedMb"]),
             int(status["ramTotalMb"]),
+            bool(status["wifiConnected"]),
+            str(status["wifiSsid"] or ""),
         )

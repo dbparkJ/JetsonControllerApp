@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import mimetypes
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +37,51 @@ from .wifi_direct import read_wifi_direct_status
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+IpAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+
+def _scope_ip_address(value: object) -> Optional[IpAddress]:
+    if not isinstance(value, str):
+        return None
+    # ASGI servers may include an IPv6 zone identifier in the host string.
+    host = value.rsplit("%", 1)[0]
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
+def is_lan_upload_request(request: Request, wifi_direct_address: str) -> bool:
+    """Return whether an upload mutation arrived over a non-P2P IP path.
+
+    The API listens on all interfaces for both LAN and Wi-Fi Direct control. Prefer
+    the socket's local destination address when the ASGI server exposes it, then
+    fall back to the peer address when it was bound to an unspecified address.
+    Unknown, loopback, and Wi-Fi Direct addresses fail closed.
+    """
+
+    wifi_direct_network = ipaddress.ip_interface(wifi_direct_address).network
+    server = request.scope.get("server")
+    server_address = _scope_ip_address(
+        server[0] if isinstance(server, (tuple, list)) and server else None
+    )
+    if server_address is not None and not server_address.is_unspecified:
+        return (
+            not server_address.is_loopback
+            and server_address not in wifi_direct_network
+        )
+
+    client_address = _scope_ip_address(
+        request.client.host if request.client is not None else None
+    )
+    return bool(
+        client_address is not None
+        and not client_address.is_unspecified
+        and not client_address.is_loopback
+        and client_address not in wifi_direct_network
+    )
 
 
 class WifiRequest(BaseModel):
@@ -236,6 +282,13 @@ def create_app(
         await authenticate_request(request)
 
     authenticated = [Depends(require_auth)]
+
+    def require_lan_upload_request(request: Request) -> None:
+        if not is_lan_upload_request(request, device_config.wifi_direct_address):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Server uploads can only be started or retried over LAN",
+            )
 
     def resolve_pipeline_source(root_id: str, relative_path: str) -> Path:
         if root_id == WorkspaceRegistry.ROOT_ID:
@@ -489,7 +542,11 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.post("/v1/uploads", status_code=202, dependencies=authenticated)
-    async def start_upload(body: StartUploadRequest) -> Dict[str, object]:
+    async def start_upload(
+        request: Request,
+        body: StartUploadRequest,
+    ) -> Dict[str, object]:
+        require_lan_upload_request(request)
         try:
             return uploads.start(
                 root_id=body.root_id,
@@ -526,7 +583,8 @@ def create_app(
         status_code=202,
         dependencies=authenticated,
     )
-    async def retry_upload(job_id: str) -> Dict[str, object]:
+    async def retry_upload(request: Request, job_id: str) -> Dict[str, object]:
+        require_lan_upload_request(request)
         try:
             return uploads.retry(job_id)
         except KeyError as error:

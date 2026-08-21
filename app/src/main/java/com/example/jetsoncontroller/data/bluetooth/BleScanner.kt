@@ -6,6 +6,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -27,6 +28,11 @@ sealed interface BleScanFailure {
     data object BluetoothDisabled : BleScanFailure {
         override val userMessage =
             "Bluetooth가 꺼져 있습니다. Bluetooth를 켠 뒤 다시 시도해 주세요."
+    }
+
+    data object LocationDisabled : BleScanFailure {
+        override val userMessage =
+            "위치 서비스가 꺼져 있습니다. 위치를 켠 뒤 다시 시도해 주세요."
     }
 
     data object ScannerUnavailable : BleScanFailure {
@@ -158,9 +164,72 @@ internal object BleAdvertisementMerger {
     }
 }
 
+internal data class BleScanDebugSummary(
+    val totalResults: Int,
+    val uniqueDevices: Int,
+    val namedDevices: Int,
+    val serviceAdvertisingDevices: Int,
+    val jetsonCandidates: Int
+)
+
+internal object BleScanDebugInfo {
+
+    fun summarize(
+        totalResults: Int,
+        observations: Collection<BleAdvertisementMetadata>
+    ): BleScanDebugSummary =
+        BleScanDebugSummary(
+            totalResults = totalResults,
+            uniqueDevices = observations.size,
+            namedDevices = observations.count {
+                it.name != null
+            },
+            serviceAdvertisingDevices = observations.count {
+                it.advertisedServiceUuids.isNotEmpty()
+            },
+            jetsonCandidates = observations.count(
+                BleAdvertisementMerger::isJetsonDevice
+            )
+        )
+
+    fun safeCandidateName(
+        name: String?
+    ): String {
+        val normalized =
+            BleAdvertisementMerger.normalizeName(name)
+                ?: return "<none>"
+
+        if (!normalized.startsWith("MMS-", ignoreCase = true)) {
+            return "<present>"
+        }
+
+        val suffix = normalized.drop(4)
+        val isSafeStructuredName =
+            suffix.length in 1..MAX_DEVICE_NAME_SUFFIX_LENGTH &&
+            suffix.all { character ->
+                character in 'A'..'Z' ||
+                    character in 'a'..'z' ||
+                    character in '0'..'9'
+            }
+
+        return if (isSafeStructuredName) {
+            normalized
+        } else {
+            "MMS-<redacted>"
+        }
+    }
+
+    private const val MAX_DEVICE_NAME_SUFFIX_LENGTH = 12
+}
+
 class BleScanner(
     context: Context
 ) {
+
+    private companion object {
+        const val LOG_TAG = "JetsonBLE"
+        const val MAX_CANDIDATE_LOGS_PER_SCAN = 5
+    }
 
     private val appContext =
         context.applicationContext
@@ -172,6 +241,11 @@ class BleScanner(
 
     private val bluetoothAdapter
         get() = bluetoothManager.adapter
+
+    private val locationManager =
+        appContext.getSystemService(
+            LocationManager::class.java
+        )
 
     private val scanner
         get() = bluetoothAdapter?.bluetoothLeScanner
@@ -216,6 +290,11 @@ class BleScanner(
     private var stopRunnable: Runnable? = null
 
     private var jetsonOnlyScan = false
+
+    private var scanResultCount = 0
+
+    private val loggedCandidateAddresses =
+        LinkedHashSet<String>()
 
 
     @SuppressLint("MissingPermission")
@@ -279,6 +358,31 @@ class BleScanner(
                     BleAdvertisementMerger.isJetsonDevice(
                         metadata
                     )
+
+                scanResultCount += 1
+
+                if (
+                    isJetsonDevice &&
+                    loggedCandidateAddresses.size <
+                    MAX_CANDIDATE_LOGS_PER_SCAN &&
+                    loggedCandidateAddresses.add(address)
+                ) {
+                    Log.d(
+                        LOG_TAG,
+                        "BLE candidate observed: " +
+                            "name=${BleScanDebugInfo.safeCandidateName(metadata.name)}, " +
+                            "serviceUuidPresent=" +
+                            metadata.advertisedServiceUuids.isNotEmpty() +
+                            ", targetServicePresent=" +
+                            metadata.advertisedServiceUuids.any {
+                                it.equals(
+                                    JetsonGattSpec.SERVICE_UUID.toString(),
+                                    ignoreCase = true
+                                )
+                            } +
+                            ", rssi=${result.rssi}"
+                    )
+                }
 
                 val displayName =
                     BleAdvertisementMerger.displayName(
@@ -363,6 +467,8 @@ class BleScanner(
         cancelStopRunnable()
         deviceMap.clear()
         observationMap.clear()
+        scanResultCount = 0
+        loggedCandidateAddresses.clear()
         _devices.value = emptyList()
         jetsonOnlyScan = jetsonOnly
 
@@ -385,6 +491,23 @@ class BleScanner(
 
         if (!adapterEnabled) {
             failScan(BleScanFailure.BluetoothDisabled)
+            return
+        }
+
+        val locationEnabled =
+            try {
+                locationManager?.isLocationEnabled != false
+            } catch (error: RuntimeException) {
+                Log.w(
+                    LOG_TAG,
+                    "Unable to verify location service state",
+                    error
+                )
+                true
+            }
+
+        if (!locationEnabled) {
+            failScan(BleScanFailure.LocationDisabled)
             return
         }
 
@@ -412,6 +535,12 @@ class BleScanner(
 
         _isScanning.value = true
         updateScanState(BleScanState.Scanning)
+
+        Log.d(
+            LOG_TAG,
+            "BLE scan started: jetsonOnly=$jetsonOnlyScan, " +
+                "durationMs=$durationMillis"
+        )
 
         val timeoutRunnable =
             Runnable {
@@ -506,6 +635,8 @@ class BleScanner(
         _isScanning.value = false
         jetsonOnlyScan = false
 
+        logScanSummary(resolvedState)
+
         cancelStopRunnable()
         updateScanState(resolvedState)
     }
@@ -548,6 +679,27 @@ class BleScanner(
     }
 
 
+    private fun logScanSummary(
+        finalState: BleScanState
+    ) {
+        val summary =
+            BleScanDebugInfo.summarize(
+                totalResults = scanResultCount,
+                observations = observationMap.values
+            )
+
+        Log.d(
+            LOG_TAG,
+            "BLE scan finished: state=${finalState.javaClass.simpleName}, " +
+                "results=${summary.totalResults}, " +
+                "unique=${summary.uniqueDevices}, " +
+                "named=${summary.namedDevices}, " +
+                "withServiceUuid=${summary.serviceAdvertisingDevices}, " +
+                "jetsonCandidates=${summary.jetsonCandidates}"
+        )
+    }
+
+
     private fun cancelStopRunnable() {
 
         stopRunnable?.let {
@@ -562,6 +714,8 @@ class BleScanner(
 
         deviceMap.clear()
         observationMap.clear()
+        scanResultCount = 0
+        loggedCandidateAddresses.clear()
 
         _devices.value =
             emptyList()
