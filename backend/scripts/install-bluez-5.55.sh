@@ -66,7 +66,7 @@ if [[ -z "${source_binary}" ]]; then
       --disable-obex \
       --disable-mesh \
       --disable-manpages
-    make -j"$(nproc)" src/bluetoothd
+    make -j"$(nproc)"
   )
   source_binary="${source_dir}/src/bluetoothd"
 fi

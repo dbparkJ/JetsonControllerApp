@@ -58,6 +58,27 @@ object StatusCodec {
         val ramTotal =
             buffer.int
 
+        var wifiConnected = false
+        var wifiSsid: String? = null
+        if (buffer.hasRemaining()) {
+            require(buffer.remaining() >= 2) {
+                "Invalid Jetson Wi-Fi status extension."
+            }
+            val wifiFlags = buffer.get().toInt() and 0xFF
+            val ssidLength = buffer.get().toInt() and 0xFF
+            require(buffer.remaining() >= ssidLength) {
+                "Invalid Jetson Wi-Fi SSID length."
+            }
+            val ssidBytes = ByteArray(ssidLength)
+            buffer.get(ssidBytes)
+            wifiConnected = wifiFlags and 0x01 != 0
+            wifiSsid = if (wifiConnected) {
+                ssidBytes.toString(Charsets.UTF_8).takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+        }
+
         return JetsonStatus(
             cpuPercent =
                 cpu.coerceIn(0, 100),
@@ -87,7 +108,13 @@ object StatusCodec {
                 flags and 0x04 != 0,
 
             mmsRunning =
-                flags and 0x08 != 0
+                flags and 0x08 != 0,
+
+            wifiConnected =
+                wifiConnected,
+
+            wifiSsid =
+                wifiSsid
         )
     }
 }

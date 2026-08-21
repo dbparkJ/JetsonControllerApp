@@ -117,6 +117,8 @@ find "${install_root}/jetson_control" -type f -exec chmod 0644 {} +
 install -m 0644 -o root -g root "${source_root}/requirements.txt" "${install_root}/requirements.txt"
 install -m 0755 -o root -g root "${source_root}/scripts/provision-device.sh" "${install_root}/provision-device.sh"
 install -m 0755 -o root -g root "${source_root}/scripts/configure-upload-target.sh" "${install_root}/configure-upload-target.sh"
+install -m 0755 -o root -g root "${source_root}/scripts/configure-bluez-advertising.sh" "${install_root}/configure-bluez-advertising.sh"
+install -m 0755 -o root -g root "${source_root}/scripts/configure-realtek-bluetooth-driver.sh" "${install_root}/configure-realtek-bluetooth-driver.sh"
 install -m 0755 -o root -g root "${source_root}/scripts/doctor.sh" "${install_root}/doctor.sh"
 install -m 0755 -o root -g root "${source_root}/scripts/register-pipeline.py" "${install_root}/register-pipeline.py"
 install -m 0755 -o root -g root "${source_root}/scripts/register-pipeline.sh" "${install_root}/register-pipeline.sh"
@@ -364,6 +366,8 @@ legacy_pids="$(fuser 8765/tcp 2>/dev/null || true)"
 systemctl stop jetson-control.service 2>/dev/null || true
 systemctl stop jetson-control-api.service 2>/dev/null || true
 systemctl stop jetson-wifi-direct.service 2>/dev/null || true
+"${install_root}/configure-realtek-bluetooth-driver.sh"
+"${install_root}/configure-bluez-advertising.sh"
 for pid in ${legacy_pids}; do
   if [[ ! -r "/proc/${pid}/cmdline" ]]; then
     continue
@@ -381,7 +385,7 @@ systemctl daemon-reload
 systemctl enable --now jetson-control.service jetson-control-api.service
 wifi_direct_enabled="$(python3 -c 'import json; print(str(json.load(open("/etc/jetson-control/device.json"))["wifi_direct_enabled"]).lower())')"
 if [[ "${wifi_direct_enabled}" == "true" ]]; then
-  for command in /usr/sbin/wpa_cli /usr/sbin/iw /usr/sbin/ip /usr/bin/nmcli; do
+  for command in /usr/sbin/wpa_cli /usr/sbin/iw /usr/sbin/ip /usr/sbin/dnsmasq /usr/bin/nmcli; do
     if [[ ! -x "${command}" ]]; then
       echo "Wi-Fi Direct dependency is missing: ${command}" >&2
       exit 1

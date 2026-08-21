@@ -16,6 +16,46 @@ import androidx.core.content.ContextCompat
 import com.example.jetsoncontroller.ui.JetsonApp
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 
+internal object BluetoothPermissionPolicy {
+
+    fun locationRequestPermissions(): Array<String> =
+        arrayOf(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+
+    fun requiredPermissions(
+        sdkInt: Int
+    ): List<String> =
+        if (sdkInt >= Build.VERSION_CODES.S) {
+            listOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+    fun requestPermissions(
+        sdkInt: Int
+    ): Array<String> {
+        val locationPermissions =
+            locationRequestPermissions().toList()
+
+        return if (sdkInt >= Build.VERSION_CODES.S) {
+            (
+                listOf(
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) + locationPermissions
+            ).toTypedArray()
+        } else {
+            locationPermissions.toTypedArray()
+        }
+    }
+}
+
 class MainActivity :
     ComponentActivity() {
 
@@ -38,32 +78,20 @@ class MainActivity :
         by mutableStateOf(false)
 
 
-    private fun hasBluetoothPermissions():
-        Boolean {
-
-        val scan =
-            ContextCompat
-                .checkSelfPermission(
+    private fun hasBluetoothPermissions(): Boolean =
+        BluetoothPermissionPolicy
+            .requiredPermissions(Build.VERSION.SDK_INT)
+            .all { permission ->
+                ContextCompat.checkSelfPermission(
                     this,
-                    Manifest.permission
-                        .BLUETOOTH_SCAN
-                ) ==
-                PackageManager
-                    .PERMISSION_GRANTED
+                    permission
+                ) == PackageManager.PERMISSION_GRANTED
+            }
 
-        val connect =
-            ContextCompat
-                .checkSelfPermission(
-                    this,
-                    Manifest.permission
-                        .BLUETOOTH_CONNECT
-                ) ==
-                PackageManager
-                    .PERMISSION_GRANTED
-
-        return scan &&
-            connect
-    }
+    private fun bluetoothPermissions(): Array<String> =
+        BluetoothPermissionPolicy.requestPermissions(
+            Build.VERSION.SDK_INT
+        )
 
     private fun hasCameraPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -90,10 +118,7 @@ class MainActivity :
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
         } else {
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
+            BluetoothPermissionPolicy.locationRequestPermissions()
         }
     }
 
@@ -158,10 +183,7 @@ class MainActivity :
             LaunchedEffect(Unit) {
                 if (!hasBluetoothPermissions()) {
                     permissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.BLUETOOTH_SCAN,
-                            Manifest.permission.BLUETOOTH_CONNECT
-                        )
+                        bluetoothPermissions()
                     )
                 }
             }
@@ -190,10 +212,7 @@ class MainActivity :
                         notificationPermissionGranted,
                     onRequestBluetoothPermission = {
                         permissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.BLUETOOTH_SCAN,
-                                Manifest.permission.BLUETOOTH_CONNECT
-                            )
+                            bluetoothPermissions()
                         )
                     },
                     onRequestCameraPermission = {
@@ -208,7 +227,8 @@ class MainActivity :
                     },
                     onRequestWifiScanPermission = {
                         permissionLauncher.launch(
-                            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                            BluetoothPermissionPolicy
+                                .locationRequestPermissions()
                         )
                     },
                     onRequestLocalNetworkPermission = {

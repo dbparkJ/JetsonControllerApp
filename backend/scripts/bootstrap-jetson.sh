@@ -108,6 +108,7 @@ if [[ "${skip_packages}" == "false" ]]; then
     python3-dbus \
     python3-gi \
     python3-pip \
+    python3-psutil \
     python3-venv \
     qrencode \
     wpasupplicant \

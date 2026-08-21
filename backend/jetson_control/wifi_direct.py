@@ -27,6 +27,7 @@ WPA_P2P_INTERFACE = "fi.w1.wpa_supplicant1.Interface.P2PDevice"
 WPA_PEER_INTERFACE = "fi.w1.wpa_supplicant1.Peer"
 DBUS_PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties"
 PROFILE_PREFIX = "jetson-control-p2p-"
+DNSMASQ_PATH = "/usr/sbin/dnsmasq"
 DISCOVERY_SECONDS = 600
 DISCOVERY_REFRESH_SECONDS = 540
 
@@ -113,6 +114,125 @@ def parse_ipv4_address(ip_output: str) -> Optional[str]:
     return None
 
 
+def configured_ipv4_address(ip_output: str, configured_address: str) -> Optional[str]:
+    """Return the configured owner IP only when both its address and prefix match."""
+    try:
+        owner = ipaddress.ip_interface(configured_address)
+        values = json.loads(ip_output)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(values, list):
+        return None
+    for interface in values:
+        if not isinstance(interface, dict):
+            continue
+        for address in interface.get("addr_info", []):
+            if not isinstance(address, dict) or address.get("family") != "inet":
+                continue
+            try:
+                local = ipaddress.ip_address(address.get("local", ""))
+                prefix_length = int(address.get("prefixlen"))
+            except (TypeError, ValueError):
+                continue
+            if local == owner.ip and prefix_length == owner.network.prefixlen:
+                return str(owner.ip)
+    return None
+
+
+def parse_default_route_interfaces(ip_output: str) -> List[str]:
+    try:
+        values = json.loads(ip_output)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(values, list):
+        return []
+    interfaces: List[str] = []
+    for route in values:
+        if not isinstance(route, dict) or route.get("dst") != "default":
+            continue
+        interface = route.get("dev")
+        if isinstance(interface, str) and interface and interface not in interfaces:
+            interfaces.append(interface)
+    return interfaces
+
+
+def parse_wiphy_name(iw_interface_output: str) -> Optional[str]:
+    match = re.search(r"(?m)^\s*wiphy\s+(\d+)\s*$", iw_interface_output)
+    return "phy{}".format(match.group(1)) if match else None
+
+
+def managed_p2p_concurrency_capability(iw_phy_output: str) -> Optional[bool]:
+    """Parse whether a wiphy explicitly supports managed plus P2P-GO.
+
+    ``None`` means that the capability could not be determined, in which case the
+    controller preserves the existing concurrent activation behaviour.
+    """
+    if "interface combinations are not supported" in iw_phy_output:
+        return False
+    marker = "valid interface combinations:"
+    if marker not in iw_phy_output:
+        return None
+
+    combinations: List[str] = []
+    current: List[str] = []
+    for raw_line in iw_phy_output.split(marker, 1)[1].splitlines():
+        line = raw_line.strip()
+        if line.startswith("* #{"):
+            if current:
+                combinations.append(" ".join(current))
+            current = [line[1:].strip()]
+        elif current:
+            if line.startswith("* "):
+                break
+            current.append(line)
+    if current:
+        combinations.append(" ".join(current))
+
+    for combination in combinations:
+        total_match = re.search(r"\btotal\s*<=\s*(\d+)", combination)
+        if total_match is None or int(total_match.group(1)) < 2:
+            continue
+        constraints = re.findall(r"#\{\s*([^}]+)\s*\}\s*<=\s*(\d+)", combination)
+        seen_managed = False
+        seen_p2p_go = False
+        valid = True
+        for raw_modes, raw_limit in constraints:
+            modes = {mode.strip() for mode in raw_modes.split(",")}
+            seen_managed = seen_managed or "managed" in modes
+            seen_p2p_go = seen_p2p_go or "P2P-GO" in modes
+            requested_modes = int("managed" in modes) + int("P2P-GO" in modes)
+            if requested_modes > int(raw_limit):
+                valid = False
+                break
+        if valid and seen_managed and seen_p2p_go:
+            return True
+    return False
+
+
+def dhcp_lease_range(configured_address: str) -> Tuple[str, str, str]:
+    owner = ipaddress.ip_interface(configured_address)
+    network = owner.network
+    if owner.version != 4 or network.prefixlen > 30:
+        raise ValueError("Wi-Fi Direct DHCP requires an IPv4 subnet of /30 or larger")
+
+    first = network.network_address + 1
+    last = network.broadcast_address - 1
+    if owner.ip == first:
+        first += 1
+    elif owner.ip == last:
+        last -= 1
+    else:
+        lower_size = int(owner.ip) - int(first)
+        upper_size = int(last) - int(owner.ip)
+        if upper_size >= lower_size:
+            first = owner.ip + 1
+        else:
+            last = owner.ip - 1
+    if first > last:
+        raise ValueError("Wi-Fi Direct DHCP subnet has no address available for a peer")
+    return str(first), str(last), str(network.netmask)
+
+
 @dataclass(frozen=True)
 class WifiDirectSettings:
     interface: str
@@ -142,6 +262,7 @@ class WifiDirectSettings:
         owner = ipaddress.ip_interface(self.address)
         if owner.version != 4:
             raise ValueError("Wi-Fi Direct currently requires an IPv4 address")
+        dhcp_lease_range(self.address)
         return self
 
     @property
@@ -173,18 +294,26 @@ class WifiDirectController:
         self,
         settings: WifiDirectSettings,
         run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+        start_process: Callable[..., subprocess.Popen] = subprocess.Popen,
         status_path: Path = STATUS_PATH,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.settings = settings.validated()
         self._run_process = run
+        self._start_process = start_process
         self._sleep = sleep
         self.status_path = status_path
         self.wpa_client_path = status_path.parent / "wpa-cli"
+        self.dnsmasq_lease_path = status_path.parent / "wifi-direct.leases"
+        self.dnsmasq_pid_path = status_path.parent / "wifi-direct-dnsmasq.pid"
         self.management_interface: Optional[str] = None
         self.group_interface: Optional[str] = None
         self.active_profile: Optional[str] = None
         self.active_peer: Optional[str] = None
+        self._suspended_wifi_profile: Optional[str] = None
+        self._manual_owner_mode = False
+        self._manual_address_interface: Optional[str] = None
+        self._dnsmasq_process: Optional[subprocess.Popen] = None
         self._state = "UNAVAILABLE"
         self._activation_lock = threading.Lock()
         self._activation_thread: Optional[threading.Thread] = None
@@ -212,6 +341,8 @@ class WifiDirectController:
                     address=address,
                 )
                 return "READY"
+            self._delete_active_profile()
+            self.group_interface = None
 
         self._cleanup_stale_groups()
         self.refresh_discovery()
@@ -247,6 +378,19 @@ class WifiDirectController:
             address = self._interface_address(group_interface)
             if address:
                 self.group_interface = group_interface
+                if self._manual_owner_mode and self._state == "CONNECTING":
+                    return True
+                if self._manual_owner_mode and not self._dnsmasq_is_running():
+                    self._cleanup_direct_connection()
+                    self.active_peer = None
+                    try:
+                        self._restore_suspended_wifi()
+                    except WifiDirectError as error:
+                        self._publish("ERROR", str(error))
+                        return True
+                    self.refresh_discovery()
+                    self._publish("DISCOVERABLE", "DHCP stopped; waiting again")
+                    return True
                 if self._state != "READY":
                     self._publish(
                         "READY",
@@ -256,11 +400,22 @@ class WifiDirectController:
                 return True
 
         if self._state == "READY":
-            self.group_interface = None
             self.active_peer = None
-            self._delete_active_profile()
+            self._cleanup_direct_connection()
+            try:
+                self._restore_suspended_wifi()
+            except WifiDirectError as error:
+                self._publish("ERROR", str(error))
+                return True
             self.refresh_discovery()
             self._publish("DISCOVERABLE", "Wi-Fi Direct disconnected; waiting again")
+        elif self._state == "ERROR" and self._suspended_wifi_profile:
+            try:
+                self._restore_suspended_wifi()
+                self.refresh_discovery()
+                self._publish("DISCOVERABLE", "Wi-Fi restored; waiting again")
+            except WifiDirectError:
+                pass
         elif (
             self._state == "DISCOVERABLE"
             and time.monotonic() - self._last_discovery >= DISCOVERY_REFRESH_SECONDS
@@ -272,66 +427,30 @@ class WifiDirectController:
         activation = self._activation_thread
         if activation is not None and activation.is_alive():
             activation.join(timeout=2)
-        self._delete_active_profile()
-        self._wpa(self.settings.interface, "p2p_stop_find", allow_failure=True)
-        self.group_interface = None
-        self.active_peer = None
+        self._cleanup_direct_connection()
+        restore_error: Optional[WifiDirectError] = None
+        try:
+            self._restore_suspended_wifi()
+        except WifiDirectError as error:
+            restore_error = error
+        finally:
+            self._wpa(self.settings.interface, "p2p_stop_find", allow_failure=True)
+            self.group_interface = None
+            self.active_peer = None
+        if restore_error is not None:
+            self._publish("ERROR", str(restore_error))
+            raise restore_error
         self._publish("STOPPED", "Wi-Fi Direct service stopped")
 
     def _activate_peer(self, peer: str) -> str:
         profile = PROFILE_PREFIX + peer.replace(":", "").lower()
-        self.active_profile = profile
         self.active_peer = peer
         self._publish("CONNECTING", "Android requested a Wi-Fi Direct connection")
         try:
-            self._run(
-                ["/usr/bin/nmcli", "connection", "delete", profile],
-                allow_failure=True,
-            )
-            self._run(
-                [
-                    "/usr/bin/nmcli",
-                    "connection",
-                    "add",
-                    "save",
-                    "no",
-                    "type",
-                    "wifi-p2p",
-                    "ifname",
-                    self.management_interface or "p2p-dev-{}".format(self.settings.interface),
-                    "con-name",
-                    profile,
-                    "autoconnect",
-                    "no",
-                    "wifi-p2p.peer",
-                    peer,
-                    "wifi-p2p.wps-method",
-                    "pbc",
-                    "ipv4.method",
-                    "shared",
-                    "ipv4.addresses",
-                    self.settings.address,
-                    "ipv4.never-default",
-                    "yes",
-                    "ipv6.method",
-                    "ignore",
-                ],
-                timeout=20,
-            )
-            self._run(
-                [
-                    "/usr/bin/nmcli",
-                    "--wait",
-                    "50",
-                    "connection",
-                    "up",
-                    profile,
-                    "ifname",
-                    self.management_interface or "p2p-dev-{}".format(self.settings.interface),
-                ],
-                timeout=60,
-            )
-            group_interface = self._wait_for_group_interface()
+            if self._supports_concurrent_managed_and_p2p():
+                group_interface = self._activate_peer_with_networkmanager(profile, peer)
+            else:
+                group_interface = self._activate_peer_as_manual_owner(peer)
             address = self._wait_for_interface_address(group_interface)
             self.group_interface = group_interface
             self._publish(
@@ -341,11 +460,18 @@ class WifiDirectController:
             )
             return group_interface
         except (OSError, ValueError, WifiDirectError) as error:
-            self._delete_active_profile()
-            self.group_interface = None
+            self._cleanup_direct_connection()
             self.active_peer = None
+            restore_failed = False
+            try:
+                self._restore_suspended_wifi()
+            except WifiDirectError as restore_error:
+                error = WifiDirectError("{}; {}".format(error, restore_error))
+                restore_failed = True
             self._publish("ERROR", str(error))
             self._sleep(2)
+            if restore_failed:
+                return ""
             try:
                 self.refresh_discovery()
                 self._publish(
@@ -355,6 +481,75 @@ class WifiDirectController:
             except WifiDirectError:
                 pass
             return ""
+
+    def _activate_peer_with_networkmanager(self, profile: str, peer: str) -> str:
+        self.active_profile = profile
+        self._run(
+            ["/usr/bin/nmcli", "connection", "delete", profile],
+            allow_failure=True,
+        )
+        self._run(
+            [
+                "/usr/bin/nmcli",
+                "connection",
+                "add",
+                "save",
+                "no",
+                "type",
+                "wifi-p2p",
+                "ifname",
+                self.management_interface or "p2p-dev-{}".format(self.settings.interface),
+                "con-name",
+                profile,
+                "autoconnect",
+                "no",
+                "wifi-p2p.peer",
+                peer,
+                "wifi-p2p.wps-method",
+                "pbc",
+                "ipv4.method",
+                "shared",
+                "ipv4.addresses",
+                self.settings.address,
+                "ipv4.never-default",
+                "yes",
+                "ipv6.method",
+                "ignore",
+            ],
+            timeout=20,
+        )
+        self._run(
+            [
+                "/usr/bin/nmcli",
+                "--wait",
+                "50",
+                "connection",
+                "up",
+                profile,
+                "ifname",
+                self.management_interface or "p2p-dev-{}".format(self.settings.interface),
+            ],
+            timeout=60,
+        )
+        return self._wait_for_group_interface()
+
+    def _activate_peer_as_manual_owner(self, peer: str) -> str:
+        self._prepare_manual_owner()
+        self._manual_owner_mode = True
+        self._wpa(self.settings.interface, "p2p_stop_find", allow_failure=True)
+        self._wpa(
+            self.settings.interface,
+            "p2p_connect",
+            peer,
+            "pbc",
+            "go_intent=15",
+            "freq={}".format(self.settings.frequency),
+        )
+        group_interface = self._wait_for_group_interface()
+        self.group_interface = group_interface
+        self._configure_manual_owner_address(group_interface)
+        self._start_dnsmasq(group_interface)
+        return group_interface
 
     def _wait_for_wpa_supplicant(self) -> None:
         last_error: Optional[Exception] = None
@@ -420,16 +615,33 @@ class WifiDirectController:
         interfaces = parse_iw_interfaces(self._run(["/usr/sbin/iw", "dev"]).stdout)
         pattern = re.compile(r"^p2p-{}-[0-9]+$".format(re.escape(self.settings.interface)))
         for interface, interface_type in interfaces.items():
-            if not pattern.fullmatch(interface):
+            if interface_type != "P2P-GO":
                 continue
-            if interface_type == "P2P-GO":
-                self._wpa(
-                    self.settings.interface,
-                    "p2p_group_remove",
-                    interface,
+            is_base_interface = interface == self.settings.interface
+            if not is_base_interface and not pattern.fullmatch(interface):
+                continue
+            if is_base_interface and self._interface_address(interface):
+                self._run(
+                    [
+                        "/usr/sbin/ip",
+                        "-4",
+                        "address",
+                        "delete",
+                        self.settings.address,
+                        "dev",
+                        interface,
+                    ],
                     allow_failure=True,
                 )
-                self._sleep(0.2)
+            self._wpa(
+                self.settings.interface,
+                "p2p_group_remove",
+                interface,
+                allow_failure=True,
+            )
+            self._sleep(0.2)
+            if is_base_interface:
+                continue
             if interface in parse_iw_interfaces(self._run(["/usr/sbin/iw", "dev"]).stdout):
                 self._run(
                     ["/usr/sbin/iw", "dev", interface, "del"],
@@ -454,7 +666,7 @@ class WifiDirectController:
             ["/usr/sbin/ip", "-j", "-4", "address", "show", "dev", interface],
             allow_failure=True,
         )
-        return parse_ipv4_address(result.stdout)
+        return configured_ipv4_address(result.stdout, self.settings.address)
 
     def _wait_for_interface_address(self, interface: str) -> str:
         for _attempt in range(40):
@@ -482,6 +694,226 @@ class WifiDirectController:
             if len(fields) == 2 and fields[0].startswith(PROFILE_PREFIX) and fields[1] == "wifi-p2p":
                 return fields[0]
         return None
+
+    def _active_managed_wifi_profile(self) -> Optional[str]:
+        result = self._run(
+            [
+                "/usr/bin/nmcli",
+                "--terse",
+                "--fields",
+                "UUID,TYPE,DEVICE",
+                "connection",
+                "show",
+                "--active",
+            ],
+            allow_failure=True,
+        )
+        for line in result.stdout.splitlines():
+            fields = line.split(":", 2)
+            if (
+                len(fields) == 3
+                and fields[0]
+                and fields[1] in {"802-11-wireless", "wifi"}
+                and fields[2] == self.settings.interface
+            ):
+                return fields[0]
+        return None
+
+    def _supports_concurrent_managed_and_p2p(self) -> bool:
+        interface = self._run(
+            ["/usr/sbin/iw", "dev", self.settings.interface, "info"],
+            allow_failure=True,
+        )
+        wiphy = parse_wiphy_name(interface.stdout)
+        if not wiphy:
+            return True
+        capabilities = self._run(
+            ["/usr/sbin/iw", "phy", wiphy, "info"],
+            allow_failure=True,
+        )
+        capability = managed_p2p_concurrency_capability(capabilities.stdout)
+        return capability is not False
+
+    def _has_alternate_default_route(self) -> bool:
+        routes = self._run(
+            ["/usr/sbin/ip", "-j", "-4", "route", "show", "default"],
+            allow_failure=True,
+        )
+        return any(
+            interface != self.settings.interface and not interface.startswith("p2p-")
+            for interface in parse_default_route_interfaces(routes.stdout)
+        )
+
+    def _prepare_manual_owner(self) -> None:
+        self._run([DNSMASQ_PATH, "--version"], timeout=5)
+        if not self._has_alternate_default_route():
+            raise WifiDirectError(
+                "This Wi-Fi adapter requires manual Wi-Fi Direct owner mode, "
+                "but no alternate default route is available"
+            )
+        profile = self._active_managed_wifi_profile()
+        if not profile:
+            return
+        self._suspended_wifi_profile = profile
+        self._run(
+            [
+                "/usr/bin/nmcli",
+                "--wait",
+                "20",
+                "device",
+                "disconnect",
+                self.settings.interface,
+            ],
+            timeout=25,
+        )
+        self._wait_for_wpa_supplicant()
+        self._configure_p2p_identity()
+
+    def _configure_manual_owner_address(self, interface: str) -> None:
+        self._run(["/usr/sbin/ip", "link", "set", "dev", interface, "up"])
+        self._run(
+            [
+                "/usr/sbin/ip",
+                "-4",
+                "address",
+                "flush",
+                "dev",
+                interface,
+                "scope",
+                "global",
+            ]
+        )
+        self._run(
+            [
+                "/usr/sbin/ip",
+                "-4",
+                "address",
+                "add",
+                self.settings.address,
+                "dev",
+                interface,
+            ]
+        )
+        self._manual_address_interface = interface
+
+    def _start_dnsmasq(self, interface: str) -> None:
+        lease_start, lease_end, netmask = dhcp_lease_range(self.settings.address)
+        for path in (self.dnsmasq_lease_path, self.dnsmasq_pid_path):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        command = [
+            DNSMASQ_PATH,
+            "--keep-in-foreground",
+            "--conf-file=",
+            "--port=0",
+            "--bind-interfaces",
+            "--interface={}".format(interface),
+            "--listen-address={}".format(self.settings.owner_ip),
+            "--no-hosts",
+            "--no-resolv",
+            "--dhcp-authoritative",
+            "--dhcp-lease-max=4",
+            "--dhcp-range={},{},{},1h".format(lease_start, lease_end, netmask),
+            "--dhcp-option=option:router,{}".format(self.settings.owner_ip),
+            "--dhcp-leasefile={}".format(self.dnsmasq_lease_path),
+            "--pid-file={}".format(self.dnsmasq_pid_path),
+        ]
+        process = self._start_process(
+            command,
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        self._dnsmasq_process = process
+        self._sleep(0.2)
+        if process.poll() is not None:
+            self._dnsmasq_process = None
+            raise WifiDirectError("Wi-Fi Direct DHCP service failed to start")
+
+    def _dnsmasq_is_running(self) -> bool:
+        return self._dnsmasq_process is not None and self._dnsmasq_process.poll() is None
+
+    def _stop_dnsmasq(self) -> None:
+        process = self._dnsmasq_process
+        self._dnsmasq_process = None
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+            except OSError:
+                pass
+        for path in (self.dnsmasq_lease_path, self.dnsmasq_pid_path):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+    def _cleanup_direct_connection(self) -> None:
+        if not self._manual_owner_mode:
+            self._delete_active_profile()
+            self.group_interface = None
+            return
+
+        self._stop_dnsmasq()
+        if self._manual_address_interface:
+            self._run(
+                [
+                    "/usr/sbin/ip",
+                    "-4",
+                    "address",
+                    "delete",
+                    self.settings.address,
+                    "dev",
+                    self._manual_address_interface,
+                ],
+                allow_failure=True,
+            )
+        self._manual_address_interface = None
+        self._wpa(self.settings.interface, "p2p_cancel", allow_failure=True)
+        group_interface = self.group_interface or self._first_group_interface()
+        if group_interface:
+            self._wpa(
+                self.settings.interface,
+                "p2p_group_remove",
+                group_interface,
+                allow_failure=True,
+            )
+            for _attempt in range(20):
+                if self._first_group_interface() is None:
+                    break
+                self._sleep(0.1)
+        self._wpa(self.settings.interface, "p2p_flush", allow_failure=True)
+        self._manual_owner_mode = False
+        self.group_interface = None
+
+    def _restore_suspended_wifi(self) -> None:
+        profile = self._suspended_wifi_profile
+        if not profile:
+            return
+        try:
+            self._run(
+                [
+                    "/usr/bin/nmcli",
+                    "--wait",
+                    "45",
+                    "connection",
+                    "up",
+                    "uuid",
+                    profile,
+                    "ifname",
+                    self.settings.interface,
+                ],
+                timeout=50,
+            )
+        except WifiDirectError as error:
+            raise WifiDirectError(
+                "Failed to restore the managed Wi-Fi connection ({})".format(error)
+            ) from error
+        self._suspended_wifi_profile = None
 
     def _delete_active_profile(self) -> None:
         profile = self.active_profile or self._active_managed_profile()
@@ -557,6 +989,8 @@ class WifiDirectController:
             "groupInterface": self.group_interface,
             "peerAddress": self.active_peer,
             "address": address or self.settings.owner_ip,
+            "ownerMode": "manual" if self._manual_owner_mode else "networkmanager",
+            "dhcpActive": self._dnsmasq_is_running(),
             "frequencyMhz": self.settings.frequency,
             "updatedAtEpochSeconds": int(time.time()),
         }
