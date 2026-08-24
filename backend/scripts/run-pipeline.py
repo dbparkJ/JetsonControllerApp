@@ -8,14 +8,21 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 
 PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
 LOG_FILE = re.compile(r"^run-\d{8}T\d{6}\.\d{6}Z-\d+\.log$")
 REGISTRY_ROOT = Path(os.environ.get("JETSON_PIPELINE_REGISTRY", "/opt/jetson-pipelines"))
+TIME_SYNC_MARKER = Path(
+    os.environ.get(
+        "JETSON_PIPELINE_TIME_SYNC_MARKER",
+        "/run/jetson-control/time-synchronized.json",
+    )
+)
 MAX_LOG_FILES = 100
 MAX_LOG_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_RUN_LOG_BYTES = 128 * 1024 * 1024
@@ -46,6 +53,65 @@ def required_string(manifest: Mapping[str, Any], key: str) -> str:
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def time_sync_ready(path: Path, *, expected_owner_uid: int = 0) -> bool:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return False
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != expected_owner_uid
+            or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        ):
+            return False
+        with os.fdopen(os.dup(descriptor), "r", encoding="utf-8") as source:
+            value = json.load(source)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return False
+    finally:
+        os.close(descriptor)
+    if not (
+        isinstance(value, dict)
+        and value.get("schemaVersion") == 1
+        and value.get("synchronized") is True
+        and value.get("source") == "MOBILE"
+    ):
+        return False
+    return all(
+        isinstance(value.get(key), int) and not isinstance(value.get(key), bool)
+        for key in (
+            "sourceTimeEpochMillis",
+            "synchronizedAtEpochMillis",
+            "offsetBeforeMillis",
+        )
+    )
+
+
+def wait_for_time_sync(
+    path: Path = TIME_SYNC_MARKER,
+    *,
+    expected_owner_uid: int = 0,
+    cancelled: Callable[[], bool] = lambda: False,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    announced = False
+    while not time_sync_ready(path, expected_owner_uid=expected_owner_uid):
+        if cancelled():
+            return False
+        if not announced:
+            print("Waiting for authenticated mobile system-time synchronization", flush=True)
+            announced = True
+        sleep(1.0)
+    if announced:
+        print("Mobile system-time synchronization confirmed", flush=True)
+    return True
 
 
 def prepare_log_directory() -> Path:
@@ -207,11 +273,41 @@ def main() -> int:
         fail("Pipeline arguments must be an array of strings")
     config_argument = required_string(manifest, "config_argument")
 
+    results_directory: Optional[Path] = None
+    results_value = manifest.get("results_directory")
+    if results_value:
+        if not isinstance(results_value, str):
+            fail("Manifest results_directory must be a string")
+        requested_results = Path(results_value)
+        if not requested_results.is_absolute():
+            fail("Manifest results_directory must be absolute")
+        try:
+            results_metadata = os.lstat(requested_results)
+            results_directory = requested_results.resolve(strict=True)
+        except OSError as error:
+            fail(f"Pipeline results directory is unavailable: {error}")
+        if stat.S_ISLNK(results_metadata.st_mode) or not stat.S_ISDIR(results_metadata.st_mode):
+            fail("Pipeline results path is unsafe")
+        writable_paths = manifest.get("writable_paths", [])
+        if not isinstance(writable_paths, list) or any(
+            not isinstance(value, str) for value in writable_paths
+        ):
+            fail("Manifest writable_paths must be an array of strings")
+        resolved_writable_paths = []
+        for value in writable_paths:
+            try:
+                resolved_writable_paths.append(Path(value).resolve(strict=True))
+            except OSError:
+                continue
+        if results_directory not in resolved_writable_paths:
+            fail("Pipeline results directory is not an approved writable path")
+
     environment = os.environ.copy()
     environment.update(
         {
             "JETSON_PIPELINE_ID": pipeline_id,
             "JETSON_PIPELINE_RELEASE": str(release),
+            "JETSON_PIPELINE_CONFIG": str(config),
             "PATH": f"{python.parent}:{environment.get('PATH', '')}",
             "PYTHONPATH": (
                 f"{release}:{environment['PYTHONPATH']}"
@@ -222,6 +318,8 @@ def main() -> int:
             "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
+    if results_directory is not None:
+        environment["JETSON_PIPELINE_RESULTS_DIR"] = str(results_directory)
     os.chdir(working_directory)
     command = [
         str(python),
@@ -231,9 +329,6 @@ def main() -> int:
         str(config),
         *arguments,
     ]
-    log_directory = prepare_log_directory()
-    prune_logs(log_directory)
-    writer = RunLogWriter(log_directory)
     child: Optional[subprocess.Popen] = None
     pending_signal: Optional[int] = None
 
@@ -248,6 +343,13 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, forward_signal)
     signal.signal(signal.SIGTERM, forward_signal)
+    if not wait_for_time_sync(cancelled=lambda: pending_signal is not None):
+        return 128 + int(pending_signal or signal.SIGTERM)
+
+    log_directory = prepare_log_directory()
+    environment["JETSON_PIPELINE_LOGS_DIR"] = str(log_directory)
+    prune_logs(log_directory)
+    writer = RunLogWriter(log_directory)
     header = (
         "=== Jetson pipeline run ===\n"
         f"started_at={writer.started_at}\n"

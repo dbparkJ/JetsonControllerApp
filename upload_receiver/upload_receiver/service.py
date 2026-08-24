@@ -22,7 +22,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Deque, Dict, Iterator, Mapping
+from typing import Deque, Dict, Iterable, Iterator, Mapping
 
 from .config import Settings
 from .database import Database
@@ -35,6 +35,7 @@ CONTENT_RANGE_PATTERN = re.compile(r"^bytes ([0-9]+)-([0-9]+)/([0-9]+)$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
 DEFERRED_FILE_HASH_MODE = "deferred-v1"
+CONTENT_DIGEST_MAGIC = b"JETSON-UPLOAD-CONTENT-V1\x00"
 
 
 class ReceiverError(Exception):
@@ -951,7 +952,7 @@ class ReceiverService:
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT session_id, source_name, total_bytes, file_count,
+                SELECT session_id, client_job_id, source_name, total_bytes, file_count,
                        created_at, completed_at
                 FROM upload_sessions
                 WHERE device_id=? AND state='COMPLETED'
@@ -964,7 +965,9 @@ class ReceiverService:
             "sessions": [
                 {
                     "sessionId": row["session_id"],
+                    "clientJobId": row["client_job_id"],
                     "sourceName": row["source_name"],
+                    "folderName": row["source_name"],
                     "totalBytes": row["total_bytes"],
                     "fileCount": row["file_count"],
                     "createdAt": row["created_at"],
@@ -974,6 +977,118 @@ class ReceiverService:
             ],
             "nextOffset": offset + limit if len(rows) > limit else None,
         }
+
+    def verify_library_session(
+        self,
+        device: Device,
+        session_id: str,
+    ) -> Dict[str, object]:
+        """Verify stored objects and return a compact, content-addressed receipt."""
+        self.ensure_storage_available()
+        session_id = self.validate_session_id(session_id)
+        with self._guard(f"session:{session_id}"):
+            with self.database.connect() as connection:
+                session = self._owned_session(connection, device, session_id)
+                if session["state"] != "COMPLETED":
+                    raise ReceiverError(
+                        409,
+                        "Upload session is not available in the library",
+                    )
+                files = connection.execute(
+                    """
+                    SELECT relative_path, size_bytes, sha256
+                    FROM upload_files
+                    WHERE session_id=?
+                    ORDER BY relative_path
+                    """,
+                    (session_id,),
+                ).fetchall()
+                session_data = dict(session)
+
+            try:
+                self._verify_finalized_session(session_data)
+            except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+                raise ReceiverError(
+                    503,
+                    "Library session storage is inconsistent",
+                    retry_after=5,
+                ) from error
+
+            return {
+                "sessionId": session_id,
+                "clientJobId": session["client_job_id"],
+                "sourceName": session["source_name"],
+                "folderName": session["source_name"],
+                "state": "COMPLETED",
+                "totalBytes": session["total_bytes"],
+                "fileCount": session["file_count"],
+                "contentSha256": self._content_digest(
+                    str(session["source_name"]),
+                    files,
+                ),
+                "completedAt": session["completed_at"],
+            }
+
+    def delete_library_session(self, device: Device, session_id: str) -> str:
+        """Delete one owned completed session and its finalized objects."""
+        self.ensure_storage_available()
+        session_id = self.validate_session_id(session_id)
+        with self._guard(f"session:{session_id}"):
+            with self.database.connect() as connection:
+                session = self._owned_session(connection, device, session_id)
+            if session["state"] != "COMPLETED":
+                raise ReceiverError(409, "Only completed library sessions can be deleted")
+
+            final = self._final_directory(device.device_id, session_id)
+            if final.is_symlink() or not final.is_dir():
+                raise ReceiverError(503, "Library session storage is inconsistent")
+            try:
+                self._remove_tree(final)
+                self._fsync_directory(final.parent)
+            except OSError as error:
+                raise ReceiverError(
+                    503,
+                    "Library session could not be deleted",
+                    retry_after=5,
+                ) from error
+
+            with self.database.immediate() as connection:
+                cursor = connection.execute(
+                    """
+                    DELETE FROM upload_sessions
+                    WHERE session_id=? AND device_id=? AND state='COMPLETED'
+                    """,
+                    (session_id, device.device_id),
+                )
+                if cursor.rowcount != 1:
+                    raise ReceiverError(409, "Library session changed while deleting")
+            self._drop_session_hashers(session_id)
+            return "DELETED"
+
+    @staticmethod
+    def _content_digest(
+        source_name: str,
+        files: Iterable[Mapping[str, object]],
+    ) -> str:
+        digest = hashlib.sha256()
+        digest.update(CONTENT_DIGEST_MAGIC)
+
+        def add_field(value: bytes) -> None:
+            digest.update(struct.pack(">I", len(value)))
+            digest.update(value)
+
+        add_field(source_name.encode("utf-8"))
+        for row in files:
+            add_field(str(row["relative_path"]).encode("utf-8"))
+            digest.update(struct.pack(">Q", int(row["size_bytes"])))
+            try:
+                file_digest = bytes.fromhex(str(row["sha256"]))
+            except ValueError as error:
+                raise RuntimeError("Stored upload digest is invalid") from error
+            if len(file_digest) != hashlib.sha256().digest_size:
+                raise RuntimeError("Stored upload digest is invalid")
+            digest.update(file_digest)
+        return digest.hexdigest()
 
     def list_library_files(
         self,

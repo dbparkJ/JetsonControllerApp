@@ -4,9 +4,11 @@ import json
 import http.client
 import hashlib
 import ipaddress
+import math
 import os
 import shutil
 import ssl
+import stat
 import struct
 import threading
 import time
@@ -36,6 +38,7 @@ CLIENT_MAX_BATCH_FILES = 256
 HASH_PROGRESS_INTERVAL_SECONDS = 0.5
 HTTP_JSON_MAX_RESPONSE_BYTES = 1024 * 1024
 HTTP_LIBRARY_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+CONTENT_DIGEST_MAGIC = b"JETSON-UPLOAD-CONTENT-V1\x00"
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,12 @@ class UploadTarget:
 class FileBatchLimits:
     max_bytes: int
     max_files: int
+
+
+@dataclass
+class TransferProgress:
+    started_at: float
+    acknowledged_this_run: int = 0
 
 
 class UploadManager:
@@ -79,6 +88,7 @@ class UploadManager:
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._cancellations: Dict[str, threading.Event] = {}
+        self._transfer_progress: Dict[str, TransferProgress] = {}
         self._recover_interrupted_jobs()
 
     def targets(self) -> Dict[str, UploadTarget]:
@@ -242,6 +252,363 @@ class UploadManager:
             f"/v1/library/sessions/{session_id}/file?{query}",
             max_bytes=max_bytes,
         )
+
+    def source_summary(
+        self,
+        root_id: str,
+        relative_path: str,
+    ) -> Dict[str, object]:
+        """Calculate upload size before a job is started."""
+        source = self._resolve_source(root_id, relative_path)
+        files = list(self.storage.iter_regular_files(source))
+        total_bytes = 0
+        for source_file in files:
+            total_bytes += source_file.stat().st_size
+        return {
+            "rootId": root_id,
+            "relativePath": relative_path,
+            "sourceName": source.name or "root",
+            "folderName": source.name or "root",
+            "sourceType": "FILE" if source.is_file() else "DIRECTORY",
+            "bytesTotal": total_bytes,
+            "filesTotal": len(files),
+            "calculatedAt": self._timestamp(),
+        }
+
+    def verify_completed_source(self, job_id: str) -> Dict[str, object]:
+        """Compare a completed HTTP upload with the current local source."""
+        validate_config_id(job_id, "upload job")
+        job = self.get(job_id)
+        if job.get("state") != "COMPLETED":
+            raise UploadConflict("Only completed uploads can be verified")
+        if job.get("sourceDeletedAt") is not None:
+            return {
+                "jobId": job_id,
+                "state": "SOURCE_DELETED",
+                "matched": True,
+                "deletionAllowed": False,
+                "verifiedAt": job.get("verifiedAt"),
+            }
+        root_id, relative_path, target_id = self._job_parameters(job)
+        source, target = self._resolve_source_and_target(
+            root_id,
+            relative_path,
+            target_id,
+        )
+        return self._verify_completed_source_at(job, source, target)
+
+    def delete_completed_source(
+        self,
+        job_id: str,
+        *,
+        confirmed: bool,
+    ) -> Dict[str, object]:
+        """Delete a local source only after a fresh remote content verification."""
+        if not confirmed:
+            raise UploadConfirmationRequired(
+                "Source deletion requires explicit user confirmation"
+            )
+        validate_config_id(job_id, "upload job")
+        with self._lock:
+            job = self.get(job_id)
+            if job.get("state") != "COMPLETED":
+                raise UploadConflict("Only completed uploads can delete their source")
+            if job.get("sourceDeletedAt") is not None:
+                return job
+            root_id, relative_path, target_id = self._job_parameters(job)
+            root, resolved_source = self.storage.resolve(root_id, relative_path)
+            source = self._resolve_deletion_source(
+                root.path,
+                relative_path,
+                resolved_source,
+            )
+            if source == root.path:
+                raise UploadConflict("A configured storage root cannot be deleted")
+            if not source.exists():
+                raise FileNotFoundError("Upload source was not found")
+            self._assert_deletable_source(source)
+            try:
+                target = self.targets()[target_id]
+            except KeyError as error:
+                raise ValueError("Unknown upload target") from error
+            if target.kind != "http":
+                raise UploadConflict(
+                    "Source deletion requires a verified remote upload target"
+                )
+            if self._source_overlaps_active_upload(source, excluding_job_id=job_id):
+                raise UploadConflict("Source is being used by another active upload")
+
+            tombstone = source.with_name(
+                f".{source.name}.uploaded-{job_id[:8]}-{uuid.uuid4().hex}.deleting"
+            )
+            os.replace(source, tombstone)
+
+        try:
+            verification = self._verify_completed_source_at(job, tombstone, target)
+            if not verification["matched"]:
+                raise UploadVerificationMismatch(
+                    "Local source no longer matches the completed remote upload"
+                )
+            self._remove_local_source(tombstone)
+        except Exception:
+            if tombstone.exists() and not source.exists():
+                try:
+                    os.replace(tombstone, source)
+                except OSError:
+                    pass
+            raise
+
+        deleted_at = self._timestamp()
+        return self._update(
+            job_id,
+            sourceDeleted=True,
+            sourceDeletedAt=deleted_at,
+            deletionEligible=False,
+        )
+
+    def delete_library_session(
+        self,
+        target_id: str,
+        session_id: str,
+        *,
+        confirmed: bool,
+    ) -> Dict[str, object]:
+        if not confirmed:
+            raise UploadConfirmationRequired(
+                "Library deletion requires explicit user confirmation"
+            )
+        target, token = self._library_target(target_id)
+        session_id = validate_config_id(session_id, "upload session")
+        response = self._http_json(
+            target,
+            token,
+            "DELETE",
+            f"/v1/library/sessions/{session_id}",
+            None,
+        )
+        if response.get("sessionId") != session_id or response.get("state") != "DELETED":
+            raise RuntimeError("Upload server returned an invalid deletion response")
+        return response
+
+    def _verify_completed_source_at(
+        self,
+        job: Dict[str, object],
+        source: Path,
+        target: UploadTarget,
+    ) -> Dict[str, object]:
+        if target.kind != "http":
+            raise UploadConflict(
+                "Source verification requires a remote upload target"
+            )
+        job_id = str(job["id"])
+        session_id = job.get("remoteSessionId")
+        if not isinstance(session_id, str):
+            raise UploadConflict("Completed upload has no remote session identifier")
+        validate_config_id(session_id, "upload session")
+        source_name = job.get("sourceName")
+        if not isinstance(source_name, str) or not source_name:
+            source_name = source.name or "root"
+        local = self._local_content_receipt(source, source_name)
+        token = self._read_target_token(target)
+        remote = self._library_json(
+            target,
+            token,
+            f"/v1/library/sessions/{session_id}/verification",
+        )
+        expected = {
+            "sessionId": session_id,
+            "clientJobId": job_id,
+            "sourceName": source_name,
+            "state": "COMPLETED",
+            "totalBytes": local["totalBytes"],
+            "fileCount": local["fileCount"],
+            "contentSha256": local["contentSha256"],
+        }
+        matched = all(remote.get(key) == value for key, value in expected.items())
+        verified_at = self._timestamp()
+        result = {
+            "jobId": job_id,
+            "targetId": job["targetId"],
+            "remoteSessionId": session_id,
+            "sourceName": source_name,
+            "state": "MATCHED" if matched else "MISMATCH",
+            "matched": matched,
+            "deletionAllowed": matched,
+            "bytesTotal": local["totalBytes"],
+            "filesTotal": local["fileCount"],
+            "contentSha256": local["contentSha256"],
+            "verifiedAt": verified_at,
+        }
+        self._update(
+            job_id,
+            verification=result,
+            verifiedAt=verified_at,
+            deletionEligible=matched,
+        )
+        return result
+
+    def _local_content_receipt(
+        self,
+        source: Path,
+        source_name: str,
+    ) -> Dict[str, object]:
+        files = list(self.storage.iter_regular_files(source))
+        entries: List[Tuple[str, int, str]] = []
+        for source_file in files:
+            relative_path = (
+                source_name
+                if source.is_file()
+                else source_file.relative_to(source).as_posix()
+            )
+            before = source_file.stat()
+            expected_size = before.st_size
+            digest = hashlib.sha256()
+            with source_file.open("rb") as input_file:
+                while True:
+                    chunk = input_file.read(4 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+            after = source_file.stat()
+            if (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+            ) != (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+            ):
+                raise OSError("Source file changed while verifying the upload")
+            entries.append((relative_path, expected_size, digest.hexdigest()))
+        if [path.resolve() for path in self.storage.iter_regular_files(source)] != [
+            path.resolve() for path in files
+        ]:
+            raise OSError("Source file list changed while verifying the upload")
+        entries.sort(key=lambda item: item[0])
+        return {
+            "totalBytes": sum(item[1] for item in entries),
+            "fileCount": len(entries),
+            "contentSha256": self._content_digest(source_name, entries),
+        }
+
+    @staticmethod
+    def _content_digest(
+        source_name: str,
+        files: Iterable[Tuple[str, int, str]],
+    ) -> str:
+        digest = hashlib.sha256()
+        digest.update(CONTENT_DIGEST_MAGIC)
+
+        def add_field(value: bytes) -> None:
+            digest.update(struct.pack(">I", len(value)))
+            digest.update(value)
+
+        add_field(source_name.encode("utf-8"))
+        for relative_path, size_bytes, sha256 in files:
+            add_field(relative_path.encode("utf-8"))
+            digest.update(struct.pack(">Q", size_bytes))
+            try:
+                file_digest = bytes.fromhex(sha256)
+            except ValueError as error:
+                raise RuntimeError("Upload content digest is invalid") from error
+            if len(file_digest) != hashlib.sha256().digest_size:
+                raise RuntimeError("Upload content digest is invalid")
+            digest.update(file_digest)
+        return digest.hexdigest()
+
+    def _source_overlaps_active_upload(
+        self,
+        source: Path,
+        *,
+        excluding_job_id: str,
+    ) -> bool:
+        for job in self.list_jobs(active_only=True):
+            if job.get("id") == excluding_job_id:
+                continue
+            try:
+                root_id, relative_path, _target_id = self._job_parameters(job)
+                _root, active_source = self.storage.resolve(root_id, relative_path)
+            except (ValueError, FileNotFoundError):
+                continue
+            try:
+                source.relative_to(active_source)
+                return True
+            except ValueError:
+                pass
+            try:
+                active_source.relative_to(source)
+                return True
+            except ValueError:
+                pass
+        return False
+
+    @staticmethod
+    def _assert_deletable_source(source: Path) -> None:
+        source_metadata = source.lstat()
+        if stat.S_ISLNK(source_metadata.st_mode):
+            raise UploadConflict("Symbolic-link upload sources cannot be deleted")
+        if stat.S_ISREG(source_metadata.st_mode):
+            return
+        if not stat.S_ISDIR(source_metadata.st_mode):
+            raise UploadConflict("Upload source is not a regular file or directory")
+        for directory, directory_names, file_names in os.walk(
+            source,
+            followlinks=False,
+        ):
+            base = Path(directory)
+            for name in directory_names + file_names:
+                metadata = (base / name).lstat()
+                if stat.S_ISLNK(metadata.st_mode):
+                    raise UploadConflict(
+                        "Upload source contains a symbolic link that was not uploaded"
+                    )
+                if not stat.S_ISDIR(metadata.st_mode) and not stat.S_ISREG(
+                    metadata.st_mode
+                ):
+                    raise UploadConflict(
+                        "Upload source contains unsupported data that was not uploaded"
+                    )
+
+    @staticmethod
+    def _resolve_deletion_source(
+        root: Path,
+        relative_path: str,
+        resolved_source: Path,
+    ) -> Path:
+        relative = Path(relative_path.lstrip("/"))
+        if ".." in relative.parts:
+            raise UploadConflict("Upload source path is not safe to delete")
+        candidate = root
+        for part in relative.parts:
+            if part in {"", "."}:
+                continue
+            candidate = candidate / part
+            try:
+                metadata = candidate.lstat()
+            except FileNotFoundError as error:
+                raise FileNotFoundError("Upload source was not found") from error
+            if stat.S_ISLNK(metadata.st_mode):
+                raise UploadConflict(
+                    "Upload source path contains a symbolic link and cannot be deleted"
+                )
+        if candidate.resolve() != resolved_source:
+            raise UploadConflict("Upload source path changed and cannot be deleted")
+        return candidate
+
+    @staticmethod
+    def _remove_local_source(source: Path) -> None:
+        metadata = source.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise UploadConflict("Refusing to delete a symbolic-link upload source")
+        if stat.S_ISDIR(metadata.st_mode):
+            shutil.rmtree(source)
+        elif stat.S_ISREG(metadata.st_mode):
+            source.unlink()
+        else:
+            raise UploadConflict("Refusing to delete an unsupported upload source")
 
     def _library_target(self, target_id: str) -> Tuple[UploadTarget, str]:
         target_id = validate_config_id(target_id, "upload target")
@@ -494,6 +861,8 @@ class UploadManager:
             source, target = self._resolve_source_and_target(
                 root_id, relative_path, target_id
             )
+            job["sourceName"] = source.name or "root"
+            job["folderName"] = source.name or "root"
             self._reserve_and_save(job_id, cancellation, job)
 
         self._launch_worker(job_id, source, target, cancellation)
@@ -519,12 +888,7 @@ class UploadManager:
     def _resolve_source_and_target(
         self, root_id: str, relative_path: str, target_id: str
     ) -> Tuple[Path, UploadTarget]:
-        _, source = self.storage.resolve(root_id, relative_path)
-        if not source.exists():
-            raise FileNotFoundError("Upload source was not found")
-        if not source.is_file() and not source.is_dir():
-            raise ValueError("Upload source must be a regular file or directory")
-
+        source = self._resolve_source(root_id, relative_path)
         try:
             target = self.targets()[target_id]
         except KeyError as error:
@@ -538,6 +902,16 @@ class UploadManager:
             else:
                 raise ValueError("Upload target cannot be inside the source path")
         return source, target
+
+    def _resolve_source(self, root_id: str, relative_path: str) -> Path:
+        _, source = self.storage.resolve(root_id, relative_path)
+        if not source.exists():
+            raise FileNotFoundError("Upload source was not found")
+        if not source.is_file() and not source.is_dir():
+            raise ValueError("Upload source must be a regular file or directory")
+        if source.is_symlink():
+            raise ValueError("Symbolic links cannot be uploaded")
+        return source
 
     def _reserve_worker(
         self, job_id: str, cancellation: threading.Event
@@ -620,7 +994,12 @@ class UploadManager:
     ) -> None:
         try:
             self._raise_if_cancelled(job_id, cancellation)
-            self._update(job_id, state="SCANNING")
+            self._update(
+                job_id,
+                state="SCANNING",
+                sourceName=source.name or "root",
+                folderName=source.name or "root",
+            )
             files = list(self.storage.iter_regular_files(source))
             self._raise_if_cancelled(job_id, cancellation)
             bytes_total = sum(path.stat().st_size for path in files)
@@ -628,12 +1007,14 @@ class UploadManager:
                 job_id,
                 bytesTotal=bytes_total,
                 bytesTransferred=0,
+                bytesPrepared=0,
                 filesTotal=len(files),
                 filesTransferred=0,
+                filesPrepared=0,
             )
 
             if target.kind == "local":
-                self._update(job_id, state="UPLOADING")
+                self._begin_transfer(job_id)
                 self._copy_to_local_target(
                     job_id, source, files, target, cancellation
                 )
@@ -669,6 +1050,7 @@ class UploadManager:
             with self._lock:
                 if self._cancellations.get(job_id) is cancellation:
                     self._cancellations.pop(job_id, None)
+                self._transfer_progress.pop(job_id, None)
 
     def _copy_to_local_target(
         self,
@@ -700,7 +1082,11 @@ class UploadManager:
                         break
                     target_stream.write(chunk)
                     transferred += len(chunk)
-                    self._update(job_id, bytesTransferred=transferred)
+                    self._record_transfer(
+                        job_id,
+                        transferred,
+                        newly_acknowledged=len(chunk),
+                    )
             shutil.copystat(source_file, destination)
             self._update(job_id, filesTransferred=index)
 
@@ -747,6 +1133,11 @@ class UploadManager:
             validate_config_id(session_id, "upload session")
         except ValueError as error:
             raise RuntimeError("Upload receiver returned an invalid session id")
+        self._update(
+            job_id,
+            remoteSessionId=session_id,
+        )
+        self._begin_transfer(job_id)
         self._update(
             job_id,
             state="UPLOADING",
@@ -827,8 +1218,8 @@ class UploadManager:
                 if now - last_report >= HASH_PROGRESS_INTERVAL_SECONDS:
                     self._update(
                         job_id,
-                        bytesTransferred=bytes_prepared,
-                        filesTransferred=files_prepared,
+                        bytesPrepared=bytes_prepared,
+                        filesPrepared=files_prepared,
                         currentFile=relative_path,
                     )
                     last_report = now
@@ -852,8 +1243,8 @@ class UploadManager:
 
         self._update(
             job_id,
-            bytesTransferred=bytes_prepared,
-            filesTransferred=files_prepared,
+            bytesPrepared=bytes_prepared,
+            filesPrepared=files_prepared,
             currentFile=None,
         )
         return manifest_files
@@ -948,9 +1339,10 @@ class UploadManager:
                 if offset == size:
                     transferred += size
                     files_transferred += 1
-                    self._update(
+                    self._record_transfer(
                         job_id,
-                        bytesTransferred=transferred,
+                        transferred,
+                        newly_acknowledged=0,
                         filesTransferred=files_transferred,
                     )
                 elif (
@@ -998,9 +1390,10 @@ class UploadManager:
                 raise RuntimeError("Upload receiver returned invalid batch offsets")
             transferred += sum(expected_offsets.values())
             files_transferred += len(batch_files)
-            self._update(
+            self._record_transfer(
                 job_id,
-                bytesTransferred=transferred,
+                transferred,
+                newly_acknowledged=sum(expected_offsets.values()),
                 filesTransferred=files_transferred,
             )
 
@@ -1141,7 +1534,7 @@ class UploadManager:
         if source_file.stat().st_size != file_size:
             raise OSError("Source file changed during upload")
         transferred += offset
-        self._update(job_id, bytesTransferred=transferred)
+        self._record_transfer(job_id, transferred, newly_acknowledged=0)
         with source_file.open("rb") as source_stream:
             source_stream.seek(offset)
             while offset < file_size:
@@ -1166,7 +1559,11 @@ class UploadManager:
                 transferred += acknowledged
                 offset = next_offset
                 source_stream.seek(offset)
-                self._update(job_id, bytesTransferred=transferred)
+                self._record_transfer(
+                    job_id,
+                    transferred,
+                    newly_acknowledged=acknowledged,
+                )
 
         return transferred
 
@@ -1517,6 +1914,61 @@ class UploadManager:
                 if on_chunk is not None:
                     on_chunk(len(chunk))
 
+    def _begin_transfer(self, job_id: str) -> None:
+        with self._lock:
+            self._transfer_progress[job_id] = TransferProgress(
+                started_at=time.monotonic()
+            )
+        self._update(
+            job_id,
+            state="UPLOADING",
+            bytesTransferred=0,
+            filesTransferred=0,
+            throughputBytesPerSecond=0,
+            etaSeconds=None,
+            transferStartedAt=self._timestamp(),
+        )
+
+    def _record_transfer(
+        self,
+        job_id: str,
+        bytes_transferred: int,
+        *,
+        newly_acknowledged: int,
+        **changes: object,
+    ) -> Dict[str, object]:
+        if bytes_transferred < 0 or newly_acknowledged < 0:
+            raise ValueError("Upload progress cannot be negative")
+        with self._lock:
+            progress = self._transfer_progress.get(job_id)
+            if progress is None:
+                progress = TransferProgress(started_at=time.monotonic())
+                self._transfer_progress[job_id] = progress
+            progress.acknowledged_this_run += newly_acknowledged
+            elapsed = max(time.monotonic() - progress.started_at, 0.001)
+            throughput = int(progress.acknowledged_this_run / elapsed)
+            job = self.get(job_id)
+            raw_total = job.get("bytesTotal")
+            remaining = (
+                max(int(raw_total) - bytes_transferred, 0)
+                if isinstance(raw_total, int) and not isinstance(raw_total, bool)
+                else None
+            )
+            eta_seconds = (
+                math.ceil(remaining / throughput)
+                if remaining is not None and throughput > 0
+                else None
+            )
+            changes.update(
+                bytesTransferred=bytes_transferred,
+                throughputBytesPerSecond=throughput,
+                etaSeconds=eta_seconds,
+            )
+            job.update(changes)
+            job["updatedAt"] = self._timestamp()
+            self._save_job(job)
+            return job
+
     def _raise_if_cancelled(
         self, job_id: str, cancellation: threading.Event
     ) -> None:
@@ -1542,6 +1994,7 @@ class UploadManager:
                 state="COMPLETED",
                 bytesTransferred=bytes_total,
                 filesTransferred=files_total,
+                etaSeconds=0,
                 currentFile=None,
                 errorMessage=None,
             )
@@ -1616,10 +2069,18 @@ class UploadManager:
             state="QUEUED",
             bytesTotal=None,
             bytesTransferred=0,
+            bytesPrepared=0,
             filesTotal=None,
             filesTransferred=0,
+            filesPrepared=0,
+            throughputBytesPerSecond=0,
+            etaSeconds=None,
+            transferStartedAt=None,
             currentFile=None,
             errorMessage=None,
+            verification=None,
+            verifiedAt=None,
+            deletionEligible=False,
             updatedAt=UploadManager._timestamp(),
         )
 
@@ -1633,11 +2094,24 @@ class UploadManager:
             "rootId": root_id,
             "relativePath": relative_path,
             "targetId": target_id,
+            "sourceName": None,
+            "folderName": None,
             "state": "QUEUED",
             "bytesTotal": None,
             "bytesTransferred": 0,
+            "bytesPrepared": 0,
             "filesTotal": None,
             "filesTransferred": 0,
+            "filesPrepared": 0,
+            "throughputBytesPerSecond": 0,
+            "etaSeconds": None,
+            "transferStartedAt": None,
+            "remoteSessionId": None,
+            "verification": None,
+            "verifiedAt": None,
+            "deletionEligible": False,
+            "sourceDeleted": False,
+            "sourceDeletedAt": None,
             "currentFile": None,
             "errorMessage": None,
             "createdAt": now,
@@ -1683,6 +2157,14 @@ class UploadLibraryUnavailable(RuntimeError):
 
 
 class UploadConflict(RuntimeError):
+    pass
+
+
+class UploadConfirmationRequired(UploadConflict):
+    pass
+
+
+class UploadVerificationMismatch(UploadConflict):
     pass
 
 

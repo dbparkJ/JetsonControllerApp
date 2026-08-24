@@ -20,9 +20,11 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -64,18 +67,41 @@ fun ServerStorageScreen(
     onRefresh: () -> Unit,
     onTargetSelected: (UploadTarget) -> Unit,
     onSessionClick: (UploadLibrarySession) -> Unit,
+    onDeleteSession: (UploadLibrarySession) -> Unit,
     onDirectoryClick: (RemoteFileEntry) -> Unit,
     onFileClick: (RemoteFileEntry) -> Unit,
     onLoadMore: () -> Unit,
-    onSectionSelected: (ControlSection) -> Unit
+    onSectionSelected: (ControlSection) -> Unit,
+    deletionEnabled: Boolean = true
 ) {
+    var pendingDeletion by remember { mutableStateOf<UploadLibrarySession?>(null) }
+    pendingDeletion?.let { session ->
+        AlertDialog(
+            onDismissRequest = { pendingDeletion = null },
+            title = { Text("서버 데이터를 삭제할까요?") },
+            text = { Text("${session.displayFolderName} 폴더와 서버의 모든 파일을 영구 삭제합니다.") },
+            confirmButton = {
+                Button(onClick = {
+                    pendingDeletion = null
+                    onDeleteSession(session)
+                }) { Text("삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeletion = null }) { Text("취소") }
+            }
+        )
+    }
     BackHandler(onBack = onBack)
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text(state.preview?.name ?: state.selectedSession?.sourceName ?: "서버 데이터")
+                        Text(
+                            state.preview?.name
+                                ?: state.selectedSession?.displayFolderName
+                                ?: "서버 데이터"
+                        )
                         state.selectedSession?.takeIf { state.preview == null }?.let {
                             Text(
                                 state.currentPath.ifEmpty { "/" },
@@ -127,10 +153,12 @@ fun ServerStorageScreen(
                         onRefresh = onRefresh,
                         onTargetSelected = onTargetSelected,
                         onSessionClick = onSessionClick,
-                        onLoadMore = onLoadMore
+                        onDeleteSession = { pendingDeletion = it },
+                        onLoadMore = onLoadMore,
+                        deletionEnabled = deletionEnabled
                     )
                 }
-                if (state.isLoading) {
+                if (state.isLoading || state.isDeleting) {
                     LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
                 }
             }
@@ -144,7 +172,9 @@ private fun ServerSessionList(
     onRefresh: () -> Unit,
     onTargetSelected: (UploadTarget) -> Unit,
     onSessionClick: (UploadLibrarySession) -> Unit,
-    onLoadMore: () -> Unit
+    onDeleteSession: (UploadLibrarySession) -> Unit,
+    onLoadMore: () -> Unit,
+    deletionEnabled: Boolean
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -169,6 +199,15 @@ private fun ServerSessionList(
                 }
             }
         }
+        state.message?.let { message ->
+            item {
+                InlineMessage(
+                    message,
+                    isError = false,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
+        }
         if (state.sessions.isEmpty() && !state.isLoading && state.error == null) {
             item {
                 EmptyState(
@@ -180,7 +219,11 @@ private fun ServerSessionList(
         items(state.sessions, key = { it.sessionId }) { session ->
             ListItem(
                 headlineContent = {
-                    Text(session.sourceName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        session.displayFolderName,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 },
                 supportingContent = {
                     Text(
@@ -192,7 +235,17 @@ private fun ServerSessionList(
                     )
                 },
                 leadingContent = { Icon(Icons.Default.Cloud, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { onDeleteSession(session) },
+                            enabled = deletionEnabled && !state.isDeleting
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "서버 데이터 삭제")
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null)
+                    }
+                },
                 modifier = Modifier.clickable { onSessionClick(session) }
             )
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp))

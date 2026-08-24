@@ -6,7 +6,10 @@ data class ControlCapabilities(
     val fileBrowsing: Boolean = false,
     val uploads: Boolean = false,
     val wifiProvisioning: Boolean = true,
-    val pipelines: Boolean = false
+    val pipelines: Boolean = false,
+    val pipelineFolderRegistration: Boolean = false,
+    val mobileTimeSync: Boolean = false,
+    val fanControl: Boolean = false
 )
 
 data class ControlOperationState(

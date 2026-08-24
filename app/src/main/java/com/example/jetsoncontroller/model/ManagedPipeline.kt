@@ -20,7 +20,10 @@ data class ManagedPipeline(
     val sourceDirty: Boolean = false,
     val snapshotCreatedAt: String = "",
     val outputRootId: String? = null,
-    val outputPath: String? = null
+    val outputPath: String? = null,
+    val resultsDirectory: String? = null,
+    val folderConvention: Boolean = false,
+    val timeSynchronized: Boolean = false
 )
 
 enum class PipelineState {
@@ -30,8 +33,34 @@ enum class PipelineState {
     STOPPED,
     FAILED,
     RETRYING,
+    WAITING_FOR_TIME_SYNC,
     UNKNOWN
 }
+
+data class PipelineFolderDiscovery(
+    val pipelineId: String,
+    val repository: String,
+    val virtualenv: String,
+    val entrypoint: String,
+    val config: String,
+    val workingDirectory: String,
+    val resultsDirectory: String,
+    val resultsExists: Boolean,
+    val logDirectory: String,
+    val autostartDefault: Boolean = true
+)
+
+data class DiscoverPipelineFolderRequest(
+    val rootId: String,
+    val path: String
+)
+
+data class RegisterPipelineFolderRequest(
+    val rootId: String,
+    val path: String,
+    val name: String,
+    val autostart: Boolean = true
+)
 
 data class RegisterPipelineRequest(
     val id: String,

@@ -246,7 +246,7 @@ private fun DirectoryList(
                     {
                         IconButton(
                             onClick = { onUploadClick(root.id, entry.relativePath) },
-                            enabled = !state.isLoading
+                            enabled = serverUploadEnabled && !state.isLoading
                         ) {
                             Icon(Icons.Default.Upload, contentDescription = "파일 업로드")
                         }

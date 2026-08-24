@@ -16,17 +16,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -59,23 +56,21 @@ import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectionHubScreen(
-    onBleClick: () -> Unit,
     onAddDevice: () -> Unit,
     onOpenDashboard: () -> Unit,
-    onWifiDirectClick: () -> Unit,
     unreadAlertCount: Int,
     onAlertsClick: () -> Unit,
     registeredDevices: List<RegisteredDevice>,
     transportState: TransportState,
     lanEndpoints: List<DeviceEndpoint>,
-    lastSeenAtEpochMillis: Map<String, Long>,
     lanDiscovering: Boolean,
     lanError: String?,
     connectingLanDeviceId: String?,
     localNetworkPermissionGranted: Boolean,
     onRequestLocalNetworkPermission: () -> Unit,
     onRefreshLan: () -> Unit,
-    onConnectLan: (DeviceEndpoint) -> Unit
+    onConnectLan: (DeviceEndpoint) -> Unit,
+    onReconnectDevice: (RegisteredDevice) -> Unit
 ) {
     val connected = transportState as? TransportState.Connected
     val endpointByDeviceId = lanEndpoints.associateBy { it.deviceId.lowercase() }
@@ -152,12 +147,11 @@ fun ConnectionHubScreen(
                         device = device,
                         endpoint = endpoint,
                         connectedTransport = if (isConnected) connected?.type else null,
-                        lastSeenAtEpochMillis = lastSeenAtEpochMillis[device.deviceId.lowercase()],
                         connecting = connectingLanDeviceId.equals(device.deviceId, ignoreCase = true),
                         onClick = when {
                             isConnected -> onOpenDashboard
                             endpoint != null -> ({ onConnectLan(endpoint) })
-                            else -> onBleClick
+                            else -> ({ onReconnectDevice(device) })
                         },
                         modifier = Modifier.padding(
                             horizontal = AppSpacing.screen,
@@ -218,20 +212,6 @@ fun ConnectionHubScreen(
                     description = "QR로 장비 인증 정보 저장",
                     onClick = onAddDevice
                 )
-                HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = AppSpacing.screen))
-                ConnectionMethod(
-                    icon = Icons.Default.Bluetooth,
-                    title = "Bluetooth 장비 찾기",
-                    description = "등록 장비 재연결 또는 주변 장비 확인",
-                    onClick = onBleClick
-                )
-                HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = AppSpacing.screen))
-                ConnectionMethod(
-                    icon = Icons.Default.WifiTethering,
-                    title = "Wi-Fi Direct",
-                    description = "공유기 없이 Jetson에 직접 연결",
-                    onClick = onWifiDirectClick
-                )
             }
         }
     }
@@ -249,23 +229,17 @@ private fun RegisteredDeviceCard(
     device: RegisteredDevice,
     endpoint: DeviceEndpoint?,
     connectedTransport: TransportType?,
-    lastSeenAtEpochMillis: Long?,
     connecting: Boolean,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val connected = connectedTransport != null
     val available = endpoint != null
-    val badgeLabel = when {
-        connected -> "온라인"
-        available -> "연결 가능"
-        else -> "오프라인"
-    }
-    val badgeTone = when {
-        connected -> StatusTone.SUCCESS
-        available -> StatusTone.INFO
-        else -> StatusTone.WARNING
-    }
+    val online = connected
+    val wifiConnected = connectedTransport == TransportType.LAN ||
+        connectedTransport == TransportType.WIFI_DIRECT
+    val badgeLabel = if (online) "온라인" else "오프라인"
+    val badgeTone = if (online) StatusTone.SUCCESS else StatusTone.WARNING
 
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(AppSpacing.large)) {
@@ -291,17 +265,7 @@ private fun RegisteredDeviceCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        when {
-                            connectedTransport != null -> {
-                                "${transportDisplayName(connectedTransport)}로 연결됨"
-                            }
-                            endpoint != null -> "LAN에서 방금 확인"
-                            lastSeenAtEpochMillis != null -> formatLastSeen(
-                                lastSeenAtEpochMillis,
-                                System.currentTimeMillis()
-                            )
-                            else -> "최근 연결 정보 없음"
-                        },
+                        if (wifiConnected) "Wi-Fi 연결" else "Wi-Fi 미연결",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -312,9 +276,9 @@ private fun RegisteredDeviceCard(
             }
             Spacer(Modifier.height(AppSpacing.medium))
             Button(
-                onClick = onClick,
+                onClick = { onClick?.invoke() },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !connecting
+                enabled = !connecting && onClick != null
             ) {
                 if (connecting) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -323,7 +287,7 @@ private fun RegisteredDeviceCard(
                         when {
                             connected -> "대시보드 열기"
                             available -> "연결"
-                            else -> "Bluetooth로 찾기"
+                            else -> "오프라인 상태 보기"
                         }
                     )
                 }
@@ -340,12 +304,6 @@ internal fun formatLastSeen(lastSeenAtEpochMillis: Long, nowEpochMillis: Long): 
         elapsedSeconds < 86_400L -> "마지막 확인 · ${elapsedSeconds / 3_600L}시간 전"
         else -> "마지막 확인 · ${elapsedSeconds / 86_400L}일 전"
     }
-}
-
-private fun transportDisplayName(transportType: TransportType): String = when (transportType) {
-    TransportType.LAN -> "LAN"
-    TransportType.WIFI_DIRECT -> "Wi-Fi Direct"
-    TransportType.BLE -> "Bluetooth"
 }
 
 @Composable

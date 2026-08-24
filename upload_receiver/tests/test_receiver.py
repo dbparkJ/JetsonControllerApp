@@ -203,6 +203,11 @@ class ReceiverApiTest(unittest.TestCase):
         sessions = self.client.get("/v1/library/sessions", headers=self.auth())
         self.assertEqual(sessions.status_code, 200, sessions.text)
         self.assertEqual(sessions.json()["sessions"][0]["sessionId"], session_id)
+        self.assertEqual(sessions.json()["sessions"][0]["clientJobId"], "7" * 32)
+        self.assertEqual(
+            sessions.json()["sessions"][0]["folderName"],
+            "capture-20260813",
+        )
         self.assertEqual(sessions.json()["sessions"][0]["fileCount"], 3)
 
         root = self.client.get(
@@ -237,6 +242,120 @@ class ReceiverApiTest(unittest.TestCase):
             headers=self.auth(self.second_token),
         )
         self.assertEqual(foreign.status_code, 403)
+
+    def test_completed_library_session_can_be_verified_and_securely_deleted(self) -> None:
+        files = [("camera/front.bin", b"front"), ("notes.txt", b"notes")]
+        created = self.create(self.manifest(files, client_job_id="9" * 32))
+        session_id = created.json()["sessionId"]
+        for path, body in files:
+            self.assertEqual(self.put(session_id, path, body).status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{session_id}/complete",
+                headers=self.auth(),
+                json={},
+            ).status_code,
+            200,
+        )
+
+        verification = self.client.get(
+            f"/v1/library/sessions/{session_id}/verification",
+            headers=self.auth(),
+        )
+        self.assertEqual(verification.status_code, 200, verification.text)
+        receipt = verification.json()
+        self.assertEqual(receipt["state"], "COMPLETED")
+        self.assertEqual(receipt["clientJobId"], "9" * 32)
+        self.assertEqual(receipt["sourceName"], "capture-20260813")
+        self.assertEqual(receipt["folderName"], "capture-20260813")
+        self.assertEqual(receipt["totalBytes"], sum(len(body) for _, body in files))
+        self.assertEqual(receipt["fileCount"], len(files))
+        self.assertRegex(receipt["contentSha256"], r"^[a-f0-9]{64}$")
+
+        foreign = self.client.delete(
+            f"/v1/library/sessions/{session_id}",
+            headers=self.auth(self.second_token),
+        )
+        self.assertEqual(foreign.status_code, 403)
+
+        receiver = self.client.app.state.receiver
+        final_directory = receiver._final_directory(DEVICE_ID, session_id)
+        self.assertTrue(final_directory.is_dir())
+        deleted = self.client.delete(
+            f"/v1/library/sessions/{session_id}",
+            headers=self.auth(),
+        )
+        self.assertEqual(
+            deleted.json(),
+            {"sessionId": session_id, "state": "DELETED"},
+        )
+        self.assertFalse(final_directory.exists())
+        with receiver.database.connect() as connection:
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT 1 FROM upload_sessions WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()
+            )
+        self.assertEqual(
+            self.client.get("/v1/library/sessions", headers=self.auth()).json()[
+                "sessions"
+            ],
+            [],
+        )
+
+    def test_library_delete_rejects_open_sessions_and_symlink_storage(self) -> None:
+        open_session = self.create(
+            self.manifest([("open.bin", b"open")], client_job_id="a" * 32)
+        ).json()["sessionId"]
+        rejected = self.client.delete(
+            f"/v1/library/sessions/{open_session}",
+            headers=self.auth(),
+        )
+        self.assertEqual(rejected.status_code, 409)
+
+        body = b"completed"
+        completed_session = self.create(
+            self.manifest([("done.bin", body)], client_job_id="b" * 32)
+        ).json()["sessionId"]
+        self.assertEqual(
+            self.put(completed_session, "done.bin", body).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{completed_session}/complete",
+                headers=self.auth(),
+                json={},
+            ).status_code,
+            200,
+        )
+        receiver = self.client.app.state.receiver
+        final_directory = receiver._final_directory(DEVICE_ID, completed_session)
+        outside = self.data_root / "outside"
+        outside.mkdir()
+        marker = outside / "keep.txt"
+        marker.write_text("keep", encoding="utf-8")
+        original = final_directory.with_name(f"{completed_session}.original")
+        final_directory.rename(original)
+        final_directory.symlink_to(outside, target_is_directory=True)
+        try:
+            rejected = self.client.delete(
+                f"/v1/library/sessions/{completed_session}",
+                headers=self.auth(),
+            )
+            self.assertEqual(rejected.status_code, 503)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
+            with receiver.database.connect() as connection:
+                self.assertIsNotNone(
+                    connection.execute(
+                        "SELECT 1 FROM upload_sessions WHERE session_id=?",
+                        (completed_session,),
+                    ).fetchone()
+                )
+        finally:
+            final_directory.unlink()
+            original.rename(final_directory)
 
     def test_library_preview_enforces_size_limit(self) -> None:
         body = b"x" * 17

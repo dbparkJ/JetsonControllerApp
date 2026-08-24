@@ -204,6 +204,29 @@ class WorkspaceRegistry:
         root, target = self.resolve(root_id, relative_path)
         return _list_directory(root.path, target)
 
+    def locate(self, path: Path) -> Tuple[str, str] | None:
+        candidate = path.expanduser().resolve()
+        try:
+            relative = candidate.relative_to(self.home)
+        except ValueError:
+            return None
+        relative_path = relative.as_posix()
+        return self.ROOT_ID, "" if relative_path == "." else relative_path
+
+    def read_file(
+        self,
+        root_id: str,
+        relative_path: str,
+        max_bytes: int,
+    ) -> Tuple[Path, bytes]:
+        _, target = self.resolve(root_id, relative_path)
+        if target.is_symlink() or not target.is_file():
+            raise FileNotFoundError("File not found")
+        size = target.stat().st_size
+        if size > max_bytes:
+            raise FileTooLarge(f"File is larger than {max_bytes} bytes")
+        return target, target.read_bytes()
+
 
 def _list_directory(root_path: Path, target: Path) -> List[Dict[str, object]]:
     if not target.exists():

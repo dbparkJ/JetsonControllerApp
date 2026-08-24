@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.jetsoncontroller.model.UploadSourceSummary
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.ui.components.EmptyState
 import com.example.jetsoncontroller.ui.components.InlineMessage
@@ -52,6 +53,8 @@ fun UploadConfirmScreen(
     rootId: String,
     path: String,
     targets: List<UploadTarget>,
+    sourceSummary: UploadSourceSummary?,
+    isCalculatingSource: Boolean,
     serverUploadEnabled: Boolean,
     serverUploadDisabledReason: String?,
     isLoading: Boolean,
@@ -62,6 +65,9 @@ fun UploadConfirmScreen(
     onConfirm: (String) -> Unit
 ) {
     var selectedTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val matchingSourceSummary = sourceSummary?.takeIf {
+        it.matchesUploadSource(rootId, path)
+    }
     LaunchedEffect(targets) {
         if (targets.none { it.id == selectedTargetId }) {
             selectedTargetId = targets.firstOrNull()?.id
@@ -95,9 +101,10 @@ fun UploadConfirmScreen(
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .padding(16.dp),
-                    enabled = serverUploadEnabled && selectedTargetId != null && !isLoading
+                    enabled = serverUploadEnabled && selectedTargetId != null &&
+                        matchingSourceSummary != null && !isLoading && !isCalculatingSource
                 ) {
-                    if (isLoading) {
+                    if (isLoading || isCalculatingSource) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp
@@ -107,7 +114,13 @@ fun UploadConfirmScreen(
                         Icon(Icons.Default.CloudUpload, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
                     }
-                    Text(if (isLoading) "준비 중" else "업로드 시작")
+                    Text(
+                        when {
+                            isCalculatingSource -> "용량 계산 중"
+                            isLoading -> "준비 중"
+                            else -> "업로드 시작"
+                        }
+                    )
                 }
             }
         }
@@ -124,14 +137,21 @@ fun UploadConfirmScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = path.ifEmpty { "/" },
+                        text = matchingSourceSummary?.folderName
+                            ?: path.substringAfterLast('/').ifEmpty { "/" },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "저장소 $rootId",
+                        text = when {
+                            isCalculatingSource -> "폴더 용량 계산 중…"
+                            matchingSourceSummary != null ->
+                                "${matchingSourceSummary.filesTotal}개 파일 · " +
+                                    formatSize(matchingSourceSummary.bytesTotal)
+                            else -> "저장소 $rootId"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

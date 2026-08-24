@@ -138,6 +138,105 @@ class PipelineRegistrarTest(unittest.TestCase):
             "/home/Test\\x20Path/100%%/\\xed\\x95\\x9c\\xea\\xb8\\x80",
         )
 
+    def test_folder_shortcut_infers_convention_and_defaults_to_autostart(self) -> None:
+        (self.repo / ".venv").mkdir()
+        args = argparse.Namespace(
+            folder=self.repo,
+            id=None,
+            label="카메라 수집",
+            repo=None,
+            venv=None,
+            entry=None,
+            config=None,
+            working_dir=None,
+            write_path=[],
+            autostart=False,
+            no_autostart=False,
+        )
+
+        registrar.apply_folder_convention(args)
+
+        self.assertEqual(args.id, "project")
+        self.assertEqual(args.repo, self.repo)
+        self.assertEqual(args.venv, self.repo / ".venv")
+        self.assertEqual(args.entry, "main.py")
+        self.assertEqual(args.config, "config.yaml")
+        self.assertEqual(args.working_dir, self.repo)
+        self.assertEqual(args.write_path, [self.repo / "results"])
+        self.assertTrue(args.autostart)
+
+    def test_folder_registration_excludes_runtime_directories_from_snapshot(self) -> None:
+        (self.repo / ".venv" / "bin").mkdir(parents=True)
+        (self.repo / ".venv" / "bin" / "python").symlink_to(
+            Path(sys.executable).resolve()
+        )
+        (self.repo / ".venv" / "local.bin").write_bytes(b"venv")
+        (self.repo / "logs").mkdir()
+        (self.repo / "logs" / "old.log").write_text("old", encoding="utf-8")
+        (self.repo / "results").mkdir()
+        (self.repo / "results" / "old.bin").write_bytes(b"result")
+        account = pwd.getpwuid(os.getuid())
+        args = argparse.Namespace(
+            folder=self.repo,
+            id=None,
+            label="Camera capture",
+            description="",
+            repo=None,
+            venv=None,
+            entry=None,
+            config=None,
+            working_dir=None,
+            write_path=[],
+            argument=[],
+            user=account.pw_name,
+            autostart=True,
+            no_autostart=False,
+            start_now=False,
+            restart_running=False,
+        )
+        original_run = registrar.run
+
+        def fake_run(command, *, timeout=60):
+            if command[0] == "systemctl":
+                return subprocess.CompletedProcess(
+                    command,
+                    3 if command[1:3] == ["is-active", "--quiet"] else 0,
+                    "",
+                    "",
+                )
+            return original_run(command, timeout=timeout)
+
+        with patch.object(registrar, "REGISTRY_ROOT", self.registry), \
+             patch.object(registrar, "SYSTEMD_ROOT", self.systemd), \
+             patch.object(registrar, "run", side_effect=fake_run), \
+             patch.object(registrar.os, "chown"), \
+             patch.object(registrar.os, "lchown"):
+            with redirect_stdout(io.StringIO()):
+                registrar.register(args)
+
+        pipeline_root = self.registry / "project"
+        release = (pipeline_root / "current").resolve()
+        self.assertFalse((release / ".venv").exists())
+        self.assertFalse((release / "logs").exists())
+        self.assertFalse((release / "results").exists())
+        manifest = json.loads((pipeline_root / "pipeline.json").read_text())
+        self.assertTrue(manifest["folder_convention"])
+        self.assertEqual(manifest["results_directory"], str(self.repo / "results"))
+
+    def test_writable_directory_rejects_final_symlink(self) -> None:
+        outside = self.base / "outside-results"
+        outside.mkdir()
+        link = self.repo / "results"
+        link.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            registrar.prepare_writable_directory(
+                link,
+                os.getuid(),
+                os.getgid(),
+                required_path=link,
+            )
+
     def test_git_uses_temporary_scoped_safe_directories(self) -> None:
         self.assertEqual(
             registrar.git_safe_directories(Path("/home/operator/capture/project")),

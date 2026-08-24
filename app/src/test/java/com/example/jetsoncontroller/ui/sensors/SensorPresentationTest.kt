@@ -37,16 +37,86 @@ class SensorPresentationTest {
     }
 
     @Test
-    fun labelsEveryRequestedGnssFixMode() {
-        assertEquals("GPS", gnssFixLabel("gps"))
-        assertEquals("DGPS", gnssFixLabel("dgps"))
-        assertEquals("RTK Fix", gnssFixLabel("rtk_fixed"))
-        assertEquals("RTK Float", gnssFixLabel("rtk_float"))
+    fun exposesOnlyTheFourRequestedGnssLabels() {
+        assertEquals(
+            "GNSS 장치가 꺼져있습니다",
+            gnssReceptionLabel(false, "rtk_fixed", "fixed")
+        )
+        assertEquals("RTK가 꺼져있습니다", gnssReceptionLabel(true, "gps"))
+        assertEquals("RTK가 꺼져있습니다", gnssReceptionLabel(true, "dgps"))
+        assertEquals("RTK 신호가 약합니다", gnssReceptionLabel(true, "rtk_float"))
+        assertEquals("RTK 수신중", gnssReceptionLabel(true, "rtk_fixed"))
+    }
+
+    @Test
+    fun fallsBackToExplicitRtkStatusWhenFixTypeIsGeneric() {
+        assertEquals("RTK 신호가 약합니다", gnssReceptionLabel(true, "gps", "float"))
+        assertEquals("RTK 수신중", gnssReceptionLabel(true, "dgps", "fixed"))
+        assertEquals("RTK 수신중", gnssReceptionLabel(true, "rtk_fix"))
+    }
+
+    @Test
+    fun explicitRtkStatusOverridesConflictingFixType() {
+        assertEquals("RTK가 꺼져있습니다", gnssReceptionLabel(true, "rtk_fixed", "off"))
+        assertEquals("RTK 신호가 약합니다", gnssReceptionLabel(true, "rtk_fixed", "float"))
+        assertEquals("RTK 수신중", gnssReceptionLabel(true, "rtk_float", "fixed"))
+    }
+
+    @Test
+    fun deviceLocationStateUsesOfflineStaleOffPrecedence() {
+        assertEquals(
+            DeviceLocationAvailability.OFFLINE,
+            deviceLocationAvailability(
+                deviceOnline = false,
+                telemetryFresh = false,
+                gnssActive = false,
+                hasValidLocation = false
+            )
+        )
+        assertEquals(
+            DeviceLocationAvailability.STALE,
+            deviceLocationAvailability(
+                deviceOnline = true,
+                telemetryFresh = false,
+                gnssActive = false,
+                hasValidLocation = false
+            )
+        )
+        assertEquals(
+            DeviceLocationAvailability.OFF,
+            deviceLocationAvailability(
+                deviceOnline = true,
+                telemetryFresh = true,
+                gnssActive = false,
+                hasValidLocation = true
+            )
+        )
+        assertEquals(
+            DeviceLocationAvailability.NO_FIX,
+            deviceLocationAvailability(
+                deviceOnline = true,
+                telemetryFresh = true,
+                gnssActive = true,
+                hasValidLocation = false
+            )
+        )
+        assertEquals(
+            DeviceLocationAvailability.ACTIVE,
+            deviceLocationAvailability(
+                deviceOnline = true,
+                telemetryFresh = true,
+                gnssActive = true,
+                hasValidLocation = true
+            )
+        )
     }
 
     @Test
     fun validatesMapCoordinates() {
         assertTrue(GnssSensorStatus(latitude = 37.5, longitude = 127.0).hasValidLocation())
         assertFalse(GnssSensorStatus(latitude = 91.0, longitude = 127.0).hasValidLocation())
+        assertFalse(
+            GnssSensorStatus(latitude = Double.NaN, longitude = 127.0).hasValidLocation()
+        )
     }
 }

@@ -138,6 +138,23 @@ private object Routes {
     const val ALERTS = "alerts"
 }
 
+private val routesRequiringDeviceConnection = setOf(
+    Routes.NETWORK_SETTINGS,
+    Routes.STORAGE_ROUTE,
+    Routes.SERVER_STORAGE,
+    Routes.UPLOAD_CONFIRM,
+    Routes.UPLOAD_PROGRESS,
+    Routes.UPLOAD_QUEUE,
+    Routes.UPLOAD_SERVERS,
+    Routes.PIPELINES,
+    Routes.PIPELINE_EDITOR,
+    Routes.PIPELINE_PICKER,
+    Routes.PIPELINE_LOGS,
+    Routes.PIPELINE_CONFIG,
+    Routes.CAMERA_PREVIEW,
+    Routes.SETTINGS
+)
+
 
 @Composable
 fun JetsonApp(
@@ -326,9 +343,6 @@ fun JetsonApp(
     val lanDiscovering by
         repository.isLanDiscovering.collectAsStateWithLifecycle()
 
-    val lanLastSeenAtEpochMillis by
-        repository.lanLastSeenAtEpochMillis.collectAsStateWithLifecycle()
-
     val lanDiscoveryError by
         repository.lanDiscoveryError.collectAsStateWithLifecycle()
 
@@ -348,8 +362,16 @@ fun JetsonApp(
         (transportState as? TransportState.Connected)?.type
     val serverUploadEnabled = canStartServerUpload(connectedTransportType)
     val serverUploadDisabledReason = serverUploadUnavailableMessage(connectedTransportType)
+    val fullControlConnected = connectedTransportType == TransportType.LAN ||
+        connectedTransportType == TransportType.WIFI_DIRECT
 
-    val onSectionSelected: (ControlSection) -> Unit = { section ->
+    val onSectionSelected: (ControlSection) -> Unit = onSectionSelected@ { section ->
+        if (
+            section != ControlSection.OVERVIEW && section != ControlSection.SENSORS &&
+            !fullControlConnected
+        ) {
+            return@onSectionSelected
+        }
         val route = when (section) {
             ControlSection.OVERVIEW -> Routes.DASHBOARD
             ControlSection.DATA -> Routes.STORAGE
@@ -372,6 +394,19 @@ fun JetsonApp(
             .onPermissionResult(
                 bluetoothPermissionGranted
             )
+    }
+
+    LaunchedEffect(
+        bluetoothPermissionGranted,
+        nearbyWifiPermissionGranted,
+        localNetworkPermissionGranted
+    ) {
+        repository.configureAutomaticConnectivity(
+            enabled = true,
+            localNetworkPermissionGranted = localNetworkPermissionGranted,
+            nearbyWifiPermissionGranted = nearbyWifiPermissionGranted,
+            bluetoothPermissionGranted = bluetoothPermissionGranted
+        )
     }
 
 
@@ -401,10 +436,22 @@ fun JetsonApp(
 
     LaunchedEffect(pairingState.phase, currentRoute) {
         if (pairingState.phase == PairingPhase.READY && currentRoute == Routes.PAIRING) {
-            navController.navigate(Routes.NETWORK_SETTINGS) {
+            navController.navigate(Routes.DASHBOARD) {
                 popUpTo(Routes.CONNECTION_HUB) {
                     inclusive = false
                 }
+                launchSingleTop = true
+            }
+        }
+    }
+
+    LaunchedEffect(transportState, currentRoute) {
+        if (
+            (transportState is TransportState.Disconnected || transportState is TransportState.Error) &&
+            currentRoute in routesRequiringDeviceConnection
+        ) {
+            navController.navigate(Routes.CONNECTION_HUB) {
+                popUpTo(Routes.CONNECTION_HUB) { inclusive = false }
                 launchSingleTop = true
             }
         }
@@ -439,24 +486,12 @@ fun JetsonApp(
         composable(
             Routes.CONNECTION_HUB
         ) {
-            DisposableEffect(localNetworkPermissionGranted) {
-                if (localNetworkPermissionGranted) {
-                    repository.startLanDiscovery()
-                }
-                onDispose {
-                    repository.stopLanDiscovery()
-                }
-            }
-
             ConnectionHubScreen(
-                onBleClick = { navController.navigate(Routes.DEVICES_BLE) },
                 onAddDevice = { navController.navigate(Routes.ONBOARDING) },
                 onOpenDashboard = { navController.navigate(Routes.DASHBOARD) },
-                onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) },
                 unreadAlertCount = alertCenterState.unreadCount,
                 onAlertsClick = { navController.navigate(Routes.ALERTS) },
                 lanEndpoints = lanEndpoints,
-                lastSeenAtEpochMillis = lanLastSeenAtEpochMillis,
                 registeredDevices = deviceState.registeredDevices,
                 transportState = transportState,
                 lanDiscovering = lanDiscovering,
@@ -468,6 +503,10 @@ fun JetsonApp(
                 onConnectLan = { endpoint ->
                     pendingDashboardTransport = TransportType.LAN
                     repository.connectLan(endpoint)
+                },
+                onReconnectDevice = { device ->
+                    repository.connectRegisteredAutomatically(device.deviceId)
+                    navController.navigate(Routes.DASHBOARD) { launchSingleTop = true }
                 }
             )
         }
@@ -650,6 +689,18 @@ fun JetsonApp(
                     }
                 },
 
+                onStartSystem = dashboardViewModel::startSystem,
+
+                onStopSystem = dashboardViewModel::stopSystem,
+
+                onRestartServices = dashboardViewModel::restartServices,
+
+                onRefreshFan = dashboardViewModel::refreshFan,
+
+                onSetFanAuto = dashboardViewModel::setFanAuto,
+
+                onSetFanManual = dashboardViewModel::setFanManual,
+
                 onReboot = {
                     dashboardViewModel
                         .reboot()
@@ -668,10 +719,6 @@ fun JetsonApp(
                     navController.navigate(Routes.NETWORK_SETTINGS)
                 },
 
-                onWifiDirectClick = {
-                    navController.navigate(Routes.WIFI_DIRECT)
-                },
-                
                 onUploadQueueClick = {
                     navController.navigate(Routes.UPLOAD_QUEUE)
                 },
@@ -737,8 +784,7 @@ fun JetsonApp(
                 wifiScanPermissionGranted = wifiScanPermissionGranted,
                 onRequestWifiScanPermission = onRequestWifiScanPermission,
                 onScanAccessPoints = networkSettingsViewModel::scanAccessPoints,
-                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint,
-                onWifiDirectClick = { navController.navigate(Routes.WIFI_DIRECT) }
+                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint
             )
         }
         
@@ -806,10 +852,12 @@ fun JetsonApp(
                 onRefresh = serverStorageViewModel::refresh,
                 onTargetSelected = serverStorageViewModel::selectTarget,
                 onSessionClick = serverStorageViewModel::openSession,
+                onDeleteSession = serverStorageViewModel::deleteSession,
                 onDirectoryClick = serverStorageViewModel::openDirectory,
                 onFileClick = serverStorageViewModel::openFile,
                 onLoadMore = serverStorageViewModel::loadMoreSessions,
-                onSectionSelected = onSectionSelected
+                onSectionSelected = onSectionSelected,
+                deletionEnabled = serverUploadEnabled
             )
         }
 
@@ -825,16 +873,24 @@ fun JetsonApp(
         ) { backStackEntry ->
             val rootId = backStackEntry.arguments?.getString("rootId").orEmpty()
             val path = backStackEntry.arguments?.getString("path").orEmpty()
+            LaunchedEffect(rootId, path) {
+                uploadViewModel.loadSourceSummary(rootId, path)
+            }
             UploadConfirmScreen(
                 rootId = rootId,
                 path = path,
                 targets = uploadState.targets,
+                sourceSummary = uploadState.sourceSummary,
+                isCalculatingSource = uploadState.isCalculatingSource,
                 serverUploadEnabled = serverUploadEnabled,
                 serverUploadDisabledReason = serverUploadDisabledReason,
                 isLoading = uploadState.isLoading,
                 error = uploadState.error,
                 onBack = { navController.popBackStack() },
-                onRefresh = uploadViewModel::refresh,
+                onRefresh = {
+                    uploadViewModel.refresh()
+                    uploadViewModel.loadSourceSummary(rootId, path, force = true)
+                },
                 onManageTargets = {
                     navController.navigate(Routes.UPLOAD_SERVERS)
                 },
@@ -850,11 +906,17 @@ fun JetsonApp(
         composable(Routes.UPLOAD_PROGRESS) {
             UploadProgressScreen(
                 job = uploadState.currentJob,
+                verification = uploadState.verification,
                 isLoading = uploadState.isLoading,
+                message = uploadState.message,
                 error = uploadState.error,
                 onCancel = uploadViewModel::cancelCurrentUpload,
                 onRetry = uploadViewModel::retryCurrentUpload,
-                onBack = { navController.popBackStack() }
+                onVerify = uploadViewModel::verifyCurrentUpload,
+                onDeleteSource = uploadViewModel::deleteCurrentSource,
+                onBack = { navController.popBackStack() },
+                serverMutationEnabled = serverUploadEnabled,
+                serverMutationDisabledReason = serverUploadDisabledReason
             )
         }
 
@@ -933,9 +995,7 @@ fun JetsonApp(
                     pipelineViewModel.beginPick(target)
                     navController.navigate(Routes.PIPELINE_PICKER)
                 },
-                onIdChange = pipelineViewModel::setId,
                 onLabelChange = pipelineViewModel::setLabel,
-                onWritableDirectoryChange = pipelineViewModel::setWritableDirectory,
                 onAutostartChange = pipelineViewModel::setAutostart,
                 onRegister = pipelineViewModel::register
             )
@@ -1001,6 +1061,8 @@ fun JetsonApp(
             StatusPollingLifecycleEffect(dashboardViewModel)
             SensorScreen(
                 status = dashboardState.status,
+                deviceOnline = transportState is TransportState.Connected,
+                fullControlAvailable = fullControlConnected,
                 onCameraClick = { navController.navigate(Routes.CAMERA_PREVIEW) },
                 onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
                 onSectionSelected = onSectionSelected
@@ -1040,6 +1102,7 @@ fun JetsonApp(
             GnssMapScreen(
                 gnss = dashboardState.status.gnssSensor,
                 telemetryFresh = dashboardState.status.sensorTelemetryFresh,
+                deviceOnline = transportState is TransportState.Connected,
                 onBack = { navController.popBackStack() }
             )
         }

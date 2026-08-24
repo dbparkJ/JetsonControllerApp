@@ -122,6 +122,17 @@ class MainActivity :
         }
     }
 
+    private fun connectivityPermissions(): Array<String> {
+        val permissions = bluetoothPermissions().toMutableList()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions += Manifest.permission.NEARBY_WIFI_DEVICES
+        }
+        if (Build.VERSION.SDK_INT >= 37) {
+            permissions += Manifest.permission.ACCESS_LOCAL_NETWORK
+        }
+        return permissions.distinct().toTypedArray()
+    }
+
     private fun hasWifiScanPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -181,10 +192,14 @@ class MainActivity :
                 }
 
             LaunchedEffect(Unit) {
-                if (!hasBluetoothPermissions()) {
-                    permissionLauncher.launch(
-                        bluetoothPermissions()
-                    )
+                val missingConnectivityPermissions = connectivityPermissions().filter {
+                    ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        it
+                    ) != PackageManager.PERMISSION_GRANTED
+                }
+                if (missingConnectivityPermissions.isNotEmpty()) {
+                    permissionLauncher.launch(missingConnectivityPermissions.toTypedArray())
                 }
             }
 

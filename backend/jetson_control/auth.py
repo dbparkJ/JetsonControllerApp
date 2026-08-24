@@ -170,6 +170,13 @@ class RequestAuthenticator:
         self._seen_nonces: "OrderedDict[str, int]" = OrderedDict()
         self._nonce_lock = threading.Lock()
 
+    def reset_after_clock_change(self) -> None:
+        """Rebase replay timestamps without making accepted nonces reusable."""
+        now = int(self._clock())
+        with self._nonce_lock:
+            for nonce in self._seen_nonces:
+                self._seen_nonces[nonce] = now
+
     def verify(
         self,
         device_id: str,

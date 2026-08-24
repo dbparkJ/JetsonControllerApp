@@ -29,8 +29,8 @@ android {
         applicationId = "com.example.jetsoncontroller"
         minSdk = 31
         targetSdk = 37
-        versionCode = 12
-        versionName = "1.10.0"
+        versionCode = 13
+        versionName = "1.11.0"
 
         buildConfigField("String", "VWORLD_API_KEY", "\"$escapedVworldApiKey\"")
 
@@ -43,6 +43,18 @@ android {
                 enable = false
             }
         }
+    }
+    lint {
+        // Navigation 2.8.5's type-safe route detectors cannot load their UtilKt
+        // helper under AGP 9.3.1. Keep every unrelated lint check enabled.
+        disable += "WrongNavigateRouteType"
+        disable += "WrongPopBackStackRouteType"
+        disable += "WrongStartDestinationType"
+        disable += "MissingSerializableAnnotation"
+        disable += "MissingKeepAnnotation"
+        disable += "ComposableDestinationInComposeScope"
+        disable += "ComposableNavGraphInComposeScope"
+        disable += "UnrememberedGetBackStackEntry"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

@@ -42,24 +42,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
+import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.ui.components.InlineMessage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UploadProgressScreen(
     job: UploadJob?,
+    verification: UploadVerification?,
     isLoading: Boolean,
+    message: String?,
     error: String?,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
-    onBack: () -> Unit
+    onVerify: () -> Unit,
+    onDeleteSource: () -> Unit,
+    onBack: () -> Unit,
+    serverMutationEnabled: Boolean = true,
+    serverMutationDisabledReason: String? = null
 ) {
     var showCancelDialog by remember { mutableStateOf(false) }
-    val active = job?.state in setOf(
-        UploadJobState.QUEUED,
-        UploadJobState.SCANNING,
-        UploadJobState.UPLOADING
-    )
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val active = job?.state?.let(::isActiveUploadState) == true
 
     if (showCancelDialog) {
         AlertDialog(
@@ -74,6 +78,25 @@ fun UploadProgressScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCancelDialog = false }) { Text("계속 업로드") }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("장치의 원본을 삭제할까요?") },
+            text = {
+                Text("서버 데이터와 다시 대조한 뒤 장치의 원본 폴더를 영구 삭제합니다. 되돌릴 수 없습니다.")
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showDeleteDialog = false
+                    onDeleteSource()
+                }) { Text("확인 후 삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("취소") }
             }
         )
     }
@@ -138,7 +161,8 @@ fun UploadProgressScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = job.relativePath.ifEmpty { "/" },
+                    text = job.folderName ?: job.sourceName
+                        ?: job.relativePath.substringAfterLast('/').ifEmpty { "/" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -162,7 +186,19 @@ fun UploadProgressScreen(
                 ) {
                     Text("${(progress * 100).toInt()}%", fontWeight = FontWeight.SemiBold)
                     Text(
-                        "${formatSize(job.bytesTransferred ?: 0)} / ${formatSize(job.bytesTotal ?: 0)}",
+                        "${formatMegabytes(job.bytesTransferred ?: 0)} / ${formatMegabytes(job.bytesTotal ?: 0)}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (active) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        listOfNotNull(
+                            (job.throughputBytesPerSecond ?: 0L).takeIf { it > 0L }
+                                ?.let { "${formatSize(it)}/초" },
+                            job.etaSeconds?.takeIf { it >= 0L }?.let { "예상 ${formatEta(it)}" }
+                        ).joinToString(" · ").ifEmpty { "전송 속도와 예상 시간을 계산 중입니다" },
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -195,6 +231,33 @@ fun UploadProgressScreen(
                     Spacer(Modifier.height(12.dp))
                     InlineMessage(message = it, isError = true)
                 }
+                message?.let {
+                    Spacer(Modifier.height(12.dp))
+                    InlineMessage(message = it, isError = false)
+                }
+                if (job.sourceDeleted) {
+                    Spacer(Modifier.height(12.dp))
+                    InlineMessage(message = "장치의 업로드 원본이 삭제되었습니다.", isError = false)
+                }
+                val mutationActionVisible = job.state == UploadJobState.FAILED ||
+                    (
+                        job.state == UploadJobState.COMPLETED &&
+                            !job.sourceDeleted &&
+                            (
+                                verification?.matched == false ||
+                                    (verification?.matched == true && verification.deletionAllowed)
+                            )
+                    )
+                if (
+                    mutationActionVisible && !serverMutationEnabled &&
+                    !serverMutationDisabledReason.isNullOrBlank()
+                ) {
+                    Spacer(Modifier.height(12.dp))
+                    InlineMessage(
+                        message = serverMutationDisabledReason,
+                        isError = false
+                    )
+                }
 
                 Spacer(Modifier.weight(1f))
                 if (active) {
@@ -209,7 +272,7 @@ fun UploadProgressScreen(
                     Button(
                         onClick = onRetry,
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading
+                        enabled = !isLoading && serverMutationEnabled
                     ) {
                         if (isLoading) {
                             CircularProgressIndicator(
@@ -220,6 +283,38 @@ fun UploadProgressScreen(
                         }
                         Text(if (isLoading) "준비 중" else "다시 시도")
                     }
+                } else if (job.state == UploadJobState.COMPLETED && !job.sourceDeleted) {
+                    OutlinedButton(
+                        onClick = onVerify,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading
+                    ) {
+                        Text(if (isLoading) "확인 중" else "서버 데이터 확인")
+                    }
+                    if (verification?.matched == false) {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = onRetry,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading && serverMutationEnabled
+                        ) {
+                            Text(if (isLoading) "준비 중" else "다시 업로드")
+                        }
+                    }
+                    if (verification?.matched == true && verification.deletionAllowed) {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = { showDeleteDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading && serverMutationEnabled
+                        ) {
+                            Text("확인된 장치 원본 삭제")
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+                        Text("닫기")
+                    }
                 } else {
                     Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
                         Text("완료")
@@ -227,6 +322,21 @@ fun UploadProgressScreen(
                 }
             }
         }
+    }
+}
+
+internal fun formatMegabytes(bytes: Long): String =
+    "%.1f MB".format(bytes.coerceAtLeast(0L).toDouble() / (1024.0 * 1024.0))
+
+internal fun formatEta(seconds: Long): String {
+    val safe = seconds.coerceAtLeast(0L)
+    val hours = safe / 3600
+    val minutes = (safe % 3600) / 60
+    val remainingSeconds = safe % 60
+    return when {
+        hours > 0 -> "${hours}시간 ${minutes}분"
+        minutes > 0 -> "${minutes}분 ${remainingSeconds}초"
+        else -> "${remainingSeconds}초"
     }
 }
 

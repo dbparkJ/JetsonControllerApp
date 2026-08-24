@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -103,8 +102,7 @@ fun NetworkSettingsScreen(
     wifiScanPermissionGranted: Boolean,
     onRequestWifiScanPermission: () -> Unit,
     onScanAccessPoints: () -> Unit,
-    onSelectAccessPoint: (WifiAccessPoint) -> Unit,
-    onWifiDirectClick: () -> Unit = {}
+    onSelectAccessPoint: (WifiAccessPoint) -> Unit
 ) {
     val listState = rememberLazyListState()
     var manualEntryExpanded by rememberSaveable { mutableStateOf(false) }
@@ -161,7 +159,6 @@ fun NetworkSettingsScreen(
                     state = state,
                     wifiScanPermissionGranted = wifiScanPermissionGranted,
                     onRequestWifiScanPermission = onRequestWifiScanPermission,
-                    onWifiDirectClick = onWifiDirectClick,
                     modifier = Modifier.weight(1f)
                 )
             } else {
@@ -277,7 +274,6 @@ private fun NetworkConnectionStatus(
     state: NetworkSettingsUiState,
     wifiScanPermissionGranted: Boolean,
     onRequestWifiScanPermission: () -> Unit,
-    onWifiDirectClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -342,15 +338,6 @@ private fun NetworkConnectionStatus(
                 }
             }
         }
-        item {
-            OutlinedButton(
-                onClick = onWifiDirectClick,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.WifiTethering, contentDescription = null)
-                Text("Wi-Fi Direct로 연결", modifier = Modifier.padding(start = 8.dp))
-            }
-        }
     }
 }
 
@@ -397,11 +384,10 @@ private fun CurrentWifiCard(ssid: String) {
 
 @Composable
 private fun ConnectionMethodLabel(type: TransportType?) {
-    val text = when (type) {
-        TransportType.BLE -> "Bluetooth로 Jetson에 전송"
-        TransportType.LAN -> "LAN으로 Jetson에 전송"
-        TransportType.WIFI_DIRECT -> "Wi-Fi Direct로 Jetson에 전송"
-        null -> "Jetson 연결 확인 중"
+    val text = if (type == null) {
+        "Jetson 연결 확인 중"
+    } else {
+        "Jetson에 Wi-Fi 설정 전송 가능"
     }
     Surface(
         color = MaterialTheme.colorScheme.secondaryContainer,

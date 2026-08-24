@@ -24,7 +24,8 @@ enum class ControlSection {
 @Composable
 fun ControlNavigationBar(
     selected: ControlSection,
-    onSelect: (ControlSection) -> Unit
+    onSelect: (ControlSection) -> Unit,
+    enabledSections: Set<ControlSection> = ControlSection.entries.toSet()
 ) {
     val items = listOf(
         Triple(ControlSection.OVERVIEW, Icons.Default.Home, "홈"),
@@ -38,6 +39,7 @@ fun ControlNavigationBar(
             NavigationBarItem(
                 selected = selected == section,
                 onClick = { onSelect(section) },
+                enabled = section in enabledSections,
                 icon = { Icon(icon, contentDescription = label) },
                 label = { Text(label) }
             )

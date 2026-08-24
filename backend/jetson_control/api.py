@@ -26,12 +26,22 @@ from .pipelines import (
 )
 from .status import StatusCollector
 from .sensors import SensorBridgeStore
+from .system_control import (
+    FanControlError,
+    FanController,
+    FanUnavailable,
+    SystemTimeSynchronizer,
+    TimeSyncConflict,
+    TimeSyncError,
+)
 from .tls import certificate_sha256
 from .uploads import (
     UploadCapacityExceeded,
+    UploadConfirmationRequired,
     UploadConflict,
     UploadLibraryUnavailable,
     UploadManager,
+    UploadVerificationMismatch,
 )
 from .wifi_direct import read_wifi_direct_status
 
@@ -108,6 +118,12 @@ class SaveUploadTargetRequest(BaseModel):
     token: Optional[str] = Field(default=None, max_length=4096)
 
 
+class ConfirmDeletionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: bool = False
+
+
 class RegisterPipelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -125,6 +141,31 @@ class RegisterPipelineRequest(BaseModel):
         default_factory=list,
     )
     autostart: bool = True
+
+
+class PipelineFolderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    root_id: str = Field(alias="rootId")
+    path: str = ""
+
+
+class RegisterPipelineFolderRequest(PipelineFolderRequest):
+    name: str = Field(min_length=1, max_length=64)
+    autostart: bool = True
+
+
+class SynchronizeSystemTimeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mobile_time_epoch_millis: int = Field(alias="mobileTimeEpochMillis")
+
+
+class SetFanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str
+    percent: Optional[int] = None
 
 
 class UpdatePipelineConfigRequest(BaseModel):
@@ -151,6 +192,8 @@ def create_app(
     upload_manager: Optional[UploadManager] = None,
     wifi_provisioner: Optional[WifiProvisioner] = None,
     pipeline_manager: Optional[PipelineManager] = None,
+    time_synchronizer: Optional[SystemTimeSynchronizer] = None,
+    fan_controller: Optional[FanController] = None,
     tls_fingerprint: Optional[str] = None,
 ) -> FastAPI:
     runtime_paths = paths or RuntimePaths()
@@ -180,6 +223,10 @@ def create_app(
         pipeline_user=device_config.pipeline_user,
         logs_root=runtime_paths.pipeline_logs,
     )
+    system_time = time_synchronizer or SystemTimeSynchronizer(
+        on_clock_changed=request_auth.reset_after_clock_change
+    )
+    fan = fan_controller or FanController()
     certificate_fingerprint = tls_fingerprint or certificate_sha256(
         runtime_paths.tls_certificate
     )
@@ -200,6 +247,8 @@ def create_app(
     app.state.upload_manager = uploads
     app.state.wifi_provisioner = wifi
     app.state.pipeline_manager = pipelines
+    app.state.time_synchronizer = system_time
+    app.state.fan_controller = fan
 
     async def authenticate_request(request: Request) -> None:
         if getattr(request.state, "auth_context", None) is not None:
@@ -308,6 +357,10 @@ def create_app(
                 if location is not None:
                     response["outputRootId"], response["outputPath"] = location
                     break
+                workspace_location = workspace_service.locate(Path(writable_path))
+                if workspace_location is not None:
+                    response["outputRootId"], response["outputPath"] = workspace_location
+                    break
         response.setdefault("outputRootId", None)
         response.setdefault("outputPath", None)
         return response
@@ -349,6 +402,9 @@ def create_app(
             "wifiProvisioning": True,
             "wifiDirect": wifi_direct.get("state") == "READY",
             "pipelines": True,
+            "pipelineFolderRegistration": True,
+            "mobileTimeSync": True,
+            "fanControl": True,
         }
 
     @app.get("/v1/status", dependencies=authenticated)
@@ -447,6 +503,25 @@ def create_app(
         except PermissionError as error:
             raise HTTPException(status_code=403, detail=str(error)) from error
 
+    @app.get("/v1/fs/workspace/file", dependencies=authenticated)
+    async def read_workspace_file(root: str, path: str) -> Response:
+        try:
+            target, content = workspace_service.read_file(
+                root,
+                path,
+                max_bytes=12 * 1024 * 1024,
+            )
+            media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            return Response(content=content, media_type=media_type)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except FileTooLarge as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+
     @app.get("/v1/upload/targets", dependencies=authenticated)
     async def upload_targets() -> List[Dict[str, object]]:
         try:
@@ -541,6 +616,43 @@ def create_app(
         except RuntimeError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
 
+    @app.delete(
+        "/v1/upload/library/sessions/{session_id}",
+        dependencies=authenticated,
+    )
+    def delete_upload_library_session(
+        request: Request,
+        session_id: str,
+        target: str,
+        body: ConfirmDeletionRequest,
+    ) -> Dict[str, object]:
+        require_lan_upload_request(request)
+        try:
+            return uploads.delete_library_session(
+                target,
+                session_id,
+                confirmed=body.confirmed,
+            )
+        except UploadLibraryUnavailable as error:
+            raise HTTPException(status_code=501, detail=str(error)) from error
+        except UploadConfirmationRequired as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Upload session not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get("/v1/upload/source-summary", dependencies=authenticated)
+    def upload_source_summary(root: str, path: str = "") -> Dict[str, object]:
+        try:
+            return uploads.source_summary(root, path)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, NotADirectoryError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @app.post("/v1/uploads", status_code=202, dependencies=authenticated)
     async def start_upload(
         request: Request,
@@ -577,6 +689,41 @@ def create_app(
             return uploads.cancel(job_id)
         except (KeyError, ValueError) as error:
             raise HTTPException(status_code=404, detail="Upload job not found") from error
+
+    @app.post("/v1/uploads/{job_id}/verify", dependencies=authenticated)
+    def verify_upload_source(job_id: str) -> Dict[str, object]:
+        try:
+            return uploads.verify_completed_source(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Upload job not found") from error
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (UploadConflict, UploadVerificationMismatch) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.delete("/v1/uploads/{job_id}/source", dependencies=authenticated)
+    def delete_upload_source(
+        request: Request,
+        job_id: str,
+        body: ConfirmDeletionRequest,
+    ) -> Dict[str, object]:
+        require_lan_upload_request(request)
+        try:
+            return uploads.delete_completed_source(job_id, confirmed=body.confirmed)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Upload job not found") from error
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (UploadConflict, UploadConfirmationRequired, UploadVerificationMismatch) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.post(
         "/v1/uploads/{job_id}/retry",
@@ -619,6 +766,40 @@ def create_app(
         except PipelineError as error:
             raise HTTPException(status_code=500, detail=str(error)) from error
 
+    @app.post("/v1/pipelines/discover-folder", dependencies=authenticated)
+    def discover_pipeline_folder(body: PipelineFolderRequest) -> Dict[str, object]:
+        try:
+            repository = resolve_pipeline_source(body.root_id, body.path)
+            return pipelines.discover_folder(repository)
+        except (ValueError, FileNotFoundError, NotADirectoryError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PipelineError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.post(
+        "/v1/pipelines/register-folder",
+        status_code=201,
+        dependencies=authenticated,
+    )
+    def register_pipeline_folder(
+        body: RegisterPipelineFolderRequest,
+    ) -> Dict[str, object]:
+        try:
+            repository = resolve_pipeline_source(body.root_id, body.path)
+            return pipeline_response(
+                pipelines.register_folder(
+                    label=body.name,
+                    repository=repository,
+                    autostart=body.autostart,
+                )
+            )
+        except PipelineConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (ValueError, FileNotFoundError, NotADirectoryError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PipelineError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
     @app.post("/v1/pipelines", status_code=201, dependencies=authenticated)
     async def register_pipeline(body: RegisterPipelineRequest) -> Dict[str, object]:
         try:
@@ -655,6 +836,41 @@ def create_app(
         except (ValueError, FileNotFoundError, NotADirectoryError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except PipelineError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get("/v1/system/time", dependencies=authenticated)
+    def system_time_status() -> Dict[str, object]:
+        return system_time.status()
+
+    @app.put("/v1/system/time", dependencies=authenticated)
+    def synchronize_system_time(
+        body: SynchronizeSystemTimeRequest,
+    ) -> Dict[str, object]:
+        try:
+            return system_time.synchronize(body.mobile_time_epoch_millis)
+        except TimeSyncConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except TimeSyncError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get("/v1/system/fan", dependencies=authenticated)
+    def fan_status() -> Dict[str, object]:
+        try:
+            return fan.status()
+        except FanControlError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.put("/v1/system/fan", dependencies=authenticated)
+    def set_fan(body: SetFanRequest) -> Dict[str, object]:
+        try:
+            return fan.set(body.mode, body.percent)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except FanUnavailable as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except FanControlError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.delete("/v1/pipelines/{pipeline_id}", status_code=204, dependencies=authenticated)

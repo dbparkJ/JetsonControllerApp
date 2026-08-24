@@ -16,7 +16,7 @@ from jetson_control.auth import (
 )
 from jetson_control.config import DeviceConfig, RuntimePaths
 from jetson_control.filesystem import StorageRegistry, WorkspaceRegistry
-from jetson_control.uploads import UploadManager
+from jetson_control.uploads import UploadConfirmationRequired, UploadManager
 
 
 class ApiContractTest(unittest.TestCase):
@@ -163,6 +163,47 @@ class ApiContractTest(unittest.TestCase):
                 {"path": "/fps", "label": "fps", "type": "INTEGER", "value": "15"}
             ],
         }
+        self.pipelines.discover_folder.return_value = {
+            "pipelineId": "capture",
+            "repository": str(base / "jobs" / "capture"),
+            "virtualenv": str(base / "jobs" / "capture" / ".venv"),
+            "entrypoint": "main.py",
+            "config": "config.yaml",
+            "workingDirectory": str(base / "jobs" / "capture"),
+            "resultsDirectory": str(base / "jobs" / "capture" / "results"),
+            "resultsExists": False,
+            "logDirectory": "/var/log/jetson-pipelines/capture",
+            "autostartDefault": True,
+        }
+        self.pipelines.register_folder.return_value = {
+            "id": "capture",
+            "label": "카메라 수집",
+            "state": "WAITING_FOR_TIME_SYNC",
+            "writablePaths": [str(base / "jobs" / "capture" / "results")],
+        }
+        self.system_time = Mock()
+        self.system_time.status.return_value = {
+            "synchronized": True,
+            "deviceTimeEpochMillis": 1777000123456,
+        }
+        self.system_time.synchronize.return_value = {
+            "synchronized": True,
+            "deviceTimeEpochMillis": 1777000123456,
+            "clockChanged": False,
+        }
+        self.fan = Mock()
+        self.fan.status.return_value = {
+            "available": True,
+            "mode": "AUTO",
+            "percent": 35,
+            "minimumManualPercent": 20,
+        }
+        self.fan.set.return_value = {
+            "available": True,
+            "mode": "MANUAL",
+            "percent": 40,
+            "minimumManualPercent": 20,
+        }
 
         app = create_app(
             paths=self.paths,
@@ -175,6 +216,8 @@ class ApiContractTest(unittest.TestCase):
             upload_manager=uploads,
             wifi_provisioner=wifi,
             pipeline_manager=self.pipelines,
+            time_synchronizer=self.system_time,
+            fan_controller=self.fan,
             tls_fingerprint=self.tls_fingerprint,
         )
         self.client = TestClient(app, client=("192.168.10.20", 50000))
@@ -444,6 +487,102 @@ class ApiContractTest(unittest.TestCase):
         self.assertIn("LAN", response.json()["detail"])
         self.uploads.retry.assert_not_called()
 
+    def test_upload_source_summary_contract(self) -> None:
+        path = "/v1/upload/source-summary?root=data&path="
+
+        response = self.signed_request("GET", path)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["rootId"], "data")
+        self.assertEqual(response.json()["relativePath"], "")
+        self.assertEqual(response.json()["sourceName"], "source")
+        self.assertEqual(response.json()["folderName"], "source")
+        self.assertEqual(response.json()["filesTotal"], 1)
+        self.assertEqual(response.json()["bytesTotal"], 5)
+
+    def test_completed_upload_verification_contract(self) -> None:
+        verification = {
+            "jobId": "job-1",
+            "targetId": "server",
+            "remoteSessionId": "session-1",
+            "sourceName": "capture",
+            "state": "MISMATCH",
+            "matched": False,
+            "deletionAllowed": False,
+            "bytesTotal": 12,
+            "filesTotal": 1,
+            "contentSha256": "a" * 64,
+            "verifiedAt": "2026-08-21T00:00:00Z",
+        }
+        self.uploads.verify_completed_source = Mock(return_value=verification)
+
+        response = self.signed_request("POST", "/v1/uploads/job-1/verify")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), verification)
+        self.uploads.verify_completed_source.assert_called_once_with("job-1")
+
+    def test_upload_source_delete_requires_confirmation_and_returns_job(self) -> None:
+        self.uploads.delete_completed_source = Mock(
+            side_effect=UploadConfirmationRequired("confirmation required")
+        )
+
+        unconfirmed = self.signed_request(
+            "DELETE",
+            "/v1/uploads/job-1/source",
+            b"{}",
+        )
+
+        self.assertEqual(unconfirmed.status_code, 409, unconfirmed.text)
+        self.uploads.delete_completed_source.assert_called_once_with(
+            "job-1", confirmed=False
+        )
+
+        deleted_job = {
+            "id": "job-1",
+            "state": "COMPLETED",
+            "sourceDeleted": True,
+        }
+        self.uploads.delete_completed_source = Mock(return_value=deleted_job)
+        body = json.dumps({"confirmed": True}, separators=(",", ":")).encode()
+
+        confirmed = self.signed_request(
+            "DELETE",
+            "/v1/uploads/job-1/source",
+            body,
+        )
+
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json(), deleted_job)
+        self.uploads.delete_completed_source.assert_called_once_with(
+            "job-1", confirmed=True
+        )
+
+    def test_upload_library_session_delete_requires_confirmation(self) -> None:
+        self.uploads.delete_library_session = Mock(
+            side_effect=UploadConfirmationRequired("confirmation required")
+        )
+        path = "/v1/upload/library/sessions/session-1?target=server"
+
+        unconfirmed = self.signed_request("DELETE", path, b"{}")
+
+        self.assertEqual(unconfirmed.status_code, 409, unconfirmed.text)
+        self.uploads.delete_library_session.assert_called_once_with(
+            "server", "session-1", confirmed=False
+        )
+
+        deletion = {"sessionId": "session-1", "state": "DELETED"}
+        self.uploads.delete_library_session = Mock(return_value=deletion)
+        body = json.dumps({"confirmed": True}, separators=(",", ":")).encode()
+
+        confirmed = self.signed_request("DELETE", path, body)
+
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json(), deletion)
+        self.uploads.delete_library_session.assert_called_once_with(
+            "server", "session-1", confirmed=True
+        )
+
     def test_upload_target_management_and_active_queue(self) -> None:
         body = json.dumps(
             {
@@ -565,6 +704,58 @@ class ApiContractTest(unittest.TestCase):
             writable_paths=[source / "project" / "records"],
             autostart=True,
         )
+
+    def test_convention_pipeline_time_fan_and_workspace_contracts(self) -> None:
+        discover_body = json.dumps(
+            {"rootId": "workspace-home", "path": "jobs/capture"},
+            separators=(",", ":"),
+        ).encode()
+        discovered = self.signed_request(
+            "POST", "/v1/pipelines/discover-folder", discover_body
+        )
+        self.assertEqual(discovered.status_code, 200, discovered.text)
+        self.assertEqual(discovered.json()["entrypoint"], "main.py")
+        self.pipelines.discover_folder.assert_called_once_with(
+            self.base / "jobs" / "capture"
+        )
+
+        register_body = json.dumps(
+            {
+                "rootId": "workspace-home",
+                "path": "jobs/capture",
+                "name": "카메라 수집",
+                "autostart": True,
+            },
+            separators=(",", ":"),
+        ).encode()
+        registered = self.signed_request(
+            "POST", "/v1/pipelines/register-folder", register_body
+        )
+        self.assertEqual(registered.status_code, 201, registered.text)
+        self.assertEqual(registered.json()["outputRootId"], "workspace-home")
+        self.assertEqual(registered.json()["outputPath"], "jobs/capture/results")
+
+        time_body = json.dumps(
+            {"mobileTimeEpochMillis": 1777000123456}, separators=(",", ":")
+        ).encode()
+        synchronized = self.signed_request("PUT", "/v1/system/time", time_body)
+        self.assertEqual(synchronized.status_code, 200, synchronized.text)
+        self.system_time.synchronize.assert_called_once_with(1777000123456)
+
+        fan_body = json.dumps(
+            {"mode": "MANUAL", "percent": 40}, separators=(",", ":")
+        ).encode()
+        fan = self.signed_request("PUT", "/v1/system/fan", fan_body)
+        self.assertEqual(fan.status_code, 200, fan.text)
+        self.assertEqual(fan.json()["percent"], 40)
+        self.fan.set.assert_called_once_with("MANUAL", 40)
+
+        workspace_file = self.signed_request(
+            "GET",
+            "/v1/fs/workspace/file?root=workspace-home&path=source%2Fhello%20world.txt",
+        )
+        self.assertEqual(workspace_file.status_code, 200, workspace_file.text)
+        self.assertEqual(workspace_file.content, b"hello")
 
     def test_pipeline_control_and_remove(self) -> None:
         response = self.signed_request("POST", "/v1/pipelines/capture/start", b"{}")

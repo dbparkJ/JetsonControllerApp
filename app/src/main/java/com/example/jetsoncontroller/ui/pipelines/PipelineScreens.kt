@@ -87,8 +87,9 @@ import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.SectionHeader
 import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.sensors.effectiveGnssActive
 import com.example.jetsoncontroller.ui.sensors.gnssCoordinateText
-import com.example.jetsoncontroller.ui.sensors.gnssFixLabel
+import com.example.jetsoncontroller.ui.sensors.gnssReceptionLabel
 import com.example.jetsoncontroller.ui.sensors.sensorPresentation
 import kotlinx.coroutines.flow.collectLatest
 import java.time.Instant
@@ -224,6 +225,13 @@ private fun PipelineGnssStatus(
     onClick: () -> Unit
 ) {
     val gnss = status.gnssSensor
+    val gnssActive = effectiveGnssActive(
+        deviceOnline = true,
+        telemetryAvailable = status.sensorTelemetryAvailable,
+        telemetryFresh = status.sensorTelemetryFresh,
+        sensorActive = gnss.active,
+        legacyRunning = status.gnssRunning
+    )
     val presentation = sensorPresentation(
         configured = status.gnssConfigured || gnss.configured,
         connected = gnss.connected,
@@ -232,6 +240,13 @@ private fun PipelineGnssStatus(
         telemetryFresh = status.sensorTelemetryFresh,
         legacyRunning = status.gnssRunning
     )
+    val gnssStateKnown =
+        !status.sensorTelemetryAvailable || status.sensorTelemetryFresh
+    val gnssLabel = if (gnssStateKnown) {
+        gnssReceptionLabel(gnssActive, gnss.fixType, gnss.rtkStatus)
+    } else {
+        presentation.description
+    }
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = MaterialTheme.shapes.medium,
@@ -248,19 +263,19 @@ private fun PipelineGnssStatus(
             )
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(
-                    "GNSS · ${gnssFixLabel(gnss.fixType)}",
+                    "GNSS · $gnssLabel",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    if (gnss.active) gnssCoordinateText(gnss) else presentation.description,
+                    if (gnssActive) gnssCoordinateText(gnss) else presentation.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            gnss.satellites?.takeIf { gnss.active }?.let { satellites ->
+            gnss.satellites?.takeIf { gnssActive }?.let { satellites ->
                 Text(
                     "위성 ${satellites}개",
                     style = MaterialTheme.typography.labelMedium
@@ -370,7 +385,7 @@ private fun PipelineItem(
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(Icons.Default.FolderOpen, contentDescription = null)
-                    Text("출력", modifier = Modifier.padding(start = 4.dp))
+                    Text("결과", modifier = Modifier.padding(start = 4.dp))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -449,9 +464,7 @@ fun PipelineEditorScreen(
     state: PipelineUiState,
     onBack: () -> Unit,
     onPick: (PipelinePickerTarget) -> Unit,
-    onIdChange: (String) -> Unit,
     onLabelChange: (String) -> Unit,
-    onWritableDirectoryChange: (String) -> Unit,
     onAutostartChange: (Boolean) -> Unit,
     onRegister: () -> Unit
 ) {
@@ -491,63 +504,29 @@ fun PipelineEditorScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            item {
-                OutlinedTextField(
-                    value = draft.id,
-                    onValueChange = onIdChange,
-                    label = { Text("작업 ID") },
-                    supportingText = { Text("영문 소문자, 숫자, 점, 하이픈") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
             item { SectionHeader("실행 소스") }
             item {
                 SelectorRow(
                     icon = Icons.Default.FolderOpen,
-                    title = "Git 레포",
+                    title = "작업 폴더",
                     value = selectionLabel(draft.repositoryRoot, draft.repositoryPath),
                     enabled = !state.isLoading,
                     onClick = { onPick(PipelinePickerTarget.REPOSITORY) }
                 )
             }
-            item {
-                SelectorRow(
-                    icon = Icons.Default.Terminal,
-                    title = "가상환경",
-                    value = selectionLabel(draft.virtualenvRoot, draft.virtualenvPath),
-                    enabled = !state.isLoading,
-                    onClick = { onPick(PipelinePickerTarget.VIRTUALENV) }
-                )
+            if (state.isDiscoveringFolder) {
+                item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             }
-            item {
-                SelectorRow(
-                    icon = Icons.Default.Code,
-                    title = "메인 Python",
-                    value = draft.entrypoint.ifBlank { "선택 안 됨" },
-                    enabled = draft.repositoryRoot != null && !state.isLoading,
-                    onClick = { onPick(PipelinePickerTarget.ENTRYPOINT) }
-                )
-            }
-            item {
-                SelectorRow(
-                    icon = Icons.Default.Description,
-                    title = "작업 설정 파일",
-                    value = draft.config,
-                    enabled = draft.repositoryRoot != null && !state.isLoading,
-                    onClick = { onPick(PipelinePickerTarget.CONFIG) }
-                )
+            state.discoveredFolder?.let { discovered ->
+                item {
+                    InlineMessage(
+                        message = "${discovered.pipelineId} · ${discovered.entrypoint} · " +
+                            "${discovered.config} · 결과 폴더 자동 설정",
+                        isError = false
+                    )
+                }
             }
             item { SectionHeader("실행 설정") }
-            item {
-                OutlinedTextField(
-                    value = draft.writableDirectory,
-                    onValueChange = onWritableDirectoryChange,
-                    label = { Text("출력 폴더") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
             item {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainer,
@@ -559,11 +538,6 @@ fun PipelineEditorScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text("부팅 시 자동 실행", fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "systemd 활성화",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                         Switch(
                             checked = draft.autostart,
@@ -576,7 +550,8 @@ fun PipelineEditorScreen(
             item {
                 Button(
                     onClick = onRegister,
-                    enabled = draft.canSubmit && !state.isLoading,
+                    enabled = draft.canSubmit && state.discoveredFolder != null &&
+                        !state.isLoading && !state.isDiscoveringFolder,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
@@ -810,7 +785,7 @@ fun PipelineLogScreen(
                     )
                     state.logContent.isEmpty() && !state.detailLoading -> EmptyState(
                         title = "로그 내용이 없습니다",
-                        message = "선택한 실행에서는 아직 출력이 기록되지 않았습니다."
+                        message = "선택한 실행에서는 아직 결과가 기록되지 않았습니다."
                     )
                     else -> SelectionContainer {
                         Column(
@@ -1084,7 +1059,7 @@ private fun selectionLabel(root: RemoteRoot?, path: String): String = when {
 }
 
 private fun pickerTitle(target: PipelinePickerTarget?): String = when (target) {
-    PipelinePickerTarget.REPOSITORY -> "Git 레포 선택"
+    PipelinePickerTarget.REPOSITORY -> "작업 폴더 선택"
     PipelinePickerTarget.VIRTUALENV -> "가상환경 선택"
     PipelinePickerTarget.ENTRYPOINT -> "메인 Python 선택"
     PipelinePickerTarget.CONFIG -> "작업 설정 파일 선택"
@@ -1105,6 +1080,7 @@ private fun pipelineStateLabel(state: PipelineState): String = when (state) {
     PipelineState.STOPPED -> "중지됨"
     PipelineState.FAILED -> "오류"
     PipelineState.RETRYING -> "재시도 대기"
+    PipelineState.WAITING_FOR_TIME_SYNC -> "모바일 시간 동기화 대기"
     PipelineState.UNKNOWN -> "확인 필요"
 }
 
@@ -1132,6 +1108,7 @@ private fun pipelineStateColor(state: PipelineState): Color = when (state) {
     PipelineState.RUNNING -> Color(0xFF237A45)
     PipelineState.STARTING,
     PipelineState.RETRYING,
+    PipelineState.WAITING_FOR_TIME_SYNC,
     PipelineState.STOPPING -> MaterialTheme.colorScheme.tertiary
     PipelineState.FAILED -> MaterialTheme.colorScheme.error
     PipelineState.STOPPED -> MaterialTheme.colorScheme.outline

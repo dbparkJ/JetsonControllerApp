@@ -10,7 +10,7 @@ import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineConfigField
 import com.example.jetsoncontroller.model.PipelineConfigValueType
 import com.example.jetsoncontroller.model.PipelineLogFile
-import com.example.jetsoncontroller.model.RegisterPipelineRequest
+import com.example.jetsoncontroller.model.PipelineFolderDiscovery
 import com.example.jetsoncontroller.model.RemoteEntryType
 import com.example.jetsoncontroller.model.RemoteFileEntry
 import com.example.jetsoncontroller.model.RemoteRoot
@@ -48,14 +48,7 @@ data class PipelineDraft(
     val autostart: Boolean = true
 ) {
     val canSubmit: Boolean
-        get() = id.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}")) &&
-            label.isNotBlank() &&
-            repositoryRoot != null &&
-            virtualenvRoot != null &&
-            entrypoint.endsWith(".py", ignoreCase = true) &&
-            (config.endsWith(".yaml", ignoreCase = true) ||
-                config.endsWith(".yml", ignoreCase = true)) &&
-            isSafeRelativePath(writableDirectory, allowEmpty = true)
+        get() = label.isNotBlank() && repositoryRoot != null
 }
 
 data class PipelinePickerState(
@@ -72,6 +65,8 @@ data class PipelineUiState(
     val pipelines: List<ManagedPipeline> = emptyList(),
     val roots: List<RemoteRoot> = emptyList(),
     val draft: PipelineDraft = PipelineDraft(),
+    val discoveredFolder: PipelineFolderDiscovery? = null,
+    val isDiscoveringFolder: Boolean = false,
     val picker: PipelinePickerState = PipelinePickerState(),
     val isLoading: Boolean = false,
     val busyPipelineId: String? = null,
@@ -181,6 +176,8 @@ class PipelineViewModel(
     fun beginCreate() {
         _uiState.value = _uiState.value.copy(
             draft = PipelineDraft(),
+            discoveredFolder = null,
+            isDiscoveringFolder = false,
             picker = PipelinePickerState(),
             registrationComplete = false,
             message = null,
@@ -289,8 +286,45 @@ class PipelineViewModel(
             )
             else -> return false
         }
-        _uiState.value = _uiState.value.copy(draft = updated)
+        _uiState.value = _uiState.value.copy(
+            draft = updated,
+            discoveredFolder = null,
+            error = null
+        )
+        if (picker.target == PipelinePickerTarget.REPOSITORY) {
+            discoverFolder(root.id, picker.currentPath)
+        }
         return true
+    }
+
+    private fun discoverFolder(rootId: String, path: String) {
+        val generation = connectionGeneration
+        operationJob?.cancel()
+        operationJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                discoveredFolder = null,
+                isDiscoveringFolder = true,
+                error = null
+            )
+            repository.discoverPipelineFolder(rootId, path)
+                .onSuccess { discovered ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            discoveredFolder = discovered,
+                            isDiscoveringFolder = false,
+                            draft = _uiState.value.draft.copy(id = discovered.pipelineId)
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            isDiscoveringFolder = false,
+                            error = error.message ?: "작업 폴더 규칙을 확인하지 못했습니다."
+                        )
+                    }
+                }
+        }
     }
 
     fun selectPickerFile(entry: RemoteFileEntry): Boolean {
@@ -369,29 +403,29 @@ class PipelineViewModel(
     fun register() {
         val draft = _uiState.value.draft
         val repositoryRoot = draft.repositoryRoot ?: return
-        val virtualenvRoot = draft.virtualenvRoot ?: return
-        if (!draft.canSubmit || _uiState.value.isLoading) return
-        val writableDirectories = draft.writableDirectory.trim()
-            .takeIf { it.isNotEmpty() }
-            ?.let(::listOf)
-            ?: emptyList()
+        if (
+            !draft.canSubmit || _uiState.value.discoveredFolder == null ||
+            _uiState.value.isLoading
+        ) return
         val generation = connectionGeneration
         operationJob?.cancel()
         operationJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            repository.registerPipeline(
-                RegisterPipelineRequest(
-                    id = draft.id,
-                    label = draft.label.trim(),
-                    repositoryRootId = repositoryRoot.id,
-                    repositoryPath = draft.repositoryPath,
-                    virtualenvRootId = virtualenvRoot.id,
-                    virtualenvPath = draft.virtualenvPath,
-                    entrypoint = draft.entrypoint,
-                    config = draft.config,
-                    writableDirectories = writableDirectories,
-                    autostart = draft.autostart
+            val timeSync = repository.synchronizeSystemTime(System.currentTimeMillis())
+            if (generation != connectionGeneration) return@launch
+            if (timeSync.isFailure) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "모바일 시간 동기화 실패: " +
+                        (timeSync.exceptionOrNull()?.message ?: "알 수 없는 오류")
                 )
+                return@launch
+            }
+            repository.registerPipelineFolder(
+                rootId = repositoryRoot.id,
+                path = draft.repositoryPath,
+                name = draft.label.trim(),
+                autostart = draft.autostart
             ).onSuccess { registered ->
                 if (generation == connectionGeneration) {
                     val others = _uiState.value.pipelines.filterNot { it.id == registered.id }
@@ -423,6 +457,18 @@ class PipelineViewModel(
                 message = null,
                 error = null
             )
+            if (action in setOf("start", "restart")) {
+                val timeSync = repository.synchronizeSystemTime(System.currentTimeMillis())
+                if (generation != connectionGeneration) return@launch
+                if (timeSync.isFailure) {
+                    _uiState.value = _uiState.value.copy(
+                        busyPipelineId = null,
+                        error = "모바일 시간 동기화 실패: " +
+                            (timeSync.exceptionOrNull()?.message ?: "알 수 없는 오류")
+                    )
+                    return@launch
+                }
+            }
             repository.controlPipeline(pipeline.id, action)
                 .onSuccess { updated ->
                     if (generation == connectionGeneration) {

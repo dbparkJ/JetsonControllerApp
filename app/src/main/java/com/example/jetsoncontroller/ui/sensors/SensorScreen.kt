@@ -37,6 +37,8 @@ import com.example.jetsoncontroller.ui.components.SectionHeader
 @Composable
 fun SensorScreen(
     status: JetsonStatus,
+    deviceOnline: Boolean = true,
+    fullControlAvailable: Boolean = true,
     onCameraClick: () -> Unit,
     onGnssClick: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit
@@ -44,7 +46,15 @@ fun SensorScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text("센서 상태") }) },
         bottomBar = {
-            ControlNavigationBar(ControlSection.SENSORS, onSectionSelected)
+            ControlNavigationBar(
+                selected = ControlSection.SENSORS,
+                onSelect = onSectionSelected,
+                enabledSections = if (fullControlAvailable) {
+                    ControlSection.entries.toSet()
+                } else {
+                    setOf(ControlSection.OVERVIEW, ControlSection.SENSORS)
+                }
+            )
         }
     ) { paddingValues ->
         LazyColumn(
@@ -71,28 +81,52 @@ fun SensorScreen(
                     ) {
                         "${camera.frameWidth} × ${camera.frameHeight} · 실시간 프리뷰"
                     } else null,
-                    onClick = onCameraClick
+                    onClick = onCameraClick.takeIf { deviceOnline && fullControlAvailable }
                 )
             }
             item {
                 val gnss = status.gnssSensor
-                SensorStatusRow(
-                    icon = Icons.Default.Explore,
-                    name = "GNSS",
-                    presentation = sensorPresentation(
+                val gnssActive = effectiveGnssActive(
+                    deviceOnline = deviceOnline,
+                    telemetryAvailable = status.sensorTelemetryAvailable,
+                    telemetryFresh = status.sensorTelemetryFresh,
+                    sensorActive = gnss.active,
+                    legacyRunning = status.gnssRunning
+                )
+                val presentation = if (!deviceOnline) {
+                    SensorPresentation(
+                        activity = SensorActivity.DISCONNECTED,
+                        badge = "오프라인",
+                        description = "장치가 오프라인입니다"
+                    )
+                } else {
+                    sensorPresentation(
                         configured = status.gnssConfigured || gnss.configured,
                         connected = gnss.connected,
                         active = gnss.active,
                         telemetryAvailable = status.sensorTelemetryAvailable,
                         telemetryFresh = status.sensorTelemetryFresh,
                         legacyRunning = status.gnssRunning
-                    ),
-                    detail = if (gnss.active) {
+                    )
+                }
+                val gnssStateKnown = deviceOnline &&
+                    (!status.sensorTelemetryAvailable || status.sensorTelemetryFresh)
+                SensorStatusRow(
+                    icon = Icons.Default.Explore,
+                    name = "GNSS",
+                    presentation = presentation,
+                    detail = if (gnssStateKnown) {
                         listOfNotNull(
-                            gnssFixLabel(gnss.fixType),
-                            gnss.ntripMountpoint?.takeIf { gnss.ntripConnected }
+                            gnssReceptionLabel(
+                                gnssActive = gnssActive,
+                                fixType = gnss.fixType,
+                                rtkStatus = gnss.rtkStatus
+                            ),
+                            gnss.ntripMountpoint?.takeIf { gnssActive && gnss.ntripConnected }
                         ).joinToString(" · ")
-                    } else null,
+                    } else {
+                        presentation.description
+                    },
                     onClick = onGnssClick
                 )
             }

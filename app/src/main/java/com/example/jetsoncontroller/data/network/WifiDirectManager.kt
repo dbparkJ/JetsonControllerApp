@@ -399,24 +399,71 @@ class WifiDirectManager(
     }
 
     @SuppressLint("MissingPermission")
+    fun cancelConnect() {
+        if (_state.value.connected) {
+            disconnect()
+            return
+        }
+
+        val readyManager = manager
+        val readyChannel = ensureChannel()
+        if (readyManager == null || readyChannel == null) {
+            resetDisconnectedState()
+            unregister()
+            return
+        }
+
+        if (_state.value.connectingPeerAddress == null) {
+            stopDiscovery()
+            resetDisconnectedState()
+            return
+        }
+
+        try {
+            readyManager.cancelConnect(
+                readyChannel,
+                object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        resetDisconnectedState()
+                        stopDiscovery()
+                    }
+
+                    override fun onFailure(reason: Int) {
+                        _state.value = _state.value.copy(
+                            connectingPeerAddress = null,
+                            error = actionFailure("연결 취소", reason)
+                        )
+                        stopDiscovery()
+                    }
+                }
+            )
+        } catch (_: SecurityException) {
+            resetDisconnectedState("Wi-Fi Direct 연결을 취소할 권한이 없습니다.")
+            stopDiscovery()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     fun disconnect() {
-        val readyManager = manager ?: return
-        val readyChannel = ensureChannel() ?: return
+        if (!_state.value.connected) {
+            cancelConnect()
+            return
+        }
+
+        val readyManager = manager
+        val readyChannel = ensureChannel()
+        if (readyManager == null || readyChannel == null) {
+            resetDisconnectedState()
+            unregister()
+            return
+        }
 
         try {
             readyManager.removeGroup(
                 readyChannel,
                 object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        _state.value = _state.value.copy(
-                            connectingPeerAddress = null,
-                            connected = false,
-                            groupOwnerAddress = null,
-                            apiStatus = WifiDirectApiStatus.IDLE,
-                            apiDeviceName = null,
-                            apiError = null,
-                            error = null
-                        )
+                        resetDisconnectedState()
                         unregister()
                     }
 
@@ -430,6 +477,19 @@ class WifiDirectManager(
         } catch (_: SecurityException) {
             fail("Wi-Fi Direct 연결을 해제할 권한이 없습니다.")
         }
+    }
+
+    private fun resetDisconnectedState(error: String? = null) {
+        _state.value = _state.value.copy(
+            discovering = false,
+            connectingPeerAddress = null,
+            connected = false,
+            groupOwnerAddress = null,
+            apiStatus = WifiDirectApiStatus.IDLE,
+            apiDeviceName = null,
+            apiError = null,
+            error = error
+        )
     }
 
     private fun hasNearbyWifiPermission(): Boolean {

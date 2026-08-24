@@ -28,6 +28,8 @@ data class ServerStorageUiState(
     val preview: RemoteFileContent? = null,
     val listingTruncated: Boolean = false,
     val isLoading: Boolean = false,
+    val isDeleting: Boolean = false,
+    val message: String? = null,
     val error: String? = null
 )
 
@@ -37,6 +39,7 @@ class ServerStorageViewModel(
     private val _uiState = MutableStateFlow(ServerStorageUiState())
     val uiState = _uiState.asStateFlow()
     private var loadJob: Job? = null
+    private var actionJob: Job? = null
     private var connectionGeneration = 0L
 
     init {
@@ -44,6 +47,7 @@ class ServerStorageViewModel(
             repository.transportState.collectLatest { transport ->
                 connectionGeneration += 1
                 loadJob?.cancel()
+                actionJob?.cancel()
                 if (transport is TransportState.Connected && transport.type != TransportType.BLE) {
                     loadTargets(connectionGeneration)
                 } else {
@@ -126,6 +130,46 @@ class ServerStorageViewModel(
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             error = error.message ?: "서버 파일을 열지 못했습니다."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun deleteSession(session: UploadLibrarySession) {
+        val target = _uiState.value.selectedTarget ?: return
+        val generation = connectionGeneration
+        actionJob?.cancel()
+        actionJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isDeleting = true,
+                message = null,
+                error = null
+            )
+            repository.deleteUploadLibrarySession(target.id, session.sessionId)
+                .onSuccess {
+                    if (generation == connectionGeneration) {
+                        val selectedWasDeleted =
+                            _uiState.value.selectedSession?.sessionId == session.sessionId
+                        _uiState.value = _uiState.value.copy(
+                            sessions = _uiState.value.sessions.filterNot {
+                                it.sessionId == session.sessionId
+                            },
+                            selectedSession = if (selectedWasDeleted) null
+                            else _uiState.value.selectedSession,
+                            currentPath = if (selectedWasDeleted) "" else _uiState.value.currentPath,
+                            entries = if (selectedWasDeleted) emptyList() else _uiState.value.entries,
+                            preview = if (selectedWasDeleted) null else _uiState.value.preview,
+                            isDeleting = false,
+                            message = "서버의 업로드 데이터를 삭제했습니다."
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            isDeleting = false,
+                            error = error.message ?: "서버 데이터를 삭제하지 못했습니다."
                         )
                     }
                 }

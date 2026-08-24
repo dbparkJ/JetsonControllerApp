@@ -116,6 +116,59 @@ class RequestAuthenticatorTest(unittest.TestCase):
             )
         )
 
+    def test_clock_rebase_preserves_seen_nonces(self) -> None:
+        config = device_config()
+        now = [1700000000]
+        auth = RequestAuthenticator(
+            config,
+            boot_nonce="boot",
+            clock=lambda: now[0],
+        )
+        signature = sign_request(
+            config.bootstrap_secret,
+            config.device_id,
+            "boot",
+            "request-clock-1",
+            "1700000000",
+            "GET",
+            "/v1/status",
+        )
+        request = (
+            config.device_id,
+            "request-clock-1",
+            "1700000000",
+            "GET",
+            "/v1/status",
+            b"",
+            signature,
+        )
+        self.assertTrue(auth.verify(*request))
+
+        now[0] -= 60
+        auth.reset_after_clock_change()
+
+        self.assertFalse(auth.verify(*request))
+        fresh_signature = sign_request(
+            config.bootstrap_secret,
+            config.device_id,
+            "boot",
+            "request-clock-2",
+            str(now[0]),
+            "GET",
+            "/v1/status",
+        )
+        self.assertTrue(
+            auth.verify(
+                config.device_id,
+                "request-clock-2",
+                str(now[0]),
+                "GET",
+                "/v1/status",
+                b"",
+                fresh_signature,
+            )
+        )
+
     def test_response_signature_covers_status_and_body(self) -> None:
         config = device_config()
         signature = sign_response(

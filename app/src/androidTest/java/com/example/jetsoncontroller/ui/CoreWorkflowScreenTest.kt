@@ -121,17 +121,26 @@ class CoreWorkflowScreenTest {
         composeRule.setContent {
             JetsonControllerTheme {
                 DashboardScreen(
-                    state = DashboardUiState(statusFreshness = StatusFreshness.CURRENT),
+                    state = DashboardUiState(
+                        statusFreshness = StatusFreshness.CURRENT,
+                        isOnline = true,
+                        fullControlAvailable = true
+                    ),
                     pipelines = emptyList(),
                     uploads = emptyList(),
                     unreadAlertCount = 0,
                     onAlertsClick = {},
                     onDisconnect = {},
+                    onStartSystem = {},
+                    onStopSystem = {},
+                    onRestartServices = {},
+                    onRefreshFan = {},
+                    onSetFanAuto = {},
+                    onSetFanManual = {},
                     onReboot = {},
                     onShutdown = {},
                     onStorageClick = {},
                     onNetworkSettingsClick = {},
-                    onWifiDirectClick = {},
                     onUploadQueueClick = {},
                     onPipelinesClick = {},
                     onSectionSelected = {},
@@ -153,6 +162,8 @@ class CoreWorkflowScreenTest {
                 DashboardScreen(
                     state = DashboardUiState(
                         statusFreshness = StatusFreshness.CURRENT,
+                        isOnline = true,
+                        fullControlAvailable = true,
                         status = JetsonStatus(temperatureC = 85f)
                     ),
                     pipelines = emptyList(),
@@ -160,11 +171,16 @@ class CoreWorkflowScreenTest {
                     unreadAlertCount = 0,
                     onAlertsClick = {},
                     onDisconnect = {},
+                    onStartSystem = {},
+                    onStopSystem = {},
+                    onRestartServices = {},
+                    onRefreshFan = {},
+                    onSetFanAuto = {},
+                    onSetFanManual = {},
                     onReboot = {},
                     onShutdown = {},
                     onStorageClick = {},
                     onNetworkSettingsClick = {},
-                    onWifiDirectClick = {},
                     onUploadQueueClick = {},
                     onPipelinesClick = {},
                     onSectionSelected = {},

@@ -152,6 +152,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             path,
         )
 
+    @application.get("/v1/library/sessions/{session_id}/verification")
+    async def library_verification(session_id: str, request: Request):
+        receiver = service(request)
+        device = await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        return await run_in_threadpool(
+            receiver.verify_library_session,
+            device,
+            session_id,
+        )
+
+    @application.delete("/v1/library/sessions/{session_id}")
+    async def delete_library_session(session_id: str, request: Request):
+        receiver = service(request)
+        device = await run_in_threadpool(
+            receiver.authenticate, request.headers.get("authorization")
+        )
+        state = await run_in_threadpool(
+            receiver.delete_library_session,
+            device,
+            session_id,
+        )
+        return {"sessionId": session_id, "state": state}
+
     @application.get("/v1/library/sessions/{session_id}/file")
     async def library_file(session_id: str, request: Request, path: str):
         receiver = service(request)

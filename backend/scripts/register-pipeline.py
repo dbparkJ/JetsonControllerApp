@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Optional, Sequence
 
 
 PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
@@ -23,15 +23,23 @@ SYSTEMD_ROOT = Path(os.environ.get("JETSON_PIPELINE_SYSTEMD_ROOT", "/etc/systemd
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Snapshot a Git worktree and register its Python entrypoint with systemd."
+        description=(
+            "Register a conventional pipeline folder, or snapshot explicitly supplied "
+            "Git worktree paths."
+        )
     )
     parser.add_argument("--id")
-    parser.add_argument("--label")
+    parser.add_argument("--label", "--name", dest="label")
     parser.add_argument("--description", default="")
+    parser.add_argument(
+        "--folder",
+        type=Path,
+        help="Infer .venv, main.py, YAML config, working directory, and results/",
+    )
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--venv", type=Path)
     parser.add_argument("--entry")
-    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--config")
     parser.add_argument("--working-dir", type=Path)
     parser.add_argument("--write-path", action="append", default=[], type=Path)
     parser.add_argument("--argument", action="append", default=[])
@@ -66,6 +74,71 @@ def validate_id(value: str) -> str:
     if not PIPELINE_ID.fullmatch(value):
         raise ValueError("Pipeline id must use lowercase letters, digits, dots, or hyphens")
     return value
+
+
+def apply_folder_convention(args: argparse.Namespace) -> None:
+    """Expand ``--folder`` into the legacy explicit registration arguments."""
+
+    folder_value = getattr(args, "folder", None)
+    if folder_value is None:
+        if not getattr(args, "config", None):
+            args.config = "config.yaml"
+        return
+
+    conflicting = [
+        option
+        for option, value in (
+            ("--repo", getattr(args, "repo", None)),
+            ("--venv", getattr(args, "venv", None)),
+            ("--entry", getattr(args, "entry", None)),
+            ("--config", getattr(args, "config", None)),
+            ("--working-dir", getattr(args, "working_dir", None)),
+        )
+        if value is not None
+    ]
+    if conflicting:
+        raise ValueError(
+            "--folder cannot be combined with " + ", ".join(conflicting)
+        )
+
+    requested_folder = folder_value.expanduser()
+    if requested_folder.is_symlink():
+        raise ValueError("Pipeline folder must not be a symbolic link")
+    folder = requested_folder.resolve(strict=True)
+    if not folder.is_dir():
+        raise NotADirectoryError(f"Pipeline folder is not a directory: {folder}")
+    inferred_id = validate_id(folder.name)
+    if getattr(args, "id", None) not in {None, inferred_id}:
+        raise ValueError("--id must match the pipeline folder name when --folder is used")
+
+    configs = [
+        folder / name
+        for name in ("config.yaml", "config.yml")
+        if (folder / name).exists()
+    ]
+    if len(configs) != 1:
+        raise ValueError(
+            "Pipeline folder must contain exactly one of config.yaml or config.yml"
+        )
+    virtualenv = folder / ".venv"
+    if virtualenv.is_symlink() or not virtualenv.is_dir():
+        raise ValueError("Pipeline folder must contain a real .venv directory")
+
+    args.folder = folder
+    args.id = inferred_id
+    args.label = getattr(args, "label", None) or inferred_id
+    args.repo = folder
+    args.venv = virtualenv
+    args.entry = "main.py"
+    args.config = configs[0].name
+    args.working_dir = folder
+    results = folder / "results"
+    write_paths = list(getattr(args, "write_path", []))
+    if results not in write_paths:
+        write_paths.append(results)
+    args.write_path = write_paths
+    if not getattr(args, "autostart", False) and not getattr(args, "no_autostart", False):
+        args.autostart = True
 
 
 def relative_path(value: str, kind: str) -> Path:
@@ -155,7 +228,10 @@ def atomic_text(path: Path, value: str, mode: int = 0o644) -> None:
     os.replace(temporary, path)
 
 
-def git_files(repo: Path) -> List[Path]:
+def git_files(repo: Path, excluded_roots: Sequence[str] = ()) -> List[Path]:
+    pathspecs = ["."]
+    for root in excluded_roots:
+        pathspecs.append(f":(exclude){root}/**")
     result = git_run(
         repo,
         "ls-files",
@@ -164,7 +240,7 @@ def git_files(repo: Path) -> List[Path]:
         "--exclude-standard",
         "-z",
         "--",
-        ".",
+        *pathspecs,
         text=False,
     )
     if result.returncode != 0:
@@ -217,6 +293,48 @@ def secure_tree(root: Path, uid: int, gid: int) -> None:
             mode = 0o750 if source_mode & stat.S_IXUSR else 0o640
             os.chmod(path, mode)
             os.chown(path, uid, gid)
+
+
+def prepare_writable_directory(
+    requested: Path,
+    uid: int,
+    gid: int,
+    *,
+    required_path: Optional[Path] = None,
+) -> Path:
+    """Create/open a writable directory without following a final symlink."""
+
+    path = requested.expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    if path == Path("/"):
+        raise ValueError("The filesystem root cannot be a writable pipeline path")
+    path.mkdir(mode=0o750, parents=True, exist_ok=True)
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError(f"Writable path is unsafe: {path}") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise NotADirectoryError(f"Writable path is not a directory: {path}")
+        actual = Path(f"/proc/self/fd/{descriptor}").resolve(strict=True)
+        if actual == Path("/"):
+            raise ValueError("The filesystem root cannot be a writable pipeline path")
+        if required_path is not None and actual != required_path:
+            raise ValueError("Convention results directory leaves the pipeline folder")
+        if required_path is not None:
+            os.fchmod(descriptor, 0o750)
+        os.fchown(descriptor, uid, gid)
+        return actual
+    finally:
+        os.close(descriptor)
 
 
 def systemd_quote(value: str) -> str:
@@ -292,6 +410,7 @@ def remove_pipeline(pipeline_id: str) -> None:
 
 
 def register(args: argparse.Namespace) -> None:
+    apply_folder_convention(args)
     missing = [
         name
         for name in ("id", "label", "repo", "venv", "entry", "config", "user")
@@ -346,14 +465,24 @@ def register(args: argparse.Namespace) -> None:
         raise NotADirectoryError(f"Working directory is not a directory: {working_directory}")
 
     writable_paths = []
+    convention_results = (
+        repo / "results" if getattr(args, "folder", None) is not None else None
+    )
     for requested in args.write_path:
-        path = requested.expanduser().resolve(strict=False)
-        if path == Path("/"):
-            raise ValueError("The filesystem root cannot be a writable pipeline path")
-        path.mkdir(mode=0o750, parents=True, exist_ok=True)
-        if not path.is_dir():
-            raise NotADirectoryError(f"Writable path is not a directory: {path}")
-        os.chown(path, uid, gid)
+        expanded = requested.expanduser()
+        if not expanded.is_absolute():
+            expanded = Path.cwd() / expanded
+        required_path = (
+            convention_results
+            if convention_results is not None and expanded == convention_results
+            else None
+        )
+        path = prepare_writable_directory(
+            expanded,
+            uid,
+            gid,
+            required_path=required_path,
+        )
         writable_paths.append(path)
 
     python_version = checked([str(python), "--version"])
@@ -375,6 +504,14 @@ def register(args: argparse.Namespace) -> None:
     revision = git(repo, "rev-parse", "HEAD")
     branch_result = git_run(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
     branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "(detached)"
+    excluded_runtime_roots = (
+        (".venv", "logs", "results")
+        if getattr(args, "folder", None) is not None
+        else ()
+    )
+    status_pathspecs = ["."] + [
+        f":(exclude){root}/**" for root in excluded_runtime_roots
+    ]
     dirty = bool(
         git(
             repo,
@@ -382,12 +519,18 @@ def register(args: argparse.Namespace) -> None:
             "--porcelain",
             "--untracked-files=normal",
             "--",
-            ".",
+            *status_pathspecs,
         )
     )
-    files = git_files(repo)
+    files = git_files(repo, excluded_runtime_roots)
     if entrypoint not in files or config not in files:
         raise ValueError("Entrypoint and config must be tracked or unignored Git worktree files")
+    if getattr(args, "folder", None) is not None:
+        files = [
+            path
+            for path in files
+            if not path.parts or path.parts[0] not in {".venv", "logs", "results"}
+        ]
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     release_name = f"{timestamp}-{revision[:12]}" + ("-dirty" if dirty else "")
@@ -439,6 +582,10 @@ def register(args: argparse.Namespace) -> None:
         "config_argument": "--config",
         "working_directory": str(working_directory),
         "writable_paths": [str(path) for path in writable_paths],
+        "results_directory": (
+            str(repo / "results") if getattr(args, "folder", None) is not None else ""
+        ),
+        "folder_convention": getattr(args, "folder", None) is not None,
         "arguments": args.argument,
         "user": args.user,
     }

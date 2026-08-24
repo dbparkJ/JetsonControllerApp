@@ -79,12 +79,29 @@ class PipelineManagerTest(unittest.TestCase):
         )
         self.commands = FakeCommands()
         self.logs_root = self.root / "logs"
+        self.time_sync_marker = self.root / "time-synchronized.json"
+        self.time_sync_marker.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "synchronized": True,
+                    "source": "MOBILE",
+                    "sourceTimeEpochMillis": 1_777_000_000_000,
+                    "synchronizedAtEpochMillis": 1_777_000_000_000,
+                    "offsetBeforeMillis": 0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.time_sync_marker.chmod(0o644)
         self.manager = PipelineManager(
             registry_root=self.root,
             registrar=Path("/opt/jetson-control/register-pipeline.py"),
             pipeline_user="jm",
             command_runner=self.commands,
             logs_root=self.logs_root,
+            time_sync_marker=self.time_sync_marker,
+            time_sync_marker_owner_uid=os.getuid(),
         )
 
     def tearDown(self) -> None:
@@ -117,6 +134,13 @@ class PipelineManagerTest(unittest.TestCase):
         self.assertEqual(pipeline["state"], "RETRYING")
         self.assertEqual(pipeline["lastExitCode"], 1)
         self.assertEqual(pipeline["restartCount"], 12)
+
+    def test_running_pipeline_reports_waiting_until_mobile_time_sync(self) -> None:
+        self.time_sync_marker.unlink()
+        self.commands.active_state = "active"
+        pipeline = self.manager.get("capture")
+        self.assertEqual(pipeline["state"], "WAITING_FOR_TIME_SYNC")
+        self.assertFalse(pipeline["timeSynchronized"])
 
     def test_malformed_registry_entry_does_not_hide_valid_pipeline(self) -> None:
         invalid = self.root / "invalid"

@@ -1,5 +1,7 @@
 import importlib.util
 import io
+import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -73,6 +75,68 @@ class PipelineRunnerLogTest(unittest.TestCase):
             2,
         )
         self.assertTrue(unrelated.exists())
+
+    def test_time_sync_marker_must_be_owned_and_not_writable_by_others(self) -> None:
+        marker = self.directory / "time-synchronized.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "synchronized": True,
+                    "source": "MOBILE",
+                    "sourceTimeEpochMillis": 1_777_000_000_000,
+                    "synchronizedAtEpochMillis": 1_777_000_000_000,
+                    "offsetBeforeMillis": 0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        marker.chmod(0o644)
+        self.assertTrue(
+            pipeline_runner.time_sync_ready(
+                marker,
+                expected_owner_uid=os.getuid(),
+            )
+        )
+
+        marker.chmod(0o666)
+        self.assertFalse(
+            pipeline_runner.time_sync_ready(
+                marker,
+                expected_owner_uid=os.getuid(),
+            )
+        )
+
+    def test_runner_waits_until_mobile_time_marker_is_available(self) -> None:
+        marker = self.directory / "time-synchronized.json"
+        sleep_calls = []
+
+        def release(_seconds):
+            sleep_calls.append(1)
+            marker.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "synchronized": True,
+                        "source": "MOBILE",
+                        "sourceTimeEpochMillis": 1_777_000_000_000,
+                        "synchronizedAtEpochMillis": 1_777_000_000_000,
+                        "offsetBeforeMillis": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            marker.chmod(0o644)
+
+        with patch.object(pipeline_runner.sys, "stdout", io.StringIO()):
+            ready = pipeline_runner.wait_for_time_sync(
+                marker,
+                expected_owner_uid=os.getuid(),
+                sleep=release,
+            )
+
+        self.assertTrue(ready)
+        self.assertEqual(sleep_calls, [1])
 
 
 if __name__ == "__main__":

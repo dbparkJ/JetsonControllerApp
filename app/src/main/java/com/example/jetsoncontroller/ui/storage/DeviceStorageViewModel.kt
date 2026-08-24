@@ -114,32 +114,27 @@ class DeviceStorageViewModel(
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, preview = null)
-            repository.getRoots()
-                .onSuccess { roots ->
-                    if (generation != connectionGeneration) return@onSuccess
-                    val root = roots.firstOrNull { it.id == rootId }
-                    if (root == null) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "출력 저장소를 찾지 못했습니다."
-                        )
-                    } else {
-                        _uiState.value = _uiState.value.copy(
-                            roots = listOf(root),
-                            currentRoot = root,
-                            currentPath = path
-                        )
-                        loadDirectory(root.id, path, generation)
-                    }
-                }
-                .onFailure { error ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = error.message
-                        )
-                    }
-                }
+            val storageRoots = repository.getRoots()
+            val workspaceRoots = repository.getWorkspaceRoots()
+            if (generation != connectionGeneration) return@launch
+            val roots = storageRoots.getOrDefault(emptyList()) +
+                workspaceRoots.getOrDefault(emptyList())
+            val root = roots.firstOrNull { it.id == rootId }
+            if (root == null) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = storageRoots.exceptionOrNull()?.message
+                        ?: workspaceRoots.exceptionOrNull()?.message
+                        ?: "결과 저장소를 찾지 못했습니다."
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    roots = listOf(root),
+                    currentRoot = root,
+                    currentPath = path
+                )
+                loadDirectory(root.id, path, generation)
+            }
         }
     }
 

@@ -49,6 +49,12 @@ interface LocalControlApi {
         @Query("path") path: String
     ): Response<ListFilesResponse>
 
+    @GET("/v1/fs/workspace/file")
+    suspend fun getWorkspaceFile(
+        @Query("root") rootId: String,
+        @Query("path") path: String
+    ): Response<ResponseBody>
+
     @GET("/v1/upload/targets")
     suspend fun getUploadTargets(): Response<List<UploadTarget>>
 
@@ -71,6 +77,19 @@ interface LocalControlApi {
         @Query("session") sessionId: String,
         @Query("path") path: String
     ): Response<ResponseBody>
+
+    @HTTP(method = "DELETE", path = "/v1/upload/library/sessions/{sessionId}", hasBody = true)
+    suspend fun deleteUploadLibrarySession(
+        @Path("sessionId") sessionId: String,
+        @Query("target") targetId: String,
+        @Body request: ConfirmDeletionRequest
+    ): Response<UploadDeletionResponse>
+
+    @GET("/v1/upload/source-summary")
+    suspend fun getUploadSourceSummary(
+        @Query("root") rootId: String,
+        @Query("path") path: String
+    ): Response<UploadSourceSummary>
 
     @PUT("/v1/upload/targets/{targetId}")
     suspend fun saveUploadTarget(
@@ -108,8 +127,29 @@ interface LocalControlApi {
         @Path("jobId") jobId: String
     ): Response<UploadJob>
 
+    @POST("/v1/uploads/{jobId}/verify")
+    suspend fun verifyUploadSource(
+        @Path("jobId") jobId: String
+    ): Response<UploadVerification>
+
+    @HTTP(method = "DELETE", path = "/v1/uploads/{jobId}/source", hasBody = true)
+    suspend fun deleteUploadSource(
+        @Path("jobId") jobId: String,
+        @Body request: ConfirmDeletionRequest
+    ): Response<UploadJob>
+
     @GET("/v1/pipelines")
     suspend fun getPipelines(): Response<List<ManagedPipeline>>
+
+    @POST("/v1/pipelines/discover-folder")
+    suspend fun discoverPipelineFolder(
+        @Body request: DiscoverPipelineFolderRequest
+    ): Response<PipelineFolderDiscovery>
+
+    @POST("/v1/pipelines/register-folder")
+    suspend fun registerPipelineFolder(
+        @Body request: RegisterPipelineFolderRequest
+    ): Response<ManagedPipeline>
 
     @POST("/v1/pipelines")
     suspend fun registerPipeline(
@@ -173,6 +213,22 @@ interface LocalControlApi {
         @Body request: WifiProvisionRequest
     ): Response<WifiProvisionResponse>
 
+    @GET("/v1/system/time")
+    suspend fun getSystemTime(): Response<SystemTimeStatus>
+
+    @PUT("/v1/system/time")
+    suspend fun synchronizeSystemTime(
+        @Body request: SynchronizeSystemTimeRequest
+    ): Response<SystemTimeStatus>
+
+    @GET("/v1/system/fan")
+    suspend fun getFanStatus(): Response<FanStatus>
+
+    @PUT("/v1/system/fan")
+    suspend fun setFan(
+        @Body request: SetFanRequest
+    ): Response<FanStatus>
+
     data class HelloResponse(
         val apiVersion: Int,
         val deviceId: String,
@@ -202,6 +258,19 @@ interface LocalControlApi {
         val token: String? = null
     )
 
+    data class ConfirmDeletionRequest(
+        val confirmed: Boolean = true
+    )
+
+    data class SynchronizeSystemTimeRequest(
+        val mobileTimeEpochMillis: Long
+    )
+
+    data class SetFanRequest(
+        val mode: String,
+        val percent: Int? = null
+    )
+
     data class CapabilitiesResponse(
         val status: Boolean = true,
         val commands: List<String> = emptyList(),
@@ -210,7 +279,10 @@ interface LocalControlApi {
         val fileBrowsing: Boolean = true,
         val uploads: Boolean = true,
         val wifiProvisioning: Boolean = true,
-        val pipelines: Boolean = false
+        val pipelines: Boolean = false,
+        val pipelineFolderRegistration: Boolean = false,
+        val mobileTimeSync: Boolean = false,
+        val fanControl: Boolean = false
     )
 
     data class WifiProvisionResponse(

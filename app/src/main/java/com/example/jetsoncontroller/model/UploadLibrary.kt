@@ -6,8 +6,12 @@ data class UploadLibrarySession(
     val totalBytes: Long,
     val fileCount: Int,
     val createdAt: String? = null,
-    val completedAt: String? = null
-)
+    val completedAt: String? = null,
+    val folderName: String? = null
+) {
+    val displayFolderName: String
+        get() = folderName?.takeIf { it.isNotBlank() } ?: sourceName
+}
 
 data class UploadLibrarySessionsResponse(
     val sessions: List<UploadLibrarySession> = emptyList(),

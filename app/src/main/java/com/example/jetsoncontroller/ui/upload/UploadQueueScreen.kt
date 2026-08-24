@@ -51,7 +51,7 @@ fun UploadQueueScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("전송 큐") },
+                title = { Text("업로드 확인") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -82,8 +82,8 @@ fun UploadQueueScreen(
                 if (queue.isEmpty() && !isLoading) {
                     item {
                         EmptyState(
-                            title = "진행 중인 전송이 없습니다",
-                            message = "현재 대기하거나 전송 중인 작업이 없습니다."
+                            title = "업로드 기록이 없습니다",
+                            message = "업로드를 시작하면 진행 상태와 완료·실패 기록이 표시됩니다."
                         )
                     }
                 }
@@ -98,7 +98,8 @@ fun UploadQueueScreen(
                     ListItem(
                         headlineContent = {
                             Text(
-                                job.relativePath.substringAfterLast('/').ifEmpty { "/" },
+                                job.folderName ?: job.sourceName
+                                    ?: job.relativePath.substringAfterLast('/').ifEmpty { "/" },
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -110,7 +111,11 @@ fun UploadQueueScreen(
                                     listOfNotNull(
                                         stateLabel(job.state),
                                         targetLabels[job.targetId] ?: job.targetId,
-                                        job.currentFile?.substringAfterLast('/')
+                                        job.currentFile?.substringAfterLast('/'),
+                                        job.etaSeconds?.takeIf {
+                                            isActiveUploadState(job.state) && it >= 0L
+                                        }
+                                            ?.let { "예상 ${formatEta(it)}" }
                                     ).joinToString(" · "),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis

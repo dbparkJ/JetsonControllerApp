@@ -20,6 +20,7 @@ from jetson_control.uploads import (
     UploadConflict,
     UploadManager,
     UploadTarget,
+    UploadVerificationMismatch,
 )
 
 
@@ -30,6 +31,7 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
     manifest = None
     files = {}
     completed = False
+    deleted = False
     batch_requests = 0
     batch_offset_requests = 0
     legacy_offset_requests = 0
@@ -64,6 +66,7 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
             type(self).manifest = body
             type(self).files = {item["path"]: bytearray() for item in body["files"]}
             type(self).completed = False
+            type(self).deleted = False
             type(self).batch_requests = 0
             type(self).batch_offset_requests = 0
             type(self).legacy_offset_requests = 0
@@ -113,6 +116,36 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if parsed.path == "/v1/library/sessions/session-test/verification":
+            if not type(self).completed or type(self).deleted:
+                self._json_response(404, {"detail": "not found"})
+                return
+            manifest = type(self).manifest
+            entries = [
+                (
+                    path,
+                    len(content),
+                    hashlib.sha256(bytes(content)).hexdigest(),
+                )
+                for path, content in sorted(type(self).files.items())
+            ]
+            self._json_response(
+                200,
+                {
+                    "sessionId": "session-test",
+                    "clientJobId": manifest["clientJobId"],
+                    "sourceName": manifest["sourceName"],
+                    "folderName": manifest["sourceName"],
+                    "state": "COMPLETED",
+                    "totalBytes": sum(size for _path, size, _digest in entries),
+                    "fileCount": len(entries),
+                    "contentSha256": UploadManager._content_digest(
+                        manifest["sourceName"], entries
+                    ),
+                    "completedAt": "2026-08-21T00:00:00Z",
+                },
+            )
+            return
         if parsed.path != "/v1/upload-sessions/session-test/files/offset":
             self._json_response(404, {"detail": "not found"})
             return
@@ -122,6 +155,25 @@ class UploadReceiverHandler(BaseHTTPRequestHandler):
             self._json_response(404, {"detail": "unknown file"})
             return
         self._json_response(200, {"nextOffset": len(type(self).files[relative_path])})
+
+    def do_DELETE(self) -> None:
+        if not self._require_auth():
+            return
+        parsed = urlsplit(self.path)
+        if parsed.path == "/v1/library/sessions/session-test":
+            if not type(self).completed:
+                self._json_response(409, {"detail": "not completed"})
+                return
+            type(self).deleted = True
+            self._json_response(
+                200,
+                {"sessionId": "session-test", "state": "DELETED"},
+            )
+            return
+        if parsed.path == "/v1/upload-sessions/session-test":
+            self._json_response(200, {"state": "CANCELLED"})
+            return
+        self._json_response(404, {"detail": "not found"})
 
     def do_PUT(self) -> None:
         if not self._require_auth():
@@ -244,10 +296,21 @@ class FilesystemAndUploadsTest(unittest.TestCase):
 
     def test_lists_directories_before_files_and_blocks_traversal(self) -> None:
         (self.source / "file-link").symlink_to(self.source / "note.txt")
+        (self.source / "folder-link").symlink_to(
+            self.source / "folder",
+            target_is_directory=True,
+        )
         entries = self.storage.list_directory("data", "")
         self.assertEqual([entry["name"] for entry in entries], ["folder", "note.txt"])
         with self.assertRaises(ValueError):
             self.storage.resolve("data", "../../etc/passwd")
+        root, resolved = self.storage.resolve("data", "folder-link")
+        with self.assertRaises(UploadConflict):
+            UploadManager._resolve_deletion_source(
+                root.path,
+                "folder-link",
+                resolved,
+            )
 
     def test_reads_bounded_files_and_locates_collection_paths(self) -> None:
         target, content = self.storage.read_file("data", "note.txt", max_bytes=100)
@@ -266,6 +329,18 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             workspace.resolve("workspace-home", "../../etc")
+        self.assertEqual(
+            workspace.locate(self.source / "folder"),
+            ("workspace-home", "folder"),
+        )
+        self.assertIsNone(workspace.locate(self.base / "destination"))
+        target, content = workspace.read_file(
+            "workspace-home",
+            "note.txt",
+            max_bytes=100,
+        )
+        self.assertEqual(target.name, "note.txt")
+        self.assertEqual(content, b"hello")
 
     def test_concurrent_uploads_are_limited(self) -> None:
         copy_started = threading.Event()
@@ -296,6 +371,13 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         self.assertFalse(uploads._cancellations)
 
     def test_local_upload_is_persisted_and_completed(self) -> None:
+        summary = self.uploads.source_summary("data", "")
+        self.assertEqual(summary["sourceName"], "source")
+        self.assertEqual(summary["folderName"], "source")
+        self.assertEqual(summary["sourceType"], "DIRECTORY")
+        self.assertEqual(summary["filesTotal"], 2)
+        self.assertEqual(summary["bytesTotal"], 3 * 4096 + len(b"hello"))
+
         job = self.uploads.start("data", "", "archive")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -307,9 +389,38 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         self.assertEqual(current["state"], "COMPLETED")
         self.assertEqual(current["filesTransferred"], 2)
         self.assertEqual(current["bytesTransferred"], current["bytesTotal"])
+        self.assertEqual(current["sourceName"], "source")
+        self.assertEqual(current["folderName"], "source")
+        self.assertGreater(current["throughputBytesPerSecond"], 0)
+        self.assertEqual(current["etaSeconds"], 0)
         copied = list(self.destination.rglob("sample.bin"))
         self.assertEqual(len(copied), 1)
         self.assertEqual(copied[0].read_bytes(), b"abc" * 4096)
+
+    def test_transfer_progress_persists_throughput_and_eta(self) -> None:
+        job = UploadManager._new_job(
+            "0123456789abcdef0123456789abcdef",
+            "data",
+            "note.txt",
+            "archive",
+        )
+        job["bytesTotal"] = 1000
+        self.uploads._save_job(job)
+        with patch(
+            "jetson_control.uploads.time.monotonic",
+            side_effect=[10.0, 12.0],
+        ):
+            self.uploads._begin_transfer(str(job["id"]))
+            self.uploads._record_transfer(
+                str(job["id"]),
+                400,
+                newly_acknowledged=400,
+            )
+
+        persisted = self.uploads.get(str(job["id"]))
+        self.assertEqual(persisted["bytesTransferred"], 400)
+        self.assertEqual(persisted["throughputBytesPerSecond"], 200)
+        self.assertEqual(persisted["etaSeconds"], 3)
 
     def test_external_http_upload_uses_resumable_receiver_contract(self) -> None:
         token_file = self.base / "receiver.token"
@@ -347,6 +458,9 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                 time.sleep(0.02)
 
             self.assertEqual(current["state"], "COMPLETED", current)
+            self.assertEqual(current["remoteSessionId"], "session-test")
+            self.assertGreater(current["throughputBytesPerSecond"], 0)
+            self.assertEqual(current["etaSeconds"], 0)
             self.assertTrue(UploadReceiverHandler.completed)
             self.assertEqual(UploadReceiverHandler.batch_requests, 1)
             self.assertEqual(UploadReceiverHandler.batch_offset_requests, 1)
@@ -371,6 +485,92 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                     uploaded,
                     (self.source / manifest_file["path"]).read_bytes(),
                 )
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=2)
+
+    def test_remote_verification_gates_source_and_library_deletion(self) -> None:
+        token_file = self.base / "verification-receiver.token"
+        token_file.write_text(UploadReceiverHandler.token, encoding="utf-8")
+        self.targets.write_text(
+            json.dumps(
+                {
+                    "cloud": {
+                        "label": "Verification receiver",
+                        "type": "http",
+                        "base_url": "placeholder",
+                        "token_file": str(token_file),
+                        "verify_tls": False,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), UploadReceiverHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            target_config = json.loads(self.targets.read_text(encoding="utf-8"))
+            target_config["cloud"]["base_url"] = (
+                f"http://127.0.0.1:{server.server_port}"
+            )
+            self.targets.write_text(json.dumps(target_config), encoding="utf-8")
+            uploads = UploadManager(
+                self.storage,
+                self.targets,
+                self.state / "verified-delete",
+                "00000000-0000-0000-0000-000000000001",
+            )
+            job = uploads.start("data", "folder", "cloud")
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                current = uploads.get(str(job["id"]))
+                if current["state"] in {"COMPLETED", "FAILED"}:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(current["state"], "COMPLETED", current)
+            self.assertEqual(current["remoteSessionId"], "session-test")
+
+            verification = uploads.verify_completed_source(str(job["id"]))
+            self.assertEqual(verification["state"], "MATCHED")
+            self.assertTrue(verification["deletionAllowed"])
+
+            source_file = self.source / "folder" / "sample.bin"
+            original = source_file.read_bytes()
+            source_file.write_bytes(b"z" * len(original))
+            mismatch = uploads.verify_completed_source(str(job["id"]))
+            self.assertEqual(mismatch["state"], "MISMATCH")
+            with self.assertRaises(UploadVerificationMismatch):
+                uploads.delete_completed_source(str(job["id"]), confirmed=True)
+            self.assertTrue((self.source / "folder").is_dir())
+
+            source_file.write_bytes(original)
+            with self.assertRaises(UploadConflict):
+                uploads.delete_completed_source(str(job["id"]), confirmed=False)
+            deleted_job = uploads.delete_completed_source(
+                str(job["id"]),
+                confirmed=True,
+            )
+            self.assertFalse((self.source / "folder").exists())
+            self.assertTrue(deleted_job["sourceDeleted"])
+            self.assertIsNotNone(deleted_job["sourceDeletedAt"])
+
+            with self.assertRaises(UploadConflict):
+                uploads.delete_library_session(
+                    "cloud",
+                    "session-test",
+                    confirmed=False,
+                )
+            self.assertEqual(
+                uploads.delete_library_session(
+                    "cloud",
+                    "session-test",
+                    confirmed=True,
+                ),
+                {"sessionId": "session-test", "state": "DELETED"},
+            )
+            self.assertTrue(UploadReceiverHandler.deleted)
         finally:
             server.shutdown()
             server.server_close()
@@ -429,8 +629,10 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                 self.assertTrue(hashing_started.wait(timeout=5))
                 current = uploads.get(str(job["id"]))
                 self.assertEqual(current["state"], "SCANNING")
-                self.assertGreater(current["bytesTransferred"], 0)
+                self.assertEqual(current["bytesTransferred"], 0)
+                self.assertGreater(current["bytesPrepared"], 0)
                 self.assertEqual(current["filesTransferred"], 0)
+                self.assertEqual(current["filesPrepared"], 0)
                 self.assertIsNotNone(current["currentFile"])
 
                 release_hashing.set()

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.example.jetsoncontroller.model.FanStatus
 
 class DashboardViewModel(
     private val repository:
@@ -20,6 +21,7 @@ class DashboardViewModel(
 
     private val visible = MutableStateFlow(false)
     private val nowEpochMillis = MutableStateFlow(System.currentTimeMillis())
+    private val fanControlState = MutableStateFlow(FanControlSnapshot())
 
     init {
         viewModelScope.launch {
@@ -27,12 +29,8 @@ class DashboardViewModel(
                 transport to isVisible
             }.collectLatest { (transport, isVisible) ->
                 if (transport is TransportState.Connected && isVisible) {
-                    while (true) {
-                        if (transport.type != com.example.jetsoncontroller.data.transport.TransportType.BLE) {
-                            repository.refreshStatus()
-                        }
-                        nowEpochMillis.value = System.currentTimeMillis()
-                        delay(STATUS_POLL_INTERVAL_MS)
+                    if (transport.type != com.example.jetsoncontroller.data.transport.TransportType.BLE) {
+                        refreshFanStatus()
                     }
                 }
             }
@@ -59,7 +57,7 @@ class DashboardViewModel(
         )
     }
 
-    val uiState =
+    private val baseUiState =
         combine(
             repository.connectionState,
             statusWithFreshness,
@@ -88,6 +86,11 @@ class DashboardViewModel(
                 status =
                     statusSnapshot.status,
                 transportType = connectedTransport?.type,
+                isOnline = connectedTransport != null,
+                fullControlAvailable = connectedTransport?.type ==
+                    com.example.jetsoncontroller.data.transport.TransportType.LAN ||
+                    connectedTransport?.type ==
+                    com.example.jetsoncontroller.data.transport.TransportType.WIFI_DIRECT,
                 deviceName = connectedTransport?.deviceName ?: bleName ?: "Jetson",
                 endpoint = connectedTransport?.endpoint,
                 capabilities = capabilities,
@@ -97,7 +100,15 @@ class DashboardViewModel(
                 statusFreshness = statusSnapshot.freshness,
                 statusAgeSeconds = statusSnapshot.ageSeconds
             )
-        }.stateIn(
+        }
+
+    val uiState = combine(baseUiState, fanControlState) { state, fan ->
+        state.copy(
+            fanStatus = fan.status,
+            fanLoading = fan.loading,
+            fanError = fan.error
+        )
+    }.stateIn(
             scope = viewModelScope,
             started =
                 SharingStarted
@@ -139,6 +150,46 @@ class DashboardViewModel(
     fun shutdown() =
         repository.shutdown()
 
+    fun refreshFan() {
+        viewModelScope.launch { refreshFanStatus() }
+    }
+
+    fun setFanAuto() {
+        updateFan("AUTO", null)
+    }
+
+    fun setFanManual(percent: Int) {
+        updateFan("MANUAL", percent.coerceIn(20, 100))
+    }
+
+    private fun updateFan(mode: String, percent: Int?) {
+        if (fanControlState.value.loading) return
+        viewModelScope.launch {
+            fanControlState.value = fanControlState.value.copy(loading = true, error = null)
+            repository.setFan(mode, percent)
+                .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
+                .onFailure {
+                    fanControlState.value = fanControlState.value.copy(
+                        loading = false,
+                        error = it.message ?: "FAN을 제어하지 못했습니다."
+                    )
+                }
+        }
+    }
+
+    private suspend fun refreshFanStatus() {
+        if (fanControlState.value.loading) return
+        fanControlState.value = fanControlState.value.copy(loading = true, error = null)
+        repository.getFanStatus()
+            .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
+            .onFailure {
+                fanControlState.value = fanControlState.value.copy(
+                    loading = false,
+                    error = it.message ?: "FAN 상태를 확인하지 못했습니다."
+                )
+            }
+    }
+
     fun clearOperationMessage() =
         repository.clearControlMessage()
 
@@ -171,4 +222,10 @@ private data class StatusSnapshot(
     val status: com.example.jetsoncontroller.model.JetsonStatus,
     val freshness: StatusFreshness,
     val ageSeconds: Long?
+)
+
+private data class FanControlSnapshot(
+    val status: FanStatus? = null,
+    val loading: Boolean = false,
+    val error: String? = null
 )

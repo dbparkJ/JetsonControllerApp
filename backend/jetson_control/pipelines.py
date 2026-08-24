@@ -16,6 +16,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 from ruamel.yaml import YAML
 
 from .config import validate_config_id
+from .pipeline_layout import discover_pipeline_folder
+from .system_control import DEFAULT_TIME_SYNC_MARKER, read_time_sync_marker
 
 
 PIPELINE_ACTIONS = frozenset({"start", "stop", "restart", "enable", "disable"})
@@ -50,12 +52,23 @@ class PipelineManager:
         pipeline_user: str,
         command_runner: Optional[CommandRunner] = None,
         logs_root: Path = Path("/var/log/jetson-pipelines"),
+        time_sync_marker: Path = DEFAULT_TIME_SYNC_MARKER,
+        time_sync_marker_owner_uid: int = 0,
     ) -> None:
         self.registry_root = registry_root
         self.registrar = registrar
         self.pipeline_user = pipeline_user
         self.command_runner = command_runner or subprocess.run
         self.logs_root = logs_root
+        self.time_sync_marker = time_sync_marker
+        self.time_sync_marker_owner_uid = time_sync_marker_owner_uid
+
+    def discover_folder(self, repository: Path) -> Dict[str, object]:
+        layout = discover_pipeline_folder(repository)
+        response = layout.response()
+        response["logDirectory"] = str(self.logs_root / layout.pipeline_id)
+        response["autostartDefault"] = True
+        return response
 
     def list_pipelines(self) -> List[Dict[str, object]]:
         if not self.registry_root.exists():
@@ -561,6 +574,47 @@ class PipelineManager:
             raise PipelineError(message)
         return self.get(pipeline_id)
 
+    def register_folder(
+        self,
+        *,
+        label: str,
+        repository: Path,
+        autostart: bool = True,
+    ) -> Dict[str, object]:
+        """Register a convention-based folder while preserving the legacy path."""
+
+        layout = discover_pipeline_folder(repository)
+        normalized_label = label.strip()
+        if (
+            not normalized_label
+            or len(normalized_label.encode("utf-8")) > 64
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in normalized_label
+            )
+        ):
+            raise ValueError("Pipeline label is required")
+        command = [
+            "/usr/bin/python3",
+            str(self.registrar),
+            "--folder",
+            str(layout.repository),
+            "--name",
+            normalized_label,
+            "--user",
+            self.pipeline_user,
+            "--autostart" if autostart else "--no-autostart",
+        ]
+        result = self._run(command, timeout=120)
+        if result.returncode != 0:
+            message = (
+                result.stderr or result.stdout or "Pipeline registration failed"
+            ).strip()
+            if "already running" in message.lower():
+                raise PipelineConflict(message)
+            raise PipelineError(message)
+        return self.get(layout.pipeline_id)
+
     def remove(self, pipeline_id: str) -> None:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         self._load_manifest(pipeline_id)
@@ -604,6 +658,10 @@ class PipelineManager:
                 raise PipelineError(f"Pipeline manifest field is invalid: {key}")
         if not isinstance(value.get("source_dirty"), bool):
             raise PipelineError("Pipeline manifest field is invalid: source_dirty")
+        if not isinstance(value.get("results_directory", ""), str):
+            raise PipelineError("Pipeline manifest field is invalid: results_directory")
+        if not isinstance(value.get("folder_convention", False), bool):
+            raise PipelineError("Pipeline manifest field is invalid: folder_convention")
         writable_paths = value.get("writable_paths", [])
         if not isinstance(writable_paths, list) or any(
             not isinstance(path, str) for path in writable_paths
@@ -684,6 +742,12 @@ class PipelineManager:
                 "failed": "FAILED",
                 "inactive": "STOPPED",
             }.get(active_state, "UNKNOWN")
+        time_synchronized = read_time_sync_marker(
+            self.time_sync_marker,
+            expected_owner_uid=self.time_sync_marker_owner_uid,
+        ) is not None
+        if state in {"RUNNING", "STARTING"} and not time_synchronized:
+            state = "WAITING_FOR_TIME_SYNC"
         unit_file_state = status.get("UnitFileState", "unknown")
         enabled = unit_file_state in {"enabled", "enabled-runtime", "linked", "linked-runtime"}
         try:
@@ -715,6 +779,9 @@ class PipelineManager:
             "sourceDirty": manifest["source_dirty"],
             "snapshotCreatedAt": manifest["snapshot_created_at"],
             "writablePaths": list(manifest.get("writable_paths", [])),
+            "resultsDirectory": str(manifest.get("results_directory", "")) or None,
+            "folderConvention": bool(manifest.get("folder_convention", False)),
+            "timeSynchronized": time_synchronized,
         }
 
     def _run(self, command: Sequence[str], timeout: int) -> subprocess.CompletedProcess:

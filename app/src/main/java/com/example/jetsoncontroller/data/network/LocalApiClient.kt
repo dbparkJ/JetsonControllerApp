@@ -3,8 +3,12 @@ package com.example.jetsoncontroller.data.network
 import android.annotation.SuppressLint
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.model.DiscoverPipelineFolderRequest
+import com.example.jetsoncontroller.model.FanStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineFolderDiscovery
 import com.example.jetsoncontroller.model.RegisterPipelineRequest
+import com.example.jetsoncontroller.model.RegisterPipelineFolderRequest
 import com.example.jetsoncontroller.model.PipelineConfigDocument
 import com.example.jetsoncontroller.model.PipelineConfigFieldsDocument
 import com.example.jetsoncontroller.model.PipelineLog
@@ -15,9 +19,13 @@ import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.model.UpdatePipelineConfigRequest
 import com.example.jetsoncontroller.model.UpdatePipelineConfigFieldsRequest
 import com.example.jetsoncontroller.model.UploadJob
+import com.example.jetsoncontroller.model.UploadDeletionResponse
 import com.example.jetsoncontroller.model.UploadLibraryFilesResponse
 import com.example.jetsoncontroller.model.UploadLibrarySessionsResponse
+import com.example.jetsoncontroller.model.UploadSourceSummary
 import com.example.jetsoncontroller.model.UploadTarget
+import com.example.jetsoncontroller.model.UploadVerification
+import com.example.jetsoncontroller.model.SystemTimeStatus
 import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -197,6 +205,19 @@ class LocalApiClient(
             fallback = { requireApi().listFiles(rootId, path) }
         )
 
+    suspend fun getWorkspaceFile(
+        rootId: String,
+        path: String
+    ): Result<RemoteFileContent> = suspendResult {
+        val response = withSessionRetry { requireApi().getWorkspaceFile(rootId, path) }
+        val body = requireBody(response, "작업공간 파일 열기")
+        RemoteFileContent(
+            name = path.substringAfterLast('/'),
+            mimeType = body.contentType()?.toString() ?: "application/octet-stream",
+            bytes = body.bytes()
+        )
+    }
+
     suspend fun getUploadTargets(): Result<List<UploadTarget>> =
         request("업로드 대상 조회") { requireApi().getUploadTargets() }
 
@@ -231,6 +252,24 @@ class LocalApiClient(
             mimeType = body.contentType()?.toString() ?: "application/octet-stream",
             bytes = body.bytes()
         )
+    }
+
+    suspend fun deleteUploadLibrarySession(
+        targetId: String,
+        sessionId: String
+    ): Result<UploadDeletionResponse> = request("서버 데이터 삭제") {
+        requireApi().deleteUploadLibrarySession(
+            sessionId,
+            targetId,
+            LocalControlApi.ConfirmDeletionRequest()
+        )
+    }
+
+    suspend fun getUploadSourceSummary(
+        rootId: String,
+        relativePath: String
+    ): Result<UploadSourceSummary> = request("업로드 용량 계산") {
+        requireApi().getUploadSourceSummary(rootId, relativePath)
     }
 
     suspend fun saveUploadTarget(
@@ -276,8 +315,37 @@ class LocalApiClient(
     suspend fun retryUpload(jobId: String): Result<UploadJob> =
         request("업로드 재시도") { requireApi().retryUpload(jobId) }
 
+    suspend fun verifyUploadSource(jobId: String): Result<UploadVerification> =
+        request("업로드 데이터 검증") { requireApi().verifyUploadSource(jobId) }
+
+    suspend fun deleteUploadSource(jobId: String): Result<UploadJob> =
+        request("업로드 원본 삭제") {
+            requireApi().deleteUploadSource(
+                jobId,
+                LocalControlApi.ConfirmDeletionRequest()
+            )
+        }
+
     suspend fun getPipelines(): Result<List<ManagedPipeline>> =
         request("자동 실행 작업 조회") { requireApi().getPipelines() }
+
+    suspend fun discoverPipelineFolder(
+        rootId: String,
+        path: String
+    ): Result<PipelineFolderDiscovery> = request("작업 폴더 확인") {
+        requireApi().discoverPipelineFolder(DiscoverPipelineFolderRequest(rootId, path))
+    }
+
+    suspend fun registerPipelineFolder(
+        rootId: String,
+        path: String,
+        name: String,
+        autostart: Boolean
+    ): Result<ManagedPipeline> = request("작업 폴더 등록") {
+        requireApi().registerPipelineFolder(
+            RegisterPipelineFolderRequest(rootId, path, name, autostart)
+        )
+    }
 
     suspend fun registerPipeline(
         request: RegisterPipelineRequest
@@ -298,6 +366,31 @@ class LocalApiClient(
             "자동 실행 작업 등록 해제"
         )
     }
+
+    suspend fun getSystemTime(): Result<SystemTimeStatus> =
+        request("장치 시간 조회") { requireApi().getSystemTime() }
+
+    suspend fun synchronizeSystemTime(
+        mobileTimeEpochMillis: Long
+    ): Result<SystemTimeStatus> = suspendResult {
+        val response = withSessionRetry {
+            requireApi().synchronizeSystemTime(
+                LocalControlApi.SynchronizeSystemTimeRequest(mobileTimeEpochMillis)
+            )
+        }
+        val body = runCatching { requireBody(response, "장치 시간 동기화") }
+        val refreshedSession = hello()
+        if (body.isSuccess) refreshedSession.getOrThrow()
+        body.getOrThrow()
+    }
+
+    suspend fun getFanStatus(): Result<FanStatus> =
+        request("FAN 상태 조회") { requireApi().getFanStatus() }
+
+    suspend fun setFan(mode: String, percent: Int? = null): Result<FanStatus> =
+        request("FAN 제어") {
+            requireApi().setFan(LocalControlApi.SetFanRequest(mode, percent))
+        }
 
     suspend fun getPipelineLogs(pipelineId: String): Result<PipelineLog> =
         request("실행 로그 조회") { requireApi().getPipelineLogs(pipelineId) }
