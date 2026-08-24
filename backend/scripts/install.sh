@@ -334,7 +334,9 @@ install -m 0644 -o root -g root "${source_root}/systemd/jetson-wifi-direct.servi
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-pipeline@.service" "/etc/systemd/system/jetson-pipeline@.service"
 "${install_root}/configure-api-storage-access.py" \
   --storage-roots "${config_dir}/storage_roots.json" \
-  --output "/etc/systemd/system/jetson-control-api.service.d/storage-roots.conf"
+  --output "/etc/systemd/system/jetson-control-api.service.d/storage-roots.conf" \
+  --pipeline-output "/etc/systemd/system/jetson-pipeline@.service.d/10-storage-defaults.conf" \
+  --pipeline-user "${pipeline_user}"
 
 python3 - "${config_dir}/device.json" "/etc/avahi/services/jetson-control.service" <<'PY'
 import html

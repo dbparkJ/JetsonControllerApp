@@ -217,12 +217,23 @@ def create_app(
         device_id=device_config.device_id,
     )
     wifi = wifi_provisioner or WifiProvisioner(device_config.wifi_interface)
-    pipelines = pipeline_manager or PipelineManager(
-        registry_root=runtime_paths.pipeline_registry,
-        registrar=runtime_paths.pipeline_registrar,
-        pipeline_user=device_config.pipeline_user,
-        logs_root=runtime_paths.pipeline_logs,
-    )
+    if pipeline_manager is None:
+        configured_storage_roots = storage_service.roots()
+        recordings_root = configured_storage_roots.get("recordings")
+        pipeline_results_root = (
+            recordings_root.path
+            if recordings_root is not None
+            else storage_service.primary_path()
+        )
+        pipelines = PipelineManager(
+            registry_root=runtime_paths.pipeline_registry,
+            registrar=runtime_paths.pipeline_registrar,
+            pipeline_user=device_config.pipeline_user,
+            logs_root=runtime_paths.pipeline_logs,
+            folder_results_root=pipeline_results_root,
+        )
+    else:
+        pipelines = pipeline_manager
     system_time = time_synchronizer or SystemTimeSynchronizer(
         on_clock_changed=request_auth.reset_after_clock_change
     )

@@ -384,8 +384,10 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 부팅 시 자동 실행 여부를 선택해 등록한다. 폴더 이름은 소문자나 숫자로 시작하고
 소문자, 숫자, 점, 밑줄, 하이픈만 사용한다. 폴더 root에는 실행 가능한
 `.venv/bin/python`, 일반 파일 `main.py`, `config.yaml` 또는 `config.yml` 중 정확히
-하나가 있어야 한다. 등록기는 `results/`를 출력용 쓰기 디렉터리로 만들며, 수집
-데이터 화면은 별도의 storage root 중 수집 root 하나만 연다.
+하나가 있어야 한다. 앱에서 폴더를 등록하면 등록기는 수집 storage root의
+`<pipeline-id>/`(기본값 `/data/collections/<pipeline-id>/`)를 출력용 쓰기
+디렉터리로 만들고 `JETSON_PIPELINE_RESULTS_DIR`로 전달한다. 따라서 API와 실행
+서비스는 홈 작업공간에 쓸 필요가 없고, 수집 데이터 화면에서 같은 결과 폴더를 연다.
 
 backend는 임의 shell 문자열을 저장하지 않는다. 등록기는 Git tracked 파일과 ignore되지 않은 untracked 파일만 `/opt/jetson-pipelines/<id>/releases/`에 복사하고, commit·branch·dirty 상태를 manifest에 남긴다. `.git`, ignored dataset, cache는 실행 사본에 들어가지 않는다. `current` symlink가 활성 release를 가리키며 `jetson-pipeline@<id>.service`가 선택한 virtualenv Python으로 실행한다.
 
@@ -448,8 +450,13 @@ PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/test
 Android test/build:
 
 ```bash
+scripts/setup-mobile-build-env.sh  # 최초 1회 또는 빌드 도구 갱신 시
 ./gradlew testDebugUnitTest assembleDebug
 ```
+
+Android SDK, Gradle 배포본/의존성, ARM64용 AAPT2 실행 도구는 Git에서 제외된
+`.mobile-build/`에 재사용된다. `gradlew`는 이 저장소 내부 Gradle home을 기본으로
+사용하므로 매 빌드마다 도구를 다시 설치하지 않는다.
 
 ## 15. 운영 체크리스트
 

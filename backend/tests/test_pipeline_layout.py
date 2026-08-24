@@ -60,11 +60,13 @@ class PipelineFolderLayoutTest(unittest.TestCase):
         self.assertEqual(layout.pipeline_id, "26_camera_record")
 
     def test_manager_folder_registration_calls_shortcut_with_autostart(self) -> None:
+        results_root = self.root / "collected-data"
         manager = PipelineManager(
             registry_root=self.root / "registry",
             registrar=Path("/opt/jetson-control/register-pipeline.py"),
             pipeline_user="operator",
             logs_root=self.root / "logs",
+            folder_results_root=results_root,
         )
         completed = subprocess.CompletedProcess([], 0, "", "")
         with patch.object(manager, "_run", return_value=completed) as run, patch.object(
@@ -90,10 +92,30 @@ class PipelineFolderLayoutTest(unittest.TestCase):
                 "Camera capture",
                 "--user",
                 "operator",
+                "--results-dir",
+                str(results_root / "camera-capture"),
+                "--use-template-defaults",
                 "--autostart",
             ],
         )
         get.assert_called_once_with("camera-capture")
+
+    def test_manager_discovers_managed_results_directory(self) -> None:
+        results_root = self.root / "collected-data"
+        manager = PipelineManager(
+            registry_root=self.root / "registry",
+            registrar=Path("/opt/jetson-control/register-pipeline.py"),
+            pipeline_user="operator",
+            folder_results_root=results_root,
+        )
+
+        response = manager.discover_folder(self.folder)
+
+        self.assertEqual(
+            response["resultsDirectory"],
+            str(results_root / "camera-capture"),
+        )
+        self.assertFalse(response["resultsExists"])
 
 
 if __name__ == "__main__":

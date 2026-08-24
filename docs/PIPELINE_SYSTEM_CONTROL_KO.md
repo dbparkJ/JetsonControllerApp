@@ -133,6 +133,9 @@ FAN 제어 규칙을 따른다. JetPack 6 계열에서는 `nvfancontrol`과 PWM 
 autostart=autostart)`를 호출한다. 폴더 오류는 400, 실행 중 재등록 충돌은 409,
 등록기/systemd 실패는 502로 응답한다.
 
+폴더 방식의 실행 결과는 수집 storage root의 `<pipeline-id>/`에 저장한다. API는
+등록 snapshot 경로와 storage root에만 쓰며, 홈 작업공간은 읽기 전용으로 유지한다.
+
 ### 시간 상태·동기화
 
 - `GET /v1/system/time` → `SystemTimeSynchronizer.status()`

@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 from ruamel.yaml import YAML
 
 from .config import validate_config_id
-from .pipeline_layout import discover_pipeline_folder
+from .pipeline_layout import PipelineFolderLayout, discover_pipeline_folder
 from .system_control import DEFAULT_TIME_SYNC_MARKER, read_time_sync_marker
 
 
@@ -52,6 +52,7 @@ class PipelineManager:
         pipeline_user: str,
         command_runner: Optional[CommandRunner] = None,
         logs_root: Path = Path("/var/log/jetson-pipelines"),
+        folder_results_root: Optional[Path] = None,
         time_sync_marker: Path = DEFAULT_TIME_SYNC_MARKER,
         time_sync_marker_owner_uid: int = 0,
     ) -> None:
@@ -60,12 +61,20 @@ class PipelineManager:
         self.pipeline_user = pipeline_user
         self.command_runner = command_runner or subprocess.run
         self.logs_root = logs_root
+        self.folder_results_root = (
+            folder_results_root.expanduser().resolve()
+            if folder_results_root is not None
+            else None
+        )
         self.time_sync_marker = time_sync_marker
         self.time_sync_marker_owner_uid = time_sync_marker_owner_uid
 
     def discover_folder(self, repository: Path) -> Dict[str, object]:
         layout = discover_pipeline_folder(repository)
         response = layout.response()
+        results = self._folder_results_directory(layout)
+        response["resultsDirectory"] = str(results)
+        response["resultsExists"] = results.is_dir()
         response["logDirectory"] = str(self.logs_root / layout.pipeline_id)
         response["autostartDefault"] = True
         return response
@@ -584,6 +593,7 @@ class PipelineManager:
         """Register a convention-based folder while preserving the legacy path."""
 
         layout = discover_pipeline_folder(repository)
+        results_directory = self._folder_results_directory(layout)
         normalized_label = label.strip()
         if (
             not normalized_label
@@ -603,6 +613,9 @@ class PipelineManager:
             normalized_label,
             "--user",
             self.pipeline_user,
+            "--results-dir",
+            str(results_directory),
+            "--use-template-defaults",
             "--autostart" if autostart else "--no-autostart",
         ]
         result = self._run(command, timeout=120)
@@ -614,6 +627,11 @@ class PipelineManager:
                 raise PipelineConflict(message)
             raise PipelineError(message)
         return self.get(layout.pipeline_id)
+
+    def _folder_results_directory(self, layout: PipelineFolderLayout) -> Path:
+        if self.folder_results_root is None:
+            return layout.results
+        return self.folder_results_root / layout.pipeline_id
 
     def remove(self, pipeline_id: str) -> None:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")

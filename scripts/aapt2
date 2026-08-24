@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_root="$(cd "${script_dir}/.." && pwd)"
+environment_root="${repository_root}/.mobile-build"
+
+exec "${environment_root}/qemu/qemu-x86_64" \
+  -L "${environment_root}/aapt2-x86-sysroot" \
+  "${environment_root}/android-sdk/build-tools/37.0.0/aapt2" "$@"

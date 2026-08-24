@@ -1,6 +1,8 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
+import pwd
 import subprocess
 import sys
 import tempfile
@@ -42,11 +44,34 @@ class ConfigureApiStorageAccessTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "needs a path"):
             storage_access.configured_paths({"missing": {}})
 
+    def test_renders_pipeline_defaults_for_managed_results(self) -> None:
+        account = pwd.getpwuid(os.getuid())
+
+        rendered = storage_access.render_pipeline_override(
+            Path("/data/collections"),
+            account.pw_name,
+        )
+
+        self.assertIn(f"User={account.pw_name}", rendered)
+        self.assertIn(f'Environment="HOME={account.pw_dir}"', rendered)
+        self.assertIn("ReadWritePaths=-/data/collections/%i", rendered)
+        self.assertEqual(
+            storage_access.preferred_results_root(
+                {
+                    "maps": {"path": "/data/maps"},
+                    "recordings": {"path": "/data/collections"},
+                }
+            ),
+            Path("/data/collections"),
+        )
+
     def test_cli_writes_override_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             config = base / "storage.json"
             output = base / "unit.d" / "storage-roots.conf"
+            pipeline_output = base / "pipeline-unit.d" / "10-storage-defaults.conf"
+            account = pwd.getpwuid(os.getuid())
             config.write_text(
                 json.dumps({"recordings": {"path": "/data/collections"}}),
                 encoding="utf-8",
@@ -60,6 +85,10 @@ class ConfigureApiStorageAccessTest(unittest.TestCase):
                     str(config),
                     "--output",
                     str(output),
+                    "--pipeline-output",
+                    str(pipeline_output),
+                    "--pipeline-user",
+                    account.pw_name,
                 ],
                 check=False,
                 capture_output=True,
@@ -69,6 +98,11 @@ class ConfigureApiStorageAccessTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("ReadWritePaths=-/data/collections", output.read_text())
             self.assertEqual(output.stat().st_mode & 0o777, 0o644)
+            self.assertIn(
+                "ReadWritePaths=-/data/collections/%i",
+                pipeline_output.read_text(),
+            )
+            self.assertEqual(pipeline_output.stat().st_mode & 0o777, 0o644)
 
 
 if __name__ == "__main__":

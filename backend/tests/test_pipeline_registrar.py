@@ -180,6 +180,7 @@ class PipelineRegistrarTest(unittest.TestCase):
         (self.repo / "logs" / "old.log").write_text("old", encoding="utf-8")
         (self.repo / "results").mkdir()
         (self.repo / "results" / "old.bin").write_bytes(b"result")
+        managed_results = self.base / "collected-data" / "project"
         account = pwd.getpwuid(os.getuid())
         args = argparse.Namespace(
             folder=self.repo,
@@ -191,6 +192,8 @@ class PipelineRegistrarTest(unittest.TestCase):
             entry=None,
             config=None,
             working_dir=None,
+            results_dir=managed_results,
+            use_template_defaults=True,
             write_path=[],
             argument=[],
             user=account.pw_name,
@@ -226,7 +229,11 @@ class PipelineRegistrarTest(unittest.TestCase):
         self.assertFalse((release / "results").exists())
         manifest = json.loads((pipeline_root / "pipeline.json").read_text())
         self.assertTrue(manifest["folder_convention"])
-        self.assertEqual(manifest["results_directory"], str(self.repo / "results"))
+        self.assertEqual(manifest["results_directory"], str(managed_results))
+        self.assertEqual(manifest["writable_paths"], [str(managed_results)])
+        self.assertTrue(managed_results.is_dir())
+        override = self.systemd / "jetson-pipeline@project.service.d" / "override.conf"
+        self.assertFalse(override.exists())
 
     def test_writable_directory_rejects_final_symlink(self) -> None:
         outside = self.base / "outside-results"

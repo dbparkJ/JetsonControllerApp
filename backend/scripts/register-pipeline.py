@@ -41,6 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entry")
     parser.add_argument("--config")
     parser.add_argument("--working-dir", type=Path)
+    parser.add_argument("--results-dir", type=Path)
+    parser.add_argument("--use-template-defaults", action="store_true")
     parser.add_argument("--write-path", action="append", default=[], type=Path)
     parser.add_argument("--argument", action="append", default=[])
     parser.add_argument("--user")
@@ -83,6 +85,10 @@ def apply_folder_convention(args: argparse.Namespace) -> None:
 
     folder_value = getattr(args, "folder", None)
     if folder_value is None:
+        if getattr(args, "results_dir", None) is not None:
+            raise ValueError("--results-dir requires --folder")
+        if getattr(args, "use_template_defaults", False):
+            raise ValueError("--use-template-defaults requires --folder")
         if not getattr(args, "config", None):
             args.config = "config.yaml"
         return
@@ -134,7 +140,19 @@ def apply_folder_convention(args: argparse.Namespace) -> None:
     args.entry = "main.py"
     args.config = configs[0].name
     args.working_dir = folder
-    results = folder / "results"
+    requested_results = getattr(args, "results_dir", None)
+    if getattr(args, "use_template_defaults", False) and requested_results is None:
+        raise ValueError("--use-template-defaults requires --results-dir")
+    results = (
+        requested_results.expanduser().resolve()
+        if requested_results is not None
+        else folder / "results"
+    )
+    if not results.is_absolute() or results == Path("/"):
+        raise ValueError("Pipeline results directory must be an absolute safe path")
+    if results.exists() and (results.is_symlink() or not results.is_dir()):
+        raise ValueError("Pipeline results path must be a real directory")
+    args.results_dir = results
     write_paths = list(getattr(args, "write_path", []))
     if results not in write_paths:
         write_paths.append(results)
@@ -468,7 +486,9 @@ def register(args: argparse.Namespace) -> None:
 
     writable_paths = []
     convention_results = (
-        repo / "results" if getattr(args, "folder", None) is not None else None
+        getattr(args, "results_dir", None)
+        if getattr(args, "folder", None) is not None
+        else None
     )
     for requested in args.write_path:
         expanded = requested.expanduser()
@@ -584,22 +604,21 @@ def register(args: argparse.Namespace) -> None:
         "config_argument": "--config",
         "working_directory": str(working_directory),
         "writable_paths": [str(path) for path in writable_paths],
-        "results_directory": (
-            str(repo / "results") if getattr(args, "folder", None) is not None else ""
-        ),
+        "results_directory": str(convention_results or ""),
         "folder_convention": getattr(args, "folder", None) is not None,
         "arguments": args.argument,
         "user": args.user,
     }
     atomic_json(pipeline_root / "pipeline.json", manifest, 0o640, 0, gid)
-    write_override(
-        pipeline_id,
-        args.user,
-        groupname,
-        home,
-        working_directory,
-        writable_paths,
-    )
+    if not getattr(args, "use_template_defaults", False):
+        write_override(
+            pipeline_id,
+            args.user,
+            groupname,
+            home,
+            working_directory,
+            writable_paths,
+        )
 
     checked(["systemctl", "daemon-reload"])
     unit = f"jetson-pipeline@{pipeline_id}.service"
