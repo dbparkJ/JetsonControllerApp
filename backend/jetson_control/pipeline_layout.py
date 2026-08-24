@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict
 
 
-PIPELINE_FOLDER_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
+PIPELINE_FOLDER_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 CONFIG_FILENAMES = ("config.yaml", "config.yml")
 
 
@@ -52,7 +52,7 @@ def discover_pipeline_folder(folder: Path) -> PipelineFolderLayout:
         raise NotADirectoryError(f"Pipeline folder is not a directory: {repository}")
     if not PIPELINE_FOLDER_ID.fullmatch(repository.name):
         raise ValueError(
-            "Pipeline folder name must use lowercase letters, digits, dots, or hyphens"
+            "Pipeline folder name must use lowercase letters, digits, dots, underscores, or hyphens"
         )
 
     virtualenv = repository / ".venv"

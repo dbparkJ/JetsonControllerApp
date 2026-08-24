@@ -66,6 +66,11 @@ class PipelineRegistrarTest(unittest.TestCase):
             text=True,
         )
 
+    def test_pipeline_id_allows_systemd_safe_underscores(self) -> None:
+        self.assertEqual(registrar.validate_id("26_camera_record"), "26_camera_record")
+        with self.assertRaisesRegex(ValueError, "lowercase letters"):
+            registrar.validate_id("Camera_Record")
+
     def test_registers_dirty_git_snapshot_and_omits_ignored_files(self) -> None:
         account = pwd.getpwuid(os.getuid())
         args = argparse.Namespace(

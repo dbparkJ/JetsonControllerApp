@@ -43,7 +43,7 @@ sudo backend/scripts/bootstrap-jetson.sh \
   --device-name MMS-JETSON-01 \
   --pipeline-user <user> \
   --enable-power \
-  --depthai-repo /home/<user>/26_camera_record/depthai_refactored_ver2 \
+  --depthai-repo /home/<user>/26_camera_record \
   --depthai-venv /home/<user>/26_camera_record/.venv
 ```
 

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
 
-PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
+PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 LOG_FILE = re.compile(r"^run-\d{8}T\d{6}\.\d{6}Z-\d+\.log$")
 REGISTRY_ROOT = Path(os.environ.get("JETSON_PIPELINE_REGISTRY", "/opt/jetson-pipelines"))
 TIME_SYNC_MARKER = Path(

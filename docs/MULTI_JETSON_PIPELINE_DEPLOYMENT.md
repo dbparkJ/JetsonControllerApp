@@ -3,35 +3,38 @@
 이 문서는 Controller backend와 Python 수집 pipeline을 여러 Jetson에 동일하게 설치하는 절차다. 현재 기준 pipeline은 다음 작업 트리다.
 
 ```text
-/home/jm/26_camera_record/depthai_refactored_ver2
+/home/jm/26_camera_record
 ```
 
 ## 1. 현재 확인값
 
 | 항목 | 확인 결과 |
 |---|---|
-| Git branch | `feature/yolo-seg-shp-debug-ui` |
-| Git worktree root | `/home/jm/26_camera_record`; 실행 source는 그 아래 `depthai_refactored_ver2` |
-| Git remote | 없음 |
-| 작업 트리 | tracked 변경과 untracked Python/test 파일이 있는 dirty 상태 |
-| 메인 entrypoint | `synced_image_recorder.py` |
-| 실행 config | `configs/capture.yaml` |
+| Git branch | `main` |
+| Git worktree와 실행 source | `/home/jm/26_camera_record` |
+| Git remote | `origin` (`geonLabs/geonova-depthai-mapper`) |
+| 메인 entrypoint | `main.py` |
+| 실행 config | `config.yaml` |
 | virtualenv | `/home/jm/26_camera_record/.venv` |
-| Python | `3.8.10`; 위 venv에서 entrypoint `--help` 실행 확인 |
-| 기본 출력 | `/data/collections/image_records/` |
+| Python | 장비에서 만든 위 venv의 Python; 등록 manifest에 실제 버전 기록 |
+| 기본 출력 | preset이 `--output-dir /data/collections`로 고정 |
 
 원본 작업 트리는 source version history와 개발용으로 유지한다. 자동 실행 서비스는 이 디렉터리의 Python source를 직접 실행하지 않고, 등록 시점의 working tree를 시스템 release로 복사해 실행한다. 따라서 개발 중 파일 변경이 실행 중 프로세스에 섞이지 않는다.
 
 ## 2. 새 Jetson 자동 설치
 
-ControllerApp 저장소, DepthAI Git 작업 트리, 해당 장비에서 생성한 virtualenv를 새 장비에 준비한 뒤 한 번 실행한다. `<user>`는 카메라, GPS, IMU 장치에 접근할 Linux 사용자다. 현재 DepthAI 작업 트리에는 Git remote가 없으므로 다른 장비가 자동 clone할 URL은 아직 없다. 먼저 private remote를 연결하거나 승인된 파일 전송으로 작업 트리를 옮겨야 한다. virtualenv는 장비와 Python ABI에 종속되므로 다른 Jetson에서 그대로 복사하지 않고 그 장비에서 생성한다.
+ControllerApp 저장소, DepthAI Git 작업 트리, 해당 장비에서 생성한 virtualenv를 새
+장비에 준비한 뒤 한 번 실행한다. `<user>`는 카메라, GPS, IMU 장치에 접근할 Linux
+사용자다. DepthAI 저장소는 승인된 `origin`에서 `/home/<user>/26_camera_record`로
+clone한다. virtualenv는 장비와 Python ABI에 종속되므로 다른 Jetson에서 그대로
+복사하지 않고 각 장비의 repository root에 `.venv`로 생성한다.
 
 ```bash
 sudo backend/scripts/bootstrap-jetson.sh \
   --device-name MMS-JETSON-02 \
   --pipeline-user <user> \
   --enable-power \
-  --depthai-repo /home/<user>/26_camera_record/depthai_refactored_ver2 \
+  --depthai-repo /home/<user>/26_camera_record \
   --depthai-venv /home/<user>/26_camera_record/.venv
 ```
 
@@ -73,7 +76,9 @@ QR 등록 뒤 앱은 BLE challenge-response로 장비를 인증한다. Wi-Fi 비
 
 ## 4. Pipeline 작성 계약
 
-자동 관리 대상은 pipeline 안에서 실제 수집을 시작하고 종료 signal을 처리하는 하나의 메인 Python 파일이다. 보조 script와 library를 각각 서비스로 등록할 필요는 없다. 현재 DepthAI pipeline의 메인은 `synced_image_recorder.py`다.
+자동 관리 대상은 pipeline 안에서 실제 수집을 시작하고 종료 signal을 처리하는 하나의
+메인 Python 파일이다. 보조 script와 library를 각각 서비스로 등록할 필요는 없다.
+현재 DepthAI pipeline의 표준 메인은 repository root의 `main.py`다.
 
 새 pipeline은 레포 root에 `config.yaml`을 두고, 메인 Python을 인자 없이 실행해도 같은 레포의 `config.yaml`을 기본으로 읽도록 구성하는 것을 표준으로 한다.
 
@@ -96,7 +101,12 @@ parser.add_argument(
 <venv>/bin/python -u <release>/<main.py> --config <release>/<config.yaml>
 ```
 
-현재 DepthAI 레포는 `--config`를 이미 지원하지만 root `config.yaml`은 없으므로 호환 등록값으로 `configs/capture.yaml`을 명시한다. 향후 root `config.yaml` 표준으로 바꿀 때 등록 config도 함께 갱신한다.
+현재 DepthAI 저장소는 root `.venv`, `main.py`, `config.yaml` 계약을 따른다. preset은
+YAML의 상대 출력 경로에 의존하지 않고 `--output-dir /data/collections`와
+`--controller-bridge-dir /var/lib/jetson-sensors`를 `main.py`의 명시적 CLI 인수로
+넘긴다. systemd 작업 디렉터리는 source repository root이며 위 두 절대경로만
+`ReadWritePaths`에 추가된다. 따라서 YAML에 남아 있는 상대경로가 sandbox 밖의 홈
+디렉터리로 쓰기 경로를 바꾸지 못한다.
 
 ## 5. 현재 DepthAI 작업 등록
 
@@ -110,7 +120,7 @@ sudo /opt/jetson-control/install-depthai-pipeline.sh
 
 ```bash
 sudo /opt/jetson-control/install-depthai-pipeline.sh \
-  --repo /home/<user>/26_camera_record/depthai_refactored_ver2 \
+  --repo /home/<user>/26_camera_record \
   --venv /home/<user>/26_camera_record/.venv
 ```
 
@@ -168,18 +178,27 @@ Python pipeline source가 바뀐 경우에는 backend 설치만으로 실행 sna
 sudo /opt/jetson-control/register-pipeline.sh \
   --id depthai-capture \
   --label "DepthAI Capture" \
-  --repo /home/<user>/26_camera_record/depthai_refactored_ver2 \
+  --repo /home/<user>/26_camera_record \
   --venv /home/<user>/26_camera_record/.venv \
-  --entry synced_image_recorder.py \
-  --config configs/capture.yaml \
-  --working-dir /data/collections \
+  --entry main.py \
+  --config config.yaml \
+  --working-dir /home/<user>/26_camera_record \
   --write-path /data/collections \
+  --write-path /var/lib/jetson-sensors \
+  --argument=--output-dir \
+  --argument /data/collections \
+  --argument=--controller-bridge-dir \
+  --argument /var/lib/jetson-sensors \
   --user <user> \
   --autostart \
   --restart-running
 ```
 
-`configs/capture.yaml`의 상대 `output_dir: image_records`는 위 working directory를 기준으로 `/data/collections/image_records`에 기록된다. 기존 `~/26_camera_record`의 수집물은 backend 재설치 후 앱에 `Previous collected data` root로 계속 노출된다.
+명시적 `--output-dir`이 YAML 기본값보다 우선하므로 수집물은
+`/data/collections` 아래에 기록된다. `--argument=--output-dir`처럼 option 이름은
+등호 형식으로 등록해야 registrar가 다음 registrar option으로 오해하지 않는다.
+기존 `~/26_camera_record`의 수집물은 backend 재설치 후 앱에
+`Previous collected data` root로 계속 노출된다.
 
 운영 순서는 `Git 최신화 -> backend install 재실행 -> 필요한 pipeline 재등록 -> doctor와 앱 연결 확인`으로 고정한다. 설정 파일을 직접 복사해 덮어쓰지 말고, 설치 script와 등록기를 통해 원자적으로 반영한다.
 
@@ -187,14 +206,18 @@ sudo /opt/jetson-control/register-pipeline.sh \
 
 Jetson에 LAN 또는 Wi-Fi Direct로 연결한 뒤 `대시보드 > 자동 실행 작업 > 작업 추가`로 이동한다. 앱에서 다음 순서로 선택한다.
 
-1. 표시 이름과 lowercase 작업 ID
-2. Git 레포 폴더
-3. `bin/python`이 있는 virtualenv 폴더
-4. 레포 내부 메인 `.py`
-5. 레포 내부 `.yaml` 또는 `.yml`
-6. 레포 기준 출력 폴더와 부팅 자동 실행 toggle
+1. 표시 이름 입력
+2. 표준 작업 폴더 선택
+3. 부팅 자동 실행 toggle 확인
 
-앱의 실행 소스 선택기는 `pipeline_user`의 `~/` 아래만 탐색한다. 레포를 선택하면 `<repo>/.venv`를 기본 가상환경으로 채우며 다른 홈 하위 venv도 직접 선택할 수 있다. backend 등록기는 실제 Git root, venv Python, Python syntax, config 확장자, 파일 유형을 다시 검증한다. 임의 shell command는 앱에서 등록할 수 없다.
+앱의 실행 소스 선택기는 `pipeline_user`의 `~/` 아래만 탐색한다. 폴더 이름은 소문자나
+숫자로 시작하고 소문자, 숫자, 점, 밑줄, 하이픈만 사용할 수 있으므로
+`26_camera_record`도 유효한 작업 ID다. 선택한 폴더 root에는 `.venv/bin/python`,
+`main.py`, `config.yaml` 또는 `config.yml` 중 하나가 있어야 한다. backend는 Git root,
+venv Python, Python syntax, config 파일 유형을 다시 검사하고 `results/`를 유일한 표준
+출력 폴더로 등록한다. 임의 shell command는 앱에서 등록할 수 없다. `/data/collections`와
+Controller sensor bridge가 필요한 현재 DepthAI 운영 preset은 앞 절의
+`install-depthai-pipeline.sh`로 명시적 등록한다.
 
 등록된 작업 카드에서는 실시간 실행 로그, 현재 release의 YAML 설정, 첫 출력 폴더를 각각 별도 화면으로 연다. 로그는 자동 재시작마다 `/var/log/jetson-pipelines/<id>/run-*.log`로 분리되어 앱에서 이전 실행까지 선택할 수 있다. YAML 저장은 실행 snapshot에 원자 반영되며 작업 재시작 후 적용된다. 소스 레포를 다시 등록하면 새 snapshot의 YAML이 기준이 된다.
 

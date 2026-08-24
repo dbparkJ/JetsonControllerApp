@@ -120,6 +120,7 @@ install -m 0755 -o root -g root "${source_root}/scripts/configure-upload-target.
 install -m 0755 -o root -g root "${source_root}/scripts/configure-bluez-advertising.sh" "${install_root}/configure-bluez-advertising.sh"
 install -m 0755 -o root -g root "${source_root}/scripts/configure-realtek-bluetooth-driver.sh" "${install_root}/configure-realtek-bluetooth-driver.sh"
 install -m 0755 -o root -g root "${source_root}/scripts/doctor.sh" "${install_root}/doctor.sh"
+install -m 0755 -o root -g root "${source_root}/scripts/configure-api-storage-access.py" "${install_root}/configure-api-storage-access.py"
 install -m 0755 -o root -g root "${source_root}/scripts/register-pipeline.py" "${install_root}/register-pipeline.py"
 install -m 0755 -o root -g root "${source_root}/scripts/register-pipeline.sh" "${install_root}/register-pipeline.sh"
 install -m 0755 -o root -g root "${source_root}/scripts/run-pipeline.py" "${install_root}/run-pipeline.py"
@@ -331,6 +332,9 @@ install -m 0644 -o root -g root "${source_root}/systemd/jetson-control.service" 
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-control-api.service" "/etc/systemd/system/jetson-control-api.service"
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-wifi-direct.service" "/etc/systemd/system/jetson-wifi-direct.service"
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-pipeline@.service" "/etc/systemd/system/jetson-pipeline@.service"
+"${install_root}/configure-api-storage-access.py" \
+  --storage-roots "${config_dir}/storage_roots.json" \
+  --output "/etc/systemd/system/jetson-control-api.service.d/storage-roots.conf"
 
 python3 - "${config_dir}/device.json" "/etc/avahi/services/jetson-control.service" <<'PY'
 import html

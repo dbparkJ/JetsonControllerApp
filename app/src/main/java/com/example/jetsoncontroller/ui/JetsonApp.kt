@@ -955,7 +955,6 @@ fun JetsonApp(
             StatusPollingLifecycleEffect(dashboardViewModel)
             PipelineListScreen(
                 state = pipelineState,
-                jetsonStatus = dashboardState.status,
                 onBack = { navController.popBackStack() },
                 onRefresh = pipelineViewModel::refresh,
                 onAdd = {
@@ -977,7 +976,6 @@ fun JetsonApp(
                         "storage?rootId=${Uri.encode(rootId)}&path=${Uri.encode(path)}"
                     )
                 },
-                onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
                 onSectionSelected = onSectionSelected,
                 onClearMessage = pipelineViewModel::clearMessage
             )

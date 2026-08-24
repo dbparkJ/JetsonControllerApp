@@ -51,6 +51,14 @@ class PipelineFolderLayoutTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "folder name"):
             discover_pipeline_folder(invalid)
 
+    def test_folder_name_allows_systemd_safe_underscores(self) -> None:
+        underscored = self.root / "26_camera_record"
+        self.folder.rename(underscored)
+
+        layout = discover_pipeline_folder(underscored)
+
+        self.assertEqual(layout.pipeline_id, "26_camera_record")
+
     def test_manager_folder_registration_calls_shortcut_with_autostart(self) -> None:
         manager = PipelineManager(
             registry_root=self.root / "registry",

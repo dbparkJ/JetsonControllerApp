@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
 
-PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
+PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 REGISTRY_ROOT = Path(os.environ.get("JETSON_PIPELINE_REGISTRY", "/opt/jetson-pipelines"))
 SYSTEMD_ROOT = Path(os.environ.get("JETSON_PIPELINE_SYSTEMD_ROOT", "/etc/systemd/system"))
 
@@ -72,7 +72,9 @@ def checked(command: Sequence[str], *, timeout: int = 60) -> str:
 
 def validate_id(value: str) -> str:
     if not PIPELINE_ID.fullmatch(value):
-        raise ValueError("Pipeline id must use lowercase letters, digits, dots, or hyphens")
+        raise ValueError(
+            "Pipeline id must use lowercase letters, digits, dots, underscores, or hyphens"
+        )
     return value
 
 

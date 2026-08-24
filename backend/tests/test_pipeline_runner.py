@@ -28,6 +28,12 @@ class PipelineRunnerLogTest(unittest.TestCase):
         self.stdout_patch.stop()
         self.temporary.cleanup()
 
+    def test_pipeline_id_allows_systemd_safe_underscores(self) -> None:
+        self.assertIsNotNone(
+            pipeline_runner.PIPELINE_ID.fullmatch("26_camera_record")
+        )
+        self.assertIsNone(pipeline_runner.PIPELINE_ID.fullmatch("Camera_Record"))
+
     def test_each_writer_creates_a_separate_immediately_readable_file(self) -> None:
         timestamps = [
             datetime(2026, 8, 14, 0, 0, 0, 1, tzinfo=timezone.utc),

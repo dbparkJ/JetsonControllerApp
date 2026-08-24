@@ -62,6 +62,7 @@ sudo backend/scripts/install.sh \
 - `--device-name`: 새 장비의 광고 이름이다. 생략하면 UUID 기반 이름을 만든다.
 - `--pipeline-user`: 카메라·serial 장치를 사용하는 Python 작업의 Linux 계정이다.
 - `--storage-root`: 앱에 노출할 데이터 디렉터리다. 생략하면 `/data/collections`를 생성해 pipeline 사용자 소유로 설정한다. 이전 기본값인 `~/26_camera_record` 또는 `/var/lib/jetson-control/data`는 다음 설치 때 이 경로로 자동 전환된다. 기존 `~/26_camera_record` 데이터는 `Previous collected data` root로 함께 남고, 관리자가 직접 지정한 다른 경로는 유지된다.
+- 설치기는 `storage_roots.json`의 경로만 API service의 `ReadWritePaths`로 생성한다. 서비스의 나머지 파일시스템은 계속 읽기 전용이며, storage root를 수동 변경한 뒤에는 설치기를 다시 실행해야 앱의 파일·폴더 삭제가 허용된다.
 - Wi-Fi Direct는 기본 활성화된다. 무선 칩이 P2P GO를 지원하지 않는 장비만 `--disable-wifi-direct`를 사용한다.
 - 기본 P2P 주파수는 2.4 GHz 채널 1인 `2412` MHz다. 현장 규격에 맞춰 `--wifi-direct-frequency <MHz>`로 바꿀 수 있다.
 - 기존 `/etc/jetson-control/device.json`은 덮어쓰지 않는다. QR에 사용한 장비 UUID와 secret이 유지된다.
@@ -379,14 +380,12 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 
 ## 10. Python 파이프라인 자동 실행
 
-앱은 인증 후 `pipeline_user`의 홈 작업공간(`~/`) 아래에서 다음 항목을 선택해 작업을 등록한다. 수집 데이터 화면은 별도의 storage root 중 수집 root 하나만 연다.
-
-- Git 작업 트리 root
-- `bin/python`을 가진 virtualenv
-- pipeline의 메인 `.py` entrypoint
-- 같은 Git 작업 트리의 `.yaml` 또는 `.yml` 설정
-- 출력용 쓰기 디렉터리
-- 부팅 시 자동 실행 여부
+앱은 인증 후 `pipeline_user`의 홈 작업공간(`~/`) 아래에서 표준 작업 폴더 하나와
+부팅 시 자동 실행 여부를 선택해 등록한다. 폴더 이름은 소문자나 숫자로 시작하고
+소문자, 숫자, 점, 밑줄, 하이픈만 사용한다. 폴더 root에는 실행 가능한
+`.venv/bin/python`, 일반 파일 `main.py`, `config.yaml` 또는 `config.yml` 중 정확히
+하나가 있어야 한다. 등록기는 `results/`를 출력용 쓰기 디렉터리로 만들며, 수집
+데이터 화면은 별도의 storage root 중 수집 root 하나만 연다.
 
 backend는 임의 shell 문자열을 저장하지 않는다. 등록기는 Git tracked 파일과 ignore되지 않은 untracked 파일만 `/opt/jetson-pipelines/<id>/releases/`에 복사하고, commit·branch·dirty 상태를 manifest에 남긴다. `.git`, ignored dataset, cache는 실행 사본에 들어가지 않는다. `current` symlink가 활성 release를 가리키며 `jetson-pipeline@<id>.service`가 선택한 virtualenv Python으로 실행한다.
 

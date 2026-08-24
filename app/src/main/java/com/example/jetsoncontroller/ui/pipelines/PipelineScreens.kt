@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
@@ -73,7 +72,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.ManagedPipeline
-import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.PipelineConfigField
 import com.example.jetsoncontroller.model.PipelineConfigValueType
 import com.example.jetsoncontroller.model.PipelineLogFile
@@ -86,10 +84,6 @@ import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.SectionHeader
 import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.sensors.effectiveGnssActive
-import com.example.jetsoncontroller.ui.sensors.gnssCoordinateText
-import com.example.jetsoncontroller.ui.sensors.gnssReceptionLabel
-import com.example.jetsoncontroller.ui.sensors.sensorPresentation
 import kotlinx.coroutines.flow.collectLatest
 import java.time.Instant
 import java.time.ZoneId
@@ -99,7 +93,6 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun PipelineListScreen(
     state: PipelineUiState,
-    jetsonStatus: JetsonStatus,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onAdd: () -> Unit,
@@ -108,7 +101,6 @@ fun PipelineListScreen(
     onLogs: (ManagedPipeline) -> Unit,
     onConfig: (ManagedPipeline) -> Unit,
     onOutput: (ManagedPipeline) -> Unit,
-    onGnssClick: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
     onClearMessage: () -> Unit
 ) {
@@ -164,12 +156,6 @@ fun PipelineListScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                item {
-                    PipelineGnssStatus(
-                        status = jetsonStatus,
-                        onClick = onGnssClick
-                    )
-                }
                 state.error?.let { error ->
                     item {
                         InlineMessage(
@@ -214,77 +200,6 @@ fun PipelineListScreen(
             if (state.isLoading) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
             }
-        }
-    }
-}
-
-@Composable
-private fun PipelineGnssStatus(
-    status: JetsonStatus,
-    onClick: () -> Unit
-) {
-    val gnss = status.gnssSensor
-    val gnssActive = effectiveGnssActive(
-        deviceOnline = true,
-        telemetryAvailable = status.sensorTelemetryAvailable,
-        telemetryFresh = status.sensorTelemetryFresh,
-        sensorActive = gnss.active,
-        legacyRunning = status.gnssRunning
-    )
-    val presentation = sensorPresentation(
-        configured = status.gnssConfigured || gnss.configured,
-        connected = gnss.connected,
-        active = gnss.active,
-        telemetryAvailable = status.sensorTelemetryAvailable,
-        telemetryFresh = status.sensorTelemetryFresh,
-        legacyRunning = status.gnssRunning
-    )
-    val gnssStateKnown =
-        !status.sensorTelemetryAvailable || status.sensorTelemetryFresh
-    val gnssLabel = if (gnssStateKnown) {
-        gnssReceptionLabel(gnssActive, gnss.fixType, gnss.rtkStatus)
-    } else {
-        presentation.description
-    }
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.secondaryContainer
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.Explore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(
-                    "GNSS · $gnssLabel",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    if (gnssActive) gnssCoordinateText(gnss) else presentation.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            gnss.satellites?.takeIf { gnssActive }?.let { satellites ->
-                Text(
-                    "위성 ${satellites}개",
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.padding(start = 6.dp)
-            )
         }
     }
 }

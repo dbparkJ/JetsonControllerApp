@@ -6,13 +6,14 @@
 ## 1. 작업 폴더 규칙
 
 작업 폴더 이름은 내부 작업 ID가 된다. 영문 소문자, 숫자, 점(`.`),
-하이픈(`-`)만 사용하고 64자 이내로 만든다. 공백, 한글, 밑줄, 대문자는 폴더
-이름에 사용할 수 없다. 앱에 표시할 **작업 이름**에는 한글을 사용할 수 있다.
+밑줄(`_`), 하이픈(`-`)만 사용하고 64자 이내로 만든다. 첫 글자는 영문 소문자나
+숫자여야 하며 공백, 한글, 대문자는 폴더 이름에 사용할 수 없다. 앱에 표시할
+**작업 이름**에는 한글을 사용할 수 있다.
 장치 안에서 작업 폴더 이름은 서로 달라야 한다. 같은 이름의 다른 폴더를 등록하면
 동일한 내부 작업의 새 스냅샷으로 취급된다.
 
 ```text
-camera-capture/             # 내부 작업 ID: camera-capture
+26_camera_record/           # 내부 작업 ID: 26_camera_record
 ├── .venv/
 │   └── bin/python          # 실행 가능한 Python 인터프리터
 ├── main.py                 # 고정 실행 진입점
@@ -52,7 +53,7 @@ camera-capture/             # 내부 작업 ID: camera-capture
 
 ```bash
 sudo /opt/jetson-control/register-pipeline.py \
-  --folder /home/jm/jobs/camera-capture \
+  --folder /home/jm/26_camera_record \
   --name "카메라 수집" \
   --user jm \
   --autostart
@@ -60,7 +61,7 @@ sudo /opt/jetson-control/register-pipeline.py \
 
 `--folder` 방식은 `--autostart`와 `--no-autostart`를 모두 생략해도 자동 실행이
 기본값이다. 등록기는 기존과 동일하게 Git 파일만 `/opt/jetson-pipelines` 아래에
-스냅샷으로 복사하고, `jetson-pipeline@camera-capture.service`를 부팅 자동 실행에
+스냅샷으로 복사하고, `jetson-pipeline@26_camera_record.service`를 부팅 자동 실행에
 등록한다. 기존의 `--repo`, `--venv`, `--entry` 등 상세 옵션 방식도 계속 사용할
 수 있다.
 
