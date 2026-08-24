@@ -87,11 +87,11 @@ fun sensorPresentation(
 }
 
 fun gnssReceptionState(
-    gnssActive: Boolean,
+    gnssAvailable: Boolean,
     fixType: String,
     rtkStatus: String = "unknown"
 ): GnssReceptionState {
-    if (!gnssActive) return GnssReceptionState.GNSS_OFF
+    if (!gnssAvailable) return GnssReceptionState.GNSS_OFF
 
     val normalizedFix = fixType.normalizedGnssStatus()
     val normalizedRtk = rtkStatus.normalizedGnssStatus()
@@ -106,24 +106,25 @@ fun gnssReceptionState(
 }
 
 fun gnssReceptionLabel(
-    gnssActive: Boolean,
+    gnssAvailable: Boolean,
     fixType: String,
     rtkStatus: String = "unknown"
-): String = when (gnssReceptionState(gnssActive, fixType, rtkStatus)) {
+): String = when (gnssReceptionState(gnssAvailable, fixType, rtkStatus)) {
     GnssReceptionState.GNSS_OFF -> "GNSS 장치가 꺼져있습니다"
     GnssReceptionState.RTK_OFF -> "RTK가 꺼져있습니다"
     GnssReceptionState.RTK_FLOAT -> "RTK 신호가 약합니다"
     GnssReceptionState.RTK_FIXED -> "RTK 수신중"
 }
 
-fun effectiveGnssActive(
+fun effectiveGnssAvailability(
     deviceOnline: Boolean,
     telemetryAvailable: Boolean,
     telemetryFresh: Boolean,
+    sensorConnected: Boolean,
     sensorActive: Boolean,
     legacyRunning: Boolean
 ): Boolean = deviceOnline && if (telemetryAvailable) {
-    telemetryFresh && sensorActive
+    telemetryFresh && (sensorConnected || sensorActive)
 } else {
     legacyRunning
 }
@@ -131,12 +132,12 @@ fun effectiveGnssActive(
 fun deviceLocationAvailability(
     deviceOnline: Boolean,
     telemetryFresh: Boolean,
-    gnssActive: Boolean,
+    gnssAvailable: Boolean,
     hasValidLocation: Boolean
 ): DeviceLocationAvailability = when {
     !deviceOnline -> DeviceLocationAvailability.OFFLINE
     !telemetryFresh -> DeviceLocationAvailability.STALE
-    !gnssActive -> DeviceLocationAvailability.OFF
+    !gnssAvailable -> DeviceLocationAvailability.OFF
     !hasValidLocation -> DeviceLocationAvailability.NO_FIX
     else -> DeviceLocationAvailability.ACTIVE
 }

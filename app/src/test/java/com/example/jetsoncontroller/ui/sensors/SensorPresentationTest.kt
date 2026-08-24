@@ -63,13 +63,37 @@ class SensorPresentationTest {
     }
 
     @Test
+    fun connectedGnssIsAvailableWhileWaitingForSamples() {
+        assertTrue(
+            effectiveGnssAvailability(
+                deviceOnline = true,
+                telemetryAvailable = true,
+                telemetryFresh = true,
+                sensorConnected = true,
+                sensorActive = false,
+                legacyRunning = false
+            )
+        )
+        assertFalse(
+            effectiveGnssAvailability(
+                deviceOnline = true,
+                telemetryAvailable = true,
+                telemetryFresh = true,
+                sensorConnected = false,
+                sensorActive = false,
+                legacyRunning = false
+            )
+        )
+    }
+
+    @Test
     fun deviceLocationStateUsesOfflineStaleOffPrecedence() {
         assertEquals(
             DeviceLocationAvailability.OFFLINE,
             deviceLocationAvailability(
                 deviceOnline = false,
                 telemetryFresh = false,
-                gnssActive = false,
+                gnssAvailable = false,
                 hasValidLocation = false
             )
         )
@@ -78,7 +102,7 @@ class SensorPresentationTest {
             deviceLocationAvailability(
                 deviceOnline = true,
                 telemetryFresh = false,
-                gnssActive = false,
+                gnssAvailable = false,
                 hasValidLocation = false
             )
         )
@@ -87,7 +111,7 @@ class SensorPresentationTest {
             deviceLocationAvailability(
                 deviceOnline = true,
                 telemetryFresh = true,
-                gnssActive = false,
+                gnssAvailable = false,
                 hasValidLocation = true
             )
         )
@@ -96,7 +120,7 @@ class SensorPresentationTest {
             deviceLocationAvailability(
                 deviceOnline = true,
                 telemetryFresh = true,
-                gnssActive = true,
+                gnssAvailable = true,
                 hasValidLocation = false
             )
         )
@@ -105,7 +129,7 @@ class SensorPresentationTest {
             deviceLocationAvailability(
                 deviceOnline = true,
                 telemetryFresh = true,
-                gnssActive = true,
+                gnssAvailable = true,
                 hasValidLocation = true
             )
         )

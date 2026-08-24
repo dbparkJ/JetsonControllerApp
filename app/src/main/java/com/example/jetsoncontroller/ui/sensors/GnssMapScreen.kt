@@ -106,15 +106,16 @@ fun GnssMapScreen(
     }
     var layer by remember { mutableStateOf(VWorldLayer.BASE) }
     val gnssActive = deviceOnline && telemetryFresh && gnss.active
+    val gnssAvailable = deviceOnline && telemetryFresh && (gnss.connected || gnss.active)
     val deviceAvailability = deviceLocationAvailability(
         deviceOnline = deviceOnline,
         telemetryFresh = telemetryFresh,
-        gnssActive = gnss.active,
+        gnssAvailable = gnssAvailable,
         hasValidLocation = gnss.hasValidLocation()
     )
     val mobileAvailability = mobileLocationAvailability(mobileLocation)
     val receptionLabel = gnssReceptionLabel(
-        gnssActive = gnssActive,
+        gnssAvailable = gnssAvailable,
         fixType = gnss.fixType,
         rtkStatus = gnss.rtkStatus
     )
@@ -228,15 +229,16 @@ private fun GnssStatusBand(
     modifier: Modifier = Modifier
 ) {
     val gnssActive = deviceOnline && telemetryFresh && gnss.active
+    val gnssAvailable = deviceOnline && telemetryFresh && (gnss.connected || gnss.active)
     val receptionLabel = gnssReceptionLabel(
-        gnssActive = gnssActive,
+        gnssAvailable = gnssAvailable,
         fixType = gnss.fixType,
         rtkStatus = gnss.rtkStatus
     )
     val deviceAvailability = deviceLocationAvailability(
         deviceOnline = deviceOnline,
         telemetryFresh = telemetryFresh,
-        gnssActive = gnss.active,
+        gnssAvailable = gnssAvailable,
         hasValidLocation = gnss.hasValidLocation()
     )
     val mobileAvailability = mobileLocationAvailability(mobileLocation)
@@ -264,7 +266,9 @@ private fun GnssStatusBand(
                     headline,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = when (gnssReceptionState(gnssActive, gnss.fixType, gnss.rtkStatus)) {
+                    color = when (
+                        gnssReceptionState(gnssAvailable, gnss.fixType, gnss.rtkStatus)
+                    ) {
                         GnssReceptionState.RTK_FIXED -> MaterialTheme.colorScheme.primary
                         GnssReceptionState.RTK_FLOAT -> MaterialTheme.colorScheme.tertiary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant

@@ -86,10 +86,11 @@ fun SensorScreen(
             }
             item {
                 val gnss = status.gnssSensor
-                val gnssActive = effectiveGnssActive(
+                val gnssAvailable = effectiveGnssAvailability(
                     deviceOnline = deviceOnline,
                     telemetryAvailable = status.sensorTelemetryAvailable,
                     telemetryFresh = status.sensorTelemetryFresh,
+                    sensorConnected = gnss.connected,
                     sensorActive = gnss.active,
                     legacyRunning = status.gnssRunning
                 )
@@ -118,11 +119,11 @@ fun SensorScreen(
                     detail = if (gnssStateKnown) {
                         listOfNotNull(
                             gnssReceptionLabel(
-                                gnssActive = gnssActive,
+                                gnssAvailable = gnssAvailable,
                                 fixType = gnss.fixType,
                                 rtkStatus = gnss.rtkStatus
                             ),
-                            gnss.ntripMountpoint?.takeIf { gnssActive && gnss.ntripConnected }
+                            gnss.ntripMountpoint?.takeIf { gnssAvailable && gnss.ntripConnected }
                         ).joinToString(" · ")
                     } else {
                         presentation.description

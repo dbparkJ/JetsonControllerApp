@@ -29,8 +29,8 @@ android {
         applicationId = "com.example.jetsoncontroller"
         minSdk = 31
         targetSdk = 37
-        versionCode = 13
-        versionName = "1.11.0"
+        versionCode = 14
+        versionName = "1.11.1"
 
         buildConfigField("String", "VWORLD_API_KEY", "\"$escapedVworldApiKey\"")
 
