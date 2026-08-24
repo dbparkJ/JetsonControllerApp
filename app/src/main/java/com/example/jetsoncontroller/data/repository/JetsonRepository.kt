@@ -221,13 +221,25 @@ class JetsonRepository(
         }
         
         scope.launch {
-            wifiDirectManager.state
-                .map { state ->
-                    state.connected to state.groupOwnerAddress
-                }
-                .distinctUntilChanged()
-                .collectLatest { (connected, host) ->
+            wifiDirectProbeSignals(
+                wifiDirectManager.state,
+                _connectingLanDeviceId
+            ).collectLatest { (connected, host, lanConnectionPending) ->
                     if (connected && host != null) {
+                        if (!allowsWifiDirectApiProbe(
+                                transportCoordinator.state.value,
+                                lanConnectionPending = lanConnectionPending
+                            )
+                        ) {
+                            if (
+                                (transportCoordinator.state.value as? TransportState.Connected)
+                                    ?.type == TransportType.LAN
+                            ) {
+                                pendingWifiDirectTargetDeviceId = null
+                                wifiDirectManager.cancelConnect()
+                            }
+                            return@collectLatest
+                        }
                         val expectedDeviceId = pendingWifiDirectTargetDeviceId
                             ?: automaticTargetDeviceId(
                                 preferredAutomaticDeviceId.value,
@@ -439,6 +451,10 @@ class JetsonRepository(
         return ipConnectionGeneration.get() == generation &&
             automaticConnectivityEnabled.value &&
             !qrPairingActive.value &&
+            allowsWifiDirectApiProbe(
+                transportCoordinator.state.value,
+                lanConnectionPending = _connectingLanDeviceId.value != null
+            ) &&
             pendingWifiDirectTargetDeviceId.equals(expectedDeviceId, ignoreCase = true) &&
             direct.connected && direct.groupOwnerAddress == host
     }
@@ -1291,6 +1307,11 @@ class JetsonRepository(
     suspend fun getUploadJob(jobId: String): Result<UploadJob> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.getUploadJob(jobId)
+    }
+
+    suspend fun deleteUploadJob(jobId: String): Result<Unit> {
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.deleteUploadJob(jobId)
     }
 
     suspend fun cancelUpload(jobId: String): Result<UploadJob> {

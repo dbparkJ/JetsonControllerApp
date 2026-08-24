@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 RUNNER_PATH = Path(__file__).parents[1] / "scripts" / "run-pipeline.py"
@@ -143,6 +143,24 @@ class PipelineRunnerLogTest(unittest.TestCase):
 
         self.assertTrue(ready)
         self.assertEqual(sleep_calls, [1])
+
+    def test_process_group_cleanup_escalates_before_device_handoff_release(self) -> None:
+        child = Mock(pid=4242)
+        child.wait.return_value = 0
+        with patch.object(
+            pipeline_runner,
+            "process_group_exists",
+            side_effect=[True, True, True, True, False],
+        ), patch.object(pipeline_runner, "signal_process_group") as send:
+            pipeline_runner.stop_process_group(child, timeout_seconds=0)
+
+        self.assertEqual(
+            send.call_args_list,
+            [
+                unittest.mock.call(4242, pipeline_runner.signal.SIGTERM),
+                unittest.mock.call(4242, pipeline_runner.signal.SIGKILL),
+            ],
+        )
 
 
 if __name__ == "__main__":

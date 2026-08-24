@@ -26,6 +26,29 @@ class UploadQueueFilterTest {
     }
 
     @Test
+    fun `only terminal upload records can be removed from history`() {
+        assertFalse(isDeletableUploadJob(uploadJob(UploadJobState.QUEUED)))
+        assertFalse(isDeletableUploadJob(uploadJob(UploadJobState.SCANNING)))
+        assertFalse(isDeletableUploadJob(uploadJob(UploadJobState.UPLOADING)))
+        assertTrue(isDeletableUploadJob(uploadJob(UploadJobState.COMPLETED)))
+        assertTrue(isDeletableUploadJob(uploadJob(UploadJobState.FAILED)))
+        assertTrue(isDeletableUploadJob(uploadJob(UploadJobState.CANCELLED)))
+    }
+
+    @Test
+    fun `a stale full refresh cannot restore a locally deleted queue record`() {
+        val deleted = uploadJob(UploadJobState.COMPLETED, id = "deleted")
+        val retained = uploadJob(UploadJobState.FAILED, id = "retained")
+
+        val visible = filterDeletedUploadJobs(
+            jobs = listOf(deleted, retained),
+            deletedJobIds = setOf(deleted.id)
+        )
+
+        assertEquals(listOf("retained"), visible.map { it.id })
+    }
+
+    @Test
     fun `active polling updates progress without dropping terminal history`() {
         val completed = uploadJob(UploadJobState.COMPLETED, id = "completed")
         val stale = uploadJob(

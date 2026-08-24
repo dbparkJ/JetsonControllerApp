@@ -1,0 +1,34 @@
+[Unit]
+Description=Jetson boot sensor monitor
+After=local-fs.target
+Before=jetson-control-api.service
+ConditionPathExists=/etc/jetson-sensor-monitor.json
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/jetson-control
+Environment=PYTHONPATH=/opt/jetson-control
+Environment=PYTHONUNBUFFERED=1
+ExecCondition=/opt/jetson-control/venv/bin/python -m jetson_control.sensor_monitor --check-config
+ExecStart=/opt/jetson-control/venv/bin/python -m jetson_control.sensor_monitor
+Restart=always
+RestartSec=3
+TimeoutStopSec=45
+KillSignal=SIGTERM
+KillMode=mixed
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/jetson-sensors
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

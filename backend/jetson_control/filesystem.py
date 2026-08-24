@@ -257,7 +257,11 @@ def _list_directory(root_path: Path, target: Path) -> List[Dict[str, object]]:
                 "name": item.name,
                 "relativePath": relative,
                 "type": item_type,
-                "sizeBytes": None if item_type == "DIRECTORY" else item_stat.st_size,
+                "sizeBytes": (
+                    _directory_size(item)
+                    if item_type == "DIRECTORY"
+                    else item_stat.st_size
+                ),
                 "modifiedAt": datetime.fromtimestamp(
                     item_stat.st_mtime, tz=timezone.utc
                 ).isoformat().replace("+00:00", "Z"),
@@ -271,3 +275,81 @@ def _list_directory(root_path: Path, target: Path) -> List[Dict[str, object]]:
         )
     )
     return entries
+
+
+def _directory_size(root: Path) -> int | None:
+    """Return the logical size of regular files below a real directory.
+
+    Directory listings are user-facing size estimates, so symbolic links are never
+    followed and special files do not contribute.  If any part of a directory
+    cannot be read, return ``None`` instead of displaying a misleading partial
+    total.  Each sibling is calculated independently, allowing the rest of a
+    listing to remain useful when one directory is inaccessible or disappears.
+    """
+
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        return None
+    open_flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    root_descriptor = None
+    try:
+        root_descriptor = os.open(root, open_flags)
+        root_children = os.scandir(root_descriptor)
+    except OSError:
+        if root_descriptor is not None:
+            try:
+                os.close(root_descriptor)
+            except OSError:
+                pass
+        return None
+
+    total = 0
+    # Keeping one open descriptor and iterator per depth lets openat(2) resolve
+    # every child relative to the directory that was actually inspected.  A
+    # rename or symlink swap after lstat therefore cannot redirect traversal.
+    pending = [(root_descriptor, root_children)]
+    try:
+        while pending:
+            directory_descriptor, children = pending[-1]
+            try:
+                child = next(children)
+            except StopIteration:
+                children.close()
+                os.close(directory_descriptor)
+                pending.pop()
+                continue
+            try:
+                child_stat = child.stat(follow_symlinks=False)
+            except OSError:
+                return None
+            if stat.S_ISREG(child_stat.st_mode):
+                total += child_stat.st_size
+            elif stat.S_ISDIR(child_stat.st_mode):
+                child_descriptor = None
+                try:
+                    child_descriptor = os.open(
+                        child.name,
+                        open_flags,
+                        dir_fd=directory_descriptor,
+                    )
+                    child_children = os.scandir(child_descriptor)
+                except OSError:
+                    if child_descriptor is not None:
+                        try:
+                            os.close(child_descriptor)
+                        except OSError:
+                            pass
+                    return None
+                pending.append((child_descriptor, child_children))
+        return total
+    finally:
+        for directory_descriptor, children in reversed(pending):
+            children.close()
+            try:
+                os.close(directory_descriptor)
+            except OSError:
+                pass

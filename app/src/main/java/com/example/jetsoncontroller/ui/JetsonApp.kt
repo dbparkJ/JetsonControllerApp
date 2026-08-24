@@ -334,6 +334,9 @@ fun JetsonApp(
     val alertSettings by
         alertSettingsViewModel.settings.collectAsStateWithLifecycle()
 
+    val dashboardHealthDismissals by
+        alertSettingsViewModel.dashboardHealthDismissals.collectAsStateWithLifecycle()
+
     val alertCenterState by
         alertCenterViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -673,6 +676,15 @@ fun JetsonApp(
 
                 unreadAlertCount = alertCenterState.unreadCount,
 
+                healthDeviceId = (transportState as? TransportState.Connected)
+                    ?.deviceId
+                    ?: dashboardState.deviceName,
+
+                dismissedHealthKeys = dashboardHealthDismissals,
+
+                onHealthDismissalsChange =
+                    alertSettingsViewModel::replaceDashboardHealthDismissals,
+
                 onAlertsClick = { navController.navigate(Routes.ALERTS) },
 
                 onDisconnect = {
@@ -922,6 +934,7 @@ fun JetsonApp(
                 targets = uploadState.targets,
                 isLoading = uploadState.isLoading,
                 error = uploadState.error,
+                message = uploadState.message,
                 onRefresh = uploadViewModel::loadQueue,
                 onManageTargets = {
                     navController.navigate(Routes.UPLOAD_SERVERS)
@@ -930,6 +943,7 @@ fun JetsonApp(
                     uploadViewModel.openJob(job)
                     navController.navigate(Routes.UPLOAD_PROGRESS)
                 },
+                onDeleteJob = uploadViewModel::deleteJobFromQueue,
                 onBack = { navController.popBackStack() }
             )
         }

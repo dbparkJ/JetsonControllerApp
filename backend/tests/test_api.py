@@ -577,6 +577,24 @@ class ApiContractTest(unittest.TestCase):
             "job-1", confirmed=True
         )
 
+    def test_upload_history_delete_requires_confirmation(self) -> None:
+        self.uploads.delete_job = Mock(
+            side_effect=UploadConfirmationRequired("confirmation required")
+        )
+
+        unconfirmed = self.signed_request("DELETE", "/v1/uploads/job-1", b"{}")
+
+        self.assertEqual(unconfirmed.status_code, 409, unconfirmed.text)
+        self.uploads.delete_job.assert_called_once_with("job-1", confirmed=False)
+
+        self.uploads.delete_job = Mock(return_value={"id": "job-1", "state": "DELETED"})
+        body = json.dumps({"confirmed": True}, separators=(",", ":")).encode()
+        confirmed = self.signed_request("DELETE", "/v1/uploads/job-1", body)
+
+        self.assertEqual(confirmed.status_code, 204, confirmed.text)
+        self.assertEqual(confirmed.content, b"")
+        self.uploads.delete_job.assert_called_once_with("job-1", confirmed=True)
+
     def test_upload_library_session_delete_requires_confirmation(self) -> None:
         self.uploads.delete_library_session = Mock(
             side_effect=UploadConfirmationRequired("confirmation required")

@@ -125,6 +125,7 @@ install -m 0755 -o root -g root "${source_root}/scripts/register-pipeline.py" "$
 install -m 0755 -o root -g root "${source_root}/scripts/register-pipeline.sh" "${install_root}/register-pipeline.sh"
 install -m 0755 -o root -g root "${source_root}/scripts/run-pipeline.py" "${install_root}/run-pipeline.py"
 install -m 0755 -o root -g root "${source_root}/scripts/install-depthai-pipeline.sh" "${install_root}/install-depthai-pipeline.sh"
+install -m 0755 -o root -g root "${source_root}/scripts/resolve-depthai-pipeline-id.py" "${install_root}/resolve-depthai-pipeline-id.py"
 
 if [[ ! -x "${install_root}/venv/bin/python" ]]; then
   python3 -m venv "${install_root}/venv"
@@ -332,6 +333,11 @@ install -m 0644 -o root -g root "${source_root}/systemd/jetson-control.service" 
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-control-api.service" "/etc/systemd/system/jetson-control-api.service"
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-wifi-direct.service" "/etc/systemd/system/jetson-wifi-direct.service"
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-pipeline@.service" "/etc/systemd/system/jetson-pipeline@.service"
+install -m 0644 -o root -g root "${source_root}/systemd/jetson-sensor-monitor.service" "/etc/systemd/system/jetson-sensor-monitor.service"
+install -d -m 0755 -o root -g root "/etc/udev/rules.d"
+install -m 0644 -o root -g root "${source_root}/udev/99-jetson-controller-sensors.rules" "/etc/udev/rules.d/99-jetson-controller-sensors.rules"
+udevadm control --reload-rules
+udevadm trigger --subsystem-match=tty --action=change
 "${install_root}/configure-api-storage-access.py" \
   --storage-roots "${config_dir}/storage_roots.json" \
   --output "/etc/systemd/system/jetson-control-api.service.d/storage-roots.conf" \
@@ -389,6 +395,18 @@ done
 
 systemctl daemon-reload
 systemctl enable --now jetson-control.service jetson-control-api.service
+if [[ -f "/etc/jetson-sensor-monitor.json" ]] && \
+  PYTHONPATH="${install_root}" \
+    "${install_root}/venv/bin/python" -m jetson_control.sensor_monitor --check-config; then
+  systemctl enable jetson-sensor-monitor.service
+  systemctl restart jetson-sensor-monitor.service
+elif [[ -f "/etc/jetson-sensor-monitor.json" ]]; then
+  # A configuration can outlive its registered capture snapshot.  Do not leave
+  # an enabled service in a restart loop; the DepthAI installer enables it again
+  # immediately after successfully registering a matching snapshot.
+  systemctl disable --now jetson-sensor-monitor.service 2>/dev/null || true
+  echo "Sensor monitor configuration is stale; service left disabled until the capture pipeline is registered." >&2
+fi
 wifi_direct_enabled="$(python3 -c 'import json; print(str(json.load(open("/etc/jetson-control/device.json"))["wifi_direct_enabled"]).lower())')"
 if [[ "${wifi_direct_enabled}" == "true" ]]; then
   for command in /usr/sbin/wpa_cli /usr/sbin/iw /usr/sbin/ip /usr/sbin/dnsmasq /usr/bin/nmcli; do

@@ -124,6 +124,12 @@ interface LocalControlApi {
         @Path("jobId") jobId: String
     ): Response<UploadJob>
 
+    @HTTP(method = "DELETE", path = "/v1/uploads/{jobId}", hasBody = true)
+    suspend fun deleteUploadJob(
+        @Path("jobId") jobId: String,
+        @Body request: ConfirmDeletionRequest
+    ): Response<Unit>
+
     @POST("/v1/uploads/{jobId}/cancel")
     suspend fun cancelUpload(
         @Path("jobId") jobId: String

@@ -130,6 +130,13 @@ class SystemTimeSynchronizer:
                     "A large clock correction is only allowed once per device boot"
                 )
 
+            # A trusted marker means capture may already be using wall-clock
+            # timestamps.  Reconnecting a phone must never step that clock in
+            # the middle of a dataset.  Keep the first boot-local sync and treat
+            # a bounded repeat request as an idempotent refresh.
+            if previous is not None:
+                return self.status()
+
             clock_changed = abs(offset) > self.SET_THRESHOLD_MILLIS
             if clock_changed:
                 seconds, milliseconds = divmod(requested, 1000)
@@ -247,6 +254,7 @@ class FanController:
     _TACHOMETER_NAMES = frozenset(
         {
             "generic_pwm_tachometer",
+            "pwm_tach",
             "pwm_tachometer",
             "pwm-tachometer",
         }

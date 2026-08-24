@@ -321,6 +321,18 @@ class LocalApiClient(
     suspend fun getUploadJob(jobId: String): Result<UploadJob> =
         request("업로드 상태 조회") { requireApi().getUploadJob(jobId) }
 
+    suspend fun deleteUploadJob(jobId: String): Result<Unit> = suspendResult {
+        requireSuccess(
+            withSessionRetry {
+                requireApi().deleteUploadJob(
+                    jobId,
+                    LocalControlApi.ConfirmDeletionRequest()
+                )
+            },
+            "업로드 기록 삭제"
+        )
+    }
+
     suspend fun cancelUpload(jobId: String): Result<UploadJob> =
         request("업로드 취소") { requireApi().cancelUpload(jobId) }
 

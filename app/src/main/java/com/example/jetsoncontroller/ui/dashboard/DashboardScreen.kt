@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,10 +94,15 @@ fun DashboardScreen(
     onPipelinesClick: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
     onDismissOperationMessage: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    healthDeviceId: String = state.deviceName,
+    dismissedHealthKeys: Set<String> = emptySet(),
+    onHealthDismissalsChange: (Set<String>) -> Unit = {}
 ) {
     var pendingPowerAction by remember { mutableStateOf<PowerAction?>(null) }
-    var dismissedHealthKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var optimisticDismissedHealthKeys by rememberSaveable(healthDeviceId) {
+        mutableStateOf<List<String>>(emptyList())
+    }
     val health = assessDashboardHealth(
         status = state.status,
         freshness = state.statusFreshness,
@@ -104,7 +110,31 @@ fun DashboardScreen(
         uploads = uploads
     )
     val healthKey = dashboardHealthKey(health)
+    val currentDismissalKeys = dashboardHealthDismissalKeys(healthDeviceId, health)
+    val reconciledDismissals = reconcileDashboardHealthDismissals(
+        dismissals = dismissedHealthKeys,
+        deviceId = healthDeviceId,
+        health = health,
+        online = state.isOnline
+    )
+    val effectiveDismissals = dismissedHealthKeys + optimisticDismissedHealthKeys
+    val healthDismissed = currentDismissalKeys.isNotEmpty() &&
+        effectiveDismissals.containsAll(currentDismissalKeys)
     val activeUploads = uploads.filter { it.state.isActiveUploadState() }
+
+    LaunchedEffect(
+        dismissedHealthKeys,
+        healthDeviceId,
+        healthKey,
+        state.isOnline
+    ) {
+        if (reconciledDismissals != dismissedHealthKeys) {
+            onHealthDismissalsChange(reconciledDismissals)
+        }
+        if (health.level != DashboardHealthLevel.ATTENTION) {
+            optimisticDismissedHealthKeys = emptyList()
+        }
+    }
 
     pendingPowerAction?.let { action ->
         val rebooting = action == PowerAction.REBOOT
@@ -214,12 +244,22 @@ fun DashboardScreen(
                             message = "기기가 오프라인입니다.",
                             tone = StatusTone.WARNING
                         )
-                    } else if (dismissedHealthKey != healthKey) {
+                    } else if (!healthDismissed) {
                         HealthOverview(
                             state = state,
                             health = health,
                             onDismiss = if (health.level == DashboardHealthLevel.ATTENTION) {
-                                { dismissedHealthKey = healthKey }
+                                {
+                                    optimisticDismissedHealthKeys =
+                                        currentDismissalKeys.toList()
+                                    onHealthDismissalsChange(
+                                        dismissDashboardHealth(
+                                            effectiveDismissals,
+                                            healthDeviceId,
+                                            health
+                                        )
+                                    )
+                                }
                             } else {
                                 null
                             }
@@ -745,12 +785,4 @@ private fun uploadProgress(job: UploadJob): String {
 private fun formatMemory(megabytes: Int): String = when {
     megabytes >= 1024 -> "%.1f GB".format(megabytes / 1024f)
     else -> "$megabytes MB"
-}
-
-private fun dashboardHealthKey(health: DashboardHealth): String = buildString {
-    append(health.level.name)
-    append('|')
-    append(health.title)
-    append('|')
-    append(health.issues.joinToString("|"))
 }

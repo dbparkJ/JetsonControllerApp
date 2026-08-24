@@ -1011,6 +1011,45 @@ class UploadManager:
             raise KeyError(job_id)
         return self._load_path(path)
 
+    def delete_job(self, job_id: str, *, confirmed: bool) -> Dict[str, object]:
+        """Delete one terminal queue record without touching uploaded data.
+
+        This operation intentionally removes only the local JSON history entry.
+        The source and remote upload session have separate, verification-gated
+        deletion APIs and are never modified here.
+        """
+
+        if not confirmed:
+            raise UploadConfirmationRequired(
+                "Upload history deletion requires explicit user confirmation"
+            )
+        validate_config_id(job_id, "upload job")
+        with self._lock:
+            job = self.get(job_id)
+            if job.get("id") != job_id:
+                raise ValueError("Stored upload job identifier does not match its file")
+            previous_state = job.get("state")
+            if previous_state not in TERMINAL_STATES:
+                raise UploadConflict("An active upload job cannot be deleted")
+            if job_id in self._cancellations:
+                raise UploadConflict("The upload worker is still stopping")
+
+            path = self.jobs_dir / f"{job_id}.json"
+            try:
+                path_stat = path.lstat()
+            except FileNotFoundError as error:
+                raise KeyError(job_id) from error
+            if path.is_symlink() or not stat.S_ISREG(path_stat.st_mode):
+                raise ValueError("Stored upload job is not a regular file")
+            path.unlink()
+
+        return {
+            "id": job_id,
+            "state": "DELETED",
+            "previousState": previous_state,
+            "deletedAt": self._timestamp(),
+        }
+
     def cancel(self, job_id: str) -> Dict[str, object]:
         with self._lock:
             job = self.get(job_id)

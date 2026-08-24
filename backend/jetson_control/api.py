@@ -466,7 +466,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
 
     @app.get("/v1/fs/list", dependencies=authenticated)
-    async def list_files(root: str, path: str = "") -> Dict[str, object]:
+    def list_files(root: str, path: str = "") -> Dict[str, object]:
         try:
             return {
                 "root": root,
@@ -528,7 +528,7 @@ def create_app(
         return workspace_service.roots_response()
 
     @app.get("/v1/fs/workspace/list", dependencies=authenticated)
-    async def list_workspace_files(root: str, path: str = "") -> Dict[str, object]:
+    def list_workspace_files(root: str, path: str = "") -> Dict[str, object]:
         try:
             return {
                 "root": root,
@@ -717,6 +717,30 @@ def create_app(
             return uploads.get(job_id)
         except (KeyError, ValueError) as error:
             raise HTTPException(status_code=404, detail="Upload job not found") from error
+
+    @app.delete(
+        "/v1/uploads/{job_id}",
+        status_code=204,
+        dependencies=authenticated,
+    )
+    def delete_upload_job(
+        job_id: str,
+        body: ConfirmDeletionRequest,
+    ) -> Response:
+        try:
+            uploads.delete_job(job_id, confirmed=body.confirmed)
+            return Response(status_code=204)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Upload job not found") from error
+        except (UploadConflict, UploadConfirmationRequired) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except OSError as error:
+            raise HTTPException(
+                status_code=500,
+                detail="Upload history could not be deleted",
+            ) from error
 
     @app.post("/v1/uploads/{job_id}/cancel", dependencies=authenticated)
     async def cancel_upload(job_id: str) -> Dict[str, object]:

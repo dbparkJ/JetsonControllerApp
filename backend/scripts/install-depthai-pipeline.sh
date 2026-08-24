@@ -11,6 +11,7 @@ repo="${target_home}/26_camera_record"
 venv="${target_home}/26_camera_record/.venv"
 output_root="/data/collections"
 sensor_bridge_dir="/var/lib/jetson-sensors"
+pipeline_id_fallback="depthai-capture"
 start_now=false
 dry_run=false
 
@@ -67,10 +68,26 @@ if [[ ! -x "${registrar}" ]]; then
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   registrar="${script_dir}/register-pipeline.sh"
 fi
+resolver="/opt/jetson-control/resolve-depthai-pipeline-id.py"
+if [[ ! -f "${resolver}" ]]; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  resolver="${script_dir}/resolve-depthai-pipeline-id.py"
+fi
+pipeline_id="$(
+  /usr/bin/python3 "${resolver}" \
+    --repo "${repo}" \
+    --registry /opt/jetson-pipelines \
+    --fallback "${pipeline_id_fallback}"
+)"
+if [[ "${dry_run}" != "true" ]] && \
+  systemctl is-active --quiet "jetson-pipeline@${pipeline_id}.service"; then
+  echo "Pipeline ${pipeline_id} is collecting data. Stop it cleanly before installing the sensor monitor preset." >&2
+  exit 1
+fi
 
 command=(
   "${registrar}"
-  --id depthai-capture
+  --id "${pipeline_id}"
   --label "DepthAI Capture"
   --description "RGB-D, GPS, and IMU capture pipeline"
   --repo "${repo}"
@@ -85,7 +102,7 @@ command=(
   --argument=--controller-bridge-dir
   --argument "${sensor_bridge_dir}"
   --user "${target_user}"
-  --autostart
+  --no-autostart
 )
 if [[ "${start_now}" == "true" ]]; then
   command+=(--start-now)
@@ -96,4 +113,73 @@ if [[ "${dry_run}" == "true" ]]; then
   printf '\n'
   exit 0
 fi
+
+monitor_config="/etc/jetson-sensor-monitor.json"
+monitor_config_backup="${monitor_config}.backup.$$"
+monitor_config_existed=false
+monitor_config_committed=false
+if [[ -f "${monitor_config}" ]]; then
+  cp -a "${monitor_config}" "${monitor_config_backup}"
+  monitor_config_existed=true
+fi
+restore_monitor_config() {
+  if [[ "${monitor_config_committed}" == "true" ]]; then
+    rm -f "${monitor_config_backup}"
+    return
+  fi
+  if [[ "${monitor_config_existed}" == "true" ]]; then
+    mv "${monitor_config_backup}" "${monitor_config}"
+  else
+    rm -f "${monitor_config}" "${monitor_config_backup}"
+  fi
+}
+trap restore_monitor_config EXIT
+
+PIPELINE_ID="${pipeline_id}" SENSOR_BRIDGE_DIR="${sensor_bridge_dir}" \
+python3 - "${monitor_config}" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+value = {
+    "schema_version": 1,
+    "pipeline_id": os.environ["PIPELINE_ID"],
+    "bridge_dir": os.environ["SENSOR_BRIDGE_DIR"],
+    "registry_root": "/opt/jetson-pipelines",
+    "capture_pipeline_ids": [os.environ["PIPELINE_ID"]],
+    "monitor_arguments": [
+        "--monitor-only",
+        "--allow-usb2",
+        "--fps",
+        "4",
+        "--depth-fps",
+        "0",
+        "--controller-preview-fps",
+        "4",
+        "--controller-preview-max-width",
+        "1920",
+        "--controller-bridge-dir",
+        os.environ["SENSOR_BRIDGE_DIR"],
+    ],
+}
+temporary = path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as output:
+    json.dump(value, output, indent=2)
+    output.write("\n")
+    output.flush()
+    os.fsync(output.fileno())
+os.chmod(temporary, 0o644)
+os.replace(temporary, path)
+PY
 "${command[@]}"
+monitor_config_committed=true
+restore_monitor_config
+trap - EXIT
+if ! systemctl cat jetson-sensor-monitor.service >/dev/null 2>&1; then
+  echo "jetson-sensor-monitor.service is not installed; rerun backend/scripts/install.sh first" >&2
+  exit 1
+fi
+systemctl daemon-reload
+systemctl enable jetson-sensor-monitor.service
+systemctl restart jetson-sensor-monitor.service

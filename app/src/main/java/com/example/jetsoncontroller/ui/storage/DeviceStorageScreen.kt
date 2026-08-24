@@ -268,7 +268,8 @@ private fun DirectoryList(
                 },
                 supportingContent = {
                     Text(
-                        if (directory) "폴더" else listOfNotNull(
+                        listOfNotNull(
+                            "폴더".takeIf { directory },
                             entry.sizeBytes?.let(::formatSize),
                             entry.modifiedAt?.substringBefore('T')
                         ).joinToString(" · ")

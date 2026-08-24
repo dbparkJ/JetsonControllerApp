@@ -37,6 +37,8 @@ Android app
 | `backend/jetson_control/network.py` | BLE/API Wi-Fi payload 검증과 NetworkManager 실행 |
 | `backend/jetson_control/wifi_direct.py` | P2P 검색, peer 요청, NetworkManager GO/DHCP와 runtime 상태 |
 | `backend/jetson_control/pipelines.py` | 등록된 Python 파이프라인 제어와 실행별 로그 조회 |
+| `backend/jetson_control/sensor_handoff.py` | 부팅 센서 모니터와 실제 수집 작업 사이의 장치 소유권 handoff |
+| `backend/jetson_control/sensor_monitor.py` | 등록 snapshot을 비기록 센서 모드로 상시 감독 |
 | `backend/scripts/install.sh` | 기존 장비 ID/secret을 보존하는 설치/업데이트 |
 | `backend/scripts/bootstrap-jetson.sh` | 새 Jetson의 package, BlueZ, backend, pipeline 일괄 설치 |
 | `backend/scripts/install-bluez-5.55.sh` | BlueZ 5.55 검증·설치·systemd override |
@@ -46,6 +48,8 @@ Android app
 | `backend/scripts/configure-upload-target.sh` | 외부 HTTPS 대상 설정 |
 | `backend/scripts/doctor.sh` | 설치 상태 점검 |
 | `backend/systemd/jetson-wifi-direct.service` | Wi-Fi Direct 부팅 자동 시작과 장애 재시작 |
+| `backend/systemd/jetson-sensor-monitor.service` | dataset 없이 카메라·GNSS·IMU 상태를 부팅부터 게시 |
+| `backend/udev/99-jetson-controller-sensors.rules` | 배포된 EBIMU CP2102를 ModemManager probe에서 제외 |
 
 ## 3. 설치
 
@@ -88,6 +92,9 @@ sudo backend/scripts/install.sh \
 /etc/systemd/system/jetson-control-api.service
 /etc/systemd/system/jetson-wifi-direct.service
 /etc/systemd/system/jetson-pipeline@.service
+/etc/systemd/system/jetson-sensor-monitor.service
+/etc/udev/rules.d/99-jetson-controller-sensors.rules
+/etc/jetson-sensor-monitor.json
 ```
 
 새 Jetson에서 package와 BlueZ 5.55까지 자동 설치하는 절차는 [MULTI_JETSON_PIPELINE_DEPLOYMENT.md](MULTI_JETSON_PIPELINE_DEPLOYMENT.md)를 따른다.
@@ -395,6 +402,16 @@ backend는 임의 shell 문자열을 저장하지 않는다. 등록기는 Git tr
 
 pipeline runner는 stdout과 stderr를 journald에 계속 보내면서 `/var/log/jetson-pipelines/<id>/`에도 기록한다. systemd가 자동 재시작할 때마다 `run-<UTC>-<pid>.log`를 새로 만들어 이전 오류 로그를 보존한다. 앱은 로그 파일 목록을 매초 확인하고 선택한 파일의 새 바이트만 최대 128 KiB씩 받아 최신 실행을 실시간으로 따라가며, 이전 실행도 목록에서 다시 열 수 있다. 디스크 보호를 위해 pipeline별 최근 20개, 전체 1 GiB, 실행 파일당 128 MiB로 제한하고 파일 한도 이후 출력은 journald에 계속 남긴다.
 
+DepthAI preset을 등록하면 `jetson-sensor-monitor.service`가 부팅 직후 같은 snapshot을
+`--monitor-only`로 실행한다. 모니터는 수집 디렉터리를 만들지 않고
+`/var/lib/jetson-sensors`의 상태와 최대 1920 px 폭 JPEG 프리뷰만 갱신한다.
+카메라 출력은 센서에 맞는 최대 캡처 크기를 선택하되 최대 5 FPS로 제한하고,
+USB2 급 연결에서는 MJPEG으로 전송한다. 실제 수집 runner는 모바일 시간
+동기화가 끝난 뒤 handoff 요청을 만들고 장치 lock을 넘겨받은 다음에만 시작한다. 수집이
+중지되거나 실패하면 lock과 요청을 정리하고 부팅 모니터가 자동으로 재개된다. 강제 종료
+뒤 남은 요청 파일도 advisory lock으로 판별해 자동 정리하므로 PID 재사용에 의존하지
+않는다.
+
 관리 action은 정확히 `start`, `stop`, `restart`, `enable`, `disable`만 허용한다. 등록 해제 시 unit은 중지·비활성화하고 release는 `/opt/jetson-pipelines/.archive/`로 이동해 보존한다.
 
 Python pipeline 작성 규칙과 현재 DepthAI 등록값은 [MULTI_JETSON_PIPELINE_DEPLOYMENT.md](MULTI_JETSON_PIPELINE_DEPLOYMENT.md)에 있다.
@@ -433,8 +450,9 @@ TXT: tls=1
 
 ```bash
 sudo /opt/jetson-control/doctor.sh
-systemctl --no-pager --full status jetson-control.service jetson-control-api.service jetson-wifi-direct.service
+systemctl --no-pager --full status jetson-control.service jetson-control-api.service jetson-wifi-direct.service jetson-sensor-monitor.service
 systemctl --no-pager --full status 'jetson-pipeline@*.service'
+journalctl -u jetson-sensor-monitor.service -n 100 --no-pager
 journalctl -u jetson-control-api.service -n 100 --no-pager
 curl --fail --insecure https://127.0.0.1:8765/v1/hello
 ```
@@ -472,5 +490,9 @@ Android SDK, Gradle 배포본/의존성, ARM64용 AAPT2 실행 도구는 Git에�
 - 업로드 중 인터넷 단절/복구와 checksum 검증
 - 재부팅/종료 확인 dialog와 power flag 확인
 - pipeline은 root가 아닌 지정 사용자로 실행하고 해당 사용자의 video/dialout/plugdev 권한 확인
+- 부팅 센서 모니터가 active이고 `/var/lib/jetson-sensors/status.json`이 계속 갱신되는지 확인
+- GNSS/IMU가 `/dev/serial/by-id`로 선택되고 Android USB 장치가 GNSS로 선택되지 않는지 확인
+- EBIMU CP2102의 udev 속성에 `ID_MM_DEVICE_IGNORE=1`이 적용되는지 확인
+- 센서 모니터 중 dataset이 생성되지 않으며 수집 시작/종료 때 장치 handoff가 되는지 확인
 - source 변경 후 새 snapshot을 등록하고 commit/dirty 정보를 확인
 - 일반 카메라/LiDAR/GNSS 서비스 탭은 실제 unit 이름이 확정될 때까지 비활성

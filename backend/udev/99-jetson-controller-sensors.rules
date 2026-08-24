@@ -1,0 +1,2 @@
+# Keep the deployed EBIMU CP2102 out of ModemManager without ignoring unrelated CP210x devices.
+ACTION=="add|change", SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", ENV{ID_MM_DEVICE_IGNORE}="1"

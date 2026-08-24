@@ -154,28 +154,39 @@ class DashboardViewModel(
         if (fanControlState.value.loading) return
         viewModelScope.launch {
             fanControlState.value = fanControlState.value.copy(loading = true, error = null)
-            repository.setFan(mode, percent)
-                .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
-                .onFailure {
-                    fanControlState.value = fanControlState.value.copy(
-                        loading = false,
-                        error = it.message ?: "FAN을 제어하지 못했습니다."
-                    )
-                }
+            try {
+                repository.setFan(mode, percent)
+                    .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
+                    .onFailure {
+                        fanControlState.value = fanControlState.value.copy(
+                            loading = false,
+                            error = it.message ?: "FAN을 제어하지 못했습니다."
+                        )
+                    }
+            } finally {
+                // collectLatest cancels an in-flight refresh when the screen or
+                // transport changes.  Always clear the gate so the next visible
+                // connection can request FAN status again.
+                fanControlState.value = fanControlState.value.finishedLoading()
+            }
         }
     }
 
     private suspend fun refreshFanStatus() {
         if (fanControlState.value.loading) return
         fanControlState.value = fanControlState.value.copy(loading = true, error = null)
-        repository.getFanStatus()
-            .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
-            .onFailure {
-                fanControlState.value = fanControlState.value.copy(
-                    loading = false,
-                    error = it.message ?: "FAN 상태를 확인하지 못했습니다."
-                )
-            }
+        try {
+            repository.getFanStatus()
+                .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
+                .onFailure {
+                    fanControlState.value = fanControlState.value.copy(
+                        loading = false,
+                        error = it.message ?: "FAN 상태를 확인하지 못했습니다."
+                    )
+                }
+        } finally {
+            fanControlState.value = fanControlState.value.finishedLoading()
+        }
     }
 
     fun clearOperationMessage() =
@@ -212,8 +223,11 @@ private data class StatusSnapshot(
     val ageSeconds: Long?
 )
 
-private data class FanControlSnapshot(
+internal data class FanControlSnapshot(
     val status: FanStatus? = null,
     val loading: Boolean = false,
     val error: String? = null
 )
+
+internal fun FanControlSnapshot.finishedLoading(): FanControlSnapshot =
+    if (loading) copy(loading = false) else this

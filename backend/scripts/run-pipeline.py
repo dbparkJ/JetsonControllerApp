@@ -13,6 +13,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
+from jetson_control.sensor_handoff import (
+    DEFAULT_SENSOR_MONITOR_CONFIG,
+    CaptureDeviceLease,
+    settings_for_pipeline,
+)
+
 
 PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 LOG_FILE = re.compile(r"^run-\d{8}T\d{6}\.\d{6}Z-\d+\.log$")
@@ -21,6 +27,12 @@ TIME_SYNC_MARKER = Path(
     os.environ.get(
         "JETSON_PIPELINE_TIME_SYNC_MARKER",
         "/run/jetson-control/time-synchronized.json",
+    )
+)
+SENSOR_MONITOR_CONFIG = Path(
+    os.environ.get(
+        "JETSON_SENSOR_MONITOR_CONFIG",
+        str(DEFAULT_SENSOR_MONITOR_CONFIG),
     )
 )
 MAX_LOG_FILES = 20
@@ -112,6 +124,52 @@ def wait_for_time_sync(
     if announced:
         print("Mobile system-time synchronization confirmed", flush=True)
     return True
+
+
+def process_group_exists(process_group_id: int) -> bool:
+    try:
+        os.killpg(process_group_id, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def signal_process_group(process_group_id: int, signum: int) -> None:
+    try:
+        os.killpg(process_group_id, signum)
+    except ProcessLookupError:
+        pass
+
+
+def stop_process_group(
+    child: subprocess.Popen,
+    *,
+    signum: int = signal.SIGTERM,
+    timeout_seconds: float = 5.0,
+) -> None:
+    process_group_id = child.pid
+    if not process_group_exists(process_group_id):
+        child.poll()
+        return
+    signal_process_group(process_group_id, signum)
+    deadline = time.monotonic() + timeout_seconds
+    while process_group_exists(process_group_id) and time.monotonic() < deadline:
+        child.poll()
+        time.sleep(0.1)
+    if process_group_exists(process_group_id):
+        signal_process_group(process_group_id, signal.SIGKILL)
+        deadline = time.monotonic() + timeout_seconds
+        while process_group_exists(process_group_id) and time.monotonic() < deadline:
+            child.poll()
+            time.sleep(0.1)
+    if process_group_exists(process_group_id):
+        raise RuntimeError("Pipeline process group did not stop")
+    try:
+        child.wait(timeout=max(0.1, timeout_seconds))
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Pipeline process did not stop") from error
 
 
 def prepare_log_directory() -> Path:
@@ -335,11 +393,8 @@ def main() -> int:
     def forward_signal(signum: int, _frame: object) -> None:
         nonlocal pending_signal
         pending_signal = signum
-        if child is not None and child.poll() is None:
-            try:
-                child.send_signal(signum)
-            except ProcessLookupError:
-                pass
+        if child is not None and process_group_exists(child.pid):
+            signal_process_group(child.pid, signum)
 
     signal.signal(signal.SIGINT, forward_signal)
     signal.signal(signal.SIGTERM, forward_signal)
@@ -357,7 +412,18 @@ def main() -> int:
         f"release={release}\n"
     ).encode("utf-8")
     writer.emit(header)
+    sensor_lease: Optional[CaptureDeviceLease] = None
     try:
+        monitor_settings = settings_for_pipeline(pipeline_id, SENSOR_MONITOR_CONFIG)
+        if monitor_settings is not None:
+            print("Requesting sensor devices from the boot monitor", flush=True)
+            sensor_lease = CaptureDeviceLease(monitor_settings, pipeline_id)
+            if not sensor_lease.acquire(cancelled=lambda: pending_signal is not None):
+                return 128 + int(pending_signal or signal.SIGTERM)
+            environment["JETSON_PIPELINE_SENSOR_BRIDGE_DIR"] = str(
+                monitor_settings.bridge_dir
+            )
+            print("Sensor devices handed off to the capture pipeline", flush=True)
         try:
             child = subprocess.Popen(
                 command,
@@ -366,13 +432,14 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=0,
+                start_new_session=True,
             )
         except OSError as error:
             writer.emit(f"launcher_error={error}\n".encode("utf-8", errors="replace"))
             return 1
         writer.emit(f"process_id={child.pid}\n\n".encode("ascii"))
-        if pending_signal is not None and child.poll() is None:
-            child.send_signal(pending_signal)
+        if pending_signal is not None and process_group_exists(child.pid):
+            signal_process_group(child.pid, pending_signal)
         if child.stdout is None:
             writer.emit(b"launcher_error=child output pipe is unavailable\n")
             child.terminate()
@@ -386,6 +453,8 @@ def main() -> int:
                 break
             writer.emit(chunk)
         return_code = child.wait()
+        if process_group_exists(child.pid):
+            stop_process_group(child)
         exit_code = 128 - return_code if return_code < 0 else return_code
         finished_at = utc_now().isoformat().replace("+00:00", "Z")
         writer.emit(
@@ -397,7 +466,18 @@ def main() -> int:
         )
         return exit_code
     finally:
-        writer.close()
+        try:
+            if child is not None and process_group_exists(child.pid):
+                stop_process_group(
+                    child,
+                    signum=int(pending_signal or signal.SIGTERM),
+                )
+        finally:
+            try:
+                writer.close()
+            finally:
+                if sensor_lease is not None:
+                    sensor_lease.release()
 
 
 if __name__ == "__main__":

@@ -18,6 +18,12 @@ class AlertSettingsViewModel(
         initialValue = AlertSettings()
     )
 
+    val dashboardHealthDismissals = preferences.dashboardHealthDismissals.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptySet()
+    )
+
     fun setStorageEnabled(enabled: Boolean) = viewModelScope.launch {
         preferences.setStorageEnabled(enabled)
     }
@@ -48,6 +54,10 @@ class AlertSettingsViewModel(
 
     fun setUploadEndedEnabled(enabled: Boolean) = viewModelScope.launch {
         preferences.setUploadEndedEnabled(enabled)
+    }
+
+    fun replaceDashboardHealthDismissals(dismissals: Set<String>) = viewModelScope.launch {
+        preferences.replaceDashboardHealthDismissals(dismissals)
     }
 
     class Factory(

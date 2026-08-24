@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -42,6 +43,10 @@ class AlertPreferencesStore(context: Context) {
             storageAlertLatched = preferences[STORAGE_LATCHED] ?: false,
             temperatureAlertLatched = preferences[TEMPERATURE_LATCHED] ?: false
         )
+    }
+
+    val dashboardHealthDismissals: Flow<Set<String>> = dataStore.data.map { preferences ->
+        preferences[DASHBOARD_HEALTH_DISMISSALS]?.toSet().orEmpty()
     }
 
     suspend fun setStorageEnabled(enabled: Boolean) {
@@ -89,6 +94,16 @@ class AlertPreferencesStore(context: Context) {
         }
     }
 
+    suspend fun replaceDashboardHealthDismissals(dismissals: Set<String>) {
+        dataStore.edit { preferences ->
+            if (dismissals.isEmpty()) {
+                preferences.remove(DASHBOARD_HEALTH_DISMISSALS)
+            } else {
+                preferences[DASHBOARD_HEALTH_DISMISSALS] = dismissals.toSet()
+            }
+        }
+    }
+
     private companion object {
         val STORAGE_ENABLED = booleanPreferencesKey("storage_enabled")
         val STORAGE_THRESHOLD = intPreferencesKey("storage_threshold")
@@ -100,5 +115,7 @@ class AlertPreferencesStore(context: Context) {
         val UPLOAD_ENDED_ENABLED = booleanPreferencesKey("upload_ended_enabled")
         val STORAGE_LATCHED = booleanPreferencesKey("storage_latched")
         val TEMPERATURE_LATCHED = booleanPreferencesKey("temperature_latched")
+        val DASHBOARD_HEALTH_DISMISSALS =
+            stringSetPreferencesKey("dashboard_health_dismissals")
     }
 }

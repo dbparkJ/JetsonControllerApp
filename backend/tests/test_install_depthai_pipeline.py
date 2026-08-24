@@ -63,7 +63,14 @@ class InstallDepthaiPipelineTest(unittest.TestCase):
                 "/var/lib/jetson-sensors",
             ],
         )
+        self.assertIn("--no-autostart", command)
+        self.assertNotIn("--autostart", command)
         self.assertNotIn("--start-now", command)
+
+        installer = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('/etc/jetson-sensor-monitor.json', installer)
+        self.assertIn("jetson-sensor-monitor.service", installer)
+        self.assertNotIn("REPOSITORY_ID", installer)
 
     def test_custom_paths_remain_arguments_and_start_now_is_forwarded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

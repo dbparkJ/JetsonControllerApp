@@ -96,6 +96,28 @@ class SystemTimeSynchronizerTest(unittest.TestCase):
         with self.assertRaisesRegex(TimeSyncConflict, "only allowed once"):
             synchronizer.synchronize(requested + 10 * 60 * 1000)
 
+    def test_bounded_second_sync_never_steps_an_active_capture_clock(self) -> None:
+        requested = 1_777_000_000_000
+        current = {"seconds": requested / 1000.0}
+        commands = []
+        callbacks = []
+        synchronizer = SystemTimeSynchronizer(
+            self.marker,
+            run=lambda command, **kwargs: commands.append(list(command)),
+            clock=lambda: current["seconds"],
+            marker_owner_uid=os.getuid(),
+            on_clock_changed=lambda: callbacks.append(True),
+        )
+        first = synchronizer.synchronize(requested)
+        current["seconds"] += 30
+
+        second = synchronizer.synchronize(requested)
+
+        self.assertEqual(commands, [])
+        self.assertEqual(callbacks, [True])
+        self.assertEqual(second["sourceTimeEpochMillis"], first["sourceTimeEpochMillis"])
+        self.assertEqual(second["synchronizedAtEpochMillis"], first["synchronizedAtEpochMillis"])
+
     def test_failed_date_command_does_not_release_pipelines(self) -> None:
         requested = 1_777_000_000_000
         synchronizer = SystemTimeSynchronizer(
@@ -177,6 +199,15 @@ class FanControllerTest(unittest.TestCase):
         (tachometer / "rpm").write_text("2875\n", encoding="ascii")
 
         self.assertEqual(self.controller.status()["rpm"], 2875)
+
+    def test_reads_jetson_pwm_tach_hwmon_name(self) -> None:
+        (self.hwmon / "fan1_input").unlink()
+        tachometer = self.root / "class" / "hwmon" / "hwmon7"
+        tachometer.mkdir(parents=True)
+        (tachometer / "name").write_text("pwm_tach\n", encoding="ascii")
+        (tachometer / "rpm").write_text("2762\n", encoding="ascii")
+
+        self.assertEqual(self.controller.status()["rpm"], 2762)
 
     def test_manual_speed_stops_daemon_and_writes_bounded_pwm(self) -> None:
         status = self.controller.set("MANUAL", 40)

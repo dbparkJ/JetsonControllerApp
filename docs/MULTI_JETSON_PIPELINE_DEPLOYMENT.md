@@ -47,9 +47,15 @@ sudo backend/scripts/bootstrap-jetson.sh \
 5. Wi-Fi Direct 검색 service와 요청 시 NetworkManager Group Owner/DHCP 자동 구성
 6. storage root와 전원 명령 구성
 7. DepthAI working tree의 실행 snapshot 생성
-8. `jetson-pipeline@depthai-capture.service` 부팅 자동 시작 활성화
+8. `jetson-sensor-monitor.service` 부팅 자동 시작 활성화와 실제 수집 pipeline 수동 시작 등록
 
-등록 직후 카메라를 바로 실행하지는 않는다. 현재 session에서도 즉시 시작하려면 마지막에 `--start-depthai-now`를 추가한다. 다음 재부팅부터는 `enable`된 pipeline이 자동으로 실행된다.
+등록 직후 전용 센서 모니터가 저대역폭으로 카메라·GNSS·IMU를 열어 앱 상태와
+프리뷰를 게시한다. 모니터는 dataset을 만들거나 수집 파일을 쓰지 않는다. 실제 수집
+pipeline은 앱이나 운영 명령으로 시작한 뒤 인증된 모바일 시간 동기화를 기다린다. 설치
+session에서 바로 수집을 시작하려면 마지막에 `--start-depthai-now`를 추가한다. 수집이
+시작되면 모니터가 장치를 정상 종료하고 넘겨주며, 수집이 끝나면 모니터가 자동으로 다시
+장치를 연다. 수집 서비스는 부팅 자동 실행하지 않으므로 장치 오류가 반복되어도 상시
+센서 상태가 주기적으로 끊기지 않는다.
 
 현재 장비처럼 BlueZ 5.55 binary가 이미 있으면 `/usr/local/libexec/bluetooth/bluetoothd-5.55`를 검증해 재사용한다. 별도 빌드 binary를 배포할 때는 다음 옵션을 쓴다.
 
@@ -108,6 +114,14 @@ YAML의 상대 출력 경로에 의존하지 않고 `--output-dir /data/collecti
 `ReadWritePaths`에 추가된다. 따라서 YAML에 남아 있는 상대경로가 sandbox 밖의 홈
 디렉터리로 쓰기 경로를 바꾸지 못한다.
 
+DepthAI preset은 같은 등록 snapshot을 `--monitor-only`로 실행하는 부팅 센서 모니터도
+설정한다. 이 모드는 센서에 맞는 최대 RGB 캡처 크기(최대 1920 px 폭),
+최대 5 FPS, depth 비활성을 사용한다. USB2 급 연결은 MJPEG 장치 전송으로
+대역폭을 제한하며, 실제 수집은 기존 USB3 검사를 유지한다. GNSS와 외부 IMU의
+기본 장치는 번호가 바뀌는 `/dev/ttyACM*` 또는 `/dev/ttyUSB*`가 아니라
+`/dev/serial/by-id`의 장치 식별자로 선택한다. Android 휴대폰은 GNSS 후보에서
+제외한다.
+
 ## 5. 현재 DepthAI 작업 등록
 
 backend 설치 후 preset script를 실행한다.
@@ -123,6 +137,13 @@ sudo /opt/jetson-control/install-depthai-pipeline.sh \
   --repo /home/<user>/26_camera_record \
   --venv /home/<user>/26_camera_record/.venv
 ```
+
+이 preset은 같은 `source_repo`로 등록된 작업이 하나 있으면 그 ID를 재사용하고,
+없으면 `depthai-capture`를 사용한다. 두 ID가 같은 저장소를 가리키면 잘못된
+작업을 선택하지 않도록 설치를 중단한다. 선택된 수집 unit은 disable 상태로
+등록되고 부팅 센서 모니터만 enable된다. 수집 중이면 먼저 정상 종료한 뒤
+preset을 다시 실행한다. 녹화는 앱의 시작 버튼 또는 `systemctl start`로 명시적으로
+시작한다.
 
 generic pipeline은 다음처럼 등록한다.
 
@@ -190,7 +211,7 @@ sudo /opt/jetson-control/register-pipeline.sh \
   --argument=--controller-bridge-dir \
   --argument /var/lib/jetson-sensors \
   --user <user> \
-  --autostart \
+  --no-autostart \
   --restart-running
 ```
 
@@ -224,6 +245,9 @@ Controller sensor bridge가 필요한 현재 DepthAI 운영 preset은 앞 절의
 ## 9. 운영 명령
 
 ```bash
+systemctl status jetson-sensor-monitor.service
+journalctl -u jetson-sensor-monitor.service -f
+
 systemctl status jetson-pipeline@depthai-capture.service
 journalctl -u jetson-pipeline@depthai-capture.service -f
 ls -lh /var/log/jetson-pipelines/depthai-capture/
@@ -246,7 +270,8 @@ pipeline 사용자에게 필요한 장치 group을 장비 정책에 맞게 부�
 /usr/local/libexec/bluetooth/bluetoothd-5.55 -v
 systemctl show bluetooth.service --property=ExecStart
 systemctl is-enabled jetson-control.service jetson-control-api.service jetson-wifi-direct.service
-systemctl is-enabled jetson-pipeline@depthai-capture.service
+systemctl is-enabled jetson-sensor-monitor.service
+systemctl is-enabled jetson-pipeline@depthai-capture.service  # disabled가 정상
 sudo /opt/jetson-control/doctor.sh
 ```
 
@@ -256,4 +281,7 @@ sudo /opt/jetson-control/doctor.sh
 sudo reboot
 ```
 
-부팅 후 API, BLE 광고, pipeline 상태, 새 dataset 생성 위치, GPS/IMU serial 접근, 종료 시 파일 무결성을 확인한다. 운영 데이터가 연결된 상태에서는 앱의 reboot/shutdown 버튼을 누르기 전에 pipeline을 정상 중지한다.
+부팅 후 API, BLE 광고, 센서 모니터 상태·프리뷰, GPS/IMU의 stable serial 식별자,
+모니터 중 dataset 미생성, 수집 시작/종료 시 장치 handoff, 새 dataset 생성 위치와 종료 시
+파일 무결성을 확인한다. 운영 데이터가 연결된 상태에서는 앱의 reboot/shutdown 버튼을
+누르기 전에 pipeline을 정상 중지한다.

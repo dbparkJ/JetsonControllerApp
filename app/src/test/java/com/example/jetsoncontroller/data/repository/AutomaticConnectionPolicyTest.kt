@@ -1,9 +1,15 @@
 package com.example.jetsoncontroller.data.repository
 
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
+import com.example.jetsoncontroller.data.network.WifiDirectState
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.RegisteredDevice
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -42,6 +48,69 @@ class AutomaticConnectionPolicyTest {
         assertTrue(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.BLE)))
         assertTrue(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.WIFI_DIRECT)))
         assertFalse(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.LAN)))
+    }
+
+    @Test
+    fun `wifi direct callback cannot replace pending or connected LAN`() {
+        val directTransport = TransportState.Connected(TransportType.WIFI_DIRECT)
+        assertFalse(
+            allowsWifiDirectApiProbe(
+                directTransport,
+                lanConnectionPending = true
+            )
+        )
+        // The repository combines the pending-LAN flow with the P2P callback.
+        // When a LAN attempt fails and pending changes to false, the unchanged
+        // connected P2P group becomes eligible for probing again.
+        assertTrue(
+            allowsWifiDirectApiProbe(
+                directTransport,
+                lanConnectionPending = false
+            )
+        )
+        assertFalse(
+            allowsWifiDirectApiProbe(
+                TransportState.Connected(TransportType.LAN),
+                lanConnectionPending = false
+            )
+        )
+        assertTrue(
+            allowsWifiDirectApiProbe(
+                TransportState.Connected(TransportType.BLE),
+                lanConnectionPending = false
+            )
+        )
+        assertTrue(
+            allowsWifiDirectApiProbe(
+                TransportState.Disconnected,
+                lanConnectionPending = false
+            )
+        )
+    }
+
+    @Test
+    fun `finishing LAN attempt reevaluates an unchanged wifi direct group`() = runBlocking {
+        val directStates = MutableStateFlow(
+            WifiDirectState(connected = true, groupOwnerAddress = "192.168.49.1")
+        )
+        val connectingLanDeviceIds = MutableStateFlow<String?>(first.deviceId)
+        val observed = mutableListOf<WifiDirectProbeSignal>()
+        val initialObserved = CompletableDeferred<Unit>()
+        val collection = launch {
+            wifiDirectProbeSignals(directStates, connectingLanDeviceIds)
+                .take(2)
+                .collect { signal ->
+                    observed += signal
+                    if (observed.size == 1) initialObserved.complete(Unit)
+                }
+        }
+
+        initialObserved.await()
+        connectingLanDeviceIds.value = null
+        collection.join()
+
+        assertEquals(listOf(true, false), observed.map { it.lanConnectionPending })
+        assertEquals(listOf("192.168.49.1", "192.168.49.1"), observed.map { it.host })
     }
 
     @Test

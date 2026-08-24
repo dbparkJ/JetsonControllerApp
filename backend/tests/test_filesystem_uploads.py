@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import struct
 import tempfile
 import threading
@@ -17,6 +18,7 @@ from jetson_control.uploads import (
     FILE_BATCH_MAGIC,
     HTTP_COMPLETE_RESPONSE_TIMEOUT,
     UploadCapacityExceeded,
+    UploadConfirmationRequired,
     UploadConflict,
     UploadManager,
     UploadTarget,
@@ -312,6 +314,44 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                 resolved,
             )
 
+    def test_directory_listing_reports_recursive_logical_sizes(self) -> None:
+        nested = self.source / "folder" / "nested"
+        nested.mkdir()
+        (nested / "more.bin").write_bytes(b"1234567")
+        (self.source / "folder" / "ignored-link").symlink_to(
+            self.source / "note.txt"
+        )
+
+        entries = self.storage.list_directory("data", "")
+
+        folder = next(entry for entry in entries if entry["name"] == "folder")
+        self.assertEqual(folder["sizeBytes"], 3 * 4096 + 7)
+        note = next(entry for entry in entries if entry["name"] == "note.txt")
+        self.assertEqual(note["sizeBytes"], 5)
+
+    def test_directory_size_does_not_follow_a_swapped_symlink(self) -> None:
+        outside = self.base / "outside"
+        outside.mkdir()
+        (outside / "secret.bin").write_bytes(b"s" * 100)
+        original = self.source / "folder-original"
+        real_open = os.open
+        swapped = False
+
+        def swap_before_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if not swapped and Path(path) == self.source / "folder":
+                swapped = True
+                (self.source / "folder").rename(original)
+                (self.source / "folder").symlink_to(outside, target_is_directory=True)
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("jetson_control.filesystem.os.open", side_effect=swap_before_open):
+            entries = self.storage.list_directory("data", "")
+
+        folder = next(entry for entry in entries if entry["name"] == "folder")
+        self.assertTrue(swapped)
+        self.assertIsNone(folder["sizeBytes"])
+
     def test_reads_bounded_files_and_locates_collection_paths(self) -> None:
         target, content = self.storage.read_file("data", "note.txt", max_bytes=100)
         self.assertEqual(target.name, "note.txt")
@@ -414,6 +454,34 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         copied = list(self.destination.rglob("sample.bin"))
         self.assertEqual(len(copied), 1)
         self.assertEqual(copied[0].read_bytes(), b"abc" * 4096)
+
+    def test_only_confirmed_terminal_upload_history_can_be_deleted(self) -> None:
+        job_id = "0123456789abcdef0123456789abcdef"
+        job = UploadManager._new_job(job_id, "data", "note.txt", "archive")
+        self.uploads._save_job(job)
+
+        with self.assertRaises(UploadConfirmationRequired):
+            self.uploads.delete_job(job_id, confirmed=False)
+        with self.assertRaises(UploadConflict):
+            self.uploads.delete_job(job_id, confirmed=True)
+        self.assertEqual(self.uploads.get(job_id)["state"], "QUEUED")
+
+        job["state"] = "CANCELLED"
+        self.uploads._save_job(job)
+        self.uploads._cancellations[job_id] = threading.Event()
+        with self.assertRaisesRegex(UploadConflict, "still stopping"):
+            self.uploads.delete_job(job_id, confirmed=True)
+        self.uploads._cancellations.pop(job_id)
+
+        job["state"] = "COMPLETED"
+        self.uploads._save_job(job)
+        deleted = self.uploads.delete_job(job_id, confirmed=True)
+
+        self.assertEqual(deleted["state"], "DELETED")
+        self.assertEqual(deleted["previousState"], "COMPLETED")
+        with self.assertRaises(KeyError):
+            self.uploads.get(job_id)
+        self.assertEqual((self.source / "note.txt").read_bytes(), b"hello")
 
     def test_transfer_progress_persists_throughput_and_eta(self) -> None:
         job = UploadManager._new_job(

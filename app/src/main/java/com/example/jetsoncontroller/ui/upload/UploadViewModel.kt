@@ -59,14 +59,17 @@ class UploadViewModel(
     private var currentPollingJob: Job? = null
     private var sourceSummaryJob: Job? = null
     private var actionJob: Job? = null
+    private var queueActionJob: Job? = null
     private var targetActionJob: Job? = null
     private var connectionGeneration = 0L
+    private val deletedQueueJobIds = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
             repository.transportState.collectLatest { transport ->
                 connectionGeneration += 1
                 cancelConnectionJobs()
+                deletedQueueJobIds.clear()
                 if (
                     transport is TransportState.Connected &&
                     transport.type != TransportType.BLE
@@ -146,11 +149,12 @@ class UploadViewModel(
         repository.getUploadJobs(activeOnly = activeOnly)
             .onSuccess { jobs ->
                 if (generation != connectionGeneration) return@onSuccess
+                val visibleJobs = filterDeletedUploadJobs(jobs, deletedQueueJobIds)
                 val state = _uiState.value
                 val queue = if (activeOnly) {
-                    mergeActiveUploadJobs(state.queue, jobs)
+                    mergeActiveUploadJobs(state.queue, visibleJobs)
                 } else {
-                    jobs
+                    visibleJobs
                 }
                 val current = state.currentJob
                 val rememberedJobId = current?.id
@@ -403,6 +407,56 @@ class UploadViewModel(
         if (job.state in activeUploadStates) startCurrentPolling(job.id)
     }
 
+    fun deleteJobFromQueue(job: UploadJob) {
+        if (!isDeletableUploadJob(job)) {
+            _uiState.value = _uiState.value.copy(
+                message = null,
+                error = "진행 중인 업로드 기록은 삭제할 수 없습니다."
+            )
+            return
+        }
+        val generation = connectionGeneration
+        queueRefreshJob?.cancel()
+        queueActionJob?.cancel()
+        queueActionJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                message = null,
+                error = null
+            )
+            repository.deleteUploadJob(job.id)
+                .onSuccess {
+                    if (generation == connectionGeneration) {
+                        deletedQueueJobIds += job.id
+                        val deletingCurrent = _uiState.value.currentJob?.id == job.id
+                        if (deletingCurrent) {
+                            currentPollingJob?.cancel()
+                            rememberCurrentJobId(null)
+                        }
+                        _uiState.value = _uiState.value.copy(
+                            queue = _uiState.value.queue.filterNot { it.id == job.id },
+                            currentJob = _uiState.value.currentJob?.takeUnless {
+                                it.id == job.id
+                            },
+                            verification = _uiState.value.verification?.takeUnless {
+                                deletingCurrent
+                            },
+                            isLoading = false,
+                            message = "업로드 기록을 목록에서 삭제했습니다."
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = error.message ?: "업로드 기록을 삭제하지 못했습니다."
+                        )
+                    }
+                }
+        }
+    }
+
     fun verifyCurrentUpload() {
         val jobId = _uiState.value.currentJob?.id ?: return
         val generation = connectionGeneration
@@ -553,6 +607,7 @@ class UploadViewModel(
         currentPollingJob?.cancel()
         sourceSummaryJob?.cancel()
         actionJob?.cancel()
+        queueActionJob?.cancel()
         targetActionJob?.cancel()
     }
 
@@ -584,6 +639,14 @@ internal fun filterActiveUploadJobs(jobs: List<UploadJob>): List<UploadJob> =
 
 internal fun isActiveUploadState(state: UploadJobState): Boolean =
     state in activeUploadStates
+
+internal fun isDeletableUploadJob(job: UploadJob): Boolean =
+    job.state !in activeUploadStates
+
+internal fun filterDeletedUploadJobs(
+    jobs: List<UploadJob>,
+    deletedJobIds: Set<String>
+): List<UploadJob> = jobs.filterNot { it.id in deletedJobIds }
 
 internal fun UploadSourceSummary?.matchesUploadSource(rootId: String, path: String): Boolean =
     this != null && this.rootId == rootId && this.relativePath == path
