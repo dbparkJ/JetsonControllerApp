@@ -1040,17 +1040,28 @@ class ReceiverService:
                 raise ReceiverError(409, "Only completed library sessions can be deleted")
 
             final = self._final_directory(device.device_id, session_id)
-            if final.is_symlink() or not final.is_dir():
-                raise ReceiverError(503, "Library session storage is inconsistent")
             try:
-                self._remove_tree(final)
-                self._fsync_directory(final.parent)
+                final_metadata = final.lstat()
+            except FileNotFoundError:
+                final_metadata = None
             except OSError as error:
                 raise ReceiverError(
                     503,
-                    "Library session could not be deleted",
+                    "Library session storage is inconsistent",
                     retry_after=5,
                 ) from error
+            if final_metadata is not None and not stat.S_ISDIR(final_metadata.st_mode):
+                raise ReceiverError(503, "Library session storage is inconsistent")
+            if final_metadata is not None:
+                try:
+                    self._remove_tree(final)
+                    self._fsync_directory(final.parent)
+                except OSError as error:
+                    raise ReceiverError(
+                        503,
+                        "Library session could not be deleted",
+                        retry_after=5,
+                    ) from error
 
             with self.database.immediate() as connection:
                 cursor = connection.execute(

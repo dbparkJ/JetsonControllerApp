@@ -357,6 +357,39 @@ class ReceiverApiTest(unittest.TestCase):
             final_directory.unlink()
             original.rename(final_directory)
 
+    def test_library_delete_finishes_after_objects_were_already_removed(self) -> None:
+        body = b"completed"
+        session_id = self.create(
+            self.manifest([("done.bin", body)], client_job_id="c" * 32)
+        ).json()["sessionId"]
+        self.assertEqual(self.put(session_id, "done.bin", body).status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{session_id}/complete",
+                headers=self.auth(),
+                json={},
+            ).status_code,
+            200,
+        )
+
+        receiver = self.client.app.state.receiver
+        final_directory = receiver._final_directory(DEVICE_ID, session_id)
+        receiver._remove_tree(final_directory)
+
+        deleted = self.client.delete(
+            f"/v1/library/sessions/{session_id}",
+            headers=self.auth(),
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(deleted.json()["state"], "DELETED")
+        with receiver.database.connect() as connection:
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT 1 FROM upload_sessions WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()
+            )
+
     def test_library_preview_enforces_size_limit(self) -> None:
         body = b"x" * 17
         created = self.create(

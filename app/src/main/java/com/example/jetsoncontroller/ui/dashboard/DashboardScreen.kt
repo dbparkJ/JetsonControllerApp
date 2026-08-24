@@ -23,11 +23,8 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
@@ -85,9 +82,6 @@ fun DashboardScreen(
     unreadAlertCount: Int,
     onAlertsClick: () -> Unit,
     onDisconnect: () -> Unit,
-    onStartSystem: () -> Unit,
-    onStopSystem: () -> Unit,
-    onRestartServices: () -> Unit,
     onRefreshFan: () -> Unit,
     onSetFanAuto: () -> Unit,
     onSetFanManual: (Int) -> Unit,
@@ -326,39 +320,6 @@ fun DashboardScreen(
                         )
                         Spacer(Modifier.height(AppSpacing.medium))
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
-                    ) {
-                        OutlinedButton(
-                            onClick = onStartSystem,
-                            modifier = Modifier.weight(1f),
-                            enabled = state.isOnline && state.capabilities.systemControlConfigured &&
-                                !state.operationInProgress
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Text("시작", modifier = Modifier.padding(start = AppSpacing.xSmall))
-                        }
-                        OutlinedButton(
-                            onClick = onStopSystem,
-                            modifier = Modifier.weight(1f),
-                            enabled = state.isOnline && state.capabilities.systemControlConfigured &&
-                                !state.operationInProgress
-                        ) {
-                            Icon(Icons.Default.Stop, contentDescription = null)
-                            Text("중지", modifier = Modifier.padding(start = AppSpacing.xSmall))
-                        }
-                        OutlinedButton(
-                            onClick = onRestartServices,
-                            modifier = Modifier.weight(1f),
-                            enabled = state.isOnline && state.capabilities.systemControlConfigured &&
-                                !state.operationInProgress
-                        ) {
-                            Icon(Icons.Default.Sync, contentDescription = null)
-                            Text("재시작", modifier = Modifier.padding(start = AppSpacing.xSmall))
-                        }
-                    }
-                    Spacer(Modifier.height(AppSpacing.medium))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)

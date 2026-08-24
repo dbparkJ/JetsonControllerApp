@@ -23,6 +23,8 @@ data class DeviceStorageUiState(
     val entries: List<RemoteFileEntry> = emptyList(),
     val preview: RemoteFileContent? = null,
     val isLoading: Boolean = false,
+    val isDeleting: Boolean = false,
+    val message: String? = null,
     val error: String? = null
 )
 
@@ -33,6 +35,7 @@ class DeviceStorageViewModel(
     private val _uiState = MutableStateFlow(DeviceStorageUiState())
     val uiState = _uiState.asStateFlow()
     private var loadJob: Job? = null
+    private var deleteJob: Job? = null
     private var connectionGeneration = 0L
 
     init {
@@ -40,6 +43,7 @@ class DeviceStorageViewModel(
             repository.transportState.collectLatest { transport ->
                 connectionGeneration += 1
                 loadJob?.cancel()
+                deleteJob?.cancel()
                 if (
                     transport is TransportState.Connected &&
                     transport.type != TransportType.BLE
@@ -159,6 +163,45 @@ class DeviceStorageViewModel(
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             error = error.message ?: "파일을 열지 못했습니다."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun deleteEntry(entry: RemoteFileEntry) {
+        val root = _uiState.value.currentRoot ?: return
+        val generation = connectionGeneration
+        deleteJob?.cancel()
+        deleteJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isDeleting = true,
+                message = null,
+                error = null
+            )
+            repository.deleteStorageEntry(root.id, entry.relativePath)
+                .onSuccess {
+                    if (
+                        generation == connectionGeneration &&
+                        _uiState.value.currentRoot?.id == root.id
+                    ) {
+                        _uiState.value = _uiState.value.copy(
+                            entries = _uiState.value.entries.filterNot {
+                                it.relativePath == entry.relativePath
+                            },
+                            preview = _uiState.value.preview?.takeUnless {
+                                it.name == entry.name
+                            },
+                            isDeleting = false,
+                            message = "${entry.name} 데이터를 장치에서 삭제했습니다."
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == connectionGeneration) {
+                        _uiState.value = _uiState.value.copy(
+                            isDeleting = false,
+                            error = error.message ?: "장치 데이터를 삭제하지 못했습니다."
                         )
                     }
                 }

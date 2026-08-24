@@ -409,6 +409,25 @@ class ApiContractTest(unittest.TestCase):
         self.assertEqual(listing.status_code, 200, listing.text)
         self.assertIn("source", [entry["name"] for entry in listing.json()["entries"]])
 
+    def test_device_storage_entry_delete_requires_confirmation(self) -> None:
+        path = "/v1/fs/entry?root=data&path=hello%20world.txt"
+
+        unconfirmed = self.signed_request("DELETE", path, b"{}")
+        self.assertEqual(unconfirmed.status_code, 409, unconfirmed.text)
+        self.assertTrue((self.base / "source" / "hello world.txt").is_file())
+
+        body = json.dumps({"confirmed": True}, separators=(",", ":")).encode()
+        deleted = self.signed_request("DELETE", path, body)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(deleted.json()["state"], "DELETED")
+        self.assertEqual(deleted.json()["relativePath"], "hello world.txt")
+        self.assertFalse((self.base / "source" / "hello world.txt").exists())
+
+        root_path = "/v1/fs/entry?root=data&path="
+        rejected_root = self.signed_request("DELETE", root_path, body)
+        self.assertEqual(rejected_root.status_code, 409, rejected_root.text)
+        self.assertTrue((self.base / "source").is_dir())
+
     def test_wifi_direct_status_requires_authentication(self) -> None:
         path = "/v1/network/wifi-direct/status"
         self.assertEqual(self.client.get(path).status_code, 401)

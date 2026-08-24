@@ -320,6 +320,24 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         with self.assertRaises(FileTooLarge):
             self.storage.read_file("data", "note.txt", max_bytes=2)
 
+    def test_user_confirmed_storage_delete_removes_entries_but_not_root(self) -> None:
+        with self.assertRaises(UploadConflict):
+            self.uploads.delete_storage_entry("data", "note.txt", confirmed=False)
+        self.assertTrue((self.source / "note.txt").is_file())
+
+        deleted = self.uploads.delete_storage_entry(
+            "data",
+            "folder",
+            confirmed=True,
+        )
+        self.assertEqual(deleted["state"], "DELETED")
+        self.assertEqual(deleted["type"], "DIRECTORY")
+        self.assertFalse((self.source / "folder").exists())
+
+        with self.assertRaises(UploadConflict):
+            self.uploads.delete_storage_entry("data", "", confirmed=True)
+        self.assertTrue(self.source.is_dir())
+
     def test_workspace_is_limited_to_configured_home(self) -> None:
         workspace = WorkspaceRegistry(self.source)
         self.assertEqual(workspace.roots_response()[0]["pathHint"], "~/")

@@ -42,7 +42,7 @@ CommandRunner = Callable[..., subprocess.CompletedProcess]
 class PipelineManager:
     MAX_CONFIG_BYTES = 512 * 1024
     MAX_CONFIG_FIELDS = 2048
-    MAX_LOG_FILES = 100
+    MAX_LOG_FILES = 20
     MAX_LOG_READ_BYTES = 128 * 1024
 
     def __init__(

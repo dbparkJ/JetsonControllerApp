@@ -40,6 +40,13 @@ interface LocalControlApi {
         @Query("path") path: String
     ): Response<ResponseBody>
 
+    @HTTP(method = "DELETE", path = "/v1/fs/entry", hasBody = true)
+    suspend fun deleteStorageEntry(
+        @Query("root") rootId: String,
+        @Query("path") path: String,
+        @Body request: ConfirmDeletionRequest
+    ): Response<DeviceStorageDeletion>
+
     @GET("/v1/fs/workspaces")
     suspend fun getWorkspaceRoots(): Response<List<RemoteRoot>>
 

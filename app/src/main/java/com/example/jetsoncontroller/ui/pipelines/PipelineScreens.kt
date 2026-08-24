@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Explore
@@ -329,43 +328,11 @@ private fun PipelineItem(
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
-                        Text(
-                            pipeline.id,
-                            modifier = Modifier.padding(start = 8.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
                 IconButton(onClick = onRemove, enabled = controlsEnabled && !busy) {
                     Icon(Icons.Default.DeleteOutline, contentDescription = "작업 등록 해제")
                 }
-            }
-            Spacer(Modifier.height(12.dp))
-            PipelineMetadata(Icons.Default.Code, pipeline.entrypoint)
-            PipelineMetadata(Icons.Default.Description, pipeline.config)
-            PipelineMetadata(
-                Icons.Default.Terminal,
-                listOfNotNull(
-                    pipeline.pythonVersion.takeIf { it.isNotBlank() },
-                    pipeline.sourceBranch.takeIf { it.isNotBlank() }
-                ).joinToString(" · ")
-            )
-            if (pipeline.sourceDirty) {
-                Text(
-                    "미커밋 변경 포함 스냅샷",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-            if (pipeline.state == PipelineState.RETRYING || pipeline.state == PipelineState.FAILED) {
-                Text(
-                    "최근 종료 코드 ${pipeline.lastExitCode} · 자동 재시작 ${pipeline.restartCount}회",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
             }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -431,30 +398,6 @@ private fun PipelineItem(
                 LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
-    }
-}
-
-@Composable
-private fun PipelineMetadata(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
-    if (text.isBlank()) return
-    Row(
-        modifier = Modifier.padding(vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text,
-            modifier = Modifier.padding(start = 8.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 

@@ -366,6 +366,46 @@ class UploadManager:
             deletionEligible=False,
         )
 
+    def delete_storage_entry(
+        self,
+        root_id: str,
+        relative_path: str,
+        *,
+        confirmed: bool,
+    ) -> Dict[str, object]:
+        """Delete a user-selected file or directory from a configured storage root."""
+        if not confirmed:
+            raise UploadConfirmationRequired(
+                "Storage deletion requires explicit user confirmation"
+            )
+        with self._lock:
+            root, resolved_source = self.storage.resolve(root_id, relative_path)
+            source = self._resolve_deletion_source(
+                root.path,
+                relative_path,
+                resolved_source,
+            )
+            if source == root.path:
+                raise UploadConflict("A configured storage root cannot be deleted")
+            if not source.exists():
+                raise FileNotFoundError("Storage entry was not found")
+            self._assert_deletable_source(source)
+            if self._source_overlaps_active_upload(source):
+                raise UploadConflict("Storage entry is being used by an active upload")
+
+            entry_type = "DIRECTORY" if source.is_dir() else "FILE"
+            entry_name = source.name
+            self._remove_local_source(source)
+
+        return {
+            "rootId": root_id,
+            "relativePath": relative_path,
+            "name": entry_name,
+            "type": entry_type,
+            "state": "DELETED",
+            "deletedAt": self._timestamp(),
+        }
+
     def delete_library_session(
         self,
         target_id: str,
@@ -523,7 +563,7 @@ class UploadManager:
         self,
         source: Path,
         *,
-        excluding_job_id: str,
+        excluding_job_id: Optional[str] = None,
     ) -> bool:
         for job in self.list_jobs(active_only=True):
             if job.get("id") == excluding_job_id:

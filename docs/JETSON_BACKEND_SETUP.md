@@ -201,6 +201,8 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `GET` | `/v1/upload/library/sessions?target=&offset=` | HMAC | 외부 서버 완료 upload 목록 프록시 |
 | `GET` | `/v1/upload/library/files?target=&session=&path=` | HMAC | 외부 서버 upload의 가상 폴더 목록 프록시 |
 | `GET` | `/v1/upload/library/file?target=&session=&path=` | HMAC | 외부 서버 파일의 12 MiB 제한 미리보기 프록시 |
+| `DELETE` | `/v1/upload/library/sessions/{sessionId}?target=` | HMAC + 확인 | 외부 서버의 완료 업로드 삭제 |
+| `DELETE` | `/v1/fs/entry?root=&path=` | HMAC + 확인 | 장치 저장소의 선택 파일·폴더 삭제 |
 | `GET` | `/v1/upload/targets` | HMAC | 외부 업로드 대상 |
 | `PUT` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 HTTPS 업로드 서버 추가·수정 |
 | `DELETE` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 업로드 서버 삭제 |
@@ -390,7 +392,7 @@ backend는 임의 shell 문자열을 저장하지 않는다. 등록기는 Git tr
 
 앱의 YAML 편집기는 `current` release 안의 등록된 `.yaml` 또는 `.yml` 파일만 UTF-8 텍스트로 읽고 원자 저장한다. 저장 후 작업을 재시작하면 반영된다. 출력 버튼은 등록 시 지정한 쓰기 경로가 수집 storage root 안에 있을 때 그 폴더를 바로 연다.
 
-pipeline runner는 stdout과 stderr를 journald에 계속 보내면서 `/var/log/jetson-pipelines/<id>/`에도 기록한다. systemd가 자동 재시작할 때마다 `run-<UTC>-<pid>.log`를 새로 만들어 이전 오류 로그를 보존한다. 앱은 로그 파일 목록을 매초 확인하고 선택한 파일의 새 바이트만 최대 128 KiB씩 받아 최신 실행을 실시간으로 따라가며, 이전 실행도 목록에서 다시 열 수 있다. 디스크 보호를 위해 pipeline별 최근 100개, 전체 1 GiB, 실행 파일당 128 MiB로 제한하고 파일 한도 이후 출력은 journald에 계속 남긴다.
+pipeline runner는 stdout과 stderr를 journald에 계속 보내면서 `/var/log/jetson-pipelines/<id>/`에도 기록한다. systemd가 자동 재시작할 때마다 `run-<UTC>-<pid>.log`를 새로 만들어 이전 오류 로그를 보존한다. 앱은 로그 파일 목록을 매초 확인하고 선택한 파일의 새 바이트만 최대 128 KiB씩 받아 최신 실행을 실시간으로 따라가며, 이전 실행도 목록에서 다시 열 수 있다. 디스크 보호를 위해 pipeline별 최근 20개, 전체 1 GiB, 실행 파일당 128 MiB로 제한하고 파일 한도 이후 출력은 journald에 계속 남긴다.
 
 관리 action은 정확히 `start`, `stop`, `restart`, `enable`, `disable`만 허용한다. 등록 해제 시 unit은 중지·비활성화하고 release는 `/opt/jetson-pipelines/.archive/`로 이동해 보존한다.
 

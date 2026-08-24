@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -77,10 +80,35 @@ fun DeviceStorageScreen(
     onRefresh: () -> Unit,
     onDirectoryClick: (RemoteFileEntry) -> Unit,
     onFileClick: (RemoteFileEntry) -> Unit,
+    onDeleteClick: (RemoteFileEntry) -> Unit,
     onUploadClick: (String, String) -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
     onServerDataClick: () -> Unit = {}
 ) {
+    var pendingDeletion by remember { mutableStateOf<RemoteFileEntry?>(null) }
+    pendingDeletion?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { pendingDeletion = null },
+            title = { Text("장치 데이터를 삭제할까요?") },
+            text = {
+                val target = if (entry.type == RemoteEntryType.DIRECTORY) {
+                    "${entry.name} 폴더와 내부 데이터를"
+                } else {
+                    "${entry.name} 파일을"
+                }
+                Text("$target 장치에서 영구 삭제합니다.")
+            },
+            confirmButton = {
+                Button(onClick = {
+                    pendingDeletion = null
+                    onDeleteClick(entry)
+                }) { Text("삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeletion = null }) { Text("취소") }
+            }
+        )
+    }
     BackHandler(onBack = onBack)
     Scaffold(
         topBar = {
@@ -106,7 +134,10 @@ fun DeviceStorageScreen(
                 },
                 actions = {
                     if (state.preview == null) {
-                        IconButton(onClick = onRefresh, enabled = !state.isLoading) {
+                        IconButton(
+                            onClick = onRefresh,
+                            enabled = !state.isLoading && !state.isDeleting
+                        ) {
                             Icon(Icons.Default.Refresh, contentDescription = "새로고침")
                         }
                     }
@@ -133,6 +164,7 @@ fun DeviceStorageScreen(
                         onRefresh = onRefresh,
                         onDirectoryClick = onDirectoryClick,
                         onFileClick = onFileClick,
+                        onDeleteClick = { pendingDeletion = it },
                         onUploadClick = onUploadClick,
                         serverUploadEnabled = serverUploadEnabled,
                         serverUploadDisabledReason = serverUploadDisabledReason
@@ -144,7 +176,7 @@ fun DeviceStorageScreen(
                         onAction = onRefresh
                     )
                 }
-                if (state.isLoading) {
+                if (state.isLoading || state.isDeleting) {
                     LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
                 }
             }
@@ -158,6 +190,7 @@ private fun DirectoryList(
     onRefresh: () -> Unit,
     onDirectoryClick: (RemoteFileEntry) -> Unit,
     onFileClick: (RemoteFileEntry) -> Unit,
+    onDeleteClick: (RemoteFileEntry) -> Unit,
     onUploadClick: (String, String) -> Unit,
     serverUploadEnabled: Boolean,
     serverUploadDisabledReason: String?
@@ -184,7 +217,7 @@ private fun DirectoryList(
                     )
                     Button(
                         onClick = { onUploadClick(root.id, state.currentPath) },
-                        enabled = serverUploadEnabled && !state.isLoading
+                        enabled = serverUploadEnabled && !state.isLoading && !state.isDeleting
                     ) {
                         Icon(Icons.Default.Upload, contentDescription = null)
                         Text("업로드", modifier = Modifier.padding(start = 8.dp))
@@ -211,6 +244,15 @@ private fun DirectoryList(
                         Text("다시 불러오기", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
+            }
+        }
+        state.message?.let { message ->
+            item {
+                InlineMessage(
+                    message = message,
+                    isError = false,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
             }
         }
         if (state.entries.isEmpty() && !state.isLoading && state.error == null) {
@@ -240,15 +282,25 @@ private fun DirectoryList(
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                trailingContent = if (directory) {
-                    { Icon(Icons.Default.ChevronRight, contentDescription = null) }
-                } else {
-                    {
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!directory) {
+                            IconButton(
+                                onClick = { onUploadClick(root.id, entry.relativePath) },
+                                enabled = serverUploadEnabled && !state.isLoading &&
+                                    !state.isDeleting
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = "파일 업로드")
+                            }
+                        }
                         IconButton(
-                            onClick = { onUploadClick(root.id, entry.relativePath) },
-                            enabled = serverUploadEnabled && !state.isLoading
+                            onClick = { onDeleteClick(entry) },
+                            enabled = !state.isLoading && !state.isDeleting
                         ) {
-                            Icon(Icons.Default.Upload, contentDescription = "파일 업로드")
+                            Icon(Icons.Default.Delete, contentDescription = "장치 데이터 삭제")
+                        }
+                        if (directory) {
+                            Icon(Icons.Default.ChevronRight, contentDescription = null)
                         }
                     }
                 },

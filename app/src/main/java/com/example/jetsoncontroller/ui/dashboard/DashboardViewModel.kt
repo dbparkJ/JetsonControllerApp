@@ -131,18 +131,6 @@ class DashboardViewModel(
     }
 
 
-    fun startSystem() =
-        repository.startSystem()
-
-
-    fun stopSystem() =
-        repository.stopSystem()
-
-
-    fun restartServices() =
-        repository.restartServices()
-
-
     fun reboot() =
         repository.reboot()
 

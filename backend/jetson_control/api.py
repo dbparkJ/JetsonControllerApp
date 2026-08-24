@@ -486,6 +486,32 @@ def create_app(
         except PermissionError as error:
             raise HTTPException(status_code=403, detail=str(error)) from error
 
+    @app.delete("/v1/fs/entry", dependencies=authenticated)
+    def delete_storage_entry(
+        root: str,
+        path: str,
+        body: ConfirmDeletionRequest,
+    ) -> Dict[str, object]:
+        try:
+            return uploads.delete_storage_entry(
+                root,
+                path,
+                confirmed=body.confirmed,
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (UploadConflict, UploadConfirmationRequired) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except OSError as error:
+            raise HTTPException(
+                status_code=500,
+                detail="Storage entry could not be deleted",
+            ) from error
+
     @app.get("/v1/fs/workspaces", dependencies=authenticated)
     async def workspace_roots() -> List[Dict[str, object]]:
         return workspace_service.roots_response()
@@ -621,12 +647,10 @@ def create_app(
         dependencies=authenticated,
     )
     def delete_upload_library_session(
-        request: Request,
         session_id: str,
         target: str,
         body: ConfirmDeletionRequest,
     ) -> Dict[str, object]:
-        require_lan_upload_request(request)
         try:
             return uploads.delete_library_session(
                 target,
@@ -707,11 +731,9 @@ def create_app(
 
     @app.delete("/v1/uploads/{job_id}/source", dependencies=authenticated)
     def delete_upload_source(
-        request: Request,
         job_id: str,
         body: ConfirmDeletionRequest,
     ) -> Dict[str, object]:
-        require_lan_upload_request(request)
         try:
             return uploads.delete_completed_source(job_id, confirmed=body.confirmed)
         except KeyError as error:

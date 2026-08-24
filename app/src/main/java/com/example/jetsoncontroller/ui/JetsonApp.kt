@@ -689,12 +689,6 @@ fun JetsonApp(
                     }
                 },
 
-                onStartSystem = dashboardViewModel::startSystem,
-
-                onStopSystem = dashboardViewModel::stopSystem,
-
-                onRestartServices = dashboardViewModel::restartServices,
-
                 onRefreshFan = dashboardViewModel::refreshFan,
 
                 onSetFanAuto = dashboardViewModel::setFanAuto,
@@ -822,6 +816,7 @@ fun JetsonApp(
                 onRefresh = storageViewModel::refresh,
                 onDirectoryClick = { storageViewModel.selectDirectory(it) },
                 onFileClick = storageViewModel::openFile,
+                onDeleteClick = storageViewModel::deleteEntry,
                 onUploadClick = { rootId, path ->
                     navController.navigate(
                         "upload_confirm/${Uri.encode(rootId)}?path=${Uri.encode(path)}"
@@ -857,7 +852,7 @@ fun JetsonApp(
                 onFileClick = serverStorageViewModel::openFile,
                 onLoadMore = serverStorageViewModel::loadMoreSessions,
                 onSectionSelected = onSectionSelected,
-                deletionEnabled = serverUploadEnabled
+                deletionEnabled = fullControlConnected
             )
         }
 
@@ -916,7 +911,8 @@ fun JetsonApp(
                 onDeleteSource = uploadViewModel::deleteCurrentSource,
                 onBack = { navController.popBackStack() },
                 serverMutationEnabled = serverUploadEnabled,
-                serverMutationDisabledReason = serverUploadDisabledReason
+                serverMutationDisabledReason = serverUploadDisabledReason,
+                deviceDeletionEnabled = fullControlConnected
             )
         }
 

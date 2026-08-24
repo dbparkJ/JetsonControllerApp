@@ -23,7 +23,7 @@ TIME_SYNC_MARKER = Path(
         "/run/jetson-control/time-synchronized.json",
     )
 )
-MAX_LOG_FILES = 100
+MAX_LOG_FILES = 20
 MAX_LOG_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_RUN_LOG_BYTES = 128 * 1024 * 1024
 LOG_TRUNCATED = b"\n=== file log limit reached; output continues in journald ===\n"

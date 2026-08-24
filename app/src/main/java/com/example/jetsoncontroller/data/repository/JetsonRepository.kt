@@ -681,30 +681,6 @@ class JetsonRepository(
     }
 
 
-    fun startSystem(): Boolean {
-
-        return sendCommand(
-            JetsonCommand.START_SYSTEM
-        )
-    }
-
-
-    fun stopSystem(): Boolean {
-
-        return sendCommand(
-            JetsonCommand.STOP_SYSTEM
-        )
-    }
-
-
-    fun restartServices(): Boolean {
-
-        return sendCommand(
-            JetsonCommand.RESTART_SERVICES
-        )
-    }
-
-
     fun reboot(): Boolean {
 
         return sendCommand(
@@ -1208,6 +1184,19 @@ class JetsonRepository(
         }
     }
 
+    suspend fun deleteStorageEntry(
+        rootId: String,
+        relativePath: String
+    ): Result<DeviceStorageDeletion> {
+        if (rootId == WORKSPACE_ROOT_ID) {
+            return Result.failure(
+                IllegalArgumentException("작업공간 데이터는 이 화면에서 삭제할 수 없습니다.")
+            )
+        }
+        val client = activeIpClient ?: return missingIpConnection()
+        return client.deleteStorageEntry(rootId, relativePath)
+    }
+
     suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> {
         val client = activeIpClient ?: return missingIpConnection()
         return client.getWorkspaceRoots()
@@ -1256,12 +1245,6 @@ class JetsonRepository(
         targetId: String,
         sessionId: String
     ): Result<UploadDeletionResponse> {
-        val transportType = transportCoordinator.currentTransport()?.type
-        if (!canStartServerUpload(transportType)) {
-            return Result.failure(
-                IllegalStateException(serverUploadUnavailableMessage(transportType))
-            )
-        }
         val client = activeIpClient ?: return missingIpConnection()
         return client.deleteUploadLibrarySession(targetId, sessionId)
     }
@@ -1332,12 +1315,6 @@ class JetsonRepository(
     }
 
     suspend fun deleteUploadSource(jobId: String): Result<UploadJob> {
-        val transportType = transportCoordinator.currentTransport()?.type
-        if (!canStartServerUpload(transportType)) {
-            return Result.failure(
-                IllegalStateException(serverUploadUnavailableMessage(transportType))
-            )
-        }
         val client = activeIpClient ?: return missingIpConnection()
         return client.deleteUploadSource(jobId)
     }

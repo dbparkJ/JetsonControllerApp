@@ -59,7 +59,8 @@ fun UploadProgressScreen(
     onDeleteSource: () -> Unit,
     onBack: () -> Unit,
     serverMutationEnabled: Boolean = true,
-    serverMutationDisabledReason: String? = null
+    serverMutationDisabledReason: String? = null,
+    deviceDeletionEnabled: Boolean = true
 ) {
     var showCancelDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -239,17 +240,14 @@ fun UploadProgressScreen(
                     Spacer(Modifier.height(12.dp))
                     InlineMessage(message = "장치의 업로드 원본이 삭제되었습니다.", isError = false)
                 }
-                val mutationActionVisible = job.state == UploadJobState.FAILED ||
+                val serverMutationActionVisible = job.state == UploadJobState.FAILED ||
                     (
                         job.state == UploadJobState.COMPLETED &&
                             !job.sourceDeleted &&
-                            (
-                                verification?.matched == false ||
-                                    (verification?.matched == true && verification.deletionAllowed)
-                            )
+                            verification?.matched == false
                     )
                 if (
-                    mutationActionVisible && !serverMutationEnabled &&
+                    serverMutationActionVisible && !serverMutationEnabled &&
                     !serverMutationDisabledReason.isNullOrBlank()
                 ) {
                     Spacer(Modifier.height(12.dp))
@@ -306,7 +304,7 @@ fun UploadProgressScreen(
                         Button(
                             onClick = { showDeleteDialog = true },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !isLoading && serverMutationEnabled
+                            enabled = !isLoading && deviceDeletionEnabled
                         ) {
                             Text("확인된 장치 원본 삭제")
                         }

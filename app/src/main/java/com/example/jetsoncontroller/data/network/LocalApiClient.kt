@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.DiscoverPipelineFolderRequest
+import com.example.jetsoncontroller.model.DeviceStorageDeletion
 import com.example.jetsoncontroller.model.FanStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineFolderDiscovery
@@ -187,6 +188,17 @@ class LocalApiClient(
                 bytes = body.bytes()
             )
         }
+
+    suspend fun deleteStorageEntry(
+        rootId: String,
+        path: String
+    ): Result<DeviceStorageDeletion> = request("장치 데이터 삭제") {
+        requireApi().deleteStorageEntry(
+            rootId,
+            path,
+            LocalControlApi.ConfirmDeletionRequest()
+        )
+    }
 
     suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> =
         requestWithLegacyFallback(
