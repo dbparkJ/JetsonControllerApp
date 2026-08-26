@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.Inet4Address
+import java.net.InetAddress
 import javax.net.SocketFactory
 
 data class WifiDirectPeer(
@@ -856,6 +858,17 @@ class WifiDirectManager(
      * would break Internet-backed screens while Wi-Fi Direct is active.
      */
     fun socketFactoryForGroupOwner(host: String): SocketFactory? {
+        return wifiDirectRouteForGroupOwner(host)?.first?.socketFactory
+    }
+
+    /** Local Android P2P address used to bind the mobile RTK relay server. */
+    fun localAddressForGroupOwner(host: String): InetAddress? {
+        return wifiDirectRouteForGroupOwner(host)?.second
+    }
+
+    private fun wifiDirectRouteForGroupOwner(
+        host: String
+    ): Pair<android.net.Network, InetAddress>? {
         val targetAddress = runCatching {
             InetAddresses.parseNumericAddress(host)
         }.getOrNull() ?: return null
@@ -871,10 +884,16 @@ class WifiDirectManager(
                     val reachesGroupOwner = linkProperties.routes.any { route ->
                         route.matches(targetAddress)
                     }
-                    if (hasP2pInterface && reachesGroupOwner) network else null
+                    val localAddress = linkProperties.linkAddresses
+                        .map { it.address }
+                        .firstOrNull { it is Inet4Address && !it.isLoopbackAddress }
+                    if (hasP2pInterface && reachesGroupOwner && localAddress != null) {
+                        network to localAddress
+                    } else {
+                        null
+                    }
                 }
                 .firstOrNull()
-                ?.socketFactory
         }.getOrNull()
     }
 

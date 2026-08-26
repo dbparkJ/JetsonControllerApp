@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from . import __version__
@@ -17,6 +18,7 @@ from .commands import CommandDisabled, CommandError, CommandRunner
 from .config import DeviceConfig, RuntimePaths
 from .filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
 from .network import WifiProvisioner, validate_wifi_credentials
+from .mobile_rtk import MobileRtkRelayRegistry
 from .pipelines import (
     PIPELINE_ACTIONS,
     PipelineConflict,
@@ -181,6 +183,13 @@ class UpdatePipelineConfigFieldsRequest(BaseModel):
     values: Dict[str, str]
 
 
+class RegisterMobileRtkRelayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pipeline_id: str = Field(alias="pipelineId", min_length=1, max_length=64)
+    port: int = Field(ge=1024, le=65535)
+
+
 def create_app(
     paths: Optional[RuntimePaths] = None,
     config: Optional[DeviceConfig] = None,
@@ -192,6 +201,7 @@ def create_app(
     upload_manager: Optional[UploadManager] = None,
     wifi_provisioner: Optional[WifiProvisioner] = None,
     pipeline_manager: Optional[PipelineManager] = None,
+    mobile_rtk_registry: Optional[MobileRtkRelayRegistry] = None,
     time_synchronizer: Optional[SystemTimeSynchronizer] = None,
     fan_controller: Optional[FanController] = None,
     tls_fingerprint: Optional[str] = None,
@@ -237,6 +247,9 @@ def create_app(
         )
     else:
         pipelines = pipeline_manager
+    mobile_rtk = mobile_rtk_registry or MobileRtkRelayRegistry(
+        runtime_paths.mobile_rtk_relay
+    )
     system_time = time_synchronizer or SystemTimeSynchronizer(
         on_clock_changed=request_auth.reset_after_clock_change
     )
@@ -261,6 +274,7 @@ def create_app(
     app.state.upload_manager = uploads
     app.state.wifi_provisioner = wifi
     app.state.pipeline_manager = pipelines
+    app.state.mobile_rtk_registry = mobile_rtk
     app.state.time_synchronizer = system_time
     app.state.fan_controller = fan
 
@@ -353,6 +367,24 @@ def create_app(
                 detail="Server uploads can only be started or retried over LAN",
             )
 
+    def wifi_direct_peer_address(request: Request) -> str:
+        network = ipaddress.ip_interface(device_config.wifi_direct_address).network
+        own_address = ipaddress.ip_interface(device_config.wifi_direct_address).ip
+        client_address = _scope_ip_address(
+            request.client.host if request.client is not None else None
+        )
+        if (
+            client_address is None
+            or client_address.version != 4
+            or client_address not in network
+            or client_address == own_address
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mobile RTK relay registration requires Wi-Fi Direct",
+            )
+        return str(client_address)
+
     def resolve_pipeline_source(root_id: str, relative_path: str) -> Path:
         if root_id == WorkspaceRegistry.ROOT_ID:
             _, target = workspace_service.resolve(root_id, relative_path)
@@ -418,6 +450,7 @@ def create_app(
             "pipelines": True,
             "pipelineFolderRegistration": True,
             "mobileTimeSync": True,
+            "mobileRtkRelay": True,
             "fanControl": True,
         }
 
@@ -1033,13 +1066,63 @@ def create_app(
         if action not in PIPELINE_ACTIONS:
             raise HTTPException(status_code=404, detail="Unknown pipeline action")
         try:
-            return pipeline_response(pipelines.control(pipeline_id, action))
+            # systemctl stop/restart can wait for a pipeline's graceful shutdown
+            # timeout. Keep that blocking subprocess off Uvicorn's event loop so
+            # status, camera, BLE handoff, and relay heartbeats remain responsive.
+            controlled = await run_in_threadpool(
+                pipelines.control,
+                pipeline_id,
+                action,
+            )
+            return pipeline_response(controlled)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except PipelineError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get(
+        "/v1/rtk/mobile-relay/config/{pipeline_id}",
+        dependencies=authenticated,
+    )
+    async def mobile_rtk_config(pipeline_id: str) -> Dict[str, object]:
+        try:
+            return await run_in_threadpool(pipelines.mobile_rtk_config, pipeline_id)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.put("/v1/rtk/mobile-relay", dependencies=authenticated)
+    async def register_mobile_rtk_relay(
+        request: Request,
+        body: RegisterMobileRtkRelayRequest,
+    ) -> Dict[str, object]:
+        relay_host = wifi_direct_peer_address(request)
+        try:
+            config = await run_in_threadpool(
+                pipelines.mobile_rtk_config,
+                body.pipeline_id,
+            )
+            if not config.get("available"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Pipeline does not have mobile-relay-compatible NTRIP enabled",
+                )
+            return mobile_rtk.register(body.pipeline_id, relay_host, body.port)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ValueError, PipelineError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.delete("/v1/rtk/mobile-relay/{pipeline_id}", dependencies=authenticated)
+    async def unregister_mobile_rtk_relay(pipeline_id: str) -> Response:
+        try:
+            mobile_rtk.unregister(pipeline_id)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return Response(status_code=204)
 
     return app
 

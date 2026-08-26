@@ -88,6 +88,14 @@ class RuntimePaths:
             )
         )
     )
+    mobile_rtk_relay: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get(
+                "JETSON_CONTROL_MOBILE_RTK_RELAY",
+                "/run/jetson-control/mobile-rtk-relay.json",
+            )
+        )
+    )
 
 
 @dataclass(frozen=True)

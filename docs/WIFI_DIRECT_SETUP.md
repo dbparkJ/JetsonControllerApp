@@ -115,7 +115,31 @@ sudo backend/scripts/install.sh \
 
 Wi-Fi Direct association만으로 장비 제어 권한을 부여하지 않는다. QR로 등록된 장비 ID와 secret이 없으면 API 연결은 거부된다.
 
-## 7. 점검
+## 7. 모바일 데이터 RTK 중계
+
+Wi-Fi Direct profile은 인터넷 NAT나 tethering을 제공하지 않는다. 대신 앱은 작업을
+`start` 또는 `restart`할 때 해당 작업의 `rtk_ntrip_host`와 `rtk_ntrip_port`만
+조회하고, Android의 `TRANSPORT_CELLULAR` network에 묶인 TCP socket을 연다. Jetson의
+기존 NTRIP client는 P2P 주소의 앱 relay에 접속하며 앱이 caster까지 양방향 byte를
+전달한다. 계정, 비밀번호, mountpoint, GGA 생성은 계속 Jetson 작업 안에만 남는다.
+
+relay는 다음 조건을 모두 만족할 때 자동 준비된다.
+
+- 현재 제어 연결이 Wi-Fi Direct다.
+- backend가 `mobileRtkRelay` capability를 제공한다.
+- 작업 설정에서 `enable_gps`가 `true`이고 `rtk_ntrip_host`가 비어 있지 않다.
+- Android에서 사용 가능한 모바일 데이터 연결이 있다.
+
+앱 알림의 `모바일 데이터 RTK 중계 중`이 표시되면 동작 중이다. 작업을 중지하거나
+Wi-Fi Direct 연결을 끊으면 relay와 셀룰러 network 요청도 정리된다. 부팅 때 이미
+자동 실행된 작업에는 실행 중인 process의 환경을 바꿀 수 없으므로, Wi-Fi Direct 연결
+후 앱에서 한 번 `재시작`해야 모바일 relay 경로가 적용된다.
+
+backend는 `/run/jetson-control/mobile-rtk-relay.json`에 자격 증명이 없는 host/port
+경로만 30초 lease로 기록한다. 앱이 10초마다 인증된 API로 갱신하므로 앱이 종료되거나
+P2P가 끊기면 stale 경로가 자동 만료된다.
+
+## 8. 점검
 
 연결 전:
 
@@ -144,7 +168,7 @@ journalctl -u jetson-wifi-direct.service -n 150 --no-pager
 journalctl -u NetworkManager.service -n 150 --no-pager
 ```
 
-## 8. 장애 대응
+## 9. 장애 대응
 
 ### 앱에 Jetson이 보이지 않음
 
@@ -166,10 +190,19 @@ journalctl -u NetworkManager.service -n 150 --no-pager
 - 앱에 해당 장비의 QR credential이 남아 있는지 확인한다.
 - 인증서나 QR secret을 임의로 재생성하지 않는다.
 
-## 9. 보안 경계
+### RTK 중계가 시작되지 않음
+
+- Android 모바일 데이터와 SIM 연결 상태를 확인한다.
+- 작업 YAML의 `enable_gps`, `rtk_ntrip_host`, `rtk_ntrip_port`를 확인한다.
+- 작업을 `재시작`하고 앱의 RTK 상태 메시지와 `jetson-control-api.service` journal을 확인한다.
+- `/run/jetson-control/mobile-rtk-relay.json`의 `expiresAtEpochMillis`가 계속 갱신되는지 확인한다.
+
+## 10. 보안 경계
 
 - P2P profile은 인터넷 forwarding이나 NAT를 제공하지 않는다.
 - P2P 연결은 기존 LAN/모바일 인터넷 기본 경로를 대체하지 않는다.
+- 모바일 RTK relay server는 P2P interface 주소에만 bind하고 Jetson Group Owner 주소만 허용한다.
+- caster 연결 socket만 Android cellular network에 묶으며 앱 전체 기본 network는 바꾸지 않는다.
 - Local API는 pinned TLS proof와 양방향 HMAC 없이는 사용할 수 없다.
 - 저장소 경로, upload token, pipeline 명령은 인증되지 않은 endpoint에 노출하지 않는다.
 
@@ -177,5 +210,7 @@ journalctl -u NetworkManager.service -n 150 --no-pager
 
 - [Android Wi-Fi Direct 공식 개요](https://developer.android.com/develop/connectivity/wifi/wifip2p)
 - [Android WifiP2pManager API](https://developer.android.com/reference/android/net/wifi/p2p/WifiP2pManager)
+- [Android Network API](https://developer.android.com/reference/android/net/Network)
+- [Android foreground service 유형](https://developer.android.com/develop/background-work/services/fgs/service-types)
 - [NetworkManager wifi-p2p 설정](https://networkmanager.dev/docs/api/latest/settings-wifi-p2p.html)
 - [wpa_supplicant P2P control interface](https://w1.fi/wpa_supplicant/devel/p2p.html)
