@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -16,6 +17,7 @@ import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.data.network.WifiSecurity
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -57,7 +59,8 @@ class NetworkSettingsScreenTest {
                             ssid = it.ssid,
                             selectedAccessPointSsid = it.ssid
                         )
-                    }
+                    },
+                    onOpenWifiDirect = {}
                 )
             }
         }
@@ -95,7 +98,8 @@ class NetworkSettingsScreenTest {
                     wifiScanPermissionGranted = true,
                     onRequestWifiScanPermission = {},
                     onScanAccessPoints = {},
-                    onSelectAccessPoint = {}
+                    onSelectAccessPoint = {},
+                    onOpenWifiDirect = {}
                 )
             }
         }
@@ -106,5 +110,36 @@ class NetworkSettingsScreenTest {
         composeRule.onNodeWithTag("wifi-access-point-Lab Wi-Fi")
             .assertIsNotEnabled()
         composeRule.onAllNodesWithTag("wifi-selected-network-form").assertCountEquals(0)
+    }
+
+    @Test
+    fun wifiDirectTabIsAlwaysActionableWhileLanIsConnected() {
+        var directOpened = false
+
+        composeRule.setContent {
+            JetsonControllerTheme {
+                NetworkSettingsScreen(
+                    state = NetworkSettingsUiState(transportType = TransportType.LAN),
+                    onBack = {},
+                    onSsidChange = {},
+                    onPasswordChange = {},
+                    onHiddenChange = {},
+                    onSubmit = {},
+                    wifiScanPermissionGranted = true,
+                    onRequestWifiScanPermission = {},
+                    onScanAccessPoints = {},
+                    onSelectAccessPoint = {},
+                    onOpenWifiDirect = { directOpened = true }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Wi-Fi Direct").assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("wifi-direct-switch-button")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+
+        composeRule.runOnIdle { assertTrue(directOpened) }
     }
 }

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,7 +71,8 @@ fun ConnectionHubScreen(
     onRequestLocalNetworkPermission: () -> Unit,
     onRefreshLan: () -> Unit,
     onConnectLan: (DeviceEndpoint) -> Unit,
-    onReconnectDevice: (RegisteredDevice) -> Unit
+    onReconnectDevice: (RegisteredDevice) -> Unit,
+    onOpenWifiDirect: () -> Unit
 ) {
     val connected = transportState as? TransportState.Connected
     val endpointByDeviceId = lanEndpoints.associateBy { it.deviceId.lowercase() }
@@ -205,6 +207,12 @@ fun ConnectionHubScreen(
                 SectionHeader(
                     title = "연결 도구",
                     modifier = Modifier.padding(horizontal = AppSpacing.screen)
+                )
+                ConnectionMethod(
+                    icon = Icons.Default.WifiTethering,
+                    title = "Wi-Fi Direct 연결",
+                    description = "같은 공유기 없이 Jetson에 직접 연결",
+                    onClick = onOpenWifiDirect
                 )
                 ConnectionMethod(
                     icon = Icons.Default.QrCodeScanner,

@@ -9,6 +9,7 @@ import android.content.Context
 import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.example.jetsoncontroller.model.JetsonDevice
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -253,6 +254,9 @@ class BleScanner(
     private val handler =
         Handler(Looper.getMainLooper())
 
+    /** Serializes platform scan callbacks with timeout/stop callbacks. */
+    private val scanDataLock = Any()
+
     private val deviceMap =
         LinkedHashMap<String, JetsonDevice>()
 
@@ -281,6 +285,9 @@ class BleScanner(
     val scanState: StateFlow<BleScanState> =
         _scanState.asStateFlow()
 
+    private val _scanGeneration = MutableStateFlow(0L)
+    val scanGeneration: StateFlow<Long> = _scanGeneration.asStateFlow()
+
     private val _scanError =
         MutableStateFlow<String?>(null)
 
@@ -305,13 +312,14 @@ class BleScanner(
                 callbackType: Int,
                 result: ScanResult
             ) {
-                if (!_isScanning.value) {
-                    return
-                }
+                synchronized(scanDataLock) {
+                    if (!_isScanning.value) {
+                        return
+                    }
 
-                val record = result.scanRecord
+                    val record = result.scanRecord
 
-                val device = result.device
+                    val device = result.device
 
                 val address = try {
                     device.address
@@ -408,10 +416,13 @@ class BleScanner(
                         address = address,
                         rssi = result.rssi,
                         advertisedServiceUuids =
-                            metadata.advertisedServiceUuids.toList()
+                            metadata.advertisedServiceUuids.toList(),
+                        scanGeneration = _scanGeneration.value,
+                        observedAtElapsedRealtimeMillis = SystemClock.elapsedRealtime()
                     )
 
-                publishDevices()
+                    publishDevices()
+                }
             }
 
             override fun onBatchScanResults(
@@ -445,12 +456,11 @@ class BleScanner(
 
 
     private fun publishDevices() {
-
-        _devices.value =
+        _devices.value = synchronized(scanDataLock) {
             deviceMap.values
-                .sortedByDescending {
-                    it.rssi
-                }
+                .toList()
+                .sortedByDescending { it.rssi }
+        }
     }
 
 
@@ -465,10 +475,12 @@ class BleScanner(
         }
 
         cancelStopRunnable()
-        deviceMap.clear()
-        observationMap.clear()
-        scanResultCount = 0
-        loggedCandidateAddresses.clear()
+        synchronized(scanDataLock) {
+            deviceMap.clear()
+            observationMap.clear()
+            scanResultCount = 0
+            loggedCandidateAddresses.clear()
+        }
         _devices.value = emptyList()
         jetsonOnlyScan = jetsonOnly
 
@@ -533,7 +545,10 @@ class BleScanner(
                 .setReportDelay(0)
                 .build()
 
-        _isScanning.value = true
+        synchronized(scanDataLock) {
+            _isScanning.value = true
+            _scanGeneration.value = _scanGeneration.value + 1L
+        }
         updateScanState(BleScanState.Scanning)
 
         Log.d(
@@ -632,13 +647,27 @@ class BleScanner(
             }
         }
 
-        _isScanning.value = false
-        jetsonOnlyScan = false
-
-        logScanSummary(resolvedState)
-
+        // Remove only the finishing scan's timeout before publishing
+        // isScanning=false. Otherwise the reconnect loop can start a new scan
+        // in this window and this cleanup would cancel the new scan's timer.
         cancelStopRunnable()
-        updateScanState(resolvedState)
+        val summaryInput = synchronized(scanDataLock) {
+            if (!_isScanning.value) {
+                return
+            }
+            jetsonOnlyScan = false
+            val input = scanResultCount to observationMap.values.toList()
+            updateScanState(resolvedState)
+            _isScanning.value = false
+            input
+        }
+
+        logScanSummary(
+            finalState = resolvedState,
+            totalResults = summaryInput.first,
+            observations = summaryInput.second
+        )
+
     }
 
 
@@ -680,12 +709,14 @@ class BleScanner(
 
 
     private fun logScanSummary(
-        finalState: BleScanState
+        finalState: BleScanState,
+        totalResults: Int,
+        observations: List<BleAdvertisementMetadata>
     ) {
         val summary =
             BleScanDebugInfo.summarize(
-                totalResults = scanResultCount,
-                observations = observationMap.values
+                totalResults = totalResults,
+                observations = observations
             )
 
         Log.d(
@@ -711,11 +742,12 @@ class BleScanner(
 
 
     fun clear() {
-
-        deviceMap.clear()
-        observationMap.clear()
-        scanResultCount = 0
-        loggedCandidateAddresses.clear()
+        synchronized(scanDataLock) {
+            deviceMap.clear()
+            observationMap.clear()
+            scanResultCount = 0
+            loggedCandidateAddresses.clear()
+        }
 
         _devices.value =
             emptyList()

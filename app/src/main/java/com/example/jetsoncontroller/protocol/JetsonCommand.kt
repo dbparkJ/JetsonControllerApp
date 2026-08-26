@@ -16,5 +16,7 @@ enum class JetsonCommand(
 
     GET_STATUS(0x06),
 
-    SET_WIFI(0x07)
+    SET_WIFI(0x07),
+
+    REQUEST_WIFI_DIRECT(0x08)
 }

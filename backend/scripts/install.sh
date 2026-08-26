@@ -75,6 +75,13 @@ config_dir="/etc/jetson-control"
 state_dir="/var/lib/jetson-control"
 sensor_bridge_dir="/var/lib/jetson-sensors"
 pipeline_root="/opt/jetson-pipelines"
+systemd_unit_root="/etc/systemd/system"
+unit_backup_root="/var/backups/jetson-control"
+controller_units=(
+  "jetson-control.service"
+  "jetson-control-api.service"
+  "jetson-wifi-direct.service"
+)
 
 invoking_user="${SUDO_USER:-root}"
 invoking_home="$(getent passwd "${invoking_user}" | cut -d: -f6)"
@@ -91,6 +98,19 @@ fi
 if ! getent passwd "${pipeline_user}" >/dev/null; then
   echo "Pipeline user does not exist: ${pipeline_user}" >&2
   exit 2
+fi
+
+if [[ "${pipeline_user}" != "root" ]]; then
+  pipeline_device_groups=()
+  for device_group in video dialout plugdev; do
+    if getent group "${device_group}" >/dev/null; then
+      pipeline_device_groups+=("${device_group}")
+    fi
+  done
+  if [[ "${#pipeline_device_groups[@]}" -gt 0 ]]; then
+    joined_device_groups="$(IFS=,; echo "${pipeline_device_groups[*]}")"
+    usermod --append --groups "${joined_device_groups}" "${pipeline_user}"
+  fi
 fi
 
 if ! /usr/bin/python3 -c 'from cryptography.hazmat.primitives.ciphers.aead import AESGCM' 2>/dev/null; then
@@ -329,15 +349,28 @@ openssl x509 -in "${tls_certificate}" -noout >/dev/null
 openssl pkey -in "${tls_private_key}" -noout >/dev/null
 chmod 0600 "${tls_certificate}" "${tls_private_key}"
 
-install -m 0644 -o root -g root "${source_root}/systemd/jetson-control.service" "/etc/systemd/system/jetson-control.service"
-install -m 0644 -o root -g root "${source_root}/systemd/jetson-control-api.service" "/etc/systemd/system/jetson-control-api.service"
-install -m 0644 -o root -g root "${source_root}/systemd/jetson-wifi-direct.service" "/etc/systemd/system/jetson-wifi-direct.service"
+install -d -m 0700 -o root -g root "${unit_backup_root}"
+unit_backup_dir="$(mktemp -d "${unit_backup_root}/systemd-units.XXXXXXXX")"
+for unit_name in "${controller_units[@]}"; do
+  unit_source="${source_root}/systemd/${unit_name}"
+  unit_target="${systemd_unit_root}/${unit_name}"
+  if [[ -e "${unit_target}" || -L "${unit_target}" ]]; then
+    cp -a -- "${unit_target}" "${unit_backup_dir}/${unit_name}"
+  fi
+  install -m 0644 -o root -g root \
+    "${unit_source}" "${unit_target}.new"
+done
+for unit_name in "${controller_units[@]}"; do
+  mv -- "${systemd_unit_root}/${unit_name}.new" \
+    "${systemd_unit_root}/${unit_name}"
+done
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-pipeline@.service" "/etc/systemd/system/jetson-pipeline@.service"
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-sensor-monitor.service" "/etc/systemd/system/jetson-sensor-monitor.service"
 install -d -m 0755 -o root -g root "/etc/udev/rules.d"
 install -m 0644 -o root -g root "${source_root}/udev/99-jetson-controller-sensors.rules" "/etc/udev/rules.d/99-jetson-controller-sensors.rules"
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=tty --action=change
+udevadm trigger --subsystem-match=usb --attr-match=idVendor=03e7 --action=change
 "${install_root}/configure-api-storage-access.py" \
   --storage-roots "${config_dir}/storage_roots.json" \
   --output "/etc/systemd/system/jetson-control-api.service.d/storage-roots.conf" \
@@ -434,6 +467,7 @@ for attempt in {1..40}; do
   fi
   if [[ "${api_ready}" == "true" && "${wifi_direct_ready}" == "true" ]]; then
     echo "Jetson Controller backend is running."
+    echo "Systemd unit backup: ${unit_backup_dir}"
     exit 0
   fi
   sleep 0.5

@@ -28,6 +28,7 @@ import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.model.SystemTimeStatus
 import com.example.jetsoncontroller.model.WifiProvisionRequest
+import com.example.jetsoncontroller.model.WifiProvisionStatus
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
@@ -40,6 +41,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
+import javax.net.SocketFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
@@ -49,6 +51,7 @@ class LocalApiClient(
     private val gson = Gson()
     private val authInterceptor = HttpAuthInterceptor()
     private var currentBaseUrl: String? = null
+    private var endpointSocketFactory: SocketFactory? = null
     private var api: LocalControlApi? = null
     private var bootstrapTrustManager: HelloBootstrapTrustManager? = null
     private val sessionRefreshMutex = Mutex()
@@ -56,7 +59,11 @@ class LocalApiClient(
     @Volatile
     private var sessionRevision = 0L
 
-    fun updateEndpoint(host: String, port: Int) {
+    fun updateEndpoint(
+        host: String,
+        port: Int,
+        socketFactory: SocketFactory? = null
+    ) {
         val normalizedHost = host.removePrefix("[").removeSuffix("]")
         val url = HttpUrl.Builder()
             .scheme("https")
@@ -67,6 +74,7 @@ class LocalApiClient(
             .toString()
 
         currentBaseUrl = url
+        endpointSocketFactory = socketFactory
         authInterceptor.clearSession()
         sessionRevision += 1
         bootstrapTrustManager = HelloBootstrapTrustManager()
@@ -78,7 +86,7 @@ class LocalApiClient(
         val sslContext = SSLContext.getInstance("TLS").apply {
             init(null, arrayOf(trustManager), SecureRandom())
         }
-        val client = OkHttpClient.Builder()
+        val clientBuilder = OkHttpClient.Builder()
             .sslSocketFactory(sslContext.socketFactory, trustManager)
             // Device identity is the exact certificate pin, not a changing LAN IP.
             .hostnameVerifier { _, _ -> true }
@@ -86,7 +94,13 @@ class LocalApiClient(
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(45, TimeUnit.SECONDS)
             .writeTimeout(45, TimeUnit.SECONDS)
-            .build()
+
+        // Wi-Fi Direct is a local-only Android network. When ordinary Wi-Fi or
+        // cellular data is also active, the process default network can change
+        // independently of the P2P group. Binding only this API client keeps
+        // Jetson traffic on the P2P link without disrupting Internet traffic.
+        endpointSocketFactory?.let(clientBuilder::socketFactory)
+        val client = clientBuilder.build()
 
         return Retrofit.Builder()
             .baseUrl(currentBaseUrl ?: error("Jetson API 주소가 설정되지 않았습니다."))
@@ -467,6 +481,9 @@ class LocalApiClient(
         request: WifiProvisionRequest
     ): Result<LocalControlApi.WifiProvisionResponse> =
         request("Wi-Fi 설정") { requireApi().configureWifi(request) }
+
+    suspend fun getWifiProvisionStatus(): Result<WifiProvisionStatus> =
+        request("Wi-Fi 연결 상태 확인") { requireApi().getWifiProvisionStatus() }
 
     private fun requireApi(): LocalControlApi =
         api ?: error("Jetson API 주소가 설정되지 않았습니다.")

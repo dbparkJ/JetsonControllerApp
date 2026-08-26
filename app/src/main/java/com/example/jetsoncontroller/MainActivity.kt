@@ -56,6 +56,22 @@ internal object BluetoothPermissionPolicy {
     }
 }
 
+internal object WifiDirectPermissionPolicy {
+
+    fun requestPermissions(sdkInt: Int): Array<String> =
+        when {
+            sdkInt >= 37 ->
+                arrayOf(
+                    Manifest.permission.NEARBY_WIFI_DEVICES,
+                    Manifest.permission.ACCESS_LOCAL_NETWORK
+                )
+            sdkInt >= Build.VERSION_CODES.TIRAMISU ->
+                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+            else ->
+                BluetoothPermissionPolicy.locationRequestPermissions()
+        }
+}
+
 class MainActivity :
     ComponentActivity() {
 
@@ -115,21 +131,16 @@ class MainActivity :
     }
 
     private fun nearbyWifiPermissions(): Array<String> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            BluetoothPermissionPolicy.locationRequestPermissions()
-        }
+        return WifiDirectPermissionPolicy.requestPermissions(
+            Build.VERSION.SDK_INT
+        )
     }
 
     private fun connectivityPermissions(): Array<String> {
         val permissions = bluetoothPermissions().toMutableList()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions += Manifest.permission.NEARBY_WIFI_DEVICES
-        }
-        if (Build.VERSION.SDK_INT >= 37) {
-            permissions += Manifest.permission.ACCESS_LOCAL_NETWORK
-        }
+        permissions += WifiDirectPermissionPolicy.requestPermissions(
+            Build.VERSION.SDK_INT
+        )
         return permissions.distinct().toTypedArray()
     }
 

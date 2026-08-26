@@ -7,5 +7,7 @@ data class JetsonDevice(
     val name: String,
     val address: String,
     val rssi: Int,
-    val advertisedServiceUuids: List<String> = emptyList()
+    val advertisedServiceUuids: List<String> = emptyList(),
+    val scanGeneration: Long = 0L,
+    val observedAtElapsedRealtimeMillis: Long = 0L
 )

@@ -226,6 +226,9 @@ interface LocalControlApi {
         @Body request: WifiProvisionRequest
     ): Response<WifiProvisionResponse>
 
+    @GET("/v1/network/wifi/status")
+    suspend fun getWifiProvisionStatus(): Response<WifiProvisionStatus>
+
     @GET("/v1/system/time")
     suspend fun getSystemTime(): Response<SystemTimeStatus>
 

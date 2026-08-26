@@ -2,6 +2,7 @@ package com.example.jetsoncontroller.data.network
 
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.model.WifiProvisionStatus
 import com.google.gson.Gson
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -59,6 +60,18 @@ class ApiCompatibilityTest {
         assertEquals(127.0, telemetry.gnssSensor.longitude!!, 0.0)
         assertTrue(legacy.cameraRunning)
         assertEquals("none", legacy.gnssSensor.fixType)
+    }
+
+    @Test
+    fun `wifi provisioning status response remains readable`() {
+        val status = Gson().fromJson(
+            """{"state":"FAILED","ssid":"FieldNet","message":"bad password"}""",
+            WifiProvisionStatus::class.java
+        )
+
+        assertEquals("FAILED", status.state)
+        assertEquals("FieldNet", status.ssid)
+        assertEquals("bad password", status.message)
     }
 
     @Test

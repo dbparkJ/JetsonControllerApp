@@ -36,6 +36,9 @@ class IpControlTransport(
             JetsonCommand.SET_WIFI -> return Result.failure(
                 Exception("Wi-Fi 설정은 전용 요청으로 전송해야 합니다.")
             )
+            JetsonCommand.REQUEST_WIFI_DIRECT -> return Result.failure(
+                Exception("Wi-Fi Direct 준비 요청은 인증된 BLE 연결로 전송해야 합니다.")
+            )
         }
         return apiClient.sendCommand(apiCommand)
     }

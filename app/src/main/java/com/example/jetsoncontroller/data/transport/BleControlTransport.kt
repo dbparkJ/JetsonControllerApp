@@ -28,11 +28,7 @@ class BleControlTransport(
     }
 
     override suspend fun sendCommand(command: JetsonCommand, payload: ByteArray): Result<Unit> {
-        return if (gattClient.writeCommand(CommandCodec.encode(command, payload))) {
-            Result.success(Unit)
-        } else {
-            Result.failure(Exception("Bluetooth command write failed"))
-        }
+        return gattClient.writeCommandAwait(CommandCodec.encode(command, payload))
     }
 
     override suspend fun disconnect() {

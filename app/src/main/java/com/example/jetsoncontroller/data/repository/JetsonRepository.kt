@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.repository
 
 import android.content.Context
+import android.os.SystemClock
 import com.example.jetsoncontroller.data.bluetooth.BleGattClient
 import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.BleScanner
@@ -16,6 +17,7 @@ import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.protocol.CommandCodec
 import com.example.jetsoncontroller.protocol.JetsonCommand
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -28,9 +30,12 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
@@ -143,6 +148,28 @@ class JetsonRepository(
     private val automaticDirectFallbackReady = MutableStateFlow(false)
     private var automaticDirectFallbackJob: Job? = null
     private var automaticBleReconnectJob: Job? = null
+    private var wifiDirectEntryJob: Job? = null
+    private var wifiDirectEntryTimeoutJob: Job? = null
+    private var wifiProvisionLanHandoffTimeoutJob: Job? = null
+
+    private val wifiDirectEntryGeneration = AtomicLong(0)
+
+    private data class PendingWifiDirectEntry(
+        val targetDeviceId: String,
+        val peer: WifiDirectPeer?,
+        val automatic: Boolean,
+        val generation: Long,
+        val commandWriteFailures: Int = 0
+    )
+
+    @Volatile
+    private var pendingWifiDirectEntry: PendingWifiDirectEntry? = null
+
+    @Volatile
+    private var wifiProvisionLanHandoffActive = false
+
+    @Volatile
+    private var wifiProvisionLanHandoffDeviceId: String? = null
 
     @Volatile
     private var pendingWifiDirectTargetDeviceId: String? = null
@@ -193,8 +220,13 @@ class JetsonRepository(
                     qrPairingActive.value = false
                     ensureAutomaticBleReconnectLoop()
                     val currentType = transportCoordinator.currentTransport()?.type
-                    if (currentType == TransportType.LAN || currentType == TransportType.WIFI_DIRECT) {
+                    if (currentType == TransportType.LAN) {
                         gattClient.disconnect()
+                        return@collect
+                    }
+                    if (currentType == TransportType.WIFI_DIRECT) {
+                        // Keep the authenticated BLE session as an out-of-band
+                        // recovery channel while the P2P control API is active.
                         return@collect
                     }
                     ipConnectionGeneration.incrementAndGet()
@@ -213,7 +245,9 @@ class JetsonRepository(
                         wifiProvisioning = true,
                         pipelines = false
                     )
-                    scheduleAutomaticIpFallback()
+                    if (!startPendingWifiDirectEntryIfReady()) {
+                        scheduleAutomaticIpFallback()
+                    }
                 } else if (
                     state is ConnectionState.Disconnected ||
                     state is ConnectionState.Error
@@ -222,6 +256,7 @@ class JetsonRepository(
                         transportCoordinator.disconnect()
                         clearReachableDeviceState()
                     }
+                    refreshBleReconnectCandidatesAfterFailure()
                 }
             }
         }
@@ -242,7 +277,7 @@ class JetsonRepository(
                                     ?.type == TransportType.LAN
                             ) {
                                 pendingWifiDirectTargetDeviceId = null
-                                wifiDirectManager.cancelConnect()
+                                wifiDirectManager.releaseForTransportHandoff()
                             }
                             return@collectLatest
                         }
@@ -338,11 +373,16 @@ class JetsonRepository(
                 wifiDirectManager.state,
                 automaticDeviceId,
                 transportCoordinator.state,
-                automaticDirectAllowed
-            ) { direct, targetDeviceId, transport, enabled ->
+                automaticDirectAllowed,
+                _connectingLanDeviceId
+            ) { direct, targetDeviceId, transport, enabled, connectingLanDeviceId ->
                 if (
                     !enabled || targetDeviceId == null ||
-                    !allowsAutomaticDirectFallback(transport) ||
+                    !allowsAutomaticDirectAttempt(
+                        transport,
+                        lanConnectionPending = connectingLanDeviceId != null
+                    ) ||
+                    !direct.enabled ||
                     direct.connected || direct.connectingPeerAddress != null
                 ) {
                     return@combine null
@@ -350,6 +390,14 @@ class JetsonRepository(
                 chooseAutomaticWifiDirectPeer(direct.peers, targetDeviceId)
             }.collect { peer ->
                 peer ?: return@collect
+                if (
+                    !allowsAutomaticDirectAttempt(
+                        transportCoordinator.state.value,
+                        lanConnectionPending = _connectingLanDeviceId.value != null
+                    )
+                ) {
+                    return@collect
+                }
                 scanner.stopScan()
                 pendingWifiDirectTargetDeviceId = automaticTargetDeviceId(
                     preferredAutomaticDeviceId.value,
@@ -407,7 +455,6 @@ class JetsonRepository(
                     deviceId = probe.hello.deviceId,
                     deviceName = probe.hello.deviceName
                 )
-                gattClient.disconnect()
                 return
             }
 
@@ -431,8 +478,15 @@ class JetsonRepository(
         host: String,
         expectedDeviceId: String
     ): Result<WifiDirectApiProbe> = runCatching {
+        require(localNetworkPermissionGranted.value) {
+            "로컬 네트워크 권한이 필요합니다. 권한을 허용한 뒤 다시 시도해 주세요."
+        }
         val candidateClient = LocalApiClient(credentialStore)
-        candidateClient.updateEndpoint(host, LOCAL_API_PORT)
+        candidateClient.updateEndpoint(
+            host = host,
+            port = LOCAL_API_PORT,
+            socketFactory = wifiDirectManager.socketFactoryForGroupOwner(host)
+        )
         val hello = candidateClient.hello().getOrThrow()
         require(hello.deviceId.equals(expectedDeviceId, ignoreCase = true)) {
             "선택한 장비와 Wi-Fi Direct API 장비 ID가 일치하지 않습니다."
@@ -529,6 +583,8 @@ class JetsonRepository(
         automaticDirectFallbackReady.value = false
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackJob = null
+        cancelPendingWifiDirectEntry()
+        cancelWifiProvisionLanHandoff(scheduleRecovery = false)
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
@@ -573,6 +629,8 @@ class JetsonRepository(
         automaticDirectFallbackReady.value = false
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackJob = null
+        cancelPendingWifiDirectEntry()
+        cancelWifiProvisionLanHandoff(scheduleRecovery = false)
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
@@ -603,21 +661,6 @@ class JetsonRepository(
             inProgress = true,
             message = "$operationName 요청을 전송하고 있습니다."
         )
-
-        if (transport.type == TransportType.BLE) {
-            val accepted = gattClient.writeCommand(
-                CommandCodec.encode(command, payload)
-            )
-            _controlOperation.value = ControlOperationState(
-                message = if (accepted) {
-                    "$operationName 요청을 Jetson에 전송했습니다."
-                } else {
-                    "$operationName 요청을 전송하지 못했습니다."
-                },
-                isError = !accepted
-            )
-            return accepted
-        }
 
         scope.launch {
             transport.sendCommand(command, payload)
@@ -650,9 +693,9 @@ class JetsonRepository(
             ?: return false
 
         return when (transport.type) {
-            TransportType.BLE -> gattClient.writeCommand(
+            TransportType.BLE -> gattClient.writeCommandAwait(
                 CommandCodec.encode(JetsonCommand.GET_STATUS)
-            )
+            ).isSuccess
             TransportType.WIFI_DIRECT,
             TransportType.LAN -> {
                 val result = transport.getStatus()
@@ -676,29 +719,137 @@ class JetsonRepository(
 
     suspend fun provisionWifi(
         request: WifiProvisionRequest
-    ): Result<Unit> {
+    ): Result<WifiProvisionReceipt> {
         val transport = transportCoordinator.currentTransport()
             ?: return Result.failure(
                 IllegalStateException("Jetson 연결을 먼저 확인해 주세요.")
             )
 
         return if (transport.type == TransportType.BLE) {
-            runCatching {
-                val payload = gattClient.encodeWifiProvision(request)
-                check(
-                    gattClient.writeCommand(
-                        CommandCodec.encode(JetsonCommand.SET_WIFI, payload)
-                    )
-                ) {
-                    "Jetson에 Wi-Fi 설정을 전송하지 못했습니다. Bluetooth 연결을 확인하세요."
-                }
+            val deviceId = gattClient.currentDeviceId()
+                ?: return Result.failure(
+                    IllegalStateException("Bluetooth 장비 ID를 확인할 수 없습니다.")
+                )
+            val payload = runCatching {
+                gattClient.encodeWifiProvision(request)
+            }.getOrElse { error ->
+                return Result.failure(error)
             }
+            beginWifiProvisionLanHandoff(deviceId)
+            val writeResult = try {
+                gattClient.writeCommandAwait(
+                    CommandCodec.encode(JetsonCommand.SET_WIFI, payload)
+                )
+            } catch (error: CancellationException) {
+                cancelWifiProvisionLanHandoff(scheduleRecovery = true)
+                throw error
+            }
+            if (writeResult.isFailure) {
+                cancelWifiProvisionLanHandoff(scheduleRecovery = true)
+                return Result.failure(
+                    writeResult.exceptionOrNull()
+                        ?: IllegalStateException(
+                            "Jetson에 Wi-Fi 설정을 전송하지 못했습니다."
+                        )
+                )
+            }
+            activateWifiProvisionLanHandoffTimeout()
+            Result.success(
+                WifiProvisionReceipt(
+                    ssid = request.ssid,
+                    statusPollingAvailable = false,
+                    lanHandoffRequired = true,
+                    deviceId = deviceId
+                )
+            )
         } else {
             val client = activeIpClient
                 ?: return Result.failure(
                     IllegalStateException("IP 제어 연결을 다시 확인해 주세요.")
                 )
-            client.configureWifi(request).map { Unit }
+            val followUp = wifiProvisionFollowUpForTransport(transport.type)
+            val deviceId = (transportCoordinator.state.value as? TransportState.Connected)
+                ?.deviceId
+                ?: pendingWifiDirectTargetDeviceId
+                ?: preferredAutomaticDeviceId.value
+            if (followUp.waitForLanHandoff) {
+                beginWifiProvisionLanHandoff(deviceId)
+            }
+            val response = client.configureWifi(request).getOrElse { error ->
+                if (followUp.waitForLanHandoff) {
+                    cancelWifiProvisionLanHandoff(scheduleRecovery = false)
+                }
+                return Result.failure(error)
+            }
+            if (!response.accepted) {
+                if (followUp.waitForLanHandoff) {
+                    cancelWifiProvisionLanHandoff(scheduleRecovery = false)
+                }
+                return Result.failure(
+                    IllegalStateException("Jetson이 Wi-Fi 연결 요청을 접수하지 않았습니다.")
+                )
+            }
+            if (followUp.waitForLanHandoff) {
+                activateWifiProvisionLanHandoffTimeout()
+            }
+            Result.success(
+                WifiProvisionReceipt(
+                    ssid = response.ssid ?: request.ssid,
+                    statusPollingAvailable = followUp.pollCurrentEndpoint,
+                    lanHandoffRequired = followUp.waitForLanHandoff,
+                    deviceId = deviceId
+                )
+            )
+        }
+    }
+
+    suspend fun getWifiProvisionStatus(): Result<WifiProvisionStatus> {
+        val transport = transportCoordinator.currentTransport()
+            ?: return Result.failure(
+                IllegalStateException("Wi-Fi 연결 결과를 확인할 Jetson 연결이 없습니다.")
+            )
+        if (transport.type == TransportType.BLE || transport.type == TransportType.WIFI_DIRECT) {
+            return Result.failure(
+                IllegalStateException(
+                    if (transport.type == TransportType.WIFI_DIRECT) {
+                        "Wi-Fi Direct 설정 후에는 새 LAN 연결에서 결과를 확인해야 합니다."
+                    } else {
+                        "BLE 연결에서는 Wi-Fi 최종 상태 조회를 지원하지 않습니다."
+                    }
+                )
+            )
+        }
+        val client = activeIpClient
+            ?: return Result.failure(
+                IllegalStateException("IP 제어 연결을 다시 확인해 주세요.")
+            )
+        return client.getWifiProvisionStatus()
+    }
+
+    suspend fun awaitWifiProvisionLanHandoff(expectedDeviceId: String?): Result<Unit> {
+        val targetDeviceId = expectedDeviceId
+            ?: wifiProvisionLanHandoffDeviceId
+            ?: return Result.failure(
+                IllegalStateException("LAN으로 다시 찾을 Jetson 장비 ID가 없습니다.")
+            )
+        if (localNetworkPermissionGranted.value) {
+            startLanDiscovery()
+        }
+        val connected = withTimeoutOrNull(WIFI_PROVISION_LAN_HANDOFF_TIMEOUT_MILLIS) {
+            transportCoordinator.state
+                .filter { state -> isMatchingLanHandoffTransport(state, targetDeviceId) }
+                .first()
+        }
+        return if (connected != null) {
+            completeWifiProvisionLanHandoff(targetDeviceId)
+            Result.success(Unit)
+        } else {
+            expireWifiProvisionLanHandoff(targetDeviceId)
+            Result.failure(
+                IllegalStateException(
+                    "Jetson의 Wi-Fi 요청은 접수됐지만 새 LAN 연결을 확인하지 못했습니다."
+                )
+            )
         }
     }
 
@@ -746,6 +897,8 @@ class JetsonRepository(
         automaticDirectFallbackReady.value = false
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackJob = null
+        cancelPendingWifiDirectEntry()
+        cancelWifiProvisionLanHandoff(scheduleRecovery = false)
         automaticBleReconnectJob?.cancel()
         automaticBleReconnectJob = null
         ipConnectionGeneration.incrementAndGet()
@@ -809,7 +962,14 @@ class JetsonRepository(
         this.nearbyWifiPermissionGranted.value = nearbyWifiPermissionGranted
         this.bluetoothPermissionGranted.value = bluetoothPermissionGranted
 
-        if (effectiveEnabled && localNetworkPermissionGranted && !qrPairingActive.value) {
+        wifiAccessPointScanner.refreshCurrentConnection()
+        val mobileHasInfrastructureWifi =
+            !wifiAccessPointScanner.state.value.currentSsid.isNullOrBlank()
+
+        if (
+            effectiveEnabled && localNetworkPermissionGranted &&
+            !qrPairingActive.value && mobileHasInfrastructureWifi
+        ) {
             startLanDiscovery()
         } else {
             stopLanDiscovery()
@@ -828,20 +988,158 @@ class JetsonRepository(
     }
 
     fun startWifiDirectDiscovery() {
-        explicitDisconnectRequested.set(false)
-        automaticConnectivityEnabled.value = true
-        automaticDirectFallbackReady.value = true
-        wifiDirectManager.startDiscovery()
+        if (
+            transportCoordinator.currentTransport()?.type == TransportType.WIFI_DIRECT &&
+            wifiDirectManager.state.value.connected
+        ) {
+            return
+        }
+        val targetDeviceId = resolveWifiDirectTargetDeviceId(peer = null)
+        if (targetDeviceId == null) {
+            wifiDirectManager.markEntryError(
+                "Wi-Fi Direct로 연결할 등록 장비를 찾지 못했습니다. 장비를 먼저 등록해 주세요."
+            )
+            return
+        }
+        prepareForManualWifiDirectEntry()
+        requestWifiDirectEntry(
+            targetDeviceId = targetDeviceId,
+            peer = null,
+            automatic = false
+        )
     }
 
     fun stopWifiDirectDiscovery() {
+        cancelPendingWifiDirectEntry()
         wifiDirectManager.stopDiscovery()
+        if (
+            automaticConnectivityEnabled.value &&
+            !qrPairingActive.value &&
+            allowsAutomaticDirectFallback(transportCoordinator.state.value)
+        ) {
+            automaticDirectFallbackReady.value = false
+            scheduleAutomaticIpFallback()
+        }
     }
 
     fun connectWifiDirect(peer: WifiDirectPeer) {
+        val targetDeviceId = resolveWifiDirectTargetDeviceId(peer)
+        if (targetDeviceId == null) {
+            wifiDirectManager.markEntryError(
+                "선택한 Wi-Fi Direct 장비의 등록 정보를 찾지 못했습니다."
+            )
+            return
+        }
+        val direct = wifiDirectManager.state.value
+        if (shouldConnectPreparedWifiDirectPeer(
+                preparedTargetDeviceId = pendingWifiDirectTargetDeviceId,
+                selectedTargetDeviceId = targetDeviceId,
+                discoveryAttempted = direct.discoveryAttempted,
+                connected = direct.connected,
+                connectingPeerAddress = direct.connectingPeerAddress
+            )
+        ) {
+            wifiDirectManager.connect(peer)
+            return
+        }
+        prepareForManualWifiDirectEntry()
+        requestWifiDirectEntry(
+            targetDeviceId = targetDeviceId,
+            peer = peer,
+            automatic = false
+        )
+    }
+
+    private fun prepareForManualWifiDirectEntry() {
         explicitDisconnectRequested.set(false)
         automaticConnectivityEnabled.value = true
-        pendingWifiDirectTargetDeviceId = registeredDevices.value
+        automaticDirectFallbackReady.value = false
+        automaticDirectFallbackJob?.cancel()
+        automaticDirectFallbackJob = null
+        cancelWifiProvisionLanHandoff(scheduleRecovery = false)
+        cancelPendingWifiDirectEntry()
+        stopLanDiscovery()
+        autoLanAttempts.clear()
+        autoLanFailureCounts.clear()
+
+        // A manual Direct choice supersedes any pending LAN probe. Its coroutine
+        // checks this generation before every state-changing callback, so it can
+        // no longer win later and cancel the P2P negotiation.
+        ipConnectionGeneration.incrementAndGet()
+        connectingLanGeneration = null
+        _connectingLanDeviceId.value = null
+        _lanConnectionError.value = null
+
+        // If LAN is already the active control transport, release only the app
+        // session. The phone and Jetson network interfaces remain connected.
+        val currentTransportType = transportCoordinator.currentTransport()?.type
+        if (
+            currentTransportType == TransportType.LAN ||
+            (currentTransportType != TransportType.WIFI_DIRECT &&
+                (wifiDirectManager.state.value.connected ||
+                    wifiDirectManager.state.value.connectingPeerAddress != null))
+        ) {
+            wifiDirectManager.releaseForTransportHandoff()
+        }
+        if (currentTransportType == TransportType.LAN) {
+            activeIpClient = null
+            transportCoordinator.disconnect()
+            clearReachableDeviceState()
+        }
+        ensureAutomaticBleReconnectLoop()
+    }
+
+    private fun requestWifiDirectEntry(
+        targetDeviceId: String,
+        peer: WifiDirectPeer?,
+        automatic: Boolean
+    ) {
+        preferredAutomaticDeviceId.value = targetDeviceId
+        wifiDirectManager.markEntryPreparing()
+        val request = PendingWifiDirectEntry(
+            targetDeviceId = targetDeviceId,
+            peer = peer,
+            automatic = automatic,
+            generation = wifiDirectEntryGeneration.incrementAndGet()
+        )
+        pendingWifiDirectEntry = request
+        scheduleWifiDirectEntryTimeout(request)
+        ensureAutomaticBleReconnectLoop()
+        startPendingWifiDirectEntryIfReady()
+    }
+
+    private fun scheduleWifiDirectEntryTimeout(request: PendingWifiDirectEntry) {
+        wifiDirectEntryTimeoutJob?.cancel()
+        wifiDirectEntryTimeoutJob = scope.launch {
+            delay(WIFI_DIRECT_ENTRY_TIMEOUT_MILLIS)
+            if (pendingWifiDirectEntry?.generation != request.generation) {
+                return@launch
+            }
+
+            wifiDirectEntryGeneration.incrementAndGet()
+            pendingWifiDirectEntry = null
+            wifiDirectEntryJob?.cancel()
+            wifiDirectEntryJob = null
+            wifiDirectEntryTimeoutJob = null
+            automaticDirectFallbackReady.value = false
+            wifiDirectManager.markEntryError(
+                "BLE로 Jetson을 준비하지 못했습니다. Bluetooth 상태를 확인한 뒤 다시 시도해 주세요."
+            )
+            if (request.automatic) {
+                scheduleAutomaticIpFallback()
+            }
+        }
+    }
+
+    private fun resolveWifiDirectTargetDeviceId(peer: WifiDirectPeer?): String? =
+        peer?.let(::wifiDirectTargetDeviceIdForPeer)
+            ?: automaticTargetDeviceId(
+                preferredAutomaticDeviceId.value,
+                registeredDevices.value
+            )
+
+    private fun wifiDirectTargetDeviceIdForPeer(peer: WifiDirectPeer): String? =
+        registeredDevices.value
             .filter { device ->
                 peer.name.equals(device.deviceName, ignoreCase = true) ||
                     peer.name.equals(canonicalBleNameForDeviceId(device.deviceId), ignoreCase = true) ||
@@ -853,8 +1151,229 @@ class JetsonRepository(
                 preferredAutomaticDeviceId.value,
                 registeredDevices.value
             )
-        scanner.stopScan()
-        wifiDirectManager.connect(peer)
+
+    /**
+     * Wi-Fi Direct discovery is gated by an authenticated BLE session. The new
+     * backend command switches the Jetson radio into P2P mode; Android must not
+     * start discovery until that write has been accepted and the radio had a
+     * short preparation window.
+     */
+    private fun startPendingWifiDirectEntryIfReady(): Boolean {
+        val request = pendingWifiDirectEntry ?: return false
+        if (wifiDirectEntryJob?.isActive == true) {
+            return true
+        }
+        wifiDirectEntryJob = scope.launch {
+            executePendingWifiDirectEntry(request)
+        }
+        return true
+    }
+
+    private suspend fun executePendingWifiDirectEntry(
+        initialRequest: PendingWifiDirectEntry
+    ) {
+        var request = initialRequest
+        while (true) {
+            if (
+                !wifiDirectEntryIsCurrent(
+                    currentGeneration = wifiDirectEntryGeneration.get(),
+                    requestGeneration = request.generation,
+                    connectivityEnabled = automaticConnectivityEnabled.value,
+                    pairingActive = qrPairingActive.value
+                ) || pendingWifiDirectEntry?.generation != request.generation
+            ) {
+                return
+            }
+
+            when (
+                wifiDirectEntryReadiness(
+                    automatic = request.automatic,
+                    bleReady = gattClient.isReady(),
+                    bleDeviceId = gattClient.currentDeviceId(),
+                    targetDeviceId = request.targetDeviceId,
+                    transportState = transportCoordinator.state.value,
+                    lanConnectionPending = _connectingLanDeviceId.value != null
+                )
+            ) {
+                WifiDirectEntryReadiness.BLOCKED_BY_LAN,
+                WifiDirectEntryReadiness.WAITING_FOR_BLE -> return
+                WifiDirectEntryReadiness.WRONG_BLE_DEVICE -> {
+                    gattClient.disconnect()
+                    return
+                }
+                WifiDirectEntryReadiness.READY -> Unit
+            }
+
+            val writeResult = gattClient.writeCommandAwait(
+                CommandCodec.encode(JetsonCommand.REQUEST_WIFI_DIRECT)
+            )
+            if (
+                !wifiDirectEntryIsCurrent(
+                    currentGeneration = wifiDirectEntryGeneration.get(),
+                    requestGeneration = request.generation,
+                    connectivityEnabled = automaticConnectivityEnabled.value,
+                    pairingActive = qrPairingActive.value
+                ) || pendingWifiDirectEntry?.generation != request.generation
+            ) {
+                return
+            }
+            if (writeResult.isFailure) {
+                automaticDirectFallbackReady.value = false
+                request = request.copy(
+                    commandWriteFailures = request.commandWriteFailures + 1
+                )
+                pendingWifiDirectEntry = request
+                delay(wifiDirectCommandRetryDelayMillis(request.commandWriteFailures))
+                continue
+            }
+
+            // The remote callback succeeded. If LAN started while the write was
+            // in flight, let it finish before P2P discovery without resending 0x08.
+            while (
+                request.automatic &&
+                _connectingLanDeviceId.value != null &&
+                wifiDirectEntryIsCurrent(
+                    currentGeneration = wifiDirectEntryGeneration.get(),
+                    requestGeneration = request.generation,
+                    connectivityEnabled = automaticConnectivityEnabled.value,
+                    pairingActive = qrPairingActive.value
+                )
+            ) {
+                delay(WIFI_DIRECT_DISCOVERY_SETTLE_MILLIS)
+            }
+            if (
+                !wifiDirectEntryIsCurrent(
+                    currentGeneration = wifiDirectEntryGeneration.get(),
+                    requestGeneration = request.generation,
+                    connectivityEnabled = automaticConnectivityEnabled.value,
+                    pairingActive = qrPairingActive.value
+                ) || pendingWifiDirectEntry?.generation != request.generation ||
+                (request.automatic && !allowsAutomaticDirectFallback(
+                    transportCoordinator.state.value
+                ))
+            ) {
+                return
+            }
+
+            pendingWifiDirectEntry = null
+            wifiDirectEntryTimeoutJob?.cancel()
+            wifiDirectEntryTimeoutJob = null
+            pendingWifiDirectTargetDeviceId = request.targetDeviceId
+            scanner.stopScan()
+            delay(WIFI_DIRECT_MODE_READY_DELAY_MILLIS)
+            if (
+                !wifiDirectEntryIsCurrent(
+                    currentGeneration = wifiDirectEntryGeneration.get(),
+                    requestGeneration = request.generation,
+                    connectivityEnabled = automaticConnectivityEnabled.value,
+                    pairingActive = qrPairingActive.value
+                ) ||
+                (request.automatic && !allowsAutomaticDirectAttempt(
+                    transportCoordinator.state.value,
+                    lanConnectionPending = _connectingLanDeviceId.value != null
+                ))
+            ) {
+                return
+            }
+            // Both automatic fallback and an explicit Direct-screen entry must
+            // connect the authenticated registered peer as soon as it appears.
+            // Previously the manual screen only listed the peer and waited for
+            // another tap, which left Samsung P2P idle until it shut down.
+            automaticDirectFallbackReady.value = true
+            wifiDirectManager.startDiscovery()
+            request.peer?.let { peer ->
+                delay(WIFI_DIRECT_DISCOVERY_SETTLE_MILLIS)
+                if (
+                    wifiDirectEntryIsCurrent(
+                        currentGeneration = wifiDirectEntryGeneration.get(),
+                        requestGeneration = request.generation,
+                        connectivityEnabled = automaticConnectivityEnabled.value,
+                        pairingActive = qrPairingActive.value
+                    )
+                ) {
+                    wifiDirectManager.connect(peer)
+                }
+            }
+            return
+        }
+    }
+
+    private fun cancelPendingWifiDirectEntry(cancelActiveWrite: Boolean = true) {
+        wifiDirectEntryGeneration.incrementAndGet()
+        pendingWifiDirectEntry = null
+        wifiDirectEntryTimeoutJob?.cancel()
+        wifiDirectEntryTimeoutJob = null
+        if (cancelActiveWrite) {
+            wifiDirectEntryJob?.cancel()
+            wifiDirectEntryJob = null
+        }
+    }
+
+    private fun beginWifiProvisionLanHandoff(deviceId: String?) {
+        wifiProvisionLanHandoffActive = true
+        wifiProvisionLanHandoffDeviceId = deviceId
+        automaticDirectFallbackReady.value = false
+        automaticDirectFallbackJob?.cancel()
+        automaticDirectFallbackJob = null
+        cancelPendingWifiDirectEntry(cancelActiveWrite = false)
+    }
+
+    private fun activateWifiProvisionLanHandoffTimeout() {
+        if (!wifiProvisionLanHandoffActive) {
+            return
+        }
+        if (localNetworkPermissionGranted.value) {
+            startLanDiscovery()
+        }
+        wifiProvisionLanHandoffTimeoutJob?.cancel()
+        wifiProvisionLanHandoffTimeoutJob = scope.launch {
+            delay(WIFI_PROVISION_LAN_HANDOFF_TIMEOUT_MILLIS)
+            expireWifiProvisionLanHandoff(wifiProvisionLanHandoffDeviceId)
+        }
+    }
+
+    private fun completeWifiProvisionLanHandoff(deviceId: String?) {
+        val target = wifiProvisionLanHandoffDeviceId
+        if (
+            !wifiProvisionLanHandoffActive ||
+            (target != null && deviceId != null &&
+                !target.equals(deviceId, ignoreCase = true))
+        ) {
+            return
+        }
+        wifiProvisionLanHandoffActive = false
+        wifiProvisionLanHandoffDeviceId = null
+        wifiProvisionLanHandoffTimeoutJob?.cancel()
+        wifiProvisionLanHandoffTimeoutJob = null
+    }
+
+    private fun expireWifiProvisionLanHandoff(deviceId: String?) {
+        val target = wifiProvisionLanHandoffDeviceId
+        if (
+            !wifiProvisionLanHandoffActive ||
+            (target != null && deviceId != null &&
+                !target.equals(deviceId, ignoreCase = true))
+        ) {
+            return
+        }
+        wifiProvisionLanHandoffActive = false
+        wifiProvisionLanHandoffDeviceId = null
+        wifiProvisionLanHandoffTimeoutJob = null
+        scheduleAutomaticIpFallback()
+    }
+
+    private fun cancelWifiProvisionLanHandoff(scheduleRecovery: Boolean) {
+        val wasActive = wifiProvisionLanHandoffActive
+        wifiProvisionLanHandoffActive = false
+        wifiProvisionLanHandoffDeviceId = null
+        wifiProvisionLanHandoffTimeoutJob?.cancel()
+        wifiProvisionLanHandoffTimeoutJob = null
+        if (!scheduleRecovery && transportCoordinator.currentTransport()?.type == TransportType.WIFI_DIRECT) {
+            stopLanDiscovery()
+        }
+        if (wasActive && scheduleRecovery) {
+            scheduleAutomaticIpFallback()
+        }
     }
 
     fun retryWifiDirectApi() {
@@ -979,6 +1498,7 @@ class JetsonRepository(
                     automaticDirectFallbackReady.value = false
                     automaticDirectFallbackJob?.cancel()
                     automaticDirectFallbackJob = null
+                    cancelPendingWifiDirectEntry()
                     activeIpClient = candidateClient
                     transportCoordinator.setActiveTransport(
                         transport = IpControlTransport(
@@ -989,6 +1509,7 @@ class JetsonRepository(
                         deviceId = hello.deviceId,
                         deviceName = hello.deviceName
                     )
+                    completeWifiProvisionLanHandoff(hello.deviceId)
                     connectedSuccessfully = true
                     automaticAttemptKey?.let {
                         autoLanAttempts.remove(it)
@@ -996,7 +1517,7 @@ class JetsonRepository(
                     }
                     gattClient.disconnect()
                     pendingWifiDirectTargetDeviceId = null
-                    wifiDirectManager.cancelConnect()
+                    wifiDirectManager.releaseForTransportHandoff()
                 }
                 .onFailure { error ->
                     if (ipConnectionGeneration.get() == generation) {
@@ -1050,8 +1571,11 @@ class JetsonRepository(
                 !qrPairingActive.value &&
                 targetDeviceId.equals(endpoint.deviceId, ignoreCase = true) &&
                 endpointStillPresent &&
-                _connectingLanDeviceId.value == null &&
-                allowsAutomaticLanUpgrade(transportCoordinator.state.value)
+                allowsAutomaticLanRetry(
+                    lanDiscoveryEnabled = autoLanEnabled.value,
+                    transportState = transportCoordinator.state.value,
+                    lanConnectionPending = _connectingLanDeviceId.value != null
+                )
             ) {
                 autoLanAttempts.remove(attemptKey)
                 if (autoLanAttempts.add(attemptKey)) {
@@ -1097,16 +1621,24 @@ class JetsonRepository(
     }
 
     private fun markIpTransportOffline(message: String?) {
+        val directProvisioningHandoff =
+            transportCoordinator.currentTransport()?.type == TransportType.WIFI_DIRECT &&
+                wifiProvisionLanHandoffActive
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
         activeIpClient = null
         transportCoordinator.disconnect()
         clearReachableDeviceState()
-        _lanConnectionError.value = message?.takeIf { it.isNotBlank() }
-            ?.let { "Jetson 응답이 없어 오프라인으로 전환했습니다." }
+        _lanConnectionError.value = if (directProvisioningHandoff) {
+            null
+        } else {
+            message?.takeIf { it.isNotBlank() }
+                ?.let { "Jetson 응답이 없어 오프라인으로 전환했습니다." }
+        }
         pendingWifiDirectTargetDeviceId = null
         wifiDirectManager.cancelConnect()
+        promoteReadyBleTransport()
         if (
             automaticConnectivityEnabled.value &&
             !qrPairingActive.value &&
@@ -1114,35 +1646,88 @@ class JetsonRepository(
         ) {
             startLanDiscovery()
         }
-        scheduleAutomaticIpFallback()
+        if (!directProvisioningHandoff) {
+            scheduleAutomaticIpFallback()
+        }
+    }
+
+    private fun promoteReadyBleTransport(): Boolean {
+        val ready = gattClient.connectionState.value as? ConnectionState.Ready
+            ?: return false
+        val deviceId = gattClient.currentDeviceId() ?: return false
+        transportCoordinator.setActiveTransport(
+            transport = BleControlTransport(gattClient),
+            deviceId = deviceId,
+            deviceName = ready.deviceName
+        )
+        updateStatus(gattClient.status.value)
+        _capabilities.value = ControlCapabilities(
+            systemControlConfigured = false,
+            powerCommandsEnabled = true,
+            fileBrowsing = false,
+            uploads = false,
+            wifiProvisioning = true,
+            pipelines = false
+        )
+        preferredAutomaticDeviceId.value = deviceId
+        return true
     }
 
     private fun scheduleAutomaticIpFallback() {
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackReady.value = false
-        if (!automaticConnectivityEnabled.value || qrPairingActive.value) {
+        if (
+            !allowsAutomaticDirectRecovery(
+                connectivityEnabled = automaticConnectivityEnabled.value,
+                pairingActive = qrPairingActive.value,
+                wifiProvisionLanHandoffActive = wifiProvisionLanHandoffActive
+            )
+        ) {
+            if (wifiProvisionLanHandoffActive && localNetworkPermissionGranted.value) {
+                startLanDiscovery()
+            }
             return
         }
         automaticDirectFallbackJob = scope.launch {
-            if (localNetworkPermissionGranted.value) {
+            wifiAccessPointScanner.refreshCurrentConnection()
+            val preferDirect = shouldPreferWifiDirectBeforeLan(
+                mobileSsid = wifiAccessPointScanner.state.value.currentSsid,
+                jetsonWifiConnected = _status.value.wifiConnected
+            )
+            if (localNetworkPermissionGranted.value && !preferDirect) {
                 startLanDiscovery()
                 delay(AUTOMATIC_LAN_GRACE_MILLIS)
             } else {
+                stopLanDiscovery()
+                // An infrastructure link that disappeared while an NSD/API
+                // probe was running must not keep the offline Direct path
+                // blocked by a stale LAN attempt.
+                ipConnectionGeneration.incrementAndGet()
+                connectingLanGeneration = null
+                _connectingLanDeviceId.value = null
+                _lanConnectionError.value = null
+                autoLanAttempts.clear()
+                autoLanFailureCounts.clear()
                 delay(AUTOMATIC_DIRECT_START_DELAY_MILLIS)
             }
+            val targetDeviceId = automaticTargetDeviceId(
+                preferredAutomaticDeviceId.value,
+                registeredDevices.value
+            )
             if (
                 automaticConnectivityEnabled.value &&
                 !qrPairingActive.value &&
+                localNetworkPermissionGranted.value &&
                 nearbyWifiPermissionGranted.value &&
                 !wifiDirectManager.state.value.connected &&
                 allowsAutomaticDirectFallback(transportCoordinator.state.value) &&
-                automaticTargetDeviceId(
-                    preferredAutomaticDeviceId.value,
-                    registeredDevices.value
-                ) != null
+                targetDeviceId != null
             ) {
-                automaticDirectFallbackReady.value = true
-                wifiDirectManager.startDiscovery()
+                requestWifiDirectEntry(
+                    targetDeviceId = targetDeviceId,
+                    peer = null,
+                    automatic = true
+                )
             }
         }
     }
@@ -1159,11 +1744,16 @@ class JetsonRepository(
                 )
                 val transport = transportCoordinator.state.value
                 val connection = gattClient.connectionState.value
+                val direct = wifiDirectManager.state.value
                 if (
                     bluetoothPermissionGranted.value &&
                     !qrPairingActive.value && targetDeviceId != null &&
-                    transport !is TransportState.Connected &&
-                    _connectingLanDeviceId.value == null &&
+                    allowsAutomaticBleReconnect(
+                        transportState = transport,
+                        lanConnectionPending = _connectingLanDeviceId.value != null,
+                        wifiDirectConnectionInProgress =
+                            direct.connectingPeerAddress != null && !direct.connected
+                    ) &&
                     (connection is ConnectionState.Disconnected || connection is ConnectionState.Error)
                 ) {
                     val storedName = registeredDevices.value.firstOrNull {
@@ -1174,17 +1764,55 @@ class JetsonRepository(
                         legacyBleNameForDeviceId(targetDeviceId).lowercase(),
                         storedName
                     ).filterNotNull().toSet()
+                    val nowElapsedRealtimeMillis = SystemClock.elapsedRealtime()
+                    val currentScanGeneration = scanner.scanGeneration.value
                     val candidates = scanner.devices.value.filter { candidate ->
-                        candidate.name?.lowercase() in expectedNames
+                        candidate.name?.lowercase() in expectedNames &&
+                            isFreshBleReconnectCandidate(
+                                candidateScanGeneration = candidate.scanGeneration,
+                                currentScanGeneration = currentScanGeneration,
+                                observedAtElapsedRealtimeMillis =
+                                    candidate.observedAtElapsedRealtimeMillis,
+                                nowElapsedRealtimeMillis = nowElapsedRealtimeMillis,
+                                maxAgeMillis = BLE_RECONNECT_CANDIDATE_MAX_AGE_MILLIS
+                            )
                     }
                     if (candidates.size == 1) {
                         reconnectRegistered(candidates.single(), targetDeviceId)
                     } else if (!scanner.isScanning.value) {
+                        scanner.clear()
                         scanner.startScan(durationMillis = 15_000L, jetsonOnly = true)
                     }
                 }
                 delay(AUTOMATIC_BLE_RECONNECT_INTERVAL_MILLIS)
             }
+        }
+    }
+
+    private fun refreshBleReconnectCandidatesAfterFailure() {
+        val direct = wifiDirectManager.state.value
+        if (
+            !isCurrentBleFailureState(gattClient.connectionState.value) ||
+            !automaticConnectivityEnabled.value ||
+            explicitDisconnectRequested.get() ||
+            !bluetoothPermissionGranted.value ||
+            qrPairingActive.value ||
+            automaticTargetDeviceId(
+                preferredAutomaticDeviceId.value,
+                registeredDevices.value
+            ) == null ||
+            !allowsAutomaticBleReconnect(
+                transportState = transportCoordinator.state.value,
+                lanConnectionPending = _connectingLanDeviceId.value != null,
+                wifiDirectConnectionInProgress =
+                    direct.connectingPeerAddress != null && !direct.connected
+            )
+        ) {
+            return
+        }
+        scanner.clear()
+        if (!scanner.isScanning.value) {
+            scanner.startScan(durationMillis = 15_000L, jetsonOnly = true)
         }
     }
 
@@ -1487,6 +2115,7 @@ class JetsonRepository(
         JetsonCommand.SHUTDOWN -> "종료"
         JetsonCommand.GET_STATUS -> "상태 갱신"
         JetsonCommand.SET_WIFI -> "Wi-Fi 설정"
+        JetsonCommand.REQUEST_WIFI_DIRECT -> "Wi-Fi Direct 준비"
     }
 }
 
@@ -1496,7 +2125,12 @@ private const val AUTOMATIC_LAN_RETRY_MAX_MILLIS = 15_000L
 private const val AUTOMATIC_LAN_RETRY_EXPONENT_LIMIT = 5
 private const val AUTOMATIC_LAN_RETRY_DIRECT_PROBE_WAIT_MILLIS = 500L
 private const val AUTOMATIC_DIRECT_START_DELAY_MILLIS = 750L
+private const val WIFI_DIRECT_MODE_READY_DELAY_MILLIS = 1_000L
+private const val WIFI_DIRECT_DISCOVERY_SETTLE_MILLIS = 250L
+private const val WIFI_DIRECT_ENTRY_TIMEOUT_MILLIS = 60_000L
+internal const val WIFI_PROVISION_LAN_HANDOFF_TIMEOUT_MILLIS = 330_000L
 private const val AUTOMATIC_BLE_RECONNECT_INTERVAL_MILLIS = 5_000L
+private const val BLE_RECONNECT_CANDIDATE_MAX_AGE_MILLIS = 20_000L
 private const val IP_HEARTBEAT_INTERVAL_MILLIS = 1_000L
 private const val WIFI_DIRECT_API_MAX_ATTEMPTS = 3
 private const val WIFI_DIRECT_API_RETRY_DELAY_MILLIS = 750L
@@ -1515,3 +2149,13 @@ internal fun wifiNetworksMatch(
     jetsonSsid: String?
 ): Boolean = jetsonConnected && !mobileSsid.isNullOrBlank() &&
     !jetsonSsid.isNullOrBlank() && mobileSsid == jetsonSsid
+
+/**
+ * A LAN probe cannot succeed unless both endpoints already have infrastructure
+ * Wi-Fi. In that offline/bootstrap case BLE should lead directly to P2P instead
+ * of spending the LAN grace period on an impossible discovery path.
+ */
+internal fun shouldPreferWifiDirectBeforeLan(
+    mobileSsid: String?,
+    jetsonWifiConnected: Boolean
+): Boolean = mobileSsid.isNullOrBlank() || !jetsonWifiConnected
