@@ -85,10 +85,6 @@ class BleGattClient(
     private var pendingSessionEncryptionKey: ByteArray? = null
     private var sessionEncryptionKey: ByteArray? = null
 
-    private val commandWriteGate = BleCommandWriteGate(
-        timeoutMillis = COMMAND_WRITE_CALLBACK_TIMEOUT_MILLIS
-    )
-
 
     @SuppressLint("MissingPermission")
     fun connect(
@@ -145,13 +141,9 @@ class BleGattClient(
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
-        val gatt = bluetoothGatt
+        bluetoothGatt?.disconnect()
+        bluetoothGatt?.close()
         bluetoothGatt = null
-        commandWriteGate.fail(
-            IllegalStateException("BLE 연결이 종료되어 명령 쓰기를 완료하지 못했습니다.")
-        )
-        gatt?.disconnect()
-        gatt?.close()
         pairingSession = null
         verifiedDeviceId = null
         expectedReconnectDeviceId = null
@@ -195,9 +187,6 @@ class BleGattClient(
 
                     BluetoothProfile.STATE_DISCONNECTED -> {
                         bluetoothGatt = null
-                        commandWriteGate.fail(
-                            IllegalStateException("BLE 연결이 끊겨 명령 쓰기를 완료하지 못했습니다.")
-                        )
                         verifiedDeviceId = null
                         expectedReconnectDeviceId = null
                         pendingSessionEncryptionKey = null
@@ -293,14 +282,6 @@ class BleGattClient(
                 status: Int
             ) {
                 if (gatt !== bluetoothGatt) return
-                if (characteristic.uuid == JetsonGattSpec.COMMAND_UUID) {
-                    if (status == BluetoothGatt.GATT_SUCCESS) {
-                        commandWriteGate.complete(Result.success(Unit))
-                    } else {
-                        handleError("Write failed: $status")
-                    }
-                    return
-                }
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     handleError("Write failed: $status")
                     return
@@ -521,7 +502,6 @@ class BleGattClient(
     private fun handleError(message: String) {
         val gatt = bluetoothGatt
         bluetoothGatt = null
-        commandWriteGate.fail(IllegalStateException(message))
         pairingSession = null
         pendingSessionEncryptionKey = null
         sessionEncryptionKey = null
@@ -554,43 +534,47 @@ class BleGattClient(
 
 
     @SuppressLint("MissingPermission")
-    suspend fun writeCommandAwait(payload: ByteArray): Result<Unit> {
-        var writeGatt: BluetoothGatt? = null
-        return commandWriteGate.write(
-            initiate = initiate@{
-                if (!isReady()) {
-                    return@initiate false
-                }
-                val gatt = bluetoothGatt ?: return@initiate false
-                val characteristic = gatt
-                    .getService(JetsonGattSpec.SERVICE_UUID)
-                    ?.getCharacteristic(JetsonGattSpec.COMMAND_UUID)
-                    ?: return@initiate false
-                writeGatt = gatt
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        gatt.writeCharacteristic(
-                            characteristic,
-                            payload,
-                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                        ) == BluetoothStatusCodes.SUCCESS
-                    } else {
-                        @Suppress("DEPRECATION")
-                        characteristic.value = payload
-                        @Suppress("DEPRECATION")
-                        gatt.writeCharacteristic(characteristic)
-                    }
-                } catch (_: SecurityException) {
-                    false
-                }
-            },
-            abortInFlight = { message ->
-                val gatt = writeGatt
-                if (gatt != null && gatt === bluetoothGatt) {
-                    handleError(message)
-                }
-            }
-        )
+    fun writeCommand(
+        payload: ByteArray
+    ): Boolean {
+
+        val gatt =
+            bluetoothGatt
+                ?: return false
+
+        val service =
+            gatt.getService(
+                JetsonGattSpec.SERVICE_UUID
+            ) ?: return false
+
+        val characteristic =
+            service.getCharacteristic(
+                JetsonGattSpec.COMMAND_UUID
+            ) ?: return false
+
+        return if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.TIRAMISU
+        ) {
+
+            gatt.writeCharacteristic(
+                characteristic,
+                payload,
+                BluetoothGattCharacteristic
+                    .WRITE_TYPE_DEFAULT
+            ) == BluetoothStatusCodes.SUCCESS
+
+        } else {
+
+            @Suppress("DEPRECATION")
+            characteristic.value =
+                payload
+
+            @Suppress("DEPRECATION")
+            gatt.writeCharacteristic(
+                characteristic
+            )
+        }
     }
 
 
@@ -656,5 +640,3 @@ class BleGattClient(
         }
     }
 }
-
-private const val COMMAND_WRITE_CALLBACK_TIMEOUT_MILLIS = 10_000L

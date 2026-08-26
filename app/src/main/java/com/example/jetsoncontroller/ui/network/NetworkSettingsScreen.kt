@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -103,8 +102,7 @@ fun NetworkSettingsScreen(
     wifiScanPermissionGranted: Boolean,
     onRequestWifiScanPermission: () -> Unit,
     onScanAccessPoints: () -> Unit,
-    onSelectAccessPoint: (WifiAccessPoint) -> Unit,
-    onOpenWifiDirect: () -> Unit
+    onSelectAccessPoint: (WifiAccessPoint) -> Unit
 ) {
     val listState = rememberLazyListState()
     var manualEntryExpanded by rememberSaveable { mutableStateOf(false) }
@@ -120,23 +118,21 @@ fun NetworkSettingsScreen(
                     }
                 },
                 actions = {
-                    if (selectedTab == 1) {
-                        IconButton(
-                            onClick = if (wifiScanPermissionGranted) {
-                                onScanAccessPoints
-                            } else {
-                                onRequestWifiScanPermission
-                            },
-                            enabled = !state.scanningAccessPoints
-                        ) {
-                            if (state.scanningAccessPoints) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "Wi-Fi 다시 검색")
-                            }
+                    IconButton(
+                        onClick = if (wifiScanPermissionGranted) {
+                            onScanAccessPoints
+                        } else {
+                            onRequestWifiScanPermission
+                        },
+                        enabled = !state.scanningAccessPoints
+                    ) {
+                        if (state.scanningAccessPoints) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = "Wi-Fi 다시 검색")
                         }
                     }
                 }
@@ -157,22 +153,16 @@ fun NetworkSettingsScreen(
                     text = { Text("Jetson Wi-Fi") },
                     icon = { Icon(Icons.Default.Wifi, contentDescription = null) }
                 )
-                Tab(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    text = { Text("Wi-Fi Direct") },
-                    icon = { Icon(Icons.Default.WifiTethering, contentDescription = null) }
-                )
             }
-            when (selectedTab) {
-                0 -> NetworkConnectionStatus(
+            if (selectedTab == 0) {
+                NetworkConnectionStatus(
                     state = state,
                     wifiScanPermissionGranted = wifiScanPermissionGranted,
                     onRequestWifiScanPermission = onRequestWifiScanPermission,
                     modifier = Modifier.weight(1f)
                 )
-
-                1 -> LazyColumn(
+            } else {
+                LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
@@ -180,185 +170,101 @@ fun NetworkSettingsScreen(
                         .navigationBarsPadding(),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    item {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                            ConnectionMethodLabel(state.transportType)
-                            if (state.wifiConnected && !state.currentWifiSsid.isNullOrBlank()) {
-                                Spacer(Modifier.height(12.dp))
-                                CurrentWifiCard(state.currentWifiSsid)
-                            }
-                            state.accessPointError?.let { error ->
-                                Spacer(Modifier.height(12.dp))
-                                InlineMessage(message = error, isError = true)
-                            }
-                        }
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    ConnectionMethodLabel(state.transportType)
+                    if (state.wifiConnected && !state.currentWifiSsid.isNullOrBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        CurrentWifiCard(state.currentWifiSsid)
                     }
-
-                    item {
-                        SectionHeader(
-                            title = "주변 네트워크",
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                        )
-                    }
-
-                    if (state.accessPoints.isEmpty() && !state.scanningAccessPoints) {
-                        item {
-                            EmptyState(
-                                title = "검색된 네트워크가 없습니다",
-                                message = "Wi-Fi 검색 권한과 위치 서비스 상태를 확인하세요.",
-                                actionLabel = if (wifiScanPermissionGranted) {
-                                    "다시 검색"
-                                } else {
-                                    "권한 허용"
-                                },
-                                onAction = if (wifiScanPermissionGranted) {
-                                    onScanAccessPoints
-                                } else {
-                                    onRequestWifiScanPermission
-                                }
-                            )
-                        }
-                    } else {
-                        items(
-                            items = state.accessPoints,
-                            key = { accessPoint -> accessPoint.ssid }
-                        ) { accessPoint ->
-                            WifiAccessPointRow(
-                                accessPoint = accessPoint,
-                                selected = state.selectedAccessPointSsid == accessPoint.ssid &&
-                                    !state.isCurrentJetsonWifi(accessPoint.ssid),
-                                connected = state.isCurrentJetsonWifi(accessPoint.ssid),
-                                password = state.password,
-                                sending = state.sending,
-                                message = state.message,
-                                messageIsError = state.isError,
-                                onSelect = {
-                                    manualEntryExpanded = false
-                                    onSelectAccessPoint(accessPoint)
-                                },
-                                onPasswordChange = onPasswordChange,
-                                onSubmit = onSubmit
-                            )
-                            HorizontalDivider(modifier = Modifier.padding(start = 68.dp))
-                        }
-                    }
-
-                    item {
-                        Spacer(Modifier.height(16.dp))
-                        SectionHeader(
-                            title = "직접 입력",
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                        )
-                        ListItem(
-                            headlineContent = { Text("숨겨진 네트워크 추가") },
-                            leadingContent = { Icon(Icons.Default.Add, contentDescription = null) },
-                            trailingContent = {
-                                Icon(
-                                    if (manualEntryExpanded) Icons.Default.KeyboardArrowUp
-                                    else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = null
-                                )
-                            },
-                            modifier = Modifier.clickable {
-                                manualEntryExpanded = !manualEntryExpanded
-                                if (manualEntryExpanded) {
-                                    onSsidChange("")
-                                    onHiddenChange(true)
-                                }
-                            }
-                        )
-                        AnimatedVisibility(visible = manualEntryExpanded) {
-                            ManualNetworkForm(
-                                state = state,
-                                onSsidChange = onSsidChange,
-                                onPasswordChange = onPasswordChange,
-                                onHiddenChange = onHiddenChange,
-                                onSubmit = onSubmit
-                            )
-                        }
+                    state.accessPointError?.let { error ->
+                        Spacer(Modifier.height(12.dp))
+                        InlineMessage(message = error, isError = true)
                     }
                 }
+            }
 
-                else -> WifiDirectSwitchPanel(
-                    transportType = state.transportType,
-                    onOpenWifiDirect = onOpenWifiDirect,
-                    modifier = Modifier.weight(1f)
+            item {
+                SectionHeader(
+                    title = "주변 네트워크",
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                 )
             }
-        }
-    }
-}
 
-@Composable
-private fun WifiDirectSwitchPanel(
-    transportType: TransportType?,
-    onOpenWifiDirect: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceContainerLow
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(
-                        Icons.Default.WifiTethering,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp)
-                    )
-                    Text(
-                        if (transportType == TransportType.WIFI_DIRECT) {
-                            "Wi-Fi Direct 연결 상태"
+            if (state.accessPoints.isEmpty() && !state.scanningAccessPoints) {
+                item {
+                    EmptyState(
+                        title = "검색된 네트워크가 없습니다",
+                        message = "Wi-Fi 검색 권한과 위치 서비스 상태를 확인하세요.",
+                        actionLabel = if (wifiScanPermissionGranted) "다시 검색" else "권한 허용",
+                        onAction = if (wifiScanPermissionGranted) {
+                            onScanAccessPoints
                         } else {
-                            "Wi-Fi Direct로 전환"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                            onRequestWifiScanPermission
+                        }
                     )
-                    Text(
-                        if (transportType == TransportType.WIFI_DIRECT) {
-                            "현재 직접 연결의 장비 및 API 상태를 확인합니다."
-                        } else {
-                            "현재 LAN 제어 연결을 종료한 뒤 BLE 인증을 거쳐 Jetson과 직접 연결합니다."
+                }
+            } else {
+                items(
+                    items = state.accessPoints,
+                    key = { accessPoint -> accessPoint.ssid }
+                ) { accessPoint ->
+                    WifiAccessPointRow(
+                        accessPoint = accessPoint,
+                        selected = state.selectedAccessPointSsid == accessPoint.ssid &&
+                            !state.isCurrentJetsonWifi(accessPoint.ssid),
+                        connected = state.isCurrentJetsonWifi(accessPoint.ssid),
+                        password = state.password,
+                        sending = state.sending,
+                        message = state.message,
+                        messageIsError = state.isError,
+                        onSelect = {
+                            manualEntryExpanded = false
+                            onSelectAccessPoint(accessPoint)
                         },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        onPasswordChange = onPasswordChange,
+                        onSubmit = onSubmit
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(start = 68.dp))
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(16.dp))
+                SectionHeader(
+                    title = "직접 입력",
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+                ListItem(
+                    headlineContent = { Text("숨겨진 네트워크 추가") },
+                    leadingContent = { Icon(Icons.Default.Add, contentDescription = null) },
+                    trailingContent = {
+                        Icon(
+                            if (manualEntryExpanded) Icons.Default.KeyboardArrowUp
+                            else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        manualEntryExpanded = !manualEntryExpanded
+                        if (manualEntryExpanded) {
+                            onSsidChange("")
+                            onHiddenChange(true)
+                        }
+                    }
+                )
+                AnimatedVisibility(visible = manualEntryExpanded) {
+                    ManualNetworkForm(
+                        state = state,
+                        onSsidChange = onSsidChange,
+                        onPasswordChange = onPasswordChange,
+                        onHiddenChange = onHiddenChange,
+                        onSubmit = onSubmit
                     )
                 }
             }
-        }
-        item {
-            Button(
-                onClick = onOpenWifiDirect,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("wifi-direct-switch-button")
-            ) {
-                Text(
-                    if (transportType == TransportType.WIFI_DIRECT) {
-                        "직접 연결 상태 열기"
-                    } else {
-                        "Wi-Fi Direct 전환 시작"
-                    }
-                )
+                }
             }
-        }
-        item {
-            Text(
-                "전환을 시작하면 Jetson의 공유기 Wi-Fi가 해제되고, 등록된 장비를 직접 검색합니다.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
@@ -700,7 +606,7 @@ private fun WifiAccessPointRow(
                                 )
                                 Spacer(Modifier.size(8.dp))
                             }
-                            Text(if (sending) "연결 결과 확인 중" else "이 네트워크에 연결")
+                            Text(if (sending) "전송 중" else "이 네트워크에 연결")
                         }
                     }
                 }
@@ -786,14 +692,7 @@ private fun ManualNetworkForm(
                 (state.password.isEmpty() || passwordByteLengthIsValid(state.password)) &&
                 state.ssid.toByteArray(Charsets.UTF_8).size <= 32
         ) {
-            if (state.sending) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp
-                )
-                Spacer(Modifier.size(8.dp))
-            }
-            Text(if (state.sending) "연결 결과 확인 중" else "네트워크 추가")
+            Text(if (state.sending) "전송 중" else "네트워크 추가")
         }
     }
 }

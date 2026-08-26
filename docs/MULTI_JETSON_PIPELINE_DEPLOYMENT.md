@@ -262,7 +262,7 @@ sudo systemctl disable jetson-pipeline@depthai-capture.service
 
 파일 로그는 pipeline별 최근 20개, 합계 1 GiB, 실행당 128 MiB까지 자동 보관한다. 실행 파일 한도를 넘긴 출력은 journald의 기존 회전 정책으로 계속 확인할 수 있다.
 
-설치기는 pipeline 사용자에게 장비에 존재하는 `video`, `dialout`, `plugdev` group을 부여한다. 실제 `/dev` node의 owner/group도 확인하며, 대화형 shell에서 새 group을 바로 사용하려면 재로그인 또는 재부팅이 필요하다. systemd가 이후 시작하는 pipeline은 갱신된 보조 group을 사용한다.
+pipeline 사용자에게 필요한 장치 group을 장비 정책에 맞게 부여한다. 일반적인 후보는 `video`, `dialout`, `plugdev`지만 실제 `/dev` node의 owner/group을 먼저 확인한다. group 변경 후에는 사용자 session 재로그인 또는 재부팅이 필요하다.
 
 ## 10. 검증
 

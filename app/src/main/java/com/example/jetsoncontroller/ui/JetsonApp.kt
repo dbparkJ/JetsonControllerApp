@@ -367,18 +367,6 @@ fun JetsonApp(
     val serverUploadDisabledReason = serverUploadUnavailableMessage(connectedTransportType)
     val fullControlConnected = connectedTransportType == TransportType.LAN ||
         connectedTransportType == TransportType.WIFI_DIRECT
-    val wifiDirectPermissionGranted =
-        bluetoothPermissionGranted &&
-            nearbyWifiPermissionGranted &&
-            localNetworkPermissionGranted
-    val requestWifiDirectPermissions: () -> Unit = {
-        when {
-            !bluetoothPermissionGranted -> onRequestBluetoothPermission()
-            !nearbyWifiPermissionGranted -> onRequestNearbyWifiPermission()
-            !localNetworkPermissionGranted -> onRequestLocalNetworkPermission()
-            else -> Unit
-        }
-    }
 
     val onSectionSelected: (ControlSection) -> Unit = onSectionSelected@ { section ->
         if (
@@ -522,8 +510,7 @@ fun JetsonApp(
                 onReconnectDevice = { device ->
                     repository.connectRegisteredAutomatically(device.deviceId)
                     navController.navigate(Routes.DASHBOARD) { launchSingleTop = true }
-                },
-                onOpenWifiDirect = { navController.navigate(Routes.WIFI_DIRECT) }
+                }
             )
         }
 
@@ -637,9 +624,9 @@ fun JetsonApp(
             Routes.WIFI_DIRECT
         ) {
             DisposableEffect(
-                wifiDirectPermissionGranted
+                nearbyWifiPermissionGranted
             ) {
-                if (wifiDirectPermissionGranted) {
+                if (nearbyWifiPermissionGranted) {
                     wifiDirectViewModel.startDiscovery()
                 }
 
@@ -650,19 +637,19 @@ fun JetsonApp(
 
             WifiDirectScreen(
                 state = wifiDirectState,
-                permissionGranted = wifiDirectPermissionGranted,
+                permissionGranted = nearbyWifiPermissionGranted,
                 onBack = {
                     if (pendingDashboardTransport == TransportType.WIFI_DIRECT) {
                         pendingDashboardTransport = null
                     }
                     navController.popBackStack()
                 },
-                onPermissionClick = requestWifiDirectPermissions,
+                onPermissionClick = onRequestNearbyWifiPermission,
                 onDiscoveryClick = {
-                    if (wifiDirectPermissionGranted) {
+                    if (nearbyWifiPermissionGranted) {
                         wifiDirectViewModel.startDiscovery()
                     } else {
-                        requestWifiDirectPermissions()
+                        onRequestNearbyWifiPermission()
                     }
                 },
                 onConnectClick = {
@@ -803,12 +790,7 @@ fun JetsonApp(
                 wifiScanPermissionGranted = wifiScanPermissionGranted,
                 onRequestWifiScanPermission = onRequestWifiScanPermission,
                 onScanAccessPoints = networkSettingsViewModel::scanAccessPoints,
-                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint,
-                onOpenWifiDirect = {
-                    navController.navigate(Routes.WIFI_DIRECT) {
-                        launchSingleTop = true
-                    }
-                }
+                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint
             )
         }
         

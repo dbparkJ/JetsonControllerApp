@@ -221,28 +221,10 @@ interface LocalControlApi {
         @Body request: UpdatePipelineConfigFieldsRequest
     ): Response<PipelineConfigFieldsDocument>
 
-    @GET("/v1/rtk/mobile-relay/config/{pipelineId}")
-    suspend fun getMobileRtkRelayConfig(
-        @Path("pipelineId") pipelineId: String
-    ): Response<MobileRtkRelayConfig>
-
-    @PUT("/v1/rtk/mobile-relay")
-    suspend fun registerMobileRtkRelay(
-        @Body request: RegisterMobileRtkRelayRequest
-    ): Response<MobileRtkRelayRegistration>
-
-    @DELETE("/v1/rtk/mobile-relay/{pipelineId}")
-    suspend fun unregisterMobileRtkRelay(
-        @Path("pipelineId") pipelineId: String
-    ): Response<Unit>
-
     @POST("/v1/network/wifi")
     suspend fun configureWifi(
         @Body request: WifiProvisionRequest
     ): Response<WifiProvisionResponse>
-
-    @GET("/v1/network/wifi/status")
-    suspend fun getWifiProvisionStatus(): Response<WifiProvisionStatus>
 
     @GET("/v1/system/time")
     suspend fun getSystemTime(): Response<SystemTimeStatus>
@@ -313,7 +295,6 @@ interface LocalControlApi {
         val pipelines: Boolean = false,
         val pipelineFolderRegistration: Boolean = false,
         val mobileTimeSync: Boolean = false,
-        val mobileRtkRelay: Boolean = false,
         val fanControl: Boolean = false
     )
 

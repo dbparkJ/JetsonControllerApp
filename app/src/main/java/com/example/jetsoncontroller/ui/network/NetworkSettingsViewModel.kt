@@ -6,8 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.WifiProvisionRequest
-import com.example.jetsoncontroller.model.WifiProvisionPhase
-import com.example.jetsoncontroller.model.phase
 import com.example.jetsoncontroller.data.transport.TransportState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -113,9 +111,6 @@ class NetworkSettingsViewModel(
 
     fun submit() {
         val current = _uiState.value
-        if (current.sending) {
-            return
-        }
         if (current.isCurrentJetsonWifi(current.ssid)) {
             _uiState.update {
                 it.copy(
@@ -129,13 +124,7 @@ class NetworkSettingsViewModel(
             return
         }
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    sending = true,
-                    message = "Wi-Fi 연결 요청을 Jetson에 전송하고 있습니다.",
-                    isError = false
-                )
-            }
+            _uiState.update { it.copy(sending = true, message = null) }
 
             val result = repository.provisionWifi(
                 WifiProvisionRequest(
@@ -145,98 +134,19 @@ class NetworkSettingsViewModel(
                 )
             )
 
-            val receipt = result.getOrElse { error ->
-                _uiState.update {
-                    it.copy(
-                        sending = false,
-                        message = error.message ?: "Wi-Fi 설정 전송에 실패했습니다.",
-                        isError = true
-                    )
-                }
-                return@launch
-            }
-
-            if (receipt.lanHandoffRequired) {
-                _uiState.update {
-                    it.copy(
-                        message =
-                            "Jetson이 ${receipt.ssid} Wi-Fi로 전환 중입니다. " +
-                                "새 LAN에서 장비를 다시 찾습니다.",
-                        isError = false
-                    )
-                }
-                val handoff = repository.awaitWifiProvisionLanHandoff(receipt.deviceId)
-                _uiState.update {
-                    if (handoff.isSuccess) {
-                        it.copy(
-                            sending = false,
-                            password = "",
-                            message =
-                                "${receipt.ssid} Wi-Fi 연결과 LAN 재연결에 성공했습니다.",
-                            isError = false
-                        )
-                    } else {
-                        it.copy(
-                            sending = false,
-                            message = handoff.exceptionOrNull()?.message
-                                ?: "새 LAN에서 Jetson을 다시 찾지 못했습니다.",
-                            isError = true
-                        )
-                    }
-                }
-                return@launch
-            }
-
-            if (!receipt.statusPollingAvailable) {
-                _uiState.update {
+            _uiState.update {
+                if (result.isSuccess) {
                     it.copy(
                         sending = false,
                         password = "",
                         message = "Wi-Fi 연결 요청을 Jetson에 전송했습니다.",
                         isError = false
                     )
-                }
-                return@launch
-            }
-
-            _uiState.update {
-                it.copy(
-                    message = "Jetson이 ${receipt.ssid} Wi-Fi에 연결 중입니다. 결과를 확인하고 있습니다.",
-                    isError = false
-                )
-            }
-            val completion = awaitWifiProvisionCompletion(
-                expectedSsid = receipt.ssid,
-                fetchStatus = repository::getWifiProvisionStatus
-            )
-            val status = completion.getOrElse { error ->
-                _uiState.update {
+                } else {
                     it.copy(
                         sending = false,
-                        message = error.message
-                            ?: "Wi-Fi 요청은 접수됐지만 최종 결과를 확인하지 못했습니다.",
-                        isError = true
-                    )
-                }
-                return@launch
-            }
-
-            _uiState.update {
-                when (status.phase()) {
-                    WifiProvisionPhase.CONNECTED -> it.copy(
-                        sending = false,
-                        password = "",
-                        message = wifiProvisionConnectedMessage(status, receipt.ssid),
-                        isError = false
-                    )
-                    WifiProvisionPhase.FAILED -> it.copy(
-                        sending = false,
-                        message = wifiProvisionFailedMessage(status, receipt.ssid),
-                        isError = true
-                    )
-                    else -> it.copy(
-                        sending = false,
-                        message = "Jetson의 Wi-Fi 최종 상태를 확인하지 못했습니다.",
+                        message = result.exceptionOrNull()?.message
+                            ?: "Wi-Fi 설정 전송에 실패했습니다.",
                         isError = true
                     )
                 }

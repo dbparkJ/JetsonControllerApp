@@ -1,6 +1,2 @@
 # Keep the deployed EBIMU CP2102 out of ModemManager without ignoring unrelated CP210x devices.
 ACTION=="add|change", SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", ENV{ID_MM_DEVICE_IGNORE}="1"
-
-# DepthAI uploads firmware to OAK devices through libusb. Limit non-root access
-# to the pipeline users that the installer places in the plugdev group.
-ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="03e7", GROUP="plugdev", MODE="0660"

@@ -54,21 +54,4 @@ class BluetoothPermissionPolicyTest {
                 .toList()
         )
     }
-
-    @Test
-    fun wifiDirectRequestsLocalNetworkPermissionOnAndroid37() {
-        assertEquals(
-            listOf(
-                Manifest.permission.NEARBY_WIFI_DEVICES,
-                Manifest.permission.ACCESS_LOCAL_NETWORK
-            ),
-            WifiDirectPermissionPolicy.requestPermissions(37).toList()
-        )
-        assertEquals(
-            listOf(Manifest.permission.NEARBY_WIFI_DEVICES),
-            WifiDirectPermissionPolicy
-                .requestPermissions(Build.VERSION_CODES.TIRAMISU)
-                .toList()
-        )
-    }
 }

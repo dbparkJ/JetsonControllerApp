@@ -8,23 +8,15 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
-import android.net.ConnectivityManager
-import android.net.InetAddresses
-import android.net.NetworkInfo
 import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
 import android.net.wifi.WpsInfo
 import android.os.Build
-import android.os.Handler
-import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.net.Inet4Address
-import java.net.InetAddress
-import javax.net.SocketFactory
 
 data class WifiDirectPeer(
     val name: String,
@@ -39,16 +31,9 @@ enum class WifiDirectApiStatus {
     ERROR
 }
 
-internal enum class WifiDirectLinkPhase {
-    CONNECTED,
-    CONNECTING,
-    DISCONNECTED
-}
-
 data class WifiDirectState(
     val supported: Boolean = true,
     val enabled: Boolean = false,
-    val preparing: Boolean = false,
     val discovering: Boolean = false,
     val peers: List<WifiDirectPeer> = emptyList(),
     val connectingPeerAddress: String? = null,
@@ -71,9 +56,6 @@ class WifiDirectManager(
         appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val locationManager =
         appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-    private val connectivityManager =
-        appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-    private val mainHandler = Handler(appContext.mainLooper)
 
     private val supported =
         appContext.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT) &&
@@ -88,8 +70,6 @@ class WifiDirectManager(
     )
     val state: StateFlow<WifiDirectState> = _state.asStateFlow()
 
-    private var connectionAttemptGeneration = 0L
-    private var peerPollingGeneration = 0L
     private var channel: WifiP2pManager.Channel? = createChannel()
     private var registered = false
 
@@ -98,8 +78,10 @@ class WifiDirectManager(
             appContext,
             appContext.mainLooper
         ) {
-            resetDisconnectedState(
-                "Wi-Fi Direct 연결 채널이 끊어졌습니다. 다시 시도해 주세요."
+            _state.value = _state.value.copy(
+                discovering = false,
+                connectingPeerAddress = null,
+                error = "Wi-Fi Direct 연결 채널이 끊어졌습니다. 다시 시도해 주세요."
             )
             channel = null
         }
@@ -127,15 +109,15 @@ class WifiDirectManager(
                     val enabled =
                         wifiP2pState == WifiP2pManager.WIFI_P2P_STATE_ENABLED
 
-                    if (enabled) {
-                        _state.value = _state.value.copy(enabled = true, error = null)
-                    } else {
-                        resetDisconnectedState(
-                            error = "Wi-Fi가 꺼져 있습니다. Wi-Fi를 켠 뒤 다시 검색해 주세요.",
-                            enabled = false,
-                            clearPeers = true
-                        )
-                    }
+                    _state.value = _state.value.copy(
+                        enabled = enabled,
+                        discovering = if (enabled) _state.value.discovering else false,
+                        error = if (enabled) {
+                            null
+                        } else {
+                            "Wi-Fi가 꺼져 있습니다. Wi-Fi를 켠 뒤 다시 검색해 주세요."
+                        }
+                    )
                 }
 
                 WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION -> {
@@ -154,7 +136,7 @@ class WifiDirectManager(
                 }
 
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
-                    requestNetworkInfo()
+                    requestConnectionInfo()
                 }
             }
         }
@@ -213,13 +195,7 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun startDiscovery() {
-        val currentState = _state.value
-        if (!shouldStartWifiDirectDiscovery(
-                discovering = currentState.discovering,
-                connected = currentState.connected,
-                connectingPeerAddress = currentState.connectingPeerAddress
-            )
-        ) {
+        if (_state.value.discovering) {
             return
         }
         if (!hasNearbyWifiPermission()) {
@@ -250,33 +226,21 @@ class WifiDirectManager(
 
         _state.value = _state.value.copy(
             enabled = true,
-            preparing = false,
             discovering = true,
             discoveryAttempted = true,
             peers = emptyList(),
             error = null
         )
-        val pollGeneration = beginPeerPolling()
-        Log.i(WIFI_DIRECT_LOG_TAG, "Starting Wi-Fi Direct peer discovery")
 
         try {
             readyManager.discoverPeers(
                 readyChannel,
                 object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        // Samsung devices can miss or delay PEERS_CHANGED while
-                        // bringing p2p0 up. Query immediately and keep polling as
-                        // a fallback instead of depending on that broadcast alone.
-                        requestPeers()
-                        schedulePeerPolling(pollGeneration)
+                        // Peer results arrive through WIFI_P2P_PEERS_CHANGED_ACTION.
                     }
 
                     override fun onFailure(reason: Int) {
-                        cancelPeerPolling()
-                        Log.w(
-                            WIFI_DIRECT_LOG_TAG,
-                            "Wi-Fi Direct discovery failed: reason=$reason"
-                        )
                         fail(actionFailure("장비 검색", reason))
                     }
                 }
@@ -284,38 +248,6 @@ class WifiDirectManager(
         } catch (_: SecurityException) {
             fail("주변 기기 권한을 허용한 뒤 다시 검색해 주세요.")
         }
-    }
-
-    private fun beginPeerPolling(): Long {
-        peerPollingGeneration += 1
-        return peerPollingGeneration
-    }
-
-    private fun cancelPeerPolling() {
-        peerPollingGeneration += 1
-    }
-
-    private fun schedulePeerPolling(generation: Long, attempt: Int = 1) {
-        mainHandler.postDelayed(
-            {
-                val current = _state.value
-                if (!shouldContinueWifiDirectPeerPolling(
-                        currentGeneration = peerPollingGeneration,
-                        callbackGeneration = generation,
-                        discovering = current.discovering,
-                        connected = current.connected,
-                        connectingPeerAddress = current.connectingPeerAddress,
-                        attempt = attempt,
-                        maxAttempts = WIFI_DIRECT_PEER_POLL_MAX_ATTEMPTS
-                    )
-                ) {
-                    return@postDelayed
-                }
-                requestPeers()
-                schedulePeerPolling(generation, attempt + 1)
-            },
-            WIFI_DIRECT_PEER_POLL_INTERVAL_MILLIS
-        )
     }
 
     @SuppressLint("MissingPermission")
@@ -330,9 +262,6 @@ class WifiDirectManager(
 
         try {
             readyManager.requestPeers(readyChannel) { peerList ->
-                if (!_state.value.enabled) {
-                    return@requestPeers
-                }
                 val peers = peerList.deviceList
                     .map { device ->
                         WifiDirectPeer(
@@ -349,12 +278,6 @@ class WifiDirectManager(
                     peers = peers,
                     error = null
                 )
-                if (peers.isNotEmpty()) {
-                    Log.i(
-                        WIFI_DIRECT_LOG_TAG,
-                        "Wi-Fi Direct peers available: count=${peers.size}"
-                    )
-                }
             }
         } catch (_: SecurityException) {
             fail("주변 기기 권한을 허용한 뒤 다시 검색해 주세요.")
@@ -363,11 +286,7 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun connect(peer: WifiDirectPeer) {
-        if (
-            !_state.value.enabled ||
-            _state.value.connected ||
-            _state.value.connectingPeerAddress != null
-        ) {
+        if (_state.value.connected || _state.value.connectingPeerAddress != null) {
             return
         }
         if (!hasNearbyWifiPermission()) {
@@ -388,15 +307,11 @@ class WifiDirectManager(
             wps.setup = WpsInfo.PBC
         }
 
-        cancelPeerPolling()
-        val attemptGeneration = ++connectionAttemptGeneration
         _state.value = _state.value.copy(
             discovering = false,
             connectingPeerAddress = peer.deviceAddress,
             error = null
         )
-        Log.i(WIFI_DIRECT_LOG_TAG, "Connecting to Wi-Fi Direct peer ${peer.name}")
-        scheduleConnectionTimeout(peer.deviceAddress, attemptGeneration)
 
         try {
             readyManager.connect(
@@ -405,30 +320,12 @@ class WifiDirectManager(
                 object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         // Connection details arrive through the connection broadcast.
-                        Log.i(WIFI_DIRECT_LOG_TAG, "Wi-Fi Direct connect request accepted")
                     }
 
                     override fun onFailure(reason: Int) {
-                        if (!wifiDirectAttemptIsCurrent(
-                                currentGeneration = connectionAttemptGeneration,
-                                callbackGeneration = attemptGeneration,
-                                connectingPeerAddress = _state.value.connectingPeerAddress,
-                                callbackPeerAddress = peer.deviceAddress,
-                                connected = _state.value.connected
-                            )
-                        ) {
-                            return
-                        }
                         _state.value = _state.value.copy(
+                            connectingPeerAddress = null,
                             error = actionFailure("장비 연결", reason)
-                        )
-                        Log.w(
-                            WIFI_DIRECT_LOG_TAG,
-                            "Wi-Fi Direct connect request failed: reason=$reason"
-                        )
-                        releaseFailedConnectionAfterCooldown(
-                            peer.deviceAddress,
-                            attemptGeneration
                         )
                     }
                 }
@@ -438,121 +335,19 @@ class WifiDirectManager(
         }
     }
 
-    private fun scheduleConnectionTimeout(peerAddress: String, attemptGeneration: Long) {
-        mainHandler.postDelayed(
-            {
-                if (wifiDirectAttemptIsCurrent(
-                        currentGeneration = connectionAttemptGeneration,
-                        callbackGeneration = attemptGeneration,
-                        connectingPeerAddress = _state.value.connectingPeerAddress,
-                        callbackPeerAddress = peerAddress,
-                        connected = _state.value.connected
-                    )
-                ) {
-                    resetDisconnectedState(
-                        "Wi-Fi Direct 연결 시간이 초과되었습니다. 다시 시도해 주세요."
-                    )
-                }
-            },
-            WIFI_DIRECT_CONNECT_TIMEOUT_MILLIS
-        )
-    }
-
-    private fun releaseFailedConnectionAfterCooldown(
-        peerAddress: String,
-        attemptGeneration: Long
-    ) {
-        mainHandler.postDelayed(
-            {
-                if (wifiDirectAttemptIsCurrent(
-                        currentGeneration = connectionAttemptGeneration,
-                        callbackGeneration = attemptGeneration,
-                        connectingPeerAddress = _state.value.connectingPeerAddress,
-                        callbackPeerAddress = peerAddress,
-                        connected = _state.value.connected
-                    )
-                ) {
-                    connectionAttemptGeneration += 1
-                    _state.value = _state.value.copy(connectingPeerAddress = null)
-                }
-            },
-            WIFI_DIRECT_CONNECT_FAILURE_COOLDOWN_MILLIS
-        )
-    }
-
     @SuppressLint("MissingPermission")
-    private fun requestNetworkInfo() {
+    private fun requestConnectionInfo() {
         if (!hasNearbyWifiPermission()) {
             return
         }
 
         val readyManager = manager ?: return
         val readyChannel = ensureChannel() ?: return
-        val queryGeneration = connectionAttemptGeneration
-
-        try {
-            readyManager.requestNetworkInfo(readyChannel) { networkInfo ->
-                if (queryGeneration != connectionAttemptGeneration) {
-                    return@requestNetworkInfo
-                }
-                val phase = networkInfo.toWifiDirectLinkPhase()
-                if (
-                    shouldPreservePendingWifiDirectConnection(
-                        connectingPeerAddress = _state.value.connectingPeerAddress,
-                        phase = phase
-                    )
-                ) {
-                    requestConnectionInfo(preservePendingConnection = true)
-                    return@requestNetworkInfo
-                }
-                when (phase) {
-                    WifiDirectLinkPhase.CONNECTED,
-                    WifiDirectLinkPhase.CONNECTING ->
-                        requestConnectionInfo(preservePendingConnection = true)
-                    WifiDirectLinkPhase.DISCONNECTED -> {
-                        val current = _state.value
-                        if (shouldPreserveActiveWifiDirectDiscovery(
-                                discovering = current.discovering,
-                                preparing = current.preparing,
-                                phase = phase
-                            )
-                        ) {
-                            // Android emits a disconnected P2P broadcast while it
-                            // is creating the management interface. Treating that
-                            // as terminal used to clear a discovery that had just
-                            // started, so retain discovery and refresh peers.
-                            requestPeers()
-                            return@requestNetworkInfo
-                        }
-                        resetDisconnectedState(clearPeers = true)
-                    }
-                }
-            }
-        } catch (_: SecurityException) {
-            fail("Wi-Fi Direct 연결 정보를 읽을 권한이 없습니다.")
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun requestConnectionInfo(preservePendingConnection: Boolean = false) {
-        if (!hasNearbyWifiPermission()) {
-            return
-        }
-
-        val readyManager = manager ?: return
-        val readyChannel = ensureChannel() ?: return
-        val queryGeneration = connectionAttemptGeneration
 
         try {
             readyManager.requestConnectionInfo(readyChannel) { info ->
-                if (queryGeneration != connectionAttemptGeneration) {
-                    return@requestConnectionInfo
-                }
                 if (info.groupFormed && info.groupOwnerAddress != null) {
-                    cancelPeerPolling()
-                    connectionAttemptGeneration += 1
                     _state.value = _state.value.copy(
-                        preparing = false,
                         discovering = false,
                         connectingPeerAddress = null,
                         connected = true,
@@ -562,19 +357,8 @@ class WifiDirectManager(
                         apiError = null,
                         error = null
                     )
-                    Log.i(
-                        WIFI_DIRECT_LOG_TAG,
-                        "Wi-Fi Direct group formed; owner=${info.groupOwnerAddress.hostAddress}"
-                    )
                 } else {
-                    if (
-                        preservePendingConnection &&
-                        _state.value.connectingPeerAddress != null
-                    ) {
-                        return@requestConnectionInfo
-                    }
                     _state.value = _state.value.copy(
-                        peers = emptyList(),
                         connectingPeerAddress = null,
                         connected = false,
                         groupOwnerAddress = null,
@@ -591,7 +375,6 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun stopDiscovery() {
-        cancelPeerPolling()
         val readyManager = manager
         val readyChannel = channel
 
@@ -609,69 +392,10 @@ class WifiDirectManager(
             }
         }
 
-        _state.value = _state.value.copy(
-            preparing = false,
-            discovering = false
-        )
-        if (!shouldKeepWifiDirectReceiver(
-                connected = _state.value.connected,
-                connectingPeerAddress = _state.value.connectingPeerAddress
-            )
-        ) {
+        _state.value = _state.value.copy(discovering = false)
+        if (!_state.value.connected) {
             unregister()
         }
-    }
-
-    fun markEntryPreparing() {
-        if (_state.value.connected) {
-            return
-        }
-        connectionAttemptGeneration += 1
-        _state.value = wifiDirectDisconnectedState(
-            current = _state.value,
-            clearPeers = true
-        ).copy(
-            preparing = true,
-            discoveryAttempted = false
-        )
-    }
-
-    fun markEntryError(message: String) {
-        resetDisconnectedState(error = message, clearPeers = true)
-    }
-
-    /**
-     * LAN becoming authoritative is a terminal P2P handoff. The Jetson may
-     * already have removed the group, so Android can reject removeGroup even
-     * though no P2P link remains. Clear the app's link state immediately while
-     * still making a best-effort framework cleanup request.
-     */
-    @SuppressLint("MissingPermission")
-    fun releaseForTransportHandoff() {
-        val current = _state.value
-        val readyManager = manager
-        val readyChannel = channel
-
-        if (readyManager != null && readyChannel != null) {
-            val listener = object : WifiP2pManager.ActionListener {
-                override fun onSuccess() = Unit
-                override fun onFailure(reason: Int) = Unit
-            }
-            try {
-                when {
-                    current.connected -> readyManager.removeGroup(readyChannel, listener)
-                    current.connectingPeerAddress != null ->
-                        readyManager.cancelConnect(readyChannel, listener)
-                    current.discovering ->
-                        readyManager.stopPeerDiscovery(readyChannel, listener)
-                }
-            } catch (_: SecurityException) {
-                // Local state must still be released for the completed LAN handoff.
-            }
-        }
-
-        resetDisconnectedState(clearPeers = true)
-        unregister()
     }
 
     @SuppressLint("MissingPermission")
@@ -681,12 +405,10 @@ class WifiDirectManager(
             return
         }
 
-        val cancelGeneration = ++connectionAttemptGeneration
-
         val readyManager = manager
         val readyChannel = ensureChannel()
         if (readyManager == null || readyChannel == null) {
-            resetDisconnectedState(clearPeers = true)
+            resetDisconnectedState()
             unregister()
             return
         }
@@ -702,17 +424,11 @@ class WifiDirectManager(
                 readyChannel,
                 object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (cancelGeneration != connectionAttemptGeneration) {
-                            return
-                        }
                         resetDisconnectedState()
                         stopDiscovery()
                     }
 
                     override fun onFailure(reason: Int) {
-                        if (cancelGeneration != connectionAttemptGeneration) {
-                            return
-                        }
                         _state.value = _state.value.copy(
                             connectingPeerAddress = null,
                             error = actionFailure("연결 취소", reason)
@@ -733,7 +449,6 @@ class WifiDirectManager(
             cancelConnect()
             return
         }
-        val disconnectGeneration = ++connectionAttemptGeneration
 
         val readyManager = manager
         val readyChannel = ensureChannel()
@@ -748,20 +463,13 @@ class WifiDirectManager(
                 readyChannel,
                 object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (disconnectGeneration != connectionAttemptGeneration) {
-                            return
-                        }
-                        resetDisconnectedState(clearPeers = true)
+                        resetDisconnectedState()
                         unregister()
                     }
 
                     override fun onFailure(reason: Int) {
-                        if (disconnectGeneration != connectionAttemptGeneration) {
-                            return
-                        }
-                        reconcileRemoveGroupFailure(
-                            message = actionFailure("연결 해제", reason),
-                            expectedGeneration = disconnectGeneration
+                        _state.value = _state.value.copy(
+                            error = actionFailure("연결 해제", reason)
                         )
                     }
                 }
@@ -771,47 +479,16 @@ class WifiDirectManager(
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun reconcileRemoveGroupFailure(
-        message: String,
-        expectedGeneration: Long
-    ) {
-        val readyManager = manager
-        val readyChannel = ensureChannel()
-        if (readyManager == null || readyChannel == null || !hasNearbyWifiPermission()) {
-            _state.value = _state.value.copy(error = message)
-            return
-        }
-
-        try {
-            readyManager.requestConnectionInfo(readyChannel) { info ->
-                if (expectedGeneration != connectionAttemptGeneration) {
-                    return@requestConnectionInfo
-                }
-                if (info.groupFormed) {
-                    _state.value = _state.value.copy(error = message)
-                } else {
-                    resetDisconnectedState(clearPeers = true)
-                    unregister()
-                }
-            }
-        } catch (_: SecurityException) {
-            _state.value = _state.value.copy(error = message)
-        }
-    }
-
-    private fun resetDisconnectedState(
-        error: String? = null,
-        enabled: Boolean = _state.value.enabled,
-        clearPeers: Boolean = false
-    ) {
-        cancelPeerPolling()
-        connectionAttemptGeneration += 1
-        _state.value = wifiDirectDisconnectedState(
-            current = _state.value,
-            error = error,
-            enabled = enabled,
-            clearPeers = clearPeers
+    private fun resetDisconnectedState(error: String? = null) {
+        _state.value = _state.value.copy(
+            discovering = false,
+            connectingPeerAddress = null,
+            connected = false,
+            groupOwnerAddress = null,
+            apiStatus = WifiDirectApiStatus.IDLE,
+            apiDeviceName = null,
+            apiError = null,
+            error = error
         )
     }
 
@@ -852,56 +529,8 @@ class WifiDirectManager(
         )
     }
 
-    /**
-     * Return the Android network-owned socket factory for the current P2P route.
-     * This is deliberately scoped to the API client; binding the whole process
-     * would break Internet-backed screens while Wi-Fi Direct is active.
-     */
-    fun socketFactoryForGroupOwner(host: String): SocketFactory? {
-        return wifiDirectRouteForGroupOwner(host)?.first?.socketFactory
-    }
-
-    /** Local Android P2P address used to bind the mobile RTK relay server. */
-    fun localAddressForGroupOwner(host: String): InetAddress? {
-        return wifiDirectRouteForGroupOwner(host)?.second
-    }
-
-    private fun wifiDirectRouteForGroupOwner(
-        host: String
-    ): Pair<android.net.Network, InetAddress>? {
-        val targetAddress = runCatching {
-            InetAddresses.parseNumericAddress(host)
-        }.getOrNull() ?: return null
-        val readyConnectivityManager = connectivityManager ?: return null
-
-        return runCatching {
-            readyConnectivityManager.allNetworks
-                .mapNotNull { network ->
-                    val linkProperties = readyConnectivityManager.getLinkProperties(network)
-                        ?: return@mapNotNull null
-                    val interfaceName = linkProperties.interfaceName.orEmpty()
-                    val hasP2pInterface = interfaceName.contains("p2p", ignoreCase = true)
-                    val reachesGroupOwner = linkProperties.routes.any { route ->
-                        route.matches(targetAddress)
-                    }
-                    val localAddress = linkProperties.linkAddresses
-                        .map { it.address }
-                        .firstOrNull { it is Inet4Address && !it.isLoopbackAddress }
-                    if (hasP2pInterface && reachesGroupOwner && localAddress != null) {
-                        network to localAddress
-                    } else {
-                        null
-                    }
-                }
-                .firstOrNull()
-        }.getOrNull()
-    }
-
     private fun fail(message: String) {
-        cancelPeerPolling()
-        connectionAttemptGeneration += 1
         _state.value = _state.value.copy(
-            preparing = false,
             discovering = false,
             connectingPeerAddress = null,
             error = message
@@ -922,97 +551,3 @@ class WifiDirectManager(
         return "$action 실패: $detail"
     }
 }
-
-internal fun NetworkInfo?.toWifiDirectLinkPhase(): WifiDirectLinkPhase =
-    wifiDirectLinkPhase(
-        isConnected = this?.isConnected == true,
-        detailedState = this?.detailedState
-    )
-
-internal fun wifiDirectLinkPhase(
-    isConnected: Boolean,
-    detailedState: NetworkInfo.DetailedState?
-): WifiDirectLinkPhase = when {
-    isConnected -> WifiDirectLinkPhase.CONNECTED
-    detailedState in setOf(
-        NetworkInfo.DetailedState.CONNECTING,
-        NetworkInfo.DetailedState.AUTHENTICATING,
-        NetworkInfo.DetailedState.OBTAINING_IPADDR,
-        NetworkInfo.DetailedState.SCANNING,
-        NetworkInfo.DetailedState.VERIFYING_POOR_LINK,
-        NetworkInfo.DetailedState.CAPTIVE_PORTAL_CHECK,
-        NetworkInfo.DetailedState.DISCONNECTING
-    ) -> WifiDirectLinkPhase.CONNECTING
-    else -> WifiDirectLinkPhase.DISCONNECTED
-}
-
-internal fun shouldPreservePendingWifiDirectConnection(
-    connectingPeerAddress: String?,
-    phase: WifiDirectLinkPhase
-): Boolean = connectingPeerAddress != null && phase != WifiDirectLinkPhase.CONNECTED
-
-internal fun shouldPreserveActiveWifiDirectDiscovery(
-    discovering: Boolean,
-    preparing: Boolean,
-    phase: WifiDirectLinkPhase
-): Boolean = (discovering || preparing) && phase == WifiDirectLinkPhase.DISCONNECTED
-
-internal fun shouldContinueWifiDirectPeerPolling(
-    currentGeneration: Long,
-    callbackGeneration: Long,
-    discovering: Boolean,
-    connected: Boolean,
-    connectingPeerAddress: String?,
-    attempt: Int,
-    maxAttempts: Int
-): Boolean = currentGeneration == callbackGeneration &&
-    discovering &&
-    !connected &&
-    connectingPeerAddress == null &&
-    attempt <= maxAttempts
-
-internal fun shouldStartWifiDirectDiscovery(
-    discovering: Boolean,
-    connected: Boolean,
-    connectingPeerAddress: String?
-): Boolean = !discovering && !connected && connectingPeerAddress == null
-
-internal fun shouldKeepWifiDirectReceiver(
-    connected: Boolean,
-    connectingPeerAddress: String?
-): Boolean = connected || connectingPeerAddress != null
-
-internal fun wifiDirectAttemptIsCurrent(
-    currentGeneration: Long,
-    callbackGeneration: Long,
-    connectingPeerAddress: String?,
-    callbackPeerAddress: String,
-    connected: Boolean
-): Boolean = currentGeneration == callbackGeneration &&
-    connectingPeerAddress == callbackPeerAddress &&
-    !connected
-
-internal fun wifiDirectDisconnectedState(
-    current: WifiDirectState,
-    error: String? = null,
-    enabled: Boolean = current.enabled,
-    clearPeers: Boolean = false
-): WifiDirectState = current.copy(
-    enabled = enabled,
-    preparing = false,
-    discovering = false,
-    peers = if (clearPeers) emptyList() else current.peers,
-    connectingPeerAddress = null,
-    connected = false,
-    groupOwnerAddress = null,
-    apiStatus = WifiDirectApiStatus.IDLE,
-    apiDeviceName = null,
-    apiError = null,
-    error = error
-)
-
-private const val WIFI_DIRECT_CONNECT_TIMEOUT_MILLIS = 70_000L
-private const val WIFI_DIRECT_CONNECT_FAILURE_COOLDOWN_MILLIS = 2_000L
-private const val WIFI_DIRECT_PEER_POLL_INTERVAL_MILLIS = 1_000L
-private const val WIFI_DIRECT_PEER_POLL_MAX_ATTEMPTS = 120
-private const val WIFI_DIRECT_LOG_TAG = "JetsonWifiDirect"

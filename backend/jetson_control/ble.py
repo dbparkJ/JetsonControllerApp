@@ -52,7 +52,6 @@ CMD_REBOOT = 0x04
 CMD_SHUTDOWN = 0x05
 CMD_GET_STATUS = 0x06
 CMD_SET_WIFI = 0x07
-CMD_REQUEST_WIFI_DIRECT = 0x08
 
 AUTH_CONTEXT = b"JETSONCTRL1|"
 CHALLENGE_TTL_SECONDS = 30
@@ -395,10 +394,6 @@ class CommandCharacteristic(Characteristic):
                 )
                 ssid, password, hidden = decode_wifi_payload(plaintext)
                 self.wifi.submit(ssid, password, hidden)
-            elif command == CMD_REQUEST_WIFI_DIRECT:
-                if payload:
-                    raise ValueError("REQUEST_WIFI_DIRECT does not accept a payload")
-                self.wifi.request_direct_mode()
             else:
                 raise NotSupported("Unknown command")
             self.auth.refresh(device)
@@ -595,10 +590,7 @@ def main() -> None:
     storage = StorageRegistry(paths.storage_roots)
     collector = StatusCollector(config, storage_path=storage.primary_path())
     commands = CommandRunner(config)
-    wifi = WifiProvisioner(
-        config.wifi_interface,
-        coordinate_wifi_direct=config.wifi_direct_enabled,
-    )
+    wifi = WifiProvisioner(config.wifi_interface)
 
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()

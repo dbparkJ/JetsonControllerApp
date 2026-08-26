@@ -1,7 +1,6 @@
 package com.example.jetsoncontroller.ui.wifi
 
 import android.net.wifi.p2p.WifiP2pDevice
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -59,8 +58,6 @@ fun WifiDirectScreen(
     onConnectClick: (WifiDirectPeer) -> Unit,
     onRetryApi: () -> Unit
 ) {
-    BackHandler(onBack = onBack)
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -83,9 +80,9 @@ fun WifiDirectScreen(
                     if (permissionGranted && !state.connected) {
                         IconButton(
                             onClick = onDiscoveryClick,
-                            enabled = state.supported && !state.preparing && !state.discovering
+                            enabled = state.supported && !state.discovering
                         ) {
-                            if (state.preparing || state.discovering) {
+                            if (state.discovering) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(20.dp),
                                     strokeWidth = 2.dp
@@ -115,8 +112,8 @@ fun WifiDirectScreen(
 
                 !permissionGranted -> item {
                     EmptyState(
-                        title = "연결 권한이 필요합니다",
-                        message = "BLE 인증과 가까운 Jetson 검색에 필요한 권한을 허용하세요.",
+                        title = "주변 기기 권한이 필요합니다",
+                        message = "가까운 Jetson을 검색하고 연결하기 위해 권한을 허용하세요.",
                         actionLabel = "권한 허용",
                         onAction = onPermissionClick
                     )
@@ -143,17 +140,13 @@ fun WifiDirectScreen(
                                 title = "주변 장비",
                                 trailing = {
                                     Text(
-                                        when {
-                                            state.preparing -> "BLE 준비 중"
-                                            state.discovering -> "검색 중"
-                                            else -> "${state.peers.size}대"
-                                        },
+                                        if (state.discovering) "검색 중" else "${state.peers.size}대",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             )
-                            if (state.preparing || state.discovering) {
+                            if (state.discovering) {
                                 Spacer(Modifier.height(10.dp))
                                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             }
@@ -165,26 +158,12 @@ fun WifiDirectScreen(
                             EmptyState(
                                 title = if (state.discovering) {
                                     "Jetson을 찾고 있습니다"
-                                } else if (state.preparing) {
-                                    "BLE로 직접 연결을 준비하고 있습니다"
                                 } else {
                                     "검색된 장비가 없습니다"
                                 },
-                                message = if (state.preparing) {
-                                    "인증된 BLE 연결 뒤 Jetson의 공유기 Wi-Fi를 해제하고 장비 검색을 시작합니다."
-                                } else {
-                                    "Jetson의 Wi-Fi Direct 서비스와 Android 위치 서비스를 확인하세요."
-                                },
-                                actionLabel = if (state.preparing || state.discovering) {
-                                    null
-                                } else {
-                                    "다시 검색"
-                                },
-                                onAction = if (state.preparing || state.discovering) {
-                                    null
-                                } else {
-                                    onDiscoveryClick
-                                }
+                                message = "Jetson의 Wi-Fi Direct 서비스와 Android 위치 서비스를 확인하세요.",
+                                actionLabel = if (state.discovering) null else "다시 검색",
+                                onAction = if (state.discovering) null else onDiscoveryClick
                             )
                         }
                     } else {
@@ -223,11 +202,7 @@ private fun DirectConnectionSummary(state: WifiDirectState) {
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    when {
-                        state.preparing -> "BLE 인증 후 직접 연결로 전환 중"
-                        state.enabled -> "직접 연결 사용 가능"
-                        else -> "Wi-Fi Direct 확인 필요"
-                    },
+                    if (state.enabled) "직접 연결 사용 가능" else "Wi-Fi Direct 확인 필요",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )

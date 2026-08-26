@@ -7,7 +7,6 @@ import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.ManagedPipeline
-import com.example.jetsoncontroller.model.MobileRtkRelayState
 import com.example.jetsoncontroller.model.PipelineConfigField
 import com.example.jetsoncontroller.model.PipelineConfigValueType
 import com.example.jetsoncontroller.model.PipelineLogFile
@@ -85,7 +84,6 @@ data class PipelineUiState(
     val originalConfigValues: Map<String, String> = emptyMap(),
     val detailLoading: Boolean = false,
     val configSaving: Boolean = false,
-    val mobileRtkRelay: MobileRtkRelayState = MobileRtkRelayState(),
     val message: String? = null,
     val error: String? = null
 ) {
@@ -130,11 +128,6 @@ class PipelineViewModel(
                 } else {
                     _uiState.value = PipelineUiState()
                 }
-            }
-        }
-        viewModelScope.launch {
-            repository.mobileRtkRelayState.collect { relay ->
-                _uiState.value = _uiState.value.copy(mobileRtkRelay = relay)
             }
         }
     }

@@ -489,7 +489,7 @@ Android SDK, Gradle 배포본/의존성, ARM64용 AAPT2 실행 도구는 Git에�
 - receiver token rotation과 장비 폐기 절차 마련
 - 업로드 중 인터넷 단절/복구와 checksum 검증
 - 재부팅/종료 확인 dialog와 power flag 확인
-- pipeline은 root가 아닌 지정 사용자로 실행한다. 설치기는 존재하는 video/dialout/plugdev 그룹을 자동 부여하며, 운영 전 실제 장치 권한도 확인한다.
+- pipeline은 root가 아닌 지정 사용자로 실행하고 해당 사용자의 video/dialout/plugdev 권한 확인
 - 부팅 센서 모니터가 active이고 `/var/lib/jetson-sensors/status.json`이 계속 갱신되는지 확인
 - GNSS/IMU가 `/dev/serial/by-id`로 선택되고 Android USB 장치가 GNSS로 선택되지 않는지 확인
 - EBIMU CP2102의 udev 속성에 `ID_MM_DEVICE_IGNORE=1`이 적용되는지 확인

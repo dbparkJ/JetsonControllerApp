@@ -18,7 +18,6 @@ from jetson_control.sensor_handoff import (
     CaptureDeviceLease,
     settings_for_pipeline,
 )
-from jetson_control.mobile_rtk import MobileRtkRelayRegistry
 
 
 PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
@@ -34,12 +33,6 @@ SENSOR_MONITOR_CONFIG = Path(
     os.environ.get(
         "JETSON_SENSOR_MONITOR_CONFIG",
         str(DEFAULT_SENSOR_MONITOR_CONFIG),
-    )
-)
-MOBILE_RTK_RELAY = Path(
-    os.environ.get(
-        "JETSON_CONTROL_MOBILE_RTK_RELAY",
-        "/run/jetson-control/mobile-rtk-relay.json",
     )
 )
 MAX_LOG_FILES = 20
@@ -131,27 +124,6 @@ def wait_for_time_sync(
     if announced:
         print("Mobile system-time synchronization confirmed", flush=True)
     return True
-
-
-def mobile_rtk_relay_environment(
-    pipeline_id: str,
-    path: Path = MOBILE_RTK_RELAY,
-    *,
-    expected_owner_uid: int = 0,
-    clock_millis: Callable[[], int] = lambda: int(time.time() * 1000),
-) -> Mapping[str, str]:
-    relay = MobileRtkRelayRegistry(
-        path,
-        clock_millis=clock_millis,
-        owner_uid=expected_owner_uid,
-    ).read()
-    if relay is None or relay.get("pipelineId") != pipeline_id:
-        return {}
-    return {
-        "NTRIP_HOST": str(relay["relayHost"]),
-        "NTRIP_PORT": str(relay["relayPort"]),
-        "JETSON_PIPELINE_MOBILE_RTK_RELAY": "1",
-    }
 
 
 def process_group_exists(process_group_id: int) -> bool:
@@ -404,14 +376,6 @@ def main() -> int:
             "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
-    relay_environment = mobile_rtk_relay_environment(pipeline_id)
-    environment.update(relay_environment)
-    if relay_environment:
-        print(
-            "Using authenticated mobile-data RTK relay at "
-            f"{relay_environment['NTRIP_HOST']}:{relay_environment['NTRIP_PORT']}",
-            flush=True,
-        )
     if results_directory is not None:
         environment["JETSON_PIPELINE_RESULTS_DIR"] = str(results_directory)
     os.chdir(working_directory)
