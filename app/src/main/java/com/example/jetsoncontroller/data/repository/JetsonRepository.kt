@@ -162,7 +162,13 @@ class JetsonRepository(
     init {
         scope.launch {
             gattClient.status.drop(1).collect { currentStatus ->
-                updateStatus(currentStatus)
+                if (
+                    shouldApplyBleStatus(
+                        transportCoordinator.currentTransport()?.type
+                    )
+                ) {
+                    updateStatus(currentStatus)
+                }
             }
         }
 
