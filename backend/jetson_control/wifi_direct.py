@@ -345,13 +345,51 @@ class WifiDirectController:
             self.group_interface = None
 
         self._cleanup_stale_groups()
-        self.refresh_discovery()
+        if not self.refresh_discovery():
+            raise WifiDirectError("Wi-Fi Direct discovery could not be started")
         self._publish("DISCOVERABLE", "Waiting for the Android connection request")
         return "DISCOVERABLE"
 
-    def refresh_discovery(self) -> None:
-        self._wpa(self.settings.interface, "p2p_find", str(DISCOVERY_SECONDS))
+    def refresh_discovery(self) -> bool:
+        # RTL8822CE can reject a replacement p2p_find while the previous timed
+        # discovery still owns a pending scan.  Stop the old discovery first so
+        # the periodic refresh cannot silently kill the GLib monitor callback.
+        try:
+            self._wpa(
+                self.settings.interface,
+                "p2p_stop_find",
+                allow_failure=True,
+            )
+            try:
+                self._wpa(
+                    self.settings.interface,
+                    "p2p_find",
+                    str(DISCOVERY_SECONDS),
+                )
+            except (OSError, subprocess.TimeoutExpired, WifiDirectError):
+                # A driver scan can remain wedged even after p2p_stop_find.
+                # Abort that scan and retry once; monitor() will retry again on
+                # its next tick if the radio is still temporarily busy.
+                self._wpa(
+                    self.settings.interface,
+                    "abort_scan",
+                    allow_failure=True,
+                )
+                self._sleep(0.2)
+                self._wpa(
+                    self.settings.interface,
+                    "p2p_stop_find",
+                    allow_failure=True,
+                )
+                self._wpa(
+                    self.settings.interface,
+                    "p2p_find",
+                    str(DISCOVERY_SECONDS),
+                )
+        except (OSError, subprocess.TimeoutExpired, WifiDirectError):
+            return False
         self._last_discovery = time.monotonic()
+        return True
 
     def request_connection(self, peer_address: str) -> bool:
         peer = normalize_mac_address(peer_address)

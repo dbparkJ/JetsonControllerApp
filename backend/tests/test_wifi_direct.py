@@ -56,6 +56,7 @@ class FakeRunner:
         single_interface_group=False,
         group_address="192.168.49.1",
         fail_p2p_activation=False,
+        fail_first_p2p_find=False,
     ):
         self.calls = []
         self.group_created = False
@@ -66,6 +67,8 @@ class FakeRunner:
         self.single_interface_group = single_interface_group
         self.group_address = group_address
         self.fail_p2p_activation = fail_p2p_activation
+        self.fail_first_p2p_find = fail_first_p2p_find
+        self.p2p_find_attempts = 0
         self.dnsmasq_processes = []
 
     def start_process(self, command, **_kwargs):
@@ -136,7 +139,13 @@ class FakeRunner:
             self.managed_wifi_active = True
             stdout = "Connection successfully activated\n"
         elif command[0] == "/usr/sbin/wpa_cli":
-            if "p2p_connect" in command:
+            if "p2p_find" in command:
+                self.p2p_find_attempts += 1
+                if self.fail_first_p2p_find and self.p2p_find_attempts == 1:
+                    stdout = "FAIL-BUSY\n"
+                else:
+                    stdout = "OK\n"
+            elif "p2p_connect" in command:
                 if self.fail_p2p_activation:
                     stdout = "FAIL\n"
                 else:
@@ -151,6 +160,35 @@ class FakeRunner:
 
 
 class WifiDirectTest(unittest.TestCase):
+    def test_discovery_refresh_stops_active_find_and_recovers_busy_scan(self):
+        runner = FakeRunner(fail_first_p2p_find=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=Path(temporary) / "wifi-direct.json",
+                sleep=lambda _seconds: None,
+            )
+
+            self.assertTrue(controller.refresh_discovery())
+
+        commands = [
+            call[7:]
+            for call in runner.calls
+            if call and call[0] == "/usr/sbin/wpa_cli"
+        ]
+        self.assertEqual(
+            commands,
+            [
+                ["p2p_stop_find"],
+                ["p2p_find", "600"],
+                ["abort_scan"],
+                ["p2p_stop_find"],
+                ["p2p_find", "600"],
+            ],
+        )
+
     def test_parses_only_group_owner_interfaces(self):
         output = """phy#0
 \tInterface p2p-wlan0-3
