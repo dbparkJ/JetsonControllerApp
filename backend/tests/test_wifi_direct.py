@@ -160,7 +160,7 @@ class FakeRunner:
 
 
 class WifiDirectTest(unittest.TestCase):
-    def test_discovery_refresh_stops_active_find_and_recovers_busy_scan(self):
+    def test_discovery_uses_unbounded_find_and_recovers_busy_scan(self):
         runner = FakeRunner(fail_first_p2p_find=True)
         with tempfile.TemporaryDirectory() as temporary:
             controller = WifiDirectController(
@@ -182,12 +182,36 @@ class WifiDirectTest(unittest.TestCase):
             commands,
             [
                 ["p2p_stop_find"],
-                ["p2p_find", "600"],
+                ["p2p_find"],
                 ["abort_scan"],
                 ["p2p_stop_find"],
-                ["p2p_find", "600"],
+                ["p2p_find"],
             ],
         )
+
+    def test_monitor_does_not_periodically_replace_unbounded_discovery(self):
+        runner = FakeRunner()
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=Path(temporary) / "wifi-direct.json",
+                sleep=lambda _seconds: None,
+            )
+            self.assertEqual(controller.prepare(), "DISCOVERABLE")
+
+            for _attempt in range(5):
+                self.assertTrue(controller.monitor())
+
+        discovery_calls = [
+            call[7:]
+            for call in runner.calls
+            if call and call[0] == "/usr/sbin/wpa_cli" and (
+                "p2p_find" in call or "p2p_stop_find" in call
+            )
+        ]
+        self.assertEqual(discovery_calls, [["p2p_stop_find"], ["p2p_find"]])
 
     def test_parses_only_group_owner_interfaces(self):
         output = """phy#0

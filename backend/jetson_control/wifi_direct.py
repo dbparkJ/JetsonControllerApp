@@ -28,8 +28,6 @@ WPA_PEER_INTERFACE = "fi.w1.wpa_supplicant1.Peer"
 DBUS_PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties"
 PROFILE_PREFIX = "jetson-control-p2p-"
 DNSMASQ_PATH = "/usr/sbin/dnsmasq"
-DISCOVERY_SECONDS = 600
-DISCOVERY_REFRESH_SECONDS = 540
 
 
 class WifiDirectError(RuntimeError):
@@ -318,7 +316,6 @@ class WifiDirectController:
         self._activation_lock = threading.Lock()
         self._activation_thread: Optional[threading.Thread] = None
         self._status_lock = threading.Lock()
-        self._last_discovery = 0.0
 
     def prepare(self) -> str:
         self._publish("STARTING", "Preparing NetworkManager Wi-Fi Direct")
@@ -351,9 +348,9 @@ class WifiDirectController:
         return "DISCOVERABLE"
 
     def refresh_discovery(self) -> bool:
-        # RTL8822CE can reject a replacement p2p_find while the previous timed
-        # discovery still owns a pending scan.  Stop the old discovery first so
-        # the periodic refresh cannot silently kill the GLib monitor callback.
+        # Timed p2p_find replacement can wedge RTL8822CE while its final scan is
+        # pending. Stop any prior find, then leave one unbounded discovery active
+        # until a connection or explicit service transition stops it.
         try:
             self._wpa(
                 self.settings.interface,
@@ -364,12 +361,10 @@ class WifiDirectController:
                 self._wpa(
                     self.settings.interface,
                     "p2p_find",
-                    str(DISCOVERY_SECONDS),
                 )
             except (OSError, subprocess.TimeoutExpired, WifiDirectError):
                 # A driver scan can remain wedged even after p2p_stop_find.
-                # Abort that scan and retry once; monitor() will retry again on
-                # its next tick if the radio is still temporarily busy.
+                # Abort that scan and retry the unbounded discovery once.
                 self._wpa(
                     self.settings.interface,
                     "abort_scan",
@@ -384,11 +379,9 @@ class WifiDirectController:
                 self._wpa(
                     self.settings.interface,
                     "p2p_find",
-                    str(DISCOVERY_SECONDS),
                 )
         except (OSError, subprocess.TimeoutExpired, WifiDirectError):
             return False
-        self._last_discovery = time.monotonic()
         return True
 
     def request_connection(self, peer_address: str) -> bool:
@@ -454,11 +447,6 @@ class WifiDirectController:
                 self._publish("DISCOVERABLE", "Wi-Fi restored; waiting again")
             except WifiDirectError:
                 pass
-        elif (
-            self._state == "DISCOVERABLE"
-            and time.monotonic() - self._last_discovery >= DISCOVERY_REFRESH_SECONDS
-        ):
-            self.refresh_discovery()
         return True
 
     def stop(self) -> None:

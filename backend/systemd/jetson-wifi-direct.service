@@ -18,6 +18,7 @@ TimeoutStopSec=10
 KillMode=control-group
 RuntimeDirectory=jetson-control
 RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 UMask=0022
 NoNewPrivileges=true
 PrivateTmp=true
