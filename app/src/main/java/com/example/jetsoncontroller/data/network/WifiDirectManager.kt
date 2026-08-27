@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.InetAddresses
 import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
@@ -18,6 +20,8 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.Inet4Address
+import java.net.InetAddress
 
 data class WifiDirectPeer(
     val name: String,
@@ -57,6 +61,8 @@ class WifiDirectManager(
         appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val locationManager =
         appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+    private val connectivityManager =
+        appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val mainHandler = Handler(appContext.mainLooper)
 
     private val supported =
@@ -555,6 +561,32 @@ class WifiDirectManager(
             apiDeviceName = null,
             apiError = message
         )
+    }
+
+    /** Local Android P2P address used to bind the mobile RTK relay server. */
+    fun localAddressForGroupOwner(host: String): InetAddress? {
+        val targetAddress = runCatching {
+            InetAddresses.parseNumericAddress(host)
+        }.getOrNull() ?: return null
+        val readyConnectivityManager = connectivityManager ?: return null
+
+        return runCatching {
+            readyConnectivityManager.allNetworks
+                .mapNotNull { network ->
+                    val linkProperties = readyConnectivityManager.getLinkProperties(network)
+                        ?: return@mapNotNull null
+                    val interfaceName = linkProperties.interfaceName.orEmpty()
+                    val hasP2pInterface = interfaceName.contains("p2p", ignoreCase = true)
+                    val reachesGroupOwner = linkProperties.routes.any { route ->
+                        route.matches(targetAddress)
+                    }
+                    val localAddress = linkProperties.linkAddresses
+                        .map { it.address }
+                        .firstOrNull { it is Inet4Address && !it.isLoopbackAddress }
+                    if (hasP2pInterface && reachesGroupOwner) localAddress else null
+                }
+                .firstOrNull()
+        }.getOrNull()
     }
 
     private fun fail(message: String) {

@@ -9,6 +9,7 @@ data class ControlCapabilities(
     val pipelines: Boolean = false,
     val pipelineFolderRegistration: Boolean = false,
     val mobileTimeSync: Boolean = false,
+    val mobileRtkRelay: Boolean = false,
     val fanControl: Boolean = false
 )
 

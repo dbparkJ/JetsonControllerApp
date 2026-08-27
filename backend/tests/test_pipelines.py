@@ -160,6 +160,54 @@ class PipelineManagerTest(unittest.TestCase):
             "camera:\n  fps: 15\n",
         )
 
+    def test_mobile_rtk_config_exposes_only_upstream_address(self) -> None:
+        target = self.root / "capture" / "current" / "configs" / "capture.yaml"
+        target.write_text(
+            "enable_gps: true\n"
+            "rtk_ntrip_host: www.gnssdata.or.kr\n"
+            "rtk_ntrip_port: 2101\n"
+            "rtk_ntrip_username: secret-user\n"
+            "rtk_ntrip_password: secret-password\n",
+            encoding="utf-8",
+        )
+
+        response = self.manager.mobile_rtk_config("capture")
+
+        self.assertEqual(
+            response,
+            {
+                "pipelineId": "capture",
+                "available": True,
+                "upstreamHost": "www.gnssdata.or.kr",
+                "upstreamPort": 2101,
+            },
+        )
+        self.assertNotIn("secret-user", repr(response))
+        self.assertNotIn("secret-password", repr(response))
+
+    def test_mobile_rtk_config_supports_pipeline_default_caster(self) -> None:
+        target = self.root / "capture" / "current" / "configs" / "capture.yaml"
+        target.write_text(
+            "enable_gps: true\n"
+            "rtk_ntrip_auto_mountpoint: true\n"
+            "rtk_ntrip_username: secret-user\n"
+            "rtk_ntrip_password: secret-password\n",
+            encoding="utf-8",
+        )
+
+        response = self.manager.mobile_rtk_config("capture")
+
+        self.assertTrue(response["available"])
+        self.assertEqual(response["upstreamHost"], "www.gnssdata.or.kr")
+        self.assertEqual(response["upstreamPort"], 2101)
+
+    def test_mobile_rtk_config_is_unavailable_without_ntrip_settings(self) -> None:
+        response = self.manager.mobile_rtk_config("capture")
+
+        self.assertFalse(response["available"])
+        self.assertIsNone(response["upstreamHost"])
+        self.assertIsNone(response["upstreamPort"])
+
     def test_structured_config_fields_preserve_yaml_and_check_revision(self) -> None:
         config_path = self.root / "capture" / "current" / "configs" / "capture.yaml"
         config_path.write_text(

@@ -7,8 +7,11 @@ import com.example.jetsoncontroller.model.DiscoverPipelineFolderRequest
 import com.example.jetsoncontroller.model.DeviceStorageDeletion
 import com.example.jetsoncontroller.model.FanStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.MobileRtkRelayConfig
+import com.example.jetsoncontroller.model.MobileRtkRelayRegistration
 import com.example.jetsoncontroller.model.PipelineFolderDiscovery
 import com.example.jetsoncontroller.model.RegisterPipelineRequest
+import com.example.jetsoncontroller.model.RegisterMobileRtkRelayRequest
 import com.example.jetsoncontroller.model.RegisterPipelineFolderRequest
 import com.example.jetsoncontroller.model.PipelineConfigDocument
 import com.example.jetsoncontroller.model.PipelineConfigFieldsDocument
@@ -460,6 +463,31 @@ class LocalApiClient(
             requireApi().updatePipelineConfigFields(
                 pipelineId,
                 UpdatePipelineConfigFieldsRequest(revision, values)
+            )
+        }
+
+    suspend fun getMobileRtkRelayConfig(
+        pipelineId: String
+    ): Result<MobileRtkRelayConfig> =
+        request("모바일 RTK 설정 조회") {
+            requireApi().getMobileRtkRelayConfig(pipelineId)
+        }
+
+    suspend fun registerMobileRtkRelay(
+        pipelineId: String,
+        port: Int
+    ): Result<MobileRtkRelayRegistration> =
+        request("모바일 RTK 중계 등록") {
+            requireApi().registerMobileRtkRelay(
+                RegisterMobileRtkRelayRequest(pipelineId, port)
+            )
+        }
+
+    suspend fun unregisterMobileRtkRelay(pipelineId: String): Result<Unit> =
+        suspendResult {
+            requireSuccess(
+                withSessionRetry { requireApi().unregisterMobileRtkRelay(pipelineId) },
+                "모바일 RTK 중계 해제"
             )
         }
 

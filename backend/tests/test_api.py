@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -16,6 +17,7 @@ from jetson_control.auth import (
 )
 from jetson_control.config import DeviceConfig, RuntimePaths
 from jetson_control.filesystem import StorageRegistry, WorkspaceRegistry
+from jetson_control.mobile_rtk import MobileRtkRelayRegistry
 from jetson_control.uploads import UploadConfirmationRequired, UploadManager
 
 
@@ -163,6 +165,12 @@ class ApiContractTest(unittest.TestCase):
                 {"path": "/fps", "label": "fps", "type": "INTEGER", "value": "15"}
             ],
         }
+        self.pipelines.mobile_rtk_config.return_value = {
+            "pipelineId": "capture",
+            "available": True,
+            "upstreamHost": "www.gnssdata.or.kr",
+            "upstreamPort": 2101,
+        }
         self.pipelines.discover_folder.return_value = {
             "pipelineId": "capture",
             "repository": str(base / "jobs" / "capture"),
@@ -204,6 +212,10 @@ class ApiContractTest(unittest.TestCase):
             "percent": 40,
             "minimumManualPercent": 20,
         }
+        self.mobile_rtk = MobileRtkRelayRegistry(
+            base / "mobile-rtk-relay.json",
+            owner_uid=os.getuid(),
+        )
 
         app = create_app(
             paths=self.paths,
@@ -216,6 +228,7 @@ class ApiContractTest(unittest.TestCase):
             upload_manager=uploads,
             wifi_provisioner=wifi,
             pipeline_manager=self.pipelines,
+            mobile_rtk_registry=self.mobile_rtk,
             time_synchronizer=self.system_time,
             fan_controller=self.fan,
             tls_fingerprint=self.tls_fingerprint,
@@ -371,6 +384,41 @@ class ApiContractTest(unittest.TestCase):
             response.headers["X-Response-Signature"],
             expected_signature,
         )
+
+    def test_mobile_rtk_relay_registration_requires_wifi_direct_peer(self) -> None:
+        body = json.dumps(
+            {"pipelineId": "capture", "port": 32101},
+            separators=(",", ":"),
+        ).encode()
+
+        denied = self.signed_request("PUT", "/v1/rtk/mobile-relay", body)
+        self.assertEqual(denied.status_code, 403, denied.text)
+
+        lan_client = self.client
+        p2p_client = TestClient(lan_client.app, client=("192.168.49.71", 50000))
+        self.client = p2p_client
+        try:
+            accepted = self.signed_request("PUT", "/v1/rtk/mobile-relay", body)
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+            self.assertEqual(accepted.json()["relayHost"], "192.168.49.71")
+            self.assertEqual(self.mobile_rtk.read()["pipelineId"], "capture")
+
+            removed = self.signed_request("DELETE", "/v1/rtk/mobile-relay/capture")
+            self.assertEqual(removed.status_code, 204, removed.text)
+            self.assertIsNone(self.mobile_rtk.read())
+        finally:
+            self.client = lan_client
+            p2p_client.close()
+
+    def test_mobile_rtk_config_does_not_return_ntrip_credentials(self) -> None:
+        response = self.signed_request(
+            "GET",
+            "/v1/rtk/mobile-relay/config/capture",
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["upstreamHost"], "www.gnssdata.or.kr")
+        self.assertNotIn("password", response.text.lower())
 
     def test_unhandled_api_error_returns_signed_500(self) -> None:
         self.pipelines.list_pipelines.side_effect = RuntimeError("simulated failure")

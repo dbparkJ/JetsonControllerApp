@@ -174,6 +174,23 @@ fun PipelineListScreen(
                         )
                     }
                 }
+                if (state.mobileRtkRelay.active || state.mobileRtkRelay.error != null) {
+                    item {
+                        val relay = state.mobileRtkRelay
+                        val transferred = relay.bytesFromCaster
+                        InlineMessage(
+                            message = relay.error ?: buildString {
+                                append(relay.message ?: "모바일 데이터 RTK 중계 중")
+                                if (transferred > 0) {
+                                    append(" · RTCM ")
+                                    append(transferred)
+                                    append(" bytes")
+                                }
+                            },
+                            isError = relay.error != null
+                        )
+                    }
+                }
                 if (state.pipelines.isEmpty() && !state.isLoading && state.error == null) {
                     item {
                         EmptyState(

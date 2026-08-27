@@ -162,6 +162,68 @@ class PipelineRunnerLogTest(unittest.TestCase):
             ],
         )
 
+    def test_active_mobile_rtk_relay_overrides_only_ntrip_route(self) -> None:
+        marker = self.directory / "mobile-rtk-relay.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "pipelineId": "capture",
+                    "relayHost": "192.168.49.71",
+                    "relayPort": 32101,
+                    "expiresAtEpochMillis": 2_000,
+                }
+            ),
+            encoding="utf-8",
+        )
+        marker.chmod(0o644)
+
+        environment = pipeline_runner.mobile_rtk_relay_environment(
+            "capture",
+            marker,
+            expected_owner_uid=os.getuid(),
+            clock_millis=lambda: 1_000,
+        )
+
+        self.assertEqual(environment["NTRIP_HOST"], "192.168.49.71")
+        self.assertEqual(environment["NTRIP_PORT"], "32101")
+        self.assertEqual(environment["JETSON_PIPELINE_MOBILE_RTK_RELAY"], "1")
+
+    def test_expired_or_other_pipeline_mobile_relay_is_ignored(self) -> None:
+        marker = self.directory / "mobile-rtk-relay.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "pipelineId": "capture",
+                    "relayHost": "192.168.49.71",
+                    "relayPort": 32101,
+                    "expiresAtEpochMillis": 2_000,
+                }
+            ),
+            encoding="utf-8",
+        )
+        marker.chmod(0o644)
+
+        self.assertEqual(
+            pipeline_runner.mobile_rtk_relay_environment(
+                "other",
+                marker,
+                expected_owner_uid=os.getuid(),
+                clock_millis=lambda: 1_000,
+            ),
+            {},
+        )
+        self.assertEqual(
+            pipeline_runner.mobile_rtk_relay_environment(
+                "capture",
+                marker,
+                expected_owner_uid=os.getuid(),
+                clock_millis=lambda: 2_001,
+            ),
+            {},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

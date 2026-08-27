@@ -22,6 +22,18 @@ from .system_control import DEFAULT_TIME_SYNC_MARKER, read_time_sync_marker
 
 PIPELINE_ACTIONS = frozenset({"start", "stop", "restart", "enable", "disable"})
 PIPELINE_LOG_ID = re.compile(r"^run-(\d{8}T\d{6}\.\d{6}Z)-\d+\.log$")
+DEFAULT_NTRIP_HOST = "www.gnssdata.or.kr"
+DEFAULT_NTRIP_PORT = 2101
+NTRIP_CONFIG_KEYS = frozenset(
+    {
+        "rtk_ntrip_host",
+        "rtk_ntrip_port",
+        "rtk_ntrip_mountpoint",
+        "rtk_ntrip_auto_mountpoint",
+        "rtk_ntrip_username",
+        "rtk_ntrip_password",
+    }
+)
 
 
 class PipelineError(RuntimeError):
@@ -276,6 +288,46 @@ class PipelineManager:
             "pipelineId": pipeline_id,
             "path": str(manifest["config"]),
             "content": content,
+        }
+
+    def mobile_rtk_config(self, pipeline_id: str) -> Dict[str, object]:
+        """Return only the upstream address needed by the mobile TCP relay.
+
+        NTRIP credentials, mountpoints, and GGA selection stay inside the
+        managed pipeline. The phone only receives the caster host and port.
+        """
+
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        manifest = self._load_manifest(pipeline_id)
+        target = self._runtime_config_path(pipeline_id, manifest)
+        document = self._parse_config(self._read_config_bytes(target))
+        if not isinstance(document, Mapping):
+            raise PipelineError("Pipeline config root must be a mapping")
+
+        enabled = document.get("enable_gps", True)
+        ntrip_configured = any(key in document for key in NTRIP_CONFIG_KEYS)
+        host = document.get(
+            "rtk_ntrip_host",
+            DEFAULT_NTRIP_HOST if ntrip_configured else "",
+        )
+        port = document.get("rtk_ntrip_port", DEFAULT_NTRIP_PORT)
+        if not isinstance(enabled, bool):
+            raise PipelineError("enable_gps must be a boolean")
+        if (
+            not isinstance(host, str)
+            or len(host) > 253
+            or any(character.isspace() or character in "/\\" for character in host)
+        ):
+            raise PipelineError("rtk_ntrip_host is invalid")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise PipelineError("rtk_ntrip_port is invalid")
+        normalized_host = host.strip()
+        available = enabled and ntrip_configured and bool(normalized_host)
+        return {
+            "pipelineId": pipeline_id,
+            "available": available,
+            "upstreamHost": normalized_host if available else None,
+            "upstreamPort": port if available else None,
         }
 
     def update_config(self, pipeline_id: str, content: str) -> Dict[str, str]:

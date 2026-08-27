@@ -11,6 +11,7 @@ import com.example.jetsoncontroller.data.network.LocalControlApi
 import com.example.jetsoncontroller.data.network.WifiDirectManager
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiAccessPointScanner
+import com.example.jetsoncontroller.data.rtk.MobileRtkRelayManager
 import com.example.jetsoncontroller.data.transport.*
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.protocol.CommandCodec
@@ -53,6 +54,11 @@ class JetsonRepository(
         BleGattClient(context, credentialStore)
 
     private val wifiDirectManager = WifiDirectManager(context)
+    private val mobileRtkRelayManager = MobileRtkRelayManager(
+        context,
+        wifiDirectManager,
+        scope
+    )
     private val wifiAccessPointScanner = WifiAccessPointScanner(context)
     private val lanDiscoveryManager = LanDiscoveryManager(context)
     private val transportCoordinator = TransportCoordinator()
@@ -117,6 +123,7 @@ class JetsonRepository(
         _controlOperation.asStateFlow()
 
     val wifiDirectState = wifiDirectManager.state
+    val mobileRtkRelayState = mobileRtkRelayManager.state
     val wifiAccessPointState = wifiAccessPointScanner.state
     val lanEndpoints = lanDiscoveryManager.discoveredEndpoints
     val lanLastSeenAtEpochMillis = lanDiscoveryManager.lastSeenAtEpochMillis
@@ -527,6 +534,7 @@ class JetsonRepository(
 
 
     fun disconnect() {
+        stopMobileRtkRelay()
         explicitDisconnectRequested.set(true)
         automaticConnectivityEnabled.value = false
         automaticDirectFallbackReady.value = false
@@ -1009,6 +1017,7 @@ class JetsonRepository(
                     automaticDirectFallbackJob?.cancel()
                     automaticDirectFallbackJob = null
                     _lanConnectionError.value = null
+                    stopMobileRtkRelay()
                     activeIpClient = candidateClient
                     cancelWifiProvisioningHandoff()
                     transportCoordinator.setActiveTransport(
@@ -1131,6 +1140,7 @@ class JetsonRepository(
 
     private fun markIpTransportOffline(message: String?) {
         ipConnectionGeneration.incrementAndGet()
+        stopMobileRtkRelay()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
         _visibleConnectingLanDeviceId.value = null
@@ -1187,6 +1197,7 @@ class JetsonRepository(
     }
 
     private fun beginWifiProvisioningHandoff(transportType: TransportType) {
+        stopMobileRtkRelay()
         wifiProvisioningHandoffJob?.cancel()
         wifiProvisioningHandoff.value = true
         automaticDirectFallbackReady.value = false
@@ -1453,7 +1464,41 @@ class JetsonRepository(
         action: String
     ): Result<ManagedPipeline> {
         val client = activeIpClient ?: return missingIpConnection()
-        return client.controlPipeline(pipelineId, action)
+        val transportType = transportCoordinator.currentTransport()?.type
+        var relayPrepared = false
+        if (
+            action in setOf("start", "restart") &&
+            transportType == TransportType.WIFI_DIRECT &&
+            _capabilities.value.mobileRtkRelay
+        ) {
+            val prepared = mobileRtkRelayManager.prepare(pipelineId, client)
+            if (prepared.isFailure) {
+                return Result.failure(
+                    prepared.exceptionOrNull()
+                        ?: IllegalStateException("모바일 RTK 중계를 준비하지 못했습니다.")
+                )
+            }
+            relayPrepared = prepared.getOrThrow()
+        }
+
+        val controlled = client.controlPipeline(pipelineId, action)
+        if (controlled.isFailure && relayPrepared) {
+            mobileRtkRelayManager.stop(client)
+        } else if (
+            controlled.isSuccess &&
+            action == "stop" &&
+            mobileRtkRelayState.value.pipelineId == pipelineId
+        ) {
+            mobileRtkRelayManager.stop(client)
+        }
+        return controlled
+    }
+
+    fun stopMobileRtkRelay() {
+        val client = activeIpClient
+        scope.launch {
+            mobileRtkRelayManager.stop(client)
+        }
     }
 
     suspend fun removePipeline(pipelineId: String): Result<Unit> {
@@ -1550,6 +1595,7 @@ class JetsonRepository(
             pipelines = pipelines,
             pipelineFolderRegistration = pipelineFolderRegistration,
             mobileTimeSync = mobileTimeSync,
+            mobileRtkRelay = mobileRtkRelay,
             fanControl = fanControl
         )
 
