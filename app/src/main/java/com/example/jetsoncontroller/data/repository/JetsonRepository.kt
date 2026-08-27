@@ -124,8 +124,9 @@ class JetsonRepository(
     val lanDiscoveryError = lanDiscoveryManager.error
 
     private val _connectingLanDeviceId = MutableStateFlow<String?>(null)
+    private val _visibleConnectingLanDeviceId = MutableStateFlow<String?>(null)
     val connectingLanDeviceId: StateFlow<String?> =
-        _connectingLanDeviceId.asStateFlow()
+        _visibleConnectingLanDeviceId.asStateFlow()
 
     private val _lanConnectionError = MutableStateFlow<String?>(null)
     val lanConnectionError: StateFlow<String?> =
@@ -391,6 +392,7 @@ class JetsonRepository(
                 automaticDirectFallbackReady.value = false
                 autoLanAttempts.clear()
                 autoLanFailureCounts.clear()
+                _lanConnectionError.value = null
                 activeIpClient = probe.client
                 transportCoordinator.setActiveTransport(
                     transport = IpControlTransport(
@@ -526,6 +528,7 @@ class JetsonRepository(
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
+        _visibleConnectingLanDeviceId.value = null
         pendingWifiDirectTargetDeviceId = null
         scanner.stopScan()
         stopLanDiscovery()
@@ -570,6 +573,7 @@ class JetsonRepository(
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
+        _visibleConnectingLanDeviceId.value = null
         pendingWifiDirectTargetDeviceId = null
         activeIpClient = null
         gattClient.disconnect()
@@ -745,6 +749,7 @@ class JetsonRepository(
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
+        _visibleConnectingLanDeviceId.value = null
         pendingWifiDirectTargetDeviceId = null
         activeIpClient = null
         transportCoordinator.disconnect()
@@ -898,10 +903,20 @@ class JetsonRepository(
         requireSameWifi: Boolean,
         automaticAttemptKey: String? = null
     ) {
+        val userVisibleAttempt = automaticAttemptKey == null
         val generation = ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = generation
         _connectingLanDeviceId.value = endpoint.deviceId
-        _lanConnectionError.value = null
+        if (userVisibleAttempt) {
+            _visibleConnectingLanDeviceId.value = endpoint.deviceId
+            _lanConnectionError.value = null
+        }
+
+        fun publishUserVisibleError(message: String) {
+            if (userVisibleAttempt) {
+                _lanConnectionError.value = message
+            }
+        }
 
         scope.launch {
             var connectedSuccessfully = false
@@ -914,14 +929,16 @@ class JetsonRepository(
                         return@onSuccess
                     }
                     if (!hello.deviceId.equals(endpoint.deviceId, ignoreCase = true)) {
-                        _lanConnectionError.value =
+                        publishUserVisibleError(
                             "검색된 장비 ID와 API 장비 ID가 일치하지 않습니다."
+                        )
                         return@onSuccess
                     }
 
                     if (credentialStore.getSecret(hello.deviceId) == null) {
-                        _lanConnectionError.value =
+                        publishUserVisibleError(
                             "이 장비는 앱에 등록되어 있지 않습니다. 먼저 BLE/QR 등록을 완료해 주세요."
+                        )
                         return@onSuccess
                     }
 
@@ -930,9 +947,10 @@ class JetsonRepository(
                         return@onSuccess
                     }
                     if (statusResult.isFailure) {
-                        _lanConnectionError.value =
+                        publishUserVisibleError(
                             statusResult.exceptionOrNull()?.message
                                 ?: "Jetson API 인증에 실패했습니다."
+                        )
                         return@onSuccess
                     }
 
@@ -944,8 +962,9 @@ class JetsonRepository(
                             status.wifiSsid
                         )
                     ) {
-                        _lanConnectionError.value =
+                        publishUserVisibleError(
                             "모바일과 Jetson의 Wi-Fi가 같지 않아 자동 LAN 연결을 건너뛰었습니다."
+                        )
                         return@onSuccess
                     }
                     updateStatus(status)
@@ -954,9 +973,10 @@ class JetsonRepository(
                         return@onSuccess
                     }
                     if (capabilitiesResult.isFailure) {
-                        _lanConnectionError.value =
+                        publishUserVisibleError(
                             capabilitiesResult.exceptionOrNull()?.message
                                 ?: "Jetson 기능 정보를 확인하지 못했습니다."
+                        )
                         return@onSuccess
                     }
                     val capabilities = capabilitiesResult.getOrThrow()
@@ -973,6 +993,7 @@ class JetsonRepository(
                     automaticDirectFallbackReady.value = false
                     automaticDirectFallbackJob?.cancel()
                     automaticDirectFallbackJob = null
+                    _lanConnectionError.value = null
                     activeIpClient = candidateClient
                     transportCoordinator.setActiveTransport(
                         transport = IpControlTransport(
@@ -994,15 +1015,17 @@ class JetsonRepository(
                 }
                 .onFailure { error ->
                     if (ipConnectionGeneration.get() == generation) {
-                        _lanConnectionError.value =
+                        publishUserVisibleError(
                             "${endpoint.displayName} API 연결 실패: " +
                                 (error.message ?: "응답 없음")
+                        )
                     }
                 }
             } finally {
                 if (connectingLanGeneration == generation) {
                     connectingLanGeneration = null
                     _connectingLanDeviceId.value = null
+                    _visibleConnectingLanDeviceId.value = null
                 }
                 if (
                     automaticAttemptKey != null &&
@@ -1094,6 +1117,7 @@ class JetsonRepository(
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
+        _visibleConnectingLanDeviceId.value = null
         activeIpClient = null
         transportCoordinator.disconnect()
         clearReachableDeviceState()

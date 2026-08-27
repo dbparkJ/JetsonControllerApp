@@ -343,9 +343,6 @@ fun JetsonApp(
     val lanEndpoints by
         repository.lanEndpoints.collectAsStateWithLifecycle()
 
-    val lanDiscovering by
-        repository.isLanDiscovering.collectAsStateWithLifecycle()
-
     val lanDiscoveryError by
         repository.lanDiscoveryError.collectAsStateWithLifecycle()
 
@@ -497,7 +494,6 @@ fun JetsonApp(
                 lanEndpoints = lanEndpoints,
                 registeredDevices = deviceState.registeredDevices,
                 transportState = transportState,
-                lanDiscovering = lanDiscovering,
                 lanError = lanConnectionError ?: lanDiscoveryError,
                 connectingLanDeviceId = connectingLanDeviceId,
                 localNetworkPermissionGranted = localNetworkPermissionGranted,

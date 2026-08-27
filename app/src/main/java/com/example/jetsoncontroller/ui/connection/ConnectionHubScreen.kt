@@ -63,7 +63,6 @@ fun ConnectionHubScreen(
     registeredDevices: List<RegisteredDevice>,
     transportState: TransportState,
     lanEndpoints: List<DeviceEndpoint>,
-    lanDiscovering: Boolean,
     lanError: String?,
     connectingLanDeviceId: String?,
     localNetworkPermissionGranted: Boolean,
@@ -114,16 +113,9 @@ fun ConnectionHubScreen(
                     trailing = {
                         IconButton(
                             onClick = onRefreshLan,
-                            enabled = localNetworkPermissionGranted && !lanDiscovering
+                            enabled = localNetworkPermissionGranted
                         ) {
-                            if (lanDiscovering) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "장비 상태 새로고침")
-                            }
+                            Icon(Icons.Default.Refresh, contentDescription = "장비 상태 새로고침")
                         }
                     }
                 )

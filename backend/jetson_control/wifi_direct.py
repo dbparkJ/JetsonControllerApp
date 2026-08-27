@@ -30,6 +30,7 @@ PROFILE_PREFIX = "jetson-control-p2p-"
 DNSMASQ_PATH = "/usr/sbin/dnsmasq"
 DISCOVERY_SETTLE_SECONDS = 5
 DISCOVERY_RETRY_SECONDS = 10
+P2P_PEER_ABSENCE_GRACE_SECONDS = 10
 P2P_LISTEN_REG_CLASS = 81
 P2P_LISTEN_CHANNEL = 6
 
@@ -324,6 +325,7 @@ class WifiDirectController:
         self._status_lock = threading.Lock()
         self._discovery_stopped_at: Optional[float] = None
         self._discovery_retry_at: Optional[float] = None
+        self._peer_absent_since: Optional[float] = None
 
     def prepare(self) -> str:
         self._publish("STARTING", "Preparing NetworkManager Wi-Fi Direct")
@@ -413,6 +415,7 @@ class WifiDirectController:
             if self._state != "DISCOVERABLE":
                 return False
             self.active_peer = peer
+            self._peer_absent_since = None
             self._publish("CONNECTING", "Android requested a Wi-Fi Direct connection")
             self._activation_thread = threading.Thread(
                 target=self._activate_peer,
@@ -449,6 +452,35 @@ class WifiDirectController:
                             "DHCP stopped and Wi-Fi Direct discovery could not restart"
                         )
                     return True
+                if self._manual_owner_mode and self._state == "READY":
+                    peer_connected = self._group_has_connected_peer(group_interface)
+                    if peer_connected is True:
+                        self._peer_absent_since = None
+                    elif peer_connected is False:
+                        now = self._monotonic()
+                        if self._peer_absent_since is None:
+                            self._peer_absent_since = now
+                        elif (
+                            now - self._peer_absent_since
+                            >= P2P_PEER_ABSENCE_GRACE_SECONDS
+                        ):
+                            self._cleanup_direct_connection()
+                            self.active_peer = None
+                            try:
+                                self._restore_suspended_wifi()
+                            except WifiDirectError as error:
+                                self._publish("ERROR", str(error))
+                                return True
+                            if self.refresh_discovery(stop_existing=False):
+                                self._publish(
+                                    "DISCOVERABLE",
+                                    "Wi-Fi Direct peer disconnected; waiting again",
+                                )
+                            else:
+                                self._publish_discovery_error(
+                                    "Wi-Fi Direct peer disconnected and discovery could not restart"
+                                )
+                            return True
                 if self._state != "READY":
                     self._publish(
                         "READY",
@@ -757,6 +789,20 @@ class WifiDirectController:
         groups = parse_p2p_group_interfaces(result.stdout)
         return groups[0] if groups else None
 
+    def _group_has_connected_peer(self, interface: str) -> Optional[bool]:
+        result = self._run(
+            ["/usr/sbin/iw", "dev", interface, "station", "dump"],
+            allow_failure=True,
+        )
+        if result.returncode != 0:
+            return None
+        return bool(
+            re.search(
+                r"(?mi)^\s*Station\s+[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b",
+                result.stdout,
+            )
+        )
+
     def _wait_for_group_interface(self) -> str:
         for _attempt in range(60):
             interface = self._first_group_interface()
@@ -957,6 +1003,7 @@ class WifiDirectController:
                 pass
 
     def _cleanup_direct_connection(self) -> None:
+        self._peer_absent_since = None
         if not self._manual_owner_mode:
             self._delete_active_profile()
             self.group_interface = None

@@ -132,6 +132,35 @@ class BleAdvertisementMergerTest {
     }
 
     @Test
+    fun scanDebugSummarySnapshotsLiveObservationsBeforeCounting() {
+        val values = listOf(
+            BleAdvertisementMetadata(name = "MMS-D137"),
+            BleAdvertisementMetadata(name = "Headphones")
+        )
+        var iteratorCalls = 0
+        val liveObservations = object : AbstractCollection<BleAdvertisementMetadata>() {
+            override val size: Int = values.size
+
+            override fun iterator(): Iterator<BleAdvertisementMetadata> {
+                check(iteratorCalls++ == 0) {
+                    "A live observation collection must only be traversed once"
+                }
+                return values.iterator()
+            }
+        }
+
+        val summary = BleScanDebugInfo.summarize(
+            totalResults = 7,
+            observations = liveObservations
+        )
+
+        assertEquals(1, iteratorCalls)
+        assertEquals(2, summary.uniqueDevices)
+        assertEquals(2, summary.namedDevices)
+        assertEquals(1, summary.jetsonCandidates)
+    }
+
+    @Test
     fun scanDebugNameOnlyRevealsSanitizedJetsonNames() {
         assertEquals(
             "MMS-D137",

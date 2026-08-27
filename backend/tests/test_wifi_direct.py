@@ -59,6 +59,7 @@ class FakeRunner:
         fail_p2p_activation=False,
         fail_first_p2p_listen=False,
         fail_all_p2p_listen=False,
+        station_connected=True,
     ):
         self.calls = []
         self.group_created = False
@@ -71,6 +72,7 @@ class FakeRunner:
         self.fail_p2p_activation = fail_p2p_activation
         self.fail_first_p2p_listen = fail_first_p2p_listen
         self.fail_all_p2p_listen = fail_all_p2p_listen
+        self.station_connected = station_connected
         self.p2p_listen_attempts = 0
         self.dnsmasq_processes = []
 
@@ -96,6 +98,11 @@ class FakeRunner:
         elif command == ["/usr/sbin/iw", "dev", "wlan0", "info"]:
             if self.concurrency_supported is not None:
                 stdout = "Interface wlan0\n\twiphy 0\n\ttype managed\n"
+        elif command[:2] == ["/usr/sbin/iw", "dev"] and command[-2:] == [
+            "station", "dump"
+        ]:
+            if self.group_created and self.station_connected:
+                stdout = "Station aa:bb:cc:dd:ee:ff (on {})\n".format(command[2])
         elif command == ["/usr/sbin/iw", "phy", "phy0", "info"]:
             if self.concurrency_supported:
                 stdout = """valid interface combinations:
@@ -650,6 +657,49 @@ class WifiDirectTest(unittest.TestCase):
             self.assertTrue(runner.managed_wifi_active)
             self.assertTrue(any("p2p_group_remove" in call for call in runner.calls))
             self.assertEqual(read_wifi_direct_status(status_path)["state"], "DISCOVERABLE")
+
+    def test_manual_owner_cleans_empty_group_after_peer_disconnects(self):
+        runner = FakeRunner(
+            concurrency_supported=False,
+            managed_wifi_active=True,
+            alternate_default=True,
+            single_interface_group=True,
+        )
+        now = [1_000.0]
+        with tempfile.TemporaryDirectory() as temporary:
+            status_path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=status_path,
+                sleep=lambda _seconds: None,
+                monotonic=lambda: now[0],
+            )
+
+            self.assertEqual(controller.prepare(), "DISCOVERABLE")
+            self.assertEqual(
+                controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"),
+                "wlan0",
+            )
+            runner.station_connected = False
+
+            controller.monitor()
+            now[0] += 9.0
+            controller.monitor()
+            self.assertTrue(runner.group_created)
+            self.assertEqual(read_wifi_direct_status(status_path)["state"], "READY")
+
+            now[0] += 1.0
+            controller.monitor()
+
+            self.assertFalse(runner.group_created)
+            self.assertTrue(runner.managed_wifi_active)
+            self.assertTrue(runner.dnsmasq_processes[0].terminated)
+            self.assertEqual(
+                read_wifi_direct_status(status_path)["state"],
+                "DISCOVERABLE",
+            )
 
     def test_stale_lan_address_is_not_published_as_direct_ready(self):
         runner = FakeRunner(

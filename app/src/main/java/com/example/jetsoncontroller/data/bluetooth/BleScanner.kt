@@ -177,20 +177,22 @@ internal object BleScanDebugInfo {
     fun summarize(
         totalResults: Int,
         observations: Collection<BleAdvertisementMetadata>
-    ): BleScanDebugSummary =
-        BleScanDebugSummary(
+    ): BleScanDebugSummary {
+        val snapshot = observations.toList()
+        return BleScanDebugSummary(
             totalResults = totalResults,
-            uniqueDevices = observations.size,
-            namedDevices = observations.count {
+            uniqueDevices = snapshot.size,
+            namedDevices = snapshot.count {
                 it.name != null
             },
-            serviceAdvertisingDevices = observations.count {
+            serviceAdvertisingDevices = snapshot.count {
                 it.advertisedServiceUuids.isNotEmpty()
             },
-            jetsonCandidates = observations.count(
+            jetsonCandidates = snapshot.count(
                 BleAdvertisementMerger::isJetsonDevice
             )
         )
+    }
 
     fun safeCandidateName(
         name: String?
@@ -252,6 +254,8 @@ class BleScanner(
 
     private val handler =
         Handler(Looper.getMainLooper())
+
+    private val scanDataLock = Any()
 
     private val deviceMap =
         LinkedHashMap<String, JetsonDevice>()
@@ -323,95 +327,101 @@ class BleScanner(
                     return
                 }
 
-                val recordName =
-                    BleAdvertisementMerger.normalizeName(
-                        record?.deviceName
-                    )
-
-                val bondedName =
-                    try {
-                        BleAdvertisementMerger.normalizeName(
-                            device.name
-                        )
-                    } catch (_: SecurityException) {
-                        null
+                synchronized(scanDataLock) {
+                    if (!_isScanning.value) {
+                        return
                     }
 
-                val uuids = record?.serviceUuids
-                    ?.map { it.uuid.toString() }
-                    .orEmpty()
+                    val recordName =
+                        BleAdvertisementMerger.normalizeName(
+                            record?.deviceName
+                        )
 
-                val previousMetadata =
-                    observationMap[address]
+                    val bondedName =
+                        try {
+                            BleAdvertisementMerger.normalizeName(
+                                device.name
+                            )
+                        } catch (_: SecurityException) {
+                            null
+                        }
 
-                val metadata =
-                    BleAdvertisementMerger.merge(
-                        previous = previousMetadata,
-                        observedName =
-                            recordName ?: bondedName.takeIf {
-                                previousMetadata?.name == null
-                            },
-                        observedServiceUuids = uuids
-                    )
+                    val uuids = record?.serviceUuids
+                        ?.map { it.uuid.toString() }
+                        .orEmpty()
 
-                val isJetsonDevice =
-                    BleAdvertisementMerger.isJetsonDevice(
-                        metadata
-                    )
+                    val previousMetadata =
+                        observationMap[address]
 
-                scanResultCount += 1
+                    val metadata =
+                        BleAdvertisementMerger.merge(
+                            previous = previousMetadata,
+                            observedName =
+                                recordName ?: bondedName.takeIf {
+                                    previousMetadata?.name == null
+                                },
+                            observedServiceUuids = uuids
+                        )
 
-                if (
-                    isJetsonDevice &&
-                    loggedCandidateAddresses.size <
-                    MAX_CANDIDATE_LOGS_PER_SCAN &&
-                    loggedCandidateAddresses.add(address)
-                ) {
-                    Log.d(
-                        LOG_TAG,
-                        "BLE candidate observed: " +
-                            "name=${BleScanDebugInfo.safeCandidateName(metadata.name)}, " +
-                            "serviceUuidPresent=" +
-                            metadata.advertisedServiceUuids.isNotEmpty() +
-                            ", targetServicePresent=" +
-                            metadata.advertisedServiceUuids.any {
-                                it.equals(
-                                    JetsonGattSpec.SERVICE_UUID.toString(),
-                                    ignoreCase = true
-                                )
-                            } +
-                            ", rssi=${result.rssi}"
-                    )
-                }
+                    val isJetsonDevice =
+                        BleAdvertisementMerger.isJetsonDevice(
+                            metadata
+                        )
 
-                val displayName =
-                    BleAdvertisementMerger.displayName(
-                        metadata = metadata,
-                        address = address
-                    )
+                    scanResultCount += 1
 
-                observationMap[address] = metadata
+                    if (
+                        isJetsonDevice &&
+                        loggedCandidateAddresses.size <
+                        MAX_CANDIDATE_LOGS_PER_SCAN &&
+                        loggedCandidateAddresses.add(address)
+                    ) {
+                        Log.d(
+                            LOG_TAG,
+                            "BLE candidate observed: " +
+                                "name=${BleScanDebugInfo.safeCandidateName(metadata.name)}, " +
+                                "serviceUuidPresent=" +
+                                metadata.advertisedServiceUuids.isNotEmpty() +
+                                ", targetServicePresent=" +
+                                metadata.advertisedServiceUuids.any {
+                                    it.equals(
+                                        JetsonGattSpec.SERVICE_UUID.toString(),
+                                        ignoreCase = true
+                                    )
+                                } +
+                                ", rssi=${result.rssi}"
+                        )
+                    }
 
-                if (
-                    displayName == null ||
-                    (jetsonOnlyScan && !isJetsonDevice)
-                ) {
-                    deviceMap.remove(address)
+                    val displayName =
+                        BleAdvertisementMerger.displayName(
+                            metadata = metadata,
+                            address = address
+                        )
+
+                    observationMap[address] = metadata
+
+                    if (
+                        displayName == null ||
+                        (jetsonOnlyScan && !isJetsonDevice)
+                    ) {
+                        deviceMap.remove(address)
+                        publishDevices()
+                        return
+                    }
+
+                    deviceMap[address] =
+                        JetsonDevice(
+                            device = device,
+                            name = displayName,
+                            address = address,
+                            rssi = result.rssi,
+                            advertisedServiceUuids =
+                                metadata.advertisedServiceUuids.toList()
+                        )
+
                     publishDevices()
-                    return
                 }
-
-                deviceMap[address] =
-                    JetsonDevice(
-                        device = device,
-                        name = displayName,
-                        address = address,
-                        rssi = result.rssi,
-                        advertisedServiceUuids =
-                            metadata.advertisedServiceUuids.toList()
-                    )
-
-                publishDevices()
             }
 
             override fun onBatchScanResults(
@@ -455,6 +465,7 @@ class BleScanner(
 
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun startScan(
         durationMillis: Long = 15_000L,
         jetsonOnly: Boolean = false
@@ -465,12 +476,14 @@ class BleScanner(
         }
 
         cancelStopRunnable()
-        deviceMap.clear()
-        observationMap.clear()
-        scanResultCount = 0
-        loggedCandidateAddresses.clear()
-        _devices.value = emptyList()
-        jetsonOnlyScan = jetsonOnly
+        synchronized(scanDataLock) {
+            deviceMap.clear()
+            observationMap.clear()
+            scanResultCount = 0
+            loggedCandidateAddresses.clear()
+            _devices.value = emptyList()
+            jetsonOnlyScan = jetsonOnly
+        }
 
         val adapter =
             bluetoothAdapter
@@ -588,6 +601,7 @@ class BleScanner(
 
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun stopScan() {
 
         if (!_isScanning.value) {
@@ -602,6 +616,7 @@ class BleScanner(
 
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     private fun finishScan(
         finalState: BleScanState,
         stopPlatformScanner: Boolean
@@ -632,10 +647,18 @@ class BleScanner(
             }
         }
 
-        _isScanning.value = false
-        jetsonOnlyScan = false
+        val summarySnapshot = synchronized(scanDataLock) {
+            val snapshot = scanResultCount to observationMap.values.toList()
+            _isScanning.value = false
+            jetsonOnlyScan = false
+            snapshot
+        }
 
-        logScanSummary(resolvedState)
+        logScanSummary(
+            finalState = resolvedState,
+            totalResults = summarySnapshot.first,
+            observations = summarySnapshot.second
+        )
 
         cancelStopRunnable()
         updateScanState(resolvedState)
@@ -680,12 +703,14 @@ class BleScanner(
 
 
     private fun logScanSummary(
-        finalState: BleScanState
+        finalState: BleScanState,
+        totalResults: Int,
+        observations: Collection<BleAdvertisementMetadata>
     ) {
         val summary =
             BleScanDebugInfo.summarize(
-                totalResults = scanResultCount,
-                observations = observationMap.values
+                totalResults = totalResults,
+                observations = observations
             )
 
         Log.d(
@@ -710,14 +735,17 @@ class BleScanner(
     }
 
 
+    @Synchronized
     fun clear() {
 
-        deviceMap.clear()
-        observationMap.clear()
-        scanResultCount = 0
-        loggedCandidateAddresses.clear()
+        synchronized(scanDataLock) {
+            deviceMap.clear()
+            observationMap.clear()
+            scanResultCount = 0
+            loggedCandidateAddresses.clear()
 
-        _devices.value =
-            emptyList()
+            _devices.value =
+                emptyList()
+        }
     }
 }
