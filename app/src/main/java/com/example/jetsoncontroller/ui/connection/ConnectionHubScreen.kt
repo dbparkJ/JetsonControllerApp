@@ -228,9 +228,8 @@ private fun RegisteredDeviceCard(
     val connected = connectedTransport != null
     val available = endpoint != null
     val online = connected
-    val wifiConnected = connectedTransport == TransportType.LAN ||
-        connectedTransport == TransportType.WIFI_DIRECT
-    val badgeLabel = if (online) "온라인" else "오프라인"
+    val connectionStage = userConnectionStage(online, connectedTransport)
+    val badgeLabel = connectionStage.label
     val badgeTone = if (online) StatusTone.SUCCESS else StatusTone.WARNING
 
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
@@ -257,7 +256,7 @@ private fun RegisteredDeviceCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        if (wifiConnected) "Wi-Fi 연결" else "Wi-Fi 미연결",
+                        connectionStage.detail,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

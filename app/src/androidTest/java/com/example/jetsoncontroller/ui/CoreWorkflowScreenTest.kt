@@ -7,10 +7,15 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.jetsoncontroller.data.alerts.AlertDestination
 import com.example.jetsoncontroller.data.alerts.AlertRecord
 import com.example.jetsoncontroller.data.alerts.AlertSeverity
+import com.example.jetsoncontroller.data.transport.TransportState
+import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
@@ -18,6 +23,7 @@ import com.example.jetsoncontroller.ui.alerts.AlertCenterUiState
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
+import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
 import com.example.jetsoncontroller.ui.devices.DeviceListScreen
 import com.example.jetsoncontroller.ui.devices.DeviceListUiState
 import com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingScreen
@@ -99,6 +105,41 @@ class CoreWorkflowScreenTest {
     }
 
     @Test
+    fun deviceHubUsesTheSameThreeStageConnectionLabel() {
+        val device = RegisteredDevice(
+            deviceId = "00000000-0000-0000-0000-000000000001",
+            deviceName = "MMS-Test"
+        )
+        composeRule.setContent {
+            JetsonControllerTheme {
+                ConnectionHubScreen(
+                    onAddDevice = {},
+                    onOpenDashboard = {},
+                    unreadAlertCount = 0,
+                    onAlertsClick = {},
+                    registeredDevices = listOf(device),
+                    transportState = TransportState.Connected(
+                        type = TransportType.WIFI_DIRECT,
+                        deviceId = device.deviceId,
+                        deviceName = device.deviceName
+                    ),
+                    lanEndpoints = emptyList(),
+                    lanError = null,
+                    connectingLanDeviceId = null,
+                    localNetworkPermissionGranted = true,
+                    onRequestLocalNetworkPermission = {},
+                    onRefreshLan = {},
+                    onConnectLan = {},
+                    onReconnectDevice = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("핸드폰과 연결").assertIsDisplayed()
+        composeRule.onAllNodesWithText("온라인").assertCountEquals(0)
+    }
+
+    @Test
     fun pairingShowsDetailedCurrentStage() {
         composeRule.setContent {
             JetsonControllerTheme {
@@ -150,6 +191,42 @@ class CoreWorkflowScreenTest {
         composeRule.onNodeWithText("정상 작동 중").assertIsDisplayed()
         composeRule.onNodeWithText("진행 중인 작업").assertIsDisplayed()
         composeRule.onNodeWithText("현재 진행 중인 작업이 없습니다.").assertIsDisplayed()
+    }
+
+    @Test
+    fun healthyDashboardCardCanBeSwipedAway() {
+        composeRule.setContent {
+            JetsonControllerTheme {
+                DashboardScreen(
+                    state = DashboardUiState(
+                        statusFreshness = StatusFreshness.CURRENT,
+                        isOnline = true,
+                        fullControlAvailable = true
+                    ),
+                    pipelines = emptyList(),
+                    uploads = emptyList(),
+                    unreadAlertCount = 0,
+                    onAlertsClick = {},
+                    onDisconnect = {},
+                    onRefreshFan = {},
+                    onSetFanAuto = {},
+                    onSetFanManual = {},
+                    onReboot = {},
+                    onShutdown = {},
+                    onStorageClick = {},
+                    onNetworkSettingsClick = {},
+                    onUploadQueueClick = {},
+                    onPipelinesClick = {},
+                    onSectionSelected = {},
+                    onDismissOperationMessage = {},
+                    onBack = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("dashboard-health-card")
+            .performTouchInput { swipeLeft() }
+        composeRule.onAllNodesWithText("정상 작동 중").assertCountEquals(0)
     }
 
     @Test

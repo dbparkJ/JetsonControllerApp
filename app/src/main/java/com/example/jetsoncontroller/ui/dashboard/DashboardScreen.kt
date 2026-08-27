@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.ui.dashboard
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Refresh
@@ -41,9 +44,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +60,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,6 +75,8 @@ import com.example.jetsoncontroller.ui.components.MetricCard
 import com.example.jetsoncontroller.ui.components.SectionHeader
 import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.connection.UserConnectionStage
+import com.example.jetsoncontroller.ui.connection.userConnectionStage
 import com.example.jetsoncontroller.ui.theme.AppSpacing
 import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 import kotlin.math.roundToInt
@@ -103,6 +112,9 @@ fun DashboardScreen(
     var optimisticDismissedHealthKeys by rememberSaveable(healthDeviceId) {
         mutableStateOf<List<String>>(emptyList())
     }
+    var healthyCardDismissed by rememberSaveable(healthDeviceId) {
+        mutableStateOf(false)
+    }
     val health = assessDashboardHealth(
         status = state.status,
         freshness = state.statusFreshness,
@@ -120,6 +132,7 @@ fun DashboardScreen(
     val effectiveDismissals = dismissedHealthKeys + optimisticDismissedHealthKeys
     val healthDismissed = currentDismissalKeys.isNotEmpty() &&
         effectiveDismissals.containsAll(currentDismissalKeys)
+    val connectionStage = userConnectionStage(state.isOnline, state.transportType)
     val activeUploads = uploads.filter { it.state.isActiveUploadState() }
 
     LaunchedEffect(
@@ -177,7 +190,7 @@ fun DashboardScreen(
                     Column {
                         Text(state.deviceName, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            if (state.isOnline) "온라인" else "오프라인",
+                            connectionStage.label,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -244,12 +257,14 @@ fun DashboardScreen(
                             message = "기기가 오프라인입니다.",
                             tone = StatusTone.WARNING
                         )
-                    } else if (!healthDismissed) {
-                        HealthOverview(
-                            state = state,
-                            health = health,
-                            onDismiss = if (health.level == DashboardHealthLevel.ATTENTION) {
-                                {
+                    } else if (
+                        !healthDismissed &&
+                        !(health.level == DashboardHealthLevel.HEALTHY && healthyCardDismissed)
+                    ) {
+                        val dismissHealth = {
+                            if (health.level == DashboardHealthLevel.HEALTHY) {
+                                healthyCardDismissed = true
+                            } else if (health.level == DashboardHealthLevel.ATTENTION) {
                                     optimisticDismissedHealthKeys =
                                         currentDismissalKeys.toList()
                                     onHealthDismissalsChange(
@@ -259,11 +274,23 @@ fun DashboardScreen(
                                             health
                                         )
                                     )
-                                }
-                            } else {
-                                null
                             }
-                        )
+                        }
+                        if (health.level == DashboardHealthLevel.UNKNOWN) {
+                            HealthOverview(
+                                state = state,
+                                health = health,
+                                onDismiss = null
+                            )
+                        } else {
+                            SwipeDismissibleHealthOverview(
+                                state = state,
+                                health = health,
+                                onDismiss = dismissHealth,
+                                showCloseButton =
+                                    health.level == DashboardHealthLevel.ATTENTION
+                            )
+                        }
                     }
                     if (state.isOnline && state.statusFreshness == StatusFreshness.STALE) {
                         Spacer(Modifier.height(AppSpacing.medium))
@@ -386,6 +413,46 @@ fun DashboardScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SwipeDismissibleHealthOverview(
+    state: DashboardUiState,
+    health: DashboardHealth,
+    onDismiss: () -> Unit,
+    showCloseButton: Boolean
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled) {
+                onDismiss()
+                true
+            } else {
+                false
+            }
+        }
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(horizontal = AppSpacing.large),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "상태 카드 닫기")
+            }
+        },
+        modifier = Modifier.testTag("dashboard-health-card")
+    ) {
+        HealthOverview(
+            state = state,
+            health = health,
+            onDismiss = onDismiss.takeIf { showCloseButton }
+        )
     }
 }
 
@@ -522,7 +589,7 @@ private fun HealthOverview(
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     StatusBadge(
-                        label = if (state.isOnline) "온라인" else "오프라인",
+                        label = userConnectionStage(state.isOnline, state.transportType).label,
                         tone = tone
                     )
                     if (onDismiss != null) {
@@ -546,22 +613,13 @@ private fun HealthOverview(
 private fun ConnectionModeSummary(
     state: DashboardUiState
 ) {
-    val wifiConnected = state.isOnline &&
-        (state.status.wifiConnected || state.fullControlAvailable)
-    val title = when {
-        !state.isOnline -> "오프라인"
-        wifiConnected -> "Wi-Fi 연결"
-        else -> "Wi-Fi 미연결"
-    }
-    val tone = when {
-        !state.isOnline -> StatusTone.WARNING
-        wifiConnected -> StatusTone.SUCCESS
-        else -> StatusTone.INFO
-    }
+    val stage = userConnectionStage(state.isOnline, state.transportType)
+    val connected = stage != UserConnectionStage.OFFLINE
+    val tone = if (connected) StatusTone.SUCCESS else StatusTone.WARNING
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = if (wifiConnected) {
+        color = if (connected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
             MaterialTheme.colorScheme.surfaceContainer
@@ -574,17 +632,27 @@ private fun ConnectionModeSummary(
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
         ) {
             Icon(
-                if (state.isOnline) Icons.Default.Wifi else Icons.Default.LinkOff,
+                when (stage) {
+                    UserConnectionStage.PHONE_CONNECTED -> Icons.Default.PhoneAndroid
+                    UserConnectionStage.WIFI_CONNECTED -> Icons.Default.Wifi
+                    UserConnectionStage.OFFLINE -> Icons.Default.LinkOff
+                },
                 contentDescription = null,
                 modifier = Modifier.size(28.dp)
             )
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f)
-            )
-            StatusBadge(if (state.isOnline) "온라인" else "오프라인", tone)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stage.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    stage.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            StatusBadge(stage.label, tone)
         }
     }
 }
