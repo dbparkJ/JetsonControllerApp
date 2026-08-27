@@ -28,6 +28,10 @@ WPA_PEER_INTERFACE = "fi.w1.wpa_supplicant1.Peer"
 DBUS_PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties"
 PROFILE_PREFIX = "jetson-control-p2p-"
 DNSMASQ_PATH = "/usr/sbin/dnsmasq"
+DISCOVERY_SECONDS = 600
+DISCOVERY_SETTLE_SECONDS = 5
+DISCOVERY_RESTART_SECONDS = DISCOVERY_SECONDS + DISCOVERY_SETTLE_SECONDS
+DISCOVERY_RETRY_SECONDS = 10
 
 
 class WifiDirectError(RuntimeError):
@@ -295,11 +299,13 @@ class WifiDirectController:
         start_process: Callable[..., subprocess.Popen] = subprocess.Popen,
         status_path: Path = STATUS_PATH,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings.validated()
         self._run_process = run
         self._start_process = start_process
         self._sleep = sleep
+        self._monotonic = monotonic
         self.status_path = status_path
         self.wpa_client_path = status_path.parent / "wpa-cli"
         self.dnsmasq_lease_path = status_path.parent / "wifi-direct.leases"
@@ -316,6 +322,9 @@ class WifiDirectController:
         self._activation_lock = threading.Lock()
         self._activation_thread: Optional[threading.Thread] = None
         self._status_lock = threading.Lock()
+        self._last_discovery = 0.0
+        self._discovery_stopped_at: Optional[float] = None
+        self._discovery_retry_at: Optional[float] = None
 
     def prepare(self) -> str:
         self._publish("STARTING", "Preparing NetworkManager Wi-Fi Direct")
@@ -347,24 +356,28 @@ class WifiDirectController:
         self._publish("DISCOVERABLE", "Waiting for the Android connection request")
         return "DISCOVERABLE"
 
-    def refresh_discovery(self) -> bool:
-        # Timed p2p_find replacement can wedge RTL8822CE while its final scan is
-        # pending. Stop any prior find, then leave one unbounded discovery active
-        # until a connection or explicit service transition stops it.
+    def refresh_discovery(self, stop_existing: bool = True) -> bool:
+        # Replacing an active timed find wedges RTL8822CE. The monitor therefore
+        # calls this only after the 600-second find has ended naturally and a
+        # five-second driver settle interval has elapsed.
         try:
-            self._wpa(
-                self.settings.interface,
-                "p2p_stop_find",
-                allow_failure=True,
-            )
+            if stop_existing:
+                self._wpa(
+                    self.settings.interface,
+                    "p2p_stop_find",
+                    allow_failure=True,
+                )
             try:
                 self._wpa(
                     self.settings.interface,
                     "p2p_find",
+                    str(DISCOVERY_SECONDS),
                 )
             except (OSError, subprocess.TimeoutExpired, WifiDirectError):
+                if not stop_existing:
+                    return False
                 # A driver scan can remain wedged even after p2p_stop_find.
-                # Abort that scan and retry the unbounded discovery once.
+                # Abort that scan and retry the timed discovery once.
                 self._wpa(
                     self.settings.interface,
                     "abort_scan",
@@ -379,18 +392,33 @@ class WifiDirectController:
                 self._wpa(
                     self.settings.interface,
                     "p2p_find",
+                    str(DISCOVERY_SECONDS),
                 )
         except (OSError, subprocess.TimeoutExpired, WifiDirectError):
             return False
+        self._last_discovery = self._monotonic()
+        self._discovery_stopped_at = None
+        self._discovery_retry_at = None
         return True
+
+    def discovery_stopped(self) -> None:
+        if self._state == "DISCOVERABLE":
+            self._discovery_stopped_at = self._monotonic()
+
+    def _publish_discovery_error(self, message: str) -> None:
+        self._discovery_stopped_at = None
+        self._discovery_retry_at = self._monotonic() + DISCOVERY_RETRY_SECONDS
+        self._publish("ERROR", message)
 
     def request_connection(self, peer_address: str) -> bool:
         peer = normalize_mac_address(peer_address)
         with self._activation_lock:
             if self._activation_thread is not None and self._activation_thread.is_alive():
                 return False
-            if self._state == "READY":
+            if self._state != "DISCOVERABLE":
                 return False
+            self.active_peer = peer
+            self._publish("CONNECTING", "Android requested a Wi-Fi Direct connection")
             self._activation_thread = threading.Thread(
                 target=self._activate_peer,
                 args=(peer,),
@@ -419,8 +447,12 @@ class WifiDirectController:
                     except WifiDirectError as error:
                         self._publish("ERROR", str(error))
                         return True
-                    self.refresh_discovery()
-                    self._publish("DISCOVERABLE", "DHCP stopped; waiting again")
+                    if self.refresh_discovery(stop_existing=False):
+                        self._publish("DISCOVERABLE", "DHCP stopped; waiting again")
+                    else:
+                        self._publish_discovery_error(
+                            "DHCP stopped and Wi-Fi Direct discovery could not restart"
+                        )
                     return True
                 if self._state != "READY":
                     self._publish(
@@ -438,15 +470,53 @@ class WifiDirectController:
             except WifiDirectError as error:
                 self._publish("ERROR", str(error))
                 return True
-            self.refresh_discovery()
-            self._publish("DISCOVERABLE", "Wi-Fi Direct disconnected; waiting again")
+            if self.refresh_discovery(stop_existing=False):
+                self._publish("DISCOVERABLE", "Wi-Fi Direct disconnected; waiting again")
+            else:
+                self._publish_discovery_error(
+                    "Wi-Fi Direct disconnected and discovery could not restart"
+                )
         elif self._state == "ERROR" and self._suspended_wifi_profile:
             try:
                 self._restore_suspended_wifi()
-                self.refresh_discovery()
-                self._publish("DISCOVERABLE", "Wi-Fi restored; waiting again")
+                if self.refresh_discovery(stop_existing=False):
+                    self._publish("DISCOVERABLE", "Wi-Fi restored; waiting again")
+                else:
+                    self._publish_discovery_error(
+                        "Wi-Fi was restored but Wi-Fi Direct discovery could not restart"
+                    )
             except WifiDirectError:
                 pass
+        elif self._state == "ERROR" and self._discovery_retry_at is not None:
+            if self._monotonic() >= self._discovery_retry_at:
+                if self.refresh_discovery(stop_existing=False):
+                    self._publish("DISCOVERABLE", "Wi-Fi Direct discovery recovered")
+                else:
+                    self._publish_discovery_error(
+                        "Wi-Fi Direct discovery retry failed; retrying shortly"
+                    )
+        elif (
+            self._state == "DISCOVERABLE"
+            and not (
+                self._activation_thread is not None
+                and self._activation_thread.is_alive()
+            )
+        ):
+            now = self._monotonic()
+            stopped_and_settled = (
+                self._discovery_stopped_at is not None
+                and now - self._discovery_stopped_at >= DISCOVERY_SETTLE_SECONDS
+            )
+            timeout_and_settled = (
+                now - self._last_discovery >= DISCOVERY_RESTART_SECONDS
+            )
+            if stopped_and_settled or timeout_and_settled:
+                if self.refresh_discovery(stop_existing=False):
+                    self._publish("DISCOVERABLE", "Wi-Fi Direct discovery restarted")
+                else:
+                    self._publish_discovery_error(
+                        "Wi-Fi Direct discovery could not restart; retrying shortly"
+                    )
         return True
 
     def stop(self) -> None:
@@ -495,11 +565,15 @@ class WifiDirectController:
                 error = WifiDirectError("{}; {}".format(error, restore_error))
                 restore_failed = True
             self._publish("ERROR", str(error))
-            self._sleep(2)
+            self._sleep(DISCOVERY_SETTLE_SECONDS)
             if restore_failed:
                 return ""
             try:
-                self.refresh_discovery()
+                if not self.refresh_discovery(stop_existing=False):
+                    self._publish_discovery_error(
+                        "Connection failed and Wi-Fi Direct discovery could not restart"
+                    )
+                    return ""
                 self._publish(
                     "DISCOVERABLE",
                     "Connection failed; waiting for another Android request",
@@ -1055,6 +1129,14 @@ class WifiDirectRuntime:
             path=self.wpa_interface_path,
         )
         self.controller.prepare()
+        # Register after prepare so the explicit startup p2p_stop_find cannot
+        # be mistaken for a naturally completed discovery cycle.
+        self.bus.add_signal_receiver(
+            self._on_find_stopped,
+            signal_name="FindStopped",
+            dbus_interface=WPA_P2P_INTERFACE,
+            path=self.wpa_interface_path,
+        )
         self.loop = GLib.MainLoop()
 
         def stop_loop(_signum, _frame) -> None:
@@ -1099,6 +1181,9 @@ class WifiDirectRuntime:
             self.controller.request_connection(peer_address)
         except (ValueError, WifiDirectError) as error:
             self.controller._publish("ERROR", str(error))
+
+    def _on_find_stopped(self) -> None:
+        self.controller.discovery_stopped()
 
     def _peer_address(self, peer_path: str) -> str:
         address = peer_address_from_path(peer_path)

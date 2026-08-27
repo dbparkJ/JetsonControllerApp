@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from jetson_control.wifi_direct import (
     WifiDirectController,
@@ -57,6 +58,7 @@ class FakeRunner:
         group_address="192.168.49.1",
         fail_p2p_activation=False,
         fail_first_p2p_find=False,
+        fail_all_p2p_find=False,
     ):
         self.calls = []
         self.group_created = False
@@ -68,6 +70,7 @@ class FakeRunner:
         self.group_address = group_address
         self.fail_p2p_activation = fail_p2p_activation
         self.fail_first_p2p_find = fail_first_p2p_find
+        self.fail_all_p2p_find = fail_all_p2p_find
         self.p2p_find_attempts = 0
         self.dnsmasq_processes = []
 
@@ -141,7 +144,9 @@ class FakeRunner:
         elif command[0] == "/usr/sbin/wpa_cli":
             if "p2p_find" in command:
                 self.p2p_find_attempts += 1
-                if self.fail_first_p2p_find and self.p2p_find_attempts == 1:
+                if self.fail_all_p2p_find or (
+                    self.fail_first_p2p_find and self.p2p_find_attempts == 1
+                ):
                     stdout = "FAIL-BUSY\n"
                 else:
                     stdout = "OK\n"
@@ -160,7 +165,7 @@ class FakeRunner:
 
 
 class WifiDirectTest(unittest.TestCase):
-    def test_discovery_uses_unbounded_find_and_recovers_busy_scan(self):
+    def test_discovery_recovers_busy_scan_before_starting_timed_find(self):
         runner = FakeRunner(fail_first_p2p_find=True)
         with tempfile.TemporaryDirectory() as temporary:
             controller = WifiDirectController(
@@ -182,15 +187,16 @@ class WifiDirectTest(unittest.TestCase):
             commands,
             [
                 ["p2p_stop_find"],
-                ["p2p_find"],
+                ["p2p_find", "600"],
                 ["abort_scan"],
                 ["p2p_stop_find"],
-                ["p2p_find"],
+                ["p2p_find", "600"],
             ],
         )
 
-    def test_monitor_does_not_periodically_replace_unbounded_discovery(self):
+    def test_monitor_restarts_discovery_only_after_timeout_and_settle(self):
         runner = FakeRunner()
+        now = [1_000.0]
         with tempfile.TemporaryDirectory() as temporary:
             controller = WifiDirectController(
                 WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
@@ -198,11 +204,15 @@ class WifiDirectTest(unittest.TestCase):
                 start_process=runner.start_process,
                 status_path=Path(temporary) / "wifi-direct.json",
                 sleep=lambda _seconds: None,
+                monotonic=lambda: now[0],
             )
             self.assertEqual(controller.prepare(), "DISCOVERABLE")
 
-            for _attempt in range(5):
-                self.assertTrue(controller.monitor())
+            now[0] += 604.0
+            self.assertTrue(controller.monitor())
+            self.assertEqual(runner.p2p_find_attempts, 1)
+            now[0] += 1.0
+            self.assertTrue(controller.monitor())
 
         discovery_calls = [
             call[7:]
@@ -211,7 +221,135 @@ class WifiDirectTest(unittest.TestCase):
                 "p2p_find" in call or "p2p_stop_find" in call
             )
         ]
-        self.assertEqual(discovery_calls, [["p2p_stop_find"], ["p2p_find"]])
+        self.assertEqual(
+            discovery_calls,
+            [
+                ["p2p_stop_find"],
+                ["p2p_find", "600"],
+                ["p2p_find", "600"],
+            ],
+        )
+
+    def test_find_stopped_event_restarts_after_driver_settle(self):
+        runner = FakeRunner()
+        now = [1_000.0]
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=Path(temporary) / "wifi-direct.json",
+                sleep=lambda _seconds: None,
+                monotonic=lambda: now[0],
+            )
+            self.assertEqual(controller.prepare(), "DISCOVERABLE")
+
+            now[0] += 100.0
+            controller.discovery_stopped()
+            now[0] += 4.0
+            self.assertTrue(controller.monitor())
+            self.assertEqual(runner.p2p_find_attempts, 1)
+            now[0] += 1.0
+            self.assertTrue(controller.monitor())
+            self.assertEqual(runner.p2p_find_attempts, 2)
+
+        discovery_calls = [
+            call[7:]
+            for call in runner.calls
+            if call and call[0] == "/usr/sbin/wpa_cli" and (
+                "p2p_find" in call or "p2p_stop_find" in call
+            )
+        ]
+        self.assertEqual(
+            discovery_calls,
+            [["p2p_stop_find"], ["p2p_find", "600"], ["p2p_find", "600"]],
+        )
+
+    def test_failed_discovery_restart_backs_off_and_recovers(self):
+        runner = FakeRunner()
+        now = [1_000.0]
+        with tempfile.TemporaryDirectory() as temporary:
+            status_path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=status_path,
+                sleep=lambda _seconds: None,
+                monotonic=lambda: now[0],
+            )
+            self.assertEqual(controller.prepare(), "DISCOVERABLE")
+
+            runner.fail_all_p2p_find = True
+            controller.discovery_stopped()
+            now[0] += 5.0
+            self.assertTrue(controller.monitor())
+            self.assertEqual(read_wifi_direct_status(status_path)["state"], "ERROR")
+            self.assertEqual(runner.p2p_find_attempts, 2)
+
+            now[0] += 9.0
+            self.assertTrue(controller.monitor())
+            self.assertEqual(runner.p2p_find_attempts, 2)
+
+            runner.fail_all_p2p_find = False
+            now[0] += 1.0
+            self.assertTrue(controller.monitor())
+            self.assertEqual(runner.p2p_find_attempts, 3)
+            self.assertEqual(
+                read_wifi_direct_status(status_path)["state"],
+                "DISCOVERABLE",
+            )
+
+    def test_monitor_does_not_restart_discovery_during_peer_activation(self):
+        class ActiveThread:
+            @staticmethod
+            def is_alive():
+                return True
+
+        runner = FakeRunner()
+        now = [1_000.0]
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=Path(temporary) / "wifi-direct.json",
+                sleep=lambda _seconds: None,
+                monotonic=lambda: now[0],
+            )
+            self.assertEqual(controller.prepare(), "DISCOVERABLE")
+            controller._activation_thread = ActiveThread()
+            now[0] += 605.0
+
+            self.assertTrue(controller.monitor())
+            self.assertEqual(runner.p2p_find_attempts, 1)
+
+    def test_connection_request_publishes_connecting_before_thread_starts(self):
+        runner = FakeRunner()
+        with tempfile.TemporaryDirectory() as temporary:
+            status_path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=status_path,
+                sleep=lambda _seconds: None,
+            )
+            self.assertEqual(controller.prepare(), "DISCOVERABLE")
+            activation_thread = Mock()
+            with patch(
+                "jetson_control.wifi_direct.threading.Thread",
+                return_value=activation_thread,
+            ):
+                self.assertTrue(
+                    controller.request_connection("AA:BB:CC:DD:EE:FF")
+                )
+
+            self.assertEqual(
+                read_wifi_direct_status(status_path)["state"],
+                "CONNECTING",
+            )
+            activation_thread.start.assert_called_once_with()
 
     def test_parses_only_group_owner_interfaces(self):
         output = """phy#0
