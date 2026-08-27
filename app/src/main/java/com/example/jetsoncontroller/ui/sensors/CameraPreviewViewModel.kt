@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 
 data class CameraPreviewUiState(
     val frame: Bitmap? = null,
+    val frameRevision: Long? = null,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val error: String? = null,
@@ -49,8 +50,11 @@ class CameraPreviewViewModel(
                     return@collectLatest
                 }
                 while (true) {
-                    val loaded = loadFrame()
-                    delay(if (loaded) CAMERA_PREVIEW_INTERVAL_MS else CAMERA_RETRY_INTERVAL_MS)
+                    when (loadFrame()) {
+                        FrameLoadResult.REALTIME -> Unit
+                        FrameLoadResult.LEGACY -> delay(CAMERA_PREVIEW_LEGACY_INTERVAL_MS)
+                        FrameLoadResult.FAILURE -> delay(CAMERA_RETRY_INTERVAL_MS)
+                    }
                 }
             }
         }
@@ -69,24 +73,40 @@ class CameraPreviewViewModel(
         viewModelScope.launch { loadFrame(forceRefresh = true) }
     }
 
-    private suspend fun loadFrame(forceRefresh: Boolean = false): Boolean = loadMutex.withLock {
+    private suspend fun loadFrame(
+        forceRefresh: Boolean = false
+    ): FrameLoadResult = loadMutex.withLock {
         val current = _uiState.value
         _uiState.value = current.copy(
             isLoading = current.frame == null,
             isRefreshing = forceRefresh,
             error = null
         )
-        return try {
-            val bytes = repository.getCameraPreviewFrame().getOrThrow()
-            val bitmap = withContext(Dispatchers.Default) {
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    ?: error("카메라 프레임 형식을 읽을 수 없습니다.")
+        try {
+            val preview = repository.getCameraPreviewFrame(current.frameRevision).getOrThrow()
+            if (preview.revision != null && preview.revision == current.frameRevision) {
+                _uiState.value = current.copy(
+                    isLoading = false,
+                    isRefreshing = false,
+                    error = null
+                )
+                FrameLoadResult.REALTIME
+            } else {
+                val bitmap = withContext(Dispatchers.Default) {
+                    BitmapFactory.decodeByteArray(preview.bytes, 0, preview.bytes.size)
+                        ?: error("카메라 프레임 형식을 읽을 수 없습니다.")
+                }
+                _uiState.value = CameraPreviewUiState(
+                    frame = bitmap,
+                    frameRevision = preview.revision,
+                    updatedAtEpochMillis = System.currentTimeMillis()
+                )
+                if (preview.revision == null) {
+                    FrameLoadResult.LEGACY
+                } else {
+                    FrameLoadResult.REALTIME
+                }
             }
-            _uiState.value = CameraPreviewUiState(
-                frame = bitmap,
-                updatedAtEpochMillis = System.currentTimeMillis()
-            )
-            true
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -95,7 +115,7 @@ class CameraPreviewViewModel(
                 isRefreshing = false,
                 error = error.message ?: "카메라 프리뷰를 불러오지 못했습니다."
             )
-            false
+            FrameLoadResult.FAILURE
         }
     }
 
@@ -108,5 +128,11 @@ class CameraPreviewViewModel(
     }
 }
 
-internal const val CAMERA_PREVIEW_INTERVAL_MS = 250L
+private enum class FrameLoadResult {
+    REALTIME,
+    LEGACY,
+    FAILURE
+}
+
+internal const val CAMERA_PREVIEW_LEGACY_INTERVAL_MS = 67L
 internal const val CAMERA_RETRY_INTERVAL_MS = 1_000L

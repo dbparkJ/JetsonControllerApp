@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -334,8 +335,40 @@ class ApiContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.headers["content-type"], "image/jpeg")
         self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertEqual(
+            int(response.headers["X-Preview-Revision"]),
+            self.paths.sensor_bridge_dir.joinpath("camera-preview.jpg").stat().st_mtime_ns,
+        )
         self.assertEqual(response.content, preview)
         self.assertIn("X-Response-Signature", response.headers)
+
+        revision = int(response.headers["X-Preview-Revision"])
+        updated_preview = b"\xff\xd8next-camera-preview\xff\xd9"
+
+        def publish_next_frame() -> None:
+            time.sleep(0.05)
+            temporary = self.paths.sensor_bridge_dir / ".camera-preview.next.jpg"
+            temporary.write_bytes(updated_preview)
+            os.replace(
+                temporary,
+                self.paths.sensor_bridge_dir / "camera-preview.jpg",
+            )
+
+        publisher = threading.Thread(target=publish_next_frame)
+        publisher.start()
+        next_path = (
+            "/v1/camera/preview/frame"
+            f"?afterRevision={revision}&waitMillis=500"
+        )
+        next_response = self.signed_request("GET", next_path)
+        publisher.join(timeout=1)
+
+        self.assertEqual(next_response.status_code, 200, next_response.text)
+        self.assertEqual(next_response.content, updated_preview)
+        self.assertNotEqual(
+            int(next_response.headers["X-Preview-Revision"]),
+            revision,
+        )
 
     def test_camera_preview_rejects_stale_sensor_heartbeat(self) -> None:
         self.paths.sensor_bridge_dir.joinpath("status.json").write_text(

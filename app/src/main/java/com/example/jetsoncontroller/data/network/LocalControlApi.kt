@@ -14,7 +14,10 @@ interface LocalControlApi {
     suspend fun getStatus(): Response<JetsonStatus>
 
     @GET("/v1/camera/preview/frame")
-    suspend fun getCameraPreviewFrame(): Response<ResponseBody>
+    suspend fun getCameraPreviewFrame(
+        @Query("afterRevision") afterRevision: Long? = null,
+        @Query("waitMillis") waitMillis: Int = 0
+    ): Response<ResponseBody>
 
     @GET("/v1/capabilities")
     suspend fun getCapabilities(): Response<CapabilitiesResponse>

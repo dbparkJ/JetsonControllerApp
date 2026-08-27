@@ -1121,9 +1121,11 @@ class JetsonRepository(
         return client.getRoots()
     }
 
-    suspend fun getCameraPreviewFrame(): Result<ByteArray> {
+    suspend fun getCameraPreviewFrame(
+        afterRevision: Long? = null
+    ): Result<CameraPreviewFrame> {
         val client = activeIpClient ?: return missingIpConnection()
-        return client.getCameraPreviewFrame()
+        return client.getCameraPreviewFrame(afterRevision)
     }
 
     private fun updateStatus(status: JetsonStatus) {

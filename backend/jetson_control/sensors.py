@@ -6,14 +6,17 @@ import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 
 MAX_STATUS_BYTES = 128 * 1024
 MAX_PREVIEW_BYTES = 12 * 1024 * 1024
 
 
-def _read_regular_file(path: Path, maximum_bytes: int) -> bytes:
+def _read_regular_file_with_metadata(
+    path: Path,
+    maximum_bytes: int,
+) -> Tuple[bytes, os.stat_result]:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(str(path), flags)
     try:
@@ -33,7 +36,26 @@ def _read_regular_file(path: Path, maximum_bytes: int) -> bytes:
         content = b"".join(chunks)
         if len(content) != metadata.st_size:
             raise OSError("Sensor bridge file changed while reading")
-        return content
+        return content, metadata
+    finally:
+        os.close(descriptor)
+
+
+def _read_regular_file(path: Path, maximum_bytes: int) -> bytes:
+    content, _ = _read_regular_file_with_metadata(path, maximum_bytes)
+    return content
+
+
+def _regular_file_revision(path: Path, maximum_bytes: int) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(str(path), flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise OSError("Sensor bridge path is not a regular file")
+        if metadata.st_size <= 0 or metadata.st_size > maximum_bytes:
+            raise OSError("Sensor bridge file size is invalid")
+        return metadata.st_mtime_ns
     finally:
         os.close(descriptor)
 
@@ -182,7 +204,17 @@ class SensorBridgeStore:
         )
 
     def preview_frame(self) -> bytes:
-        content = _read_regular_file(self.preview_path, MAX_PREVIEW_BYTES)
+        content, _ = self.preview_frame_with_revision()
+        return content
+
+    def preview_frame_with_revision(self) -> Tuple[bytes, int]:
+        content, metadata = _read_regular_file_with_metadata(
+            self.preview_path,
+            MAX_PREVIEW_BYTES,
+        )
         if len(content) < 4 or not content.startswith(b"\xff\xd8") or not content.endswith(b"\xff\xd9"):
             raise OSError("Camera preview is not a valid JPEG")
-        return content
+        return content, metadata.st_mtime_ns
+
+    def preview_frame_revision(self) -> int:
+        return _regular_file_revision(self.preview_path, MAX_PREVIEW_BYTES)

@@ -2,6 +2,7 @@ package com.example.jetsoncontroller.data.network
 
 import android.annotation.SuppressLint
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
+import com.example.jetsoncontroller.model.CameraPreviewFrame
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.DiscoverPipelineFolderRequest
 import com.example.jetsoncontroller.model.DeviceStorageDeletion
@@ -154,9 +155,19 @@ class LocalApiClient(
     suspend fun getStatus(): Result<JetsonStatus> =
         request("상태 조회") { requireApi().getStatus() }
 
-    suspend fun getCameraPreviewFrame(): Result<ByteArray> = suspendResult {
-        val response = withSessionRetry { requireApi().getCameraPreviewFrame() }
-        requireBody(response, "카메라 프리뷰").bytes()
+    suspend fun getCameraPreviewFrame(
+        afterRevision: Long? = null
+    ): Result<CameraPreviewFrame> = suspendResult {
+        val response = withSessionRetry {
+            requireApi().getCameraPreviewFrame(
+                afterRevision = afterRevision,
+                waitMillis = if (afterRevision == null) 0 else CAMERA_PREVIEW_WAIT_MILLIS
+            )
+        }
+        CameraPreviewFrame(
+            bytes = requireBody(response, "카메라 프리뷰").bytes(),
+            revision = response.headers()["X-Preview-Revision"]?.toLongOrNull()
+        )
     }
 
     suspend fun getCapabilities(): Result<LocalControlApi.CapabilitiesResponse> =
@@ -593,6 +604,8 @@ class LocalApiClient(
         }
     }
 }
+
+private const val CAMERA_PREVIEW_WAIT_MILLIS = 1_000
 
 internal suspend fun <T> withLegacyEndpointFallback(
     call: suspend () -> T,

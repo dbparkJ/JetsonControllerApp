@@ -56,6 +56,13 @@ class SensorBridgeStoreTest(unittest.TestCase):
         self.assertTrue(status.camera["active"])
         self.assertEqual(status.gnss["fixType"], "rtk_fixed")
         self.assertEqual(store.preview_frame(), b"\xff\xd8preview\xff\xd9")
+        content, revision = store.preview_frame_with_revision()
+        self.assertEqual(content, b"\xff\xd8preview\xff\xd9")
+        self.assertEqual(
+            revision,
+            (self.root / "camera-preview.jpg").stat().st_mtime_ns,
+        )
+        self.assertEqual(store.preview_frame_revision(), revision)
 
     def test_stale_heartbeat_deactivates_connected_sensors(self) -> None:
         now = time.time()

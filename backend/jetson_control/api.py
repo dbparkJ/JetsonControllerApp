@@ -5,9 +5,9 @@ import logging
 import mimetypes
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
@@ -459,14 +459,34 @@ def create_app(
         return status_service.collect()
 
     @app.get("/v1/camera/preview/frame", dependencies=authenticated)
-    async def camera_preview_frame() -> Response:
+    async def camera_preview_frame(
+        after_revision: Optional[int] = Query(
+            default=None,
+            alias="afterRevision",
+            ge=0,
+        ),
+        wait_millis: int = Query(default=0, alias="waitMillis", ge=0, le=2_000),
+    ) -> Response:
         bridge_status = sensor_bridge.status()
         if not bridge_status.fresh or not bool(bridge_status.camera.get("active")):
             raise HTTPException(status_code=409, detail="Camera sensor is not active")
         if not bool(bridge_status.camera.get("previewAvailable")):
             raise HTTPException(status_code=404, detail="Camera preview is not available")
+
+        def read_next_frame() -> Tuple[bytes, int]:
+            deadline = time.monotonic() + wait_millis / 1000.0
+            while True:
+                revision = sensor_bridge.preview_frame_revision()
+                if (
+                    after_revision is None
+                    or revision != after_revision
+                    or time.monotonic() >= deadline
+                ):
+                    return sensor_bridge.preview_frame_with_revision()
+                time.sleep(0.01)
+
         try:
-            content = sensor_bridge.preview_frame()
+            content, revision = await run_in_threadpool(read_next_frame)
         except OSError as error:
             raise HTTPException(status_code=404, detail="Camera preview is not available") from error
         return Response(
@@ -477,6 +497,7 @@ def create_app(
                 "X-Preview-Timestamp": str(
                     bridge_status.camera.get("previewUpdatedAtEpochMillis") or ""
                 ),
+                "X-Preview-Revision": str(revision),
             },
         )
 
