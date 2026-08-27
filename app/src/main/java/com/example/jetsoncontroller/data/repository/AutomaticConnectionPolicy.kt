@@ -44,8 +44,9 @@ internal fun allowsAutomaticLanUpgrade(transportState: TransportState): Boolean 
  */
 internal fun allowsWifiDirectApiProbe(
     transportState: TransportState,
-    lanConnectionPending: Boolean
-): Boolean = !lanConnectionPending &&
+    lanConnectionPending: Boolean,
+    wifiProvisioningHandoffPending: Boolean = false
+): Boolean = !lanConnectionPending && !wifiProvisioningHandoffPending &&
     !(transportState is TransportState.Connected && transportState.type == TransportType.LAN)
 
 internal data class WifiDirectProbeSignal(

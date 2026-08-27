@@ -11,6 +11,7 @@ SYSTEMCTL_PATH = "/usr/bin/systemctl"
 NMCLI_PATH = "/usr/bin/nmcli"
 WIFI_DIRECT_SERVICE = "jetson-wifi-direct.service"
 WIFI_DIRECT_HANDOFF_GRACE_SECONDS = 0.75
+WIFI_DIRECT_SUCCESS_RESTART_GRACE_SECONDS = 20
 WIFI_DIRECT_STOP_TIMEOUT_SECONDS = 20
 WIFI_CONNECT_WAIT_SECONDS = 60
 WIFI_CONNECT_TIMEOUT_SECONDS = 70
@@ -102,6 +103,7 @@ class WifiProvisioner:
             self._sleep(WIFI_DIRECT_HANDOFF_GRACE_SECONDS)
 
         profile_name = self._app_profile_name(ssid)
+        connected = False
         try:
             if self._coordinate_wifi_direct and not self._set_wifi_direct_service("stop"):
                 self._set_state(
@@ -138,6 +140,7 @@ class WifiProvisioner:
             else:
                 result = self._connect_open_wifi(profile_name, ssid, hidden)
             if result.returncode == 0:
+                connected = True
                 self._set_state("CONNECTED", ssid, "Wi-Fi connection completed")
             else:
                 self._delete_app_profile(profile_name)
@@ -150,6 +153,12 @@ class WifiProvisioner:
             self._set_state("FAILED", ssid, "NetworkManager command is unavailable")
         finally:
             if self._coordinate_wifi_direct:
+                # Give the mobile app time to discover and select the new LAN
+                # endpoint before Direct becomes discoverable again. Without
+                # this grace period its automatic Direct fallback can tear down
+                # the managed Wi-Fi connection that just succeeded.
+                if connected:
+                    self._sleep(WIFI_DIRECT_SUCCESS_RESTART_GRACE_SECONDS)
                 self._set_wifi_direct_service("start")
             password = ""
             self._lock.release()

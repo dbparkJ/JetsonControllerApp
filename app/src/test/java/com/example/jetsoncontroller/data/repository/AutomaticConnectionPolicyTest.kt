@@ -86,6 +86,13 @@ class AutomaticConnectionPolicyTest {
                 lanConnectionPending = false
             )
         )
+        assertFalse(
+            allowsWifiDirectApiProbe(
+                TransportState.Disconnected,
+                lanConnectionPending = false,
+                wifiProvisioningHandoffPending = true
+            )
+        )
     }
 
     @Test

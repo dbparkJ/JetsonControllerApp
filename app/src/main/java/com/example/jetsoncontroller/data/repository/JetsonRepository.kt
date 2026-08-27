@@ -144,6 +144,8 @@ class JetsonRepository(
     private val automaticDirectFallbackReady = MutableStateFlow(false)
     private var automaticDirectFallbackJob: Job? = null
     private var automaticBleReconnectJob: Job? = null
+    private val wifiProvisioningHandoff = MutableStateFlow(false)
+    private var wifiProvisioningHandoffJob: Job? = null
 
     @Volatile
     private var pendingWifiDirectTargetDeviceId: String? = null
@@ -229,12 +231,15 @@ class JetsonRepository(
                     if (connected && host != null) {
                         if (!allowsWifiDirectApiProbe(
                                 transportCoordinator.state.value,
-                                lanConnectionPending = lanConnectionPending
+                                lanConnectionPending = lanConnectionPending,
+                                wifiProvisioningHandoffPending =
+                                    wifiProvisioningHandoff.value
                             )
                         ) {
                             if (
                                 (transportCoordinator.state.value as? TransportState.Connected)
-                                    ?.type == TransportType.LAN
+                                    ?.type == TransportType.LAN ||
+                                wifiProvisioningHandoff.value
                             ) {
                                 pendingWifiDirectTargetDeviceId = null
                                 wifiDirectManager.cancelConnect()
@@ -325,9 +330,10 @@ class JetsonRepository(
             val automaticDirectAllowed = combine(
                 automaticConnectivityEnabled,
                 automaticDirectFallbackReady,
-                qrPairingActive
-            ) { enabled, fallbackReady, pairing ->
-                enabled && fallbackReady && !pairing
+                qrPairingActive,
+                wifiProvisioningHandoff
+            ) { enabled, fallbackReady, pairing, handoffPending ->
+                enabled && fallbackReady && !pairing && !handoffPending
             }
             combine(
                 wifiDirectManager.state,
@@ -455,7 +461,8 @@ class JetsonRepository(
             !qrPairingActive.value &&
             allowsWifiDirectApiProbe(
                 transportCoordinator.state.value,
-                lanConnectionPending = _connectingLanDeviceId.value != null
+                lanConnectionPending = _connectingLanDeviceId.value != null,
+                wifiProvisioningHandoffPending = wifiProvisioningHandoff.value
             ) &&
             pendingWifiDirectTargetDeviceId.equals(expectedDeviceId, ignoreCase = true) &&
             direct.connected && direct.groupOwnerAddress == host
@@ -525,6 +532,7 @@ class JetsonRepository(
         automaticDirectFallbackReady.value = false
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackJob = null
+        cancelWifiProvisioningHandoff()
         ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
@@ -680,7 +688,7 @@ class JetsonRepository(
                 IllegalStateException("Jetson 연결을 먼저 확인해 주세요.")
             )
 
-        return if (transport.type == TransportType.BLE) {
+        val result = if (transport.type == TransportType.BLE) {
             runCatching {
                 val payload = gattClient.encodeWifiProvision(request)
                 check(
@@ -698,6 +706,10 @@ class JetsonRepository(
                 )
             client.configureWifi(request).map { Unit }
         }
+        result.onSuccess {
+            beginWifiProvisioningHandoff(transport.type)
+        }
+        return result
     }
 
 
@@ -744,6 +756,7 @@ class JetsonRepository(
         automaticDirectFallbackReady.value = false
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackJob = null
+        cancelWifiProvisioningHandoff()
         automaticBleReconnectJob?.cancel()
         automaticBleReconnectJob = null
         ipConnectionGeneration.incrementAndGet()
@@ -829,6 +842,7 @@ class JetsonRepository(
     fun startWifiDirectDiscovery() {
         explicitDisconnectRequested.set(false)
         automaticConnectivityEnabled.value = true
+        cancelWifiProvisioningHandoff()
         automaticDirectFallbackReady.value = true
         wifiDirectManager.startDiscovery()
     }
@@ -840,6 +854,7 @@ class JetsonRepository(
     fun connectWifiDirect(peer: WifiDirectPeer) {
         explicitDisconnectRequested.set(false)
         automaticConnectivityEnabled.value = true
+        cancelWifiProvisioningHandoff()
         pendingWifiDirectTargetDeviceId = registeredDevices.value
             .filter { device ->
                 peer.name.equals(device.deviceName, ignoreCase = true) ||
@@ -995,6 +1010,7 @@ class JetsonRepository(
                     automaticDirectFallbackJob = null
                     _lanConnectionError.value = null
                     activeIpClient = candidateClient
+                    cancelWifiProvisioningHandoff()
                     transportCoordinator.setActiveTransport(
                         transport = IpControlTransport(
                             candidateClient,
@@ -1138,7 +1154,11 @@ class JetsonRepository(
     private fun scheduleAutomaticIpFallback() {
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackReady.value = false
-        if (!automaticConnectivityEnabled.value || qrPairingActive.value) {
+        if (
+            !automaticConnectivityEnabled.value ||
+            qrPairingActive.value ||
+            wifiProvisioningHandoff.value
+        ) {
             return
         }
         automaticDirectFallbackJob = scope.launch {
@@ -1151,6 +1171,7 @@ class JetsonRepository(
             if (
                 automaticConnectivityEnabled.value &&
                 !qrPairingActive.value &&
+                !wifiProvisioningHandoff.value &&
                 nearbyWifiPermissionGranted.value &&
                 !wifiDirectManager.state.value.connected &&
                 allowsAutomaticDirectFallback(transportCoordinator.state.value) &&
@@ -1163,6 +1184,41 @@ class JetsonRepository(
                 wifiDirectManager.startDiscovery()
             }
         }
+    }
+
+    private fun beginWifiProvisioningHandoff(transportType: TransportType) {
+        wifiProvisioningHandoffJob?.cancel()
+        wifiProvisioningHandoff.value = true
+        automaticDirectFallbackReady.value = false
+        automaticDirectFallbackJob?.cancel()
+        automaticDirectFallbackJob = null
+        pendingWifiDirectTargetDeviceId = null
+
+        if (transportType != TransportType.BLE) {
+            ipConnectionGeneration.incrementAndGet()
+            activeIpClient = null
+            transportCoordinator.disconnect()
+            clearReachableDeviceState()
+        }
+        if (transportType == TransportType.WIFI_DIRECT) {
+            wifiDirectManager.cancelConnect()
+        }
+        if (localNetworkPermissionGranted.value) {
+            startLanDiscovery()
+        }
+
+        wifiProvisioningHandoffJob = scope.launch {
+            delay(WIFI_PROVISIONING_HANDOFF_TIMEOUT_MILLIS)
+            wifiProvisioningHandoff.value = false
+            wifiProvisioningHandoffJob = null
+            scheduleAutomaticIpFallback()
+        }
+    }
+
+    private fun cancelWifiProvisioningHandoff() {
+        wifiProvisioningHandoff.value = false
+        wifiProvisioningHandoffJob?.cancel()
+        wifiProvisioningHandoffJob = null
     }
 
     private fun ensureAutomaticBleReconnectLoop() {
@@ -1518,6 +1574,7 @@ private const val AUTOMATIC_BLE_RECONNECT_INTERVAL_MILLIS = 5_000L
 private const val IP_HEARTBEAT_INTERVAL_MILLIS = 1_000L
 private const val WIFI_DIRECT_API_MAX_ATTEMPTS = 3
 private const val WIFI_DIRECT_API_RETRY_DELAY_MILLIS = 750L
+private const val WIFI_PROVISIONING_HANDOFF_TIMEOUT_MILLIS = 90_000L
 private const val WORKSPACE_ROOT_ID = "workspace-home"
 
 @Suppress("UNUSED_PARAMETER")

@@ -6,6 +6,7 @@ from jetson_control.network import (
     NMCLI_PATH,
     SYSTEMCTL_PATH,
     WIFI_DIRECT_HANDOFF_GRACE_SECONDS,
+    WIFI_DIRECT_SUCCESS_RESTART_GRACE_SECONDS,
     WIFI_DIRECT_SERVICE,
     WifiProvisioner,
     decode_wifi_payload,
@@ -115,7 +116,13 @@ class WifiPayloadTest(unittest.TestCase):
             calls[connect_index][1],
             "802-11-wireless-security.psk:password123\n",
         )
-        self.assertEqual(delays, [WIFI_DIRECT_HANDOFF_GRACE_SECONDS])
+        self.assertEqual(
+            delays,
+            [
+                WIFI_DIRECT_HANDOFF_GRACE_SECONDS,
+                WIFI_DIRECT_SUCCESS_RESTART_GRACE_SECONDS,
+            ],
+        )
         self.assertEqual(provisioner.status()["state"], "CONNECTED")
 
     def test_failed_direct_handoff_does_not_attempt_managed_wifi(self) -> None:
@@ -146,6 +153,7 @@ class WifiPayloadTest(unittest.TestCase):
 
     def test_failed_wifi_attempt_restores_direct_advertising(self) -> None:
         calls = []
+        delays = []
 
         def run(command, **kwargs):
             calls.append(command)
@@ -156,7 +164,7 @@ class WifiPayloadTest(unittest.TestCase):
             "wlan0",
             run=run,
             coordinate_wifi_direct=True,
-            sleep=lambda _seconds: None,
+            sleep=delays.append,
         )
         provisioner.submit("Office", "password123")
         self._wait_for_completion(provisioner)
@@ -166,6 +174,7 @@ class WifiPayloadTest(unittest.TestCase):
             calls[-1],
             [SYSTEMCTL_PATH, "start", WIFI_DIRECT_SERVICE],
         )
+        self.assertEqual(delays, [WIFI_DIRECT_HANDOFF_GRACE_SECONDS])
 
     def _wait_for_completion(self, provisioner: WifiProvisioner) -> None:
         deadline = time.monotonic() + 2
