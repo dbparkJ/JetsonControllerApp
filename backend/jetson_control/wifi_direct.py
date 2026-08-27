@@ -896,14 +896,17 @@ class WifiDirectController:
 
     def _prepare_manual_owner(self) -> None:
         self._run([DNSMASQ_PATH, "--version"], timeout=5)
-        if not self._has_alternate_default_route():
-            raise WifiDirectError(
-                "This Wi-Fi adapter requires manual Wi-Fi Direct owner mode, "
-                "but no alternate default route is available"
-            )
         profile = self._active_managed_wifi_profile()
+        # A disconnected single-interface adapter can become the P2P owner
+        # without sacrificing an existing route. Requiring Ethernet here makes
+        # Wi-Fi Direct unavailable on the offline recovery path it provides.
         if not profile:
             return
+        if not self._has_alternate_default_route():
+            raise WifiDirectError(
+                "The active managed Wi-Fi connection cannot be suspended for "
+                "manual Wi-Fi Direct because no alternate default route is available"
+            )
         self._suspended_wifi_profile = profile
         self._run(
             [

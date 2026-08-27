@@ -216,7 +216,10 @@ def create_app(
         state_dir=runtime_paths.state_dir,
         device_id=device_config.device_id,
     )
-    wifi = wifi_provisioner or WifiProvisioner(device_config.wifi_interface)
+    wifi = wifi_provisioner or WifiProvisioner(
+        device_config.wifi_interface,
+        coordinate_wifi_direct=device_config.wifi_direct_enabled,
+    )
     if pipeline_manager is None:
         configured_storage_roots = storage_service.roots()
         recordings_root = configured_storage_roots.get("recordings")

@@ -590,7 +590,10 @@ def main() -> None:
     storage = StorageRegistry(paths.storage_roots)
     collector = StatusCollector(config, storage_path=storage.primary_path())
     commands = CommandRunner(config)
-    wifi = WifiProvisioner(config.wifi_interface)
+    wifi = WifiProvisioner(
+        config.wifi_interface,
+        coordinate_wifi_direct=config.wifi_direct_enabled,
+    )
 
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()

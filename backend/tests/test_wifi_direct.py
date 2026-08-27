@@ -571,6 +571,35 @@ class WifiDirectTest(unittest.TestCase):
                 any(call[3:5] == ["device", "disconnect"] for call in runner.calls)
             )
 
+    def test_single_interface_fallback_works_offline_without_alternate_route(self):
+        runner = FakeRunner(
+            concurrency_supported=False,
+            managed_wifi_active=False,
+            alternate_default=False,
+            single_interface_group=True,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            status_path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=status_path,
+                sleep=lambda _seconds: None,
+            )
+
+            self.assertEqual(controller.prepare(), "DISCOVERABLE")
+            self.assertEqual(
+                controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"),
+                "wlan0",
+            )
+            self.assertEqual(read_wifi_direct_status(status_path)["state"], "READY")
+            self.assertFalse(
+                any(call[:6] == [
+                    "/usr/bin/nmcli", "--wait", "20", "device", "disconnect", "wlan0",
+                ] for call in runner.calls)
+            )
+
     def test_single_interface_fallback_never_drops_only_default_route(self):
         runner = FakeRunner(
             concurrency_supported=False,

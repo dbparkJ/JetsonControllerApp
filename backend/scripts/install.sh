@@ -338,6 +338,7 @@ install -d -m 0755 -o root -g root "/etc/udev/rules.d"
 install -m 0644 -o root -g root "${source_root}/udev/99-jetson-controller-sensors.rules" "/etc/udev/rules.d/99-jetson-controller-sensors.rules"
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=tty --action=change
+udevadm trigger --subsystem-match=usb --attr-match=idVendor=03e7 --action=change
 "${install_root}/configure-api-storage-access.py" \
   --storage-roots "${config_dir}/storage_roots.json" \
   --output "/etc/systemd/system/jetson-control-api.service.d/storage-roots.conf" \
