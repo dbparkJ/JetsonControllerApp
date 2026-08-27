@@ -57,8 +57,8 @@ class FakeRunner:
         single_interface_group=False,
         group_address="192.168.49.1",
         fail_p2p_activation=False,
-        fail_first_p2p_find=False,
-        fail_all_p2p_find=False,
+        fail_first_p2p_listen=False,
+        fail_all_p2p_listen=False,
     ):
         self.calls = []
         self.group_created = False
@@ -69,9 +69,9 @@ class FakeRunner:
         self.single_interface_group = single_interface_group
         self.group_address = group_address
         self.fail_p2p_activation = fail_p2p_activation
-        self.fail_first_p2p_find = fail_first_p2p_find
-        self.fail_all_p2p_find = fail_all_p2p_find
-        self.p2p_find_attempts = 0
+        self.fail_first_p2p_listen = fail_first_p2p_listen
+        self.fail_all_p2p_listen = fail_all_p2p_listen
+        self.p2p_listen_attempts = 0
         self.dnsmasq_processes = []
 
     def start_process(self, command, **_kwargs):
@@ -142,10 +142,10 @@ class FakeRunner:
             self.managed_wifi_active = True
             stdout = "Connection successfully activated\n"
         elif command[0] == "/usr/sbin/wpa_cli":
-            if "p2p_find" in command:
-                self.p2p_find_attempts += 1
-                if self.fail_all_p2p_find or (
-                    self.fail_first_p2p_find and self.p2p_find_attempts == 1
+            if "p2p_listen" in command:
+                self.p2p_listen_attempts += 1
+                if self.fail_all_p2p_listen or (
+                    self.fail_first_p2p_listen and self.p2p_listen_attempts == 1
                 ):
                     stdout = "FAIL-BUSY\n"
                 else:
@@ -165,8 +165,8 @@ class FakeRunner:
 
 
 class WifiDirectTest(unittest.TestCase):
-    def test_discovery_recovers_busy_scan_before_starting_timed_find(self):
-        runner = FakeRunner(fail_first_p2p_find=True)
+    def test_discovery_recovers_busy_scan_before_starting_listener(self):
+        runner = FakeRunner(fail_first_p2p_listen=True)
         with tempfile.TemporaryDirectory() as temporary:
             controller = WifiDirectController(
                 WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
@@ -187,14 +187,14 @@ class WifiDirectTest(unittest.TestCase):
             commands,
             [
                 ["p2p_stop_find"],
-                ["p2p_find", "600"],
+                ["p2p_listen"],
                 ["abort_scan"],
                 ["p2p_stop_find"],
-                ["p2p_find", "600"],
+                ["p2p_listen"],
             ],
         )
 
-    def test_monitor_restarts_discovery_only_after_timeout_and_settle(self):
+    def test_monitor_does_not_replace_active_listener(self):
         runner = FakeRunner()
         now = [1_000.0]
         with tempfile.TemporaryDirectory() as temporary:
@@ -208,25 +208,21 @@ class WifiDirectTest(unittest.TestCase):
             )
             self.assertEqual(controller.prepare(), "DISCOVERABLE")
 
-            now[0] += 604.0
-            self.assertTrue(controller.monitor())
-            self.assertEqual(runner.p2p_find_attempts, 1)
-            now[0] += 1.0
+            now[0] += 3_600.0
             self.assertTrue(controller.monitor())
 
         discovery_calls = [
             call[7:]
             for call in runner.calls
             if call and call[0] == "/usr/sbin/wpa_cli" and (
-                "p2p_find" in call or "p2p_stop_find" in call
+                "p2p_listen" in call or "p2p_stop_find" in call
             )
         ]
         self.assertEqual(
             discovery_calls,
             [
                 ["p2p_stop_find"],
-                ["p2p_find", "600"],
-                ["p2p_find", "600"],
+                ["p2p_listen"],
             ],
         )
 
@@ -248,21 +244,21 @@ class WifiDirectTest(unittest.TestCase):
             controller.discovery_stopped()
             now[0] += 4.0
             self.assertTrue(controller.monitor())
-            self.assertEqual(runner.p2p_find_attempts, 1)
+            self.assertEqual(runner.p2p_listen_attempts, 1)
             now[0] += 1.0
             self.assertTrue(controller.monitor())
-            self.assertEqual(runner.p2p_find_attempts, 2)
+            self.assertEqual(runner.p2p_listen_attempts, 2)
 
         discovery_calls = [
             call[7:]
             for call in runner.calls
             if call and call[0] == "/usr/sbin/wpa_cli" and (
-                "p2p_find" in call or "p2p_stop_find" in call
+                "p2p_listen" in call or "p2p_stop_find" in call
             )
         ]
         self.assertEqual(
             discovery_calls,
-            [["p2p_stop_find"], ["p2p_find", "600"], ["p2p_find", "600"]],
+            [["p2p_stop_find"], ["p2p_listen"], ["p2p_listen"]],
         )
 
     def test_failed_discovery_restart_backs_off_and_recovers(self):
@@ -280,21 +276,21 @@ class WifiDirectTest(unittest.TestCase):
             )
             self.assertEqual(controller.prepare(), "DISCOVERABLE")
 
-            runner.fail_all_p2p_find = True
+            runner.fail_all_p2p_listen = True
             controller.discovery_stopped()
             now[0] += 5.0
             self.assertTrue(controller.monitor())
             self.assertEqual(read_wifi_direct_status(status_path)["state"], "ERROR")
-            self.assertEqual(runner.p2p_find_attempts, 2)
+            self.assertEqual(runner.p2p_listen_attempts, 2)
 
             now[0] += 9.0
             self.assertTrue(controller.monitor())
-            self.assertEqual(runner.p2p_find_attempts, 2)
+            self.assertEqual(runner.p2p_listen_attempts, 2)
 
-            runner.fail_all_p2p_find = False
+            runner.fail_all_p2p_listen = False
             now[0] += 1.0
             self.assertTrue(controller.monitor())
-            self.assertEqual(runner.p2p_find_attempts, 3)
+            self.assertEqual(runner.p2p_listen_attempts, 3)
             self.assertEqual(
                 read_wifi_direct_status(status_path)["state"],
                 "DISCOVERABLE",
@@ -319,10 +315,11 @@ class WifiDirectTest(unittest.TestCase):
             )
             self.assertEqual(controller.prepare(), "DISCOVERABLE")
             controller._activation_thread = ActiveThread()
-            now[0] += 605.0
+            controller.discovery_stopped()
+            now[0] += 5.0
 
             self.assertTrue(controller.monitor())
-            self.assertEqual(runner.p2p_find_attempts, 1)
+            self.assertEqual(runner.p2p_listen_attempts, 1)
 
     def test_connection_request_publishes_connecting_before_thread_starts(self):
         runner = FakeRunner()

@@ -28,10 +28,10 @@ WPA_PEER_INTERFACE = "fi.w1.wpa_supplicant1.Peer"
 DBUS_PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties"
 PROFILE_PREFIX = "jetson-control-p2p-"
 DNSMASQ_PATH = "/usr/sbin/dnsmasq"
-DISCOVERY_SECONDS = 600
 DISCOVERY_SETTLE_SECONDS = 5
-DISCOVERY_RESTART_SECONDS = DISCOVERY_SECONDS + DISCOVERY_SETTLE_SECONDS
 DISCOVERY_RETRY_SECONDS = 10
+P2P_LISTEN_REG_CLASS = 81
+P2P_LISTEN_CHANNEL = 6
 
 
 class WifiDirectError(RuntimeError):
@@ -322,7 +322,6 @@ class WifiDirectController:
         self._activation_lock = threading.Lock()
         self._activation_thread: Optional[threading.Thread] = None
         self._status_lock = threading.Lock()
-        self._last_discovery = 0.0
         self._discovery_stopped_at: Optional[float] = None
         self._discovery_retry_at: Optional[float] = None
 
@@ -357,9 +356,9 @@ class WifiDirectController:
         return "DISCOVERABLE"
 
     def refresh_discovery(self, stop_existing: bool = True) -> bool:
-        # Replacing an active timed find wedges RTL8822CE. The monitor therefore
-        # calls this only after the 600-second find has ended naturally and a
-        # five-second driver settle interval has elapsed.
+        # RTL8822CE can leave a scan pending after p2p_find ends, permanently
+        # rejecting later discovery. Listen-only mode advertises the Jetson on a
+        # social channel without issuing scans; Android remains the active finder.
         try:
             if stop_existing:
                 self._wpa(
@@ -370,14 +369,12 @@ class WifiDirectController:
             try:
                 self._wpa(
                     self.settings.interface,
-                    "p2p_find",
-                    str(DISCOVERY_SECONDS),
+                    "p2p_listen",
                 )
             except (OSError, subprocess.TimeoutExpired, WifiDirectError):
                 if not stop_existing:
                     return False
-                # A driver scan can remain wedged even after p2p_stop_find.
-                # Abort that scan and retry the timed discovery once.
+                # Recover once from a scan left behind by an earlier process.
                 self._wpa(
                     self.settings.interface,
                     "abort_scan",
@@ -391,12 +388,10 @@ class WifiDirectController:
                 )
                 self._wpa(
                     self.settings.interface,
-                    "p2p_find",
-                    str(DISCOVERY_SECONDS),
+                    "p2p_listen",
                 )
         except (OSError, subprocess.TimeoutExpired, WifiDirectError):
             return False
-        self._last_discovery = self._monotonic()
         self._discovery_stopped_at = None
         self._discovery_retry_at = None
         return True
@@ -507,10 +502,7 @@ class WifiDirectController:
                 self._discovery_stopped_at is not None
                 and now - self._discovery_stopped_at >= DISCOVERY_SETTLE_SECONDS
             )
-            timeout_and_settled = (
-                now - self._last_discovery >= DISCOVERY_RESTART_SECONDS
-            )
-            if stopped_and_settled or timeout_and_settled:
+            if stopped_and_settled:
                 if self.refresh_discovery(stop_existing=False):
                     self._publish("DISCOVERABLE", "Wi-Fi Direct discovery restarted")
                 else:
@@ -678,6 +670,18 @@ class WifiDirectController:
             "set",
             "p2p_pref_chan",
             "{}:{}".format(operating_class, channel),
+        )
+        self._wpa(
+            self.settings.interface,
+            "set",
+            "p2p_listen_reg_class",
+            str(P2P_LISTEN_REG_CLASS),
+        )
+        self._wpa(
+            self.settings.interface,
+            "set",
+            "p2p_listen_channel",
+            str(P2P_LISTEN_CHANNEL),
         )
 
     def _wait_for_management_interface(self) -> str:

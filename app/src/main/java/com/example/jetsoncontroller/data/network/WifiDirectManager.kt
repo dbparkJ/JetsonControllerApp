@@ -13,6 +13,7 @@ import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
 import android.net.wifi.WpsInfo
 import android.os.Build
+import android.os.Handler
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +57,7 @@ class WifiDirectManager(
         appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val locationManager =
         appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+    private val mainHandler = Handler(appContext.mainLooper)
 
     private val supported =
         appContext.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT) &&
@@ -70,6 +72,7 @@ class WifiDirectManager(
     )
     val state: StateFlow<WifiDirectState> = _state.asStateFlow()
 
+    private var connectionAttemptGeneration = 0L
     private var channel: WifiP2pManager.Channel? = createChannel()
     private var registered = false
 
@@ -78,10 +81,8 @@ class WifiDirectManager(
             appContext,
             appContext.mainLooper
         ) {
-            _state.value = _state.value.copy(
-                discovering = false,
-                connectingPeerAddress = null,
-                error = "Wi-Fi Direct 연결 채널이 끊어졌습니다. 다시 시도해 주세요."
+            resetDisconnectedState(
+                "Wi-Fi Direct 연결 채널이 끊어졌습니다. 다시 시도해 주세요."
             )
             channel = null
         }
@@ -307,11 +308,13 @@ class WifiDirectManager(
             wps.setup = WpsInfo.PBC
         }
 
+        val attemptGeneration = ++connectionAttemptGeneration
         _state.value = _state.value.copy(
             discovering = false,
             connectingPeerAddress = peer.deviceAddress,
             error = null
         )
+        scheduleConnectionTimeout(peer.deviceAddress, attemptGeneration)
 
         try {
             readyManager.connect(
@@ -323,9 +326,22 @@ class WifiDirectManager(
                     }
 
                     override fun onFailure(reason: Int) {
+                        if (!wifiDirectAttemptIsCurrent(
+                                currentGeneration = connectionAttemptGeneration,
+                                callbackGeneration = attemptGeneration,
+                                connectingPeerAddress = _state.value.connectingPeerAddress,
+                                callbackPeerAddress = peer.deviceAddress,
+                                connected = _state.value.connected
+                            )
+                        ) {
+                            return
+                        }
                         _state.value = _state.value.copy(
-                            connectingPeerAddress = null,
                             error = actionFailure("장비 연결", reason)
+                        )
+                        releaseFailedConnectionAfterCooldown(
+                            peer.deviceAddress,
+                            attemptGeneration
                         )
                     }
                 }
@@ -343,10 +359,15 @@ class WifiDirectManager(
 
         val readyManager = manager ?: return
         val readyChannel = ensureChannel() ?: return
+        val queryGeneration = connectionAttemptGeneration
 
         try {
             readyManager.requestConnectionInfo(readyChannel) { info ->
+                if (queryGeneration != connectionAttemptGeneration) {
+                    return@requestConnectionInfo
+                }
                 if (info.groupFormed && info.groupOwnerAddress != null) {
+                    connectionAttemptGeneration += 1
                     _state.value = _state.value.copy(
                         discovering = false,
                         connectingPeerAddress = null,
@@ -357,7 +378,11 @@ class WifiDirectManager(
                         apiError = null,
                         error = null
                     )
-                } else {
+                } else if (!shouldPreservePendingWifiDirectConnection(
+                        connectingPeerAddress = _state.value.connectingPeerAddress,
+                        groupFormed = info.groupFormed
+                    )
+                ) {
                     _state.value = _state.value.copy(
                         connectingPeerAddress = null,
                         connected = false,
@@ -393,7 +418,7 @@ class WifiDirectManager(
         }
 
         _state.value = _state.value.copy(discovering = false)
-        if (!_state.value.connected) {
+        if (!_state.value.connected && _state.value.connectingPeerAddress == null) {
             unregister()
         }
     }
@@ -405,6 +430,7 @@ class WifiDirectManager(
             return
         }
 
+        connectionAttemptGeneration += 1
         val readyManager = manager
         val readyChannel = ensureChannel()
         if (readyManager == null || readyChannel == null) {
@@ -450,6 +476,7 @@ class WifiDirectManager(
             return
         }
 
+        connectionAttemptGeneration += 1
         val readyManager = manager
         val readyChannel = ensureChannel()
         if (readyManager == null || readyChannel == null) {
@@ -480,6 +507,7 @@ class WifiDirectManager(
     }
 
     private fun resetDisconnectedState(error: String? = null) {
+        connectionAttemptGeneration += 1
         _state.value = _state.value.copy(
             discovering = false,
             connectingPeerAddress = null,
@@ -530,6 +558,7 @@ class WifiDirectManager(
     }
 
     private fun fail(message: String) {
+        connectionAttemptGeneration += 1
         _state.value = _state.value.copy(
             discovering = false,
             connectingPeerAddress = null,
@@ -550,4 +579,67 @@ class WifiDirectManager(
 
         return "$action 실패: $detail"
     }
+
+    private fun scheduleConnectionTimeout(
+        peerAddress: String,
+        attemptGeneration: Long
+    ) {
+        mainHandler.postDelayed(
+            {
+                if (wifiDirectAttemptIsCurrent(
+                        currentGeneration = connectionAttemptGeneration,
+                        callbackGeneration = attemptGeneration,
+                        connectingPeerAddress = _state.value.connectingPeerAddress,
+                        callbackPeerAddress = peerAddress,
+                        connected = _state.value.connected
+                    )
+                ) {
+                    resetDisconnectedState(
+                        "Wi-Fi Direct 연결 시간이 초과되었습니다. 다시 시도해 주세요."
+                    )
+                }
+            },
+            WIFI_DIRECT_CONNECT_TIMEOUT_MILLIS
+        )
+    }
+
+    private fun releaseFailedConnectionAfterCooldown(
+        peerAddress: String,
+        attemptGeneration: Long
+    ) {
+        mainHandler.postDelayed(
+            {
+                if (wifiDirectAttemptIsCurrent(
+                        currentGeneration = connectionAttemptGeneration,
+                        callbackGeneration = attemptGeneration,
+                        connectingPeerAddress = _state.value.connectingPeerAddress,
+                        callbackPeerAddress = peerAddress,
+                        connected = _state.value.connected
+                    )
+                ) {
+                    connectionAttemptGeneration += 1
+                    _state.value = _state.value.copy(connectingPeerAddress = null)
+                }
+            },
+            WIFI_DIRECT_CONNECT_FAILURE_COOLDOWN_MILLIS
+        )
+    }
 }
+
+internal fun shouldPreservePendingWifiDirectConnection(
+    connectingPeerAddress: String?,
+    groupFormed: Boolean
+): Boolean = connectingPeerAddress != null && !groupFormed
+
+internal fun wifiDirectAttemptIsCurrent(
+    currentGeneration: Long,
+    callbackGeneration: Long,
+    connectingPeerAddress: String?,
+    callbackPeerAddress: String,
+    connected: Boolean
+): Boolean = currentGeneration == callbackGeneration &&
+    connectingPeerAddress == callbackPeerAddress &&
+    !connected
+
+private const val WIFI_DIRECT_CONNECT_TIMEOUT_MILLIS = 70_000L
+private const val WIFI_DIRECT_CONNECT_FAILURE_COOLDOWN_MILLIS = 2_000L
