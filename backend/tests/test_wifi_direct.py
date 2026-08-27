@@ -14,7 +14,6 @@ from jetson_control.wifi_direct import (
     frequency_channel,
     managed_p2p_concurrency_capability,
     normalize_mac_address,
-    parse_default_route_interfaces,
     parse_ipv4_address,
     parse_p2p_group_interfaces,
     parse_wiphy_name,
@@ -53,7 +52,6 @@ class FakeRunner:
         p2p_state="disconnected",
         concurrency_supported=None,
         managed_wifi_active=False,
-        alternate_default=True,
         single_interface_group=False,
         group_address="192.168.49.1",
         fail_p2p_activation=False,
@@ -66,7 +64,6 @@ class FakeRunner:
         self.p2p_state = p2p_state
         self.concurrency_supported = concurrency_supported
         self.managed_wifi_active = managed_wifi_active
-        self.alternate_default = alternate_default
         self.single_interface_group = single_interface_group
         self.group_address = group_address
         self.fail_p2p_activation = fail_p2p_activation
@@ -120,13 +117,6 @@ class FakeRunner:
                 stdout = "11111111-2222-3333-4444-555555555555:802-11-wireless:wlan0\n"
         elif "NAME,TYPE" in command:
             stdout = ""
-        elif command[:7] == [
-            "/usr/sbin/ip", "-j", "-4", "route", "show", "default"
-        ]:
-            routes = [{"dst": "default", "dev": "wlan0"}]
-            if self.alternate_default:
-                routes.insert(0, {"dst": "default", "dev": "eth0"})
-            stdout = json.dumps(routes)
         elif command[:4] == ["/usr/sbin/ip", "-j", "-4", "address"]:
             stdout = json.dumps(
                 [{"addr_info": [{
@@ -383,11 +373,6 @@ class WifiDirectTest(unittest.TestCase):
         self.assertIsNone(configured_ipv4_address(stale_lan, "192.168.49.1/24"))
         self.assertIsNone(configured_ipv4_address(wrong_prefix, "192.168.49.1/24"))
 
-    def test_parses_default_route_interfaces(self):
-        output = '[{"dst":"default","dev":"eth0"},{"dst":"default","dev":"wlan0"}]'
-        self.assertEqual(parse_default_route_interfaces(output), ["eth0", "wlan0"])
-        self.assertEqual(parse_default_route_interfaces("not-json"), [])
-
     def test_detects_managed_p2p_concurrency_capability(self):
         supported = """valid interface combinations:
  * #{ managed } <= 1, #{ P2P-client, P2P-GO } <= 1,
@@ -474,11 +459,10 @@ class WifiDirectTest(unittest.TestCase):
             controller.stop()
             self.assertEqual(read_wifi_direct_status(status_path)["state"], "STOPPED")
 
-    def test_single_interface_fallback_suspends_and_restores_managed_wifi(self):
+    def test_single_interface_fallback_prioritizes_direct_and_restores_wifi(self):
         runner = FakeRunner(
             concurrency_supported=False,
             managed_wifi_active=True,
-            alternate_default=True,
             single_interface_group=True,
         )
         managed_uuid = "11111111-2222-3333-4444-555555555555"
@@ -575,7 +559,6 @@ class WifiDirectTest(unittest.TestCase):
         runner = FakeRunner(
             concurrency_supported=False,
             managed_wifi_active=False,
-            alternate_default=False,
             single_interface_group=True,
         )
         with tempfile.TemporaryDirectory() as temporary:
@@ -600,38 +583,10 @@ class WifiDirectTest(unittest.TestCase):
                 ] for call in runner.calls)
             )
 
-    def test_single_interface_fallback_never_drops_only_default_route(self):
-        runner = FakeRunner(
-            concurrency_supported=False,
-            managed_wifi_active=True,
-            alternate_default=False,
-            single_interface_group=True,
-        )
-        with tempfile.TemporaryDirectory() as temporary:
-            status_path = Path(temporary) / "wifi-direct.json"
-            controller = WifiDirectController(
-                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
-                run=runner,
-                start_process=runner.start_process,
-                status_path=status_path,
-                sleep=lambda _seconds: None,
-            )
-
-            self.assertEqual(controller.prepare(), "DISCOVERABLE")
-            self.assertEqual(controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"), "")
-            self.assertTrue(runner.managed_wifi_active)
-            self.assertFalse(
-                any(call[:6] == [
-                    "/usr/bin/nmcli", "--wait", "20", "device", "disconnect", "wlan0",
-                ] for call in runner.calls)
-            )
-            self.assertFalse(any("wifi-p2p.peer" in call for call in runner.calls))
-
     def test_single_interface_fallback_restores_wifi_after_activation_failure(self):
         runner = FakeRunner(
             concurrency_supported=False,
             managed_wifi_active=True,
-            alternate_default=True,
             single_interface_group=True,
             fail_p2p_activation=True,
         )
@@ -660,7 +615,6 @@ class WifiDirectTest(unittest.TestCase):
         runner = FakeRunner(
             concurrency_supported=False,
             managed_wifi_active=True,
-            alternate_default=True,
             single_interface_group=True,
         )
         with tempfile.TemporaryDirectory() as temporary:
@@ -691,7 +645,6 @@ class WifiDirectTest(unittest.TestCase):
         runner = FakeRunner(
             concurrency_supported=False,
             managed_wifi_active=True,
-            alternate_default=True,
             single_interface_group=True,
         )
         now = [1_000.0]

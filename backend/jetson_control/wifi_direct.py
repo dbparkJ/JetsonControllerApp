@@ -142,23 +142,6 @@ def configured_ipv4_address(ip_output: str, configured_address: str) -> Optional
     return None
 
 
-def parse_default_route_interfaces(ip_output: str) -> List[str]:
-    try:
-        values = json.loads(ip_output)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(values, list):
-        return []
-    interfaces: List[str] = []
-    for route in values:
-        if not isinstance(route, dict) or route.get("dst") != "default":
-            continue
-        interface = route.get("dev")
-        if isinstance(interface, str) and interface and interface not in interfaces:
-            interfaces.append(interface)
-    return interfaces
-
-
 def parse_wiphy_name(iw_interface_output: str) -> Optional[str]:
     match = re.search(r"(?m)^\s*wiphy\s+(\d+)\s*$", iw_interface_output)
     return "phy{}".format(match.group(1)) if match else None
@@ -580,6 +563,11 @@ class WifiDirectController:
             )
             return group_interface
         except (OSError, ValueError, WifiDirectError) as error:
+            print(
+                "Wi-Fi Direct connection failed: {}".format(error),
+                file=sys.stderr,
+                flush=True,
+            )
             self._cleanup_direct_connection()
             self.active_peer = None
             restore_failed = False
@@ -884,29 +872,14 @@ class WifiDirectController:
         capability = managed_p2p_concurrency_capability(capabilities.stdout)
         return capability is not False
 
-    def _has_alternate_default_route(self) -> bool:
-        routes = self._run(
-            ["/usr/sbin/ip", "-j", "-4", "route", "show", "default"],
-            allow_failure=True,
-        )
-        return any(
-            interface != self.settings.interface and not interface.startswith("p2p-")
-            for interface in parse_default_route_interfaces(routes.stdout)
-        )
-
     def _prepare_manual_owner(self) -> None:
         self._run([DNSMASQ_PATH, "--version"], timeout=5)
         profile = self._active_managed_wifi_profile()
-        # A disconnected single-interface adapter can become the P2P owner
-        # without sacrificing an existing route. Requiring Ethernet here makes
-        # Wi-Fi Direct unavailable on the offline recovery path it provides.
         if not profile:
             return
-        if not self._has_alternate_default_route():
-            raise WifiDirectError(
-                "The active managed Wi-Fi connection cannot be suspended for "
-                "manual Wi-Fi Direct because no alternate default route is available"
-            )
+        # This adapter cannot keep managed Wi-Fi and a P2P owner active together.
+        # An explicit Android connection request takes priority: suspend managed
+        # Wi-Fi for the Direct session and restore it when that session ends.
         self._suspended_wifi_profile = profile
         self._run(
             [
