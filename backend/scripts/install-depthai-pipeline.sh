@@ -7,11 +7,11 @@ if [[ -z "${target_home}" ]]; then
   echo "Pipeline user does not exist: ${target_user}" >&2
   exit 2
 fi
-repo="${target_home}/26_camera_record"
-venv="${target_home}/26_camera_record/.venv"
+repo="${target_home}/geo_multifusion_sensors"
+venv="${target_home}/geo_multifusion_sensors/.venv"
 output_root="/data/collections"
 sensor_bridge_dir="/var/lib/jetson-sensors"
-pipeline_id_fallback="depthai-capture"
+pipeline_id_fallback="geo_multifusion_sensors"
 start_now=false
 dry_run=false
 
@@ -88,8 +88,8 @@ fi
 command=(
   "${registrar}"
   --id "${pipeline_id}"
-  --label "DepthAI Capture"
-  --description "RGB-D, GPS, and IMU capture pipeline"
+  --label "데이터 수집"
+  --description "카메라, GNSS, IMU 데이터 수집"
   --repo "${repo}"
   --venv "${venv}"
   --entry main.py

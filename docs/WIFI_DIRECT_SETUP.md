@@ -43,8 +43,8 @@ sudo backend/scripts/bootstrap-jetson.sh \
   --device-name MMS-JETSON-01 \
   --pipeline-user <user> \
   --enable-power \
-  --depthai-repo /home/<user>/26_camera_record \
-  --depthai-venv /home/<user>/26_camera_record/.venv
+  --depthai-repo /home/<user>/geo_multifusion_sensors \
+  --depthai-venv /home/<user>/geo_multifusion_sensors/.venv
 ```
 
 기존 장비 backend 업데이트:

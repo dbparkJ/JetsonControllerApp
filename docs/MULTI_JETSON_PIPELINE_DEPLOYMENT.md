@@ -3,7 +3,7 @@
 이 문서는 Controller backend와 Python 수집 pipeline을 여러 Jetson에 동일하게 설치하는 절차다. 현재 기준 pipeline은 다음 작업 트리다.
 
 ```text
-/home/jm/26_camera_record
+/home/jm/geo_multifusion_sensors
 ```
 
 ## 1. 현재 확인값
@@ -11,11 +11,11 @@
 | 항목 | 확인 결과 |
 |---|---|
 | Git branch | `main` |
-| Git worktree와 실행 source | `/home/jm/26_camera_record` |
+| Git worktree와 실행 source | `/home/jm/geo_multifusion_sensors` |
 | Git remote | `origin` (`geonLabs/geonova-depthai-mapper`) |
 | 메인 entrypoint | `main.py` |
 | 실행 config | `config.yaml` |
-| virtualenv | `/home/jm/26_camera_record/.venv` |
+| virtualenv | `/home/jm/geo_multifusion_sensors/.venv` |
 | Python | 장비에서 만든 위 venv의 Python; 등록 manifest에 실제 버전 기록 |
 | 기본 출력 | preset이 `--output-dir /data/collections`로 고정 |
 
@@ -25,7 +25,7 @@
 
 ControllerApp 저장소, DepthAI Git 작업 트리, 해당 장비에서 생성한 virtualenv를 새
 장비에 준비한 뒤 한 번 실행한다. `<user>`는 카메라, GPS, IMU 장치에 접근할 Linux
-사용자다. DepthAI 저장소는 승인된 `origin`에서 `/home/<user>/26_camera_record`로
+사용자다. DepthAI 저장소는 승인된 `origin`에서 `/home/<user>/geo_multifusion_sensors`로
 clone한다. virtualenv는 장비와 Python ABI에 종속되므로 다른 Jetson에서 그대로
 복사하지 않고 각 장비의 repository root에 `.venv`로 생성한다.
 
@@ -34,8 +34,8 @@ sudo backend/scripts/bootstrap-jetson.sh \
   --device-name MMS-JETSON-02 \
   --pipeline-user <user> \
   --enable-power \
-  --depthai-repo /home/<user>/26_camera_record \
-  --depthai-venv /home/<user>/26_camera_record/.venv
+  --depthai-repo /home/<user>/geo_multifusion_sensors \
+  --depthai-venv /home/<user>/geo_multifusion_sensors/.venv
 ```
 
 이 명령은 다음 작업을 idempotent하게 수행한다.
@@ -134,12 +134,12 @@ sudo /opt/jetson-control/install-depthai-pipeline.sh
 
 ```bash
 sudo /opt/jetson-control/install-depthai-pipeline.sh \
-  --repo /home/<user>/26_camera_record \
-  --venv /home/<user>/26_camera_record/.venv
+  --repo /home/<user>/geo_multifusion_sensors \
+  --venv /home/<user>/geo_multifusion_sensors/.venv
 ```
 
 이 preset은 같은 `source_repo`로 등록된 작업이 하나 있으면 그 ID를 재사용하고,
-없으면 `depthai-capture`를 사용한다. 두 ID가 같은 저장소를 가리키면 잘못된
+없으면 `geo_multifusion_sensors`를 사용한다. 두 ID가 같은 저장소를 가리키면 잘못된
 작업을 선택하지 않도록 설치를 중단한다. 선택된 수집 unit은 disable 상태로
 등록되고 부팅 센서 모니터만 enable된다. 수집 중이면 먼저 정상 종료한 뒤
 preset을 다시 실행한다. 녹화는 앱의 시작 버튼 또는 `systemctl start`로 명시적으로

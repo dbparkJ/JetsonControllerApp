@@ -38,9 +38,11 @@ class InstallDepthaiPipelineTest(unittest.TestCase):
     def test_default_command_uses_root_pipeline_contract_and_bounded_outputs(self) -> None:
         result = self.run_dry()
         command = shlex.split(result.stdout)
-        repository = Path(self.account.pw_dir) / "26_camera_record"
+        repository = Path(self.account.pw_dir) / "geo_multifusion_sensors"
 
         self.assertEqual(Path(command[0]).name, "register-pipeline.sh")
+        self.assertEqual(self.option_value(command, "--id"), "geo_multifusion_sensors")
+        self.assertEqual(self.option_value(command, "--label"), "데이터 수집")
         self.assertEqual(self.option_value(command, "--repo"), str(repository))
         self.assertEqual(
             self.option_value(command, "--venv"),
