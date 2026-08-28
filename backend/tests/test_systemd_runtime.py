@@ -20,6 +20,14 @@ class SharedRuntimeDirectoryTest(unittest.TestCase):
                 self.assertIn("/run/jetson-control", unit)
                 self.assertNotIn("RuntimeDirectoryPreserve=restart", unit)
 
+    def test_pipeline_template_loads_optional_per_pipeline_secrets(self) -> None:
+        unit = (SYSTEMD_ROOT / "jetson-pipeline@.service").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "EnvironmentFile=-/etc/jetson-control/pipelines/%i.env\n",
+            unit,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

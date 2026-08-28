@@ -334,6 +334,7 @@ install -m 0644 -o root -g root "${source_root}/systemd/jetson-control-api.servi
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-wifi-direct.service" "/etc/systemd/system/jetson-wifi-direct.service"
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-pipeline@.service" "/etc/systemd/system/jetson-pipeline@.service"
 install -m 0644 -o root -g root "${source_root}/systemd/jetson-sensor-monitor.service" "/etc/systemd/system/jetson-sensor-monitor.service"
+install -d -m 0700 -o root -g root "${config_dir}/pipelines"
 install -d -m 0755 -o root -g root "/etc/udev/rules.d"
 install -m 0644 -o root -g root "${source_root}/udev/99-jetson-controller-sensors.rules" "/etc/udev/rules.d/99-jetson-controller-sensors.rules"
 udevadm control --reload-rules

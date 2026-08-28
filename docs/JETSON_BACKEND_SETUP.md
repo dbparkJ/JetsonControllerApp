@@ -81,6 +81,7 @@ sudo backend/scripts/install.sh \
 /etc/jetson-control/device.json
 /etc/jetson-control/storage_roots.json
 /etc/jetson-control/upload_targets.json
+/etc/jetson-control/pipelines/<pipeline-id>.env
 /etc/jetson-control/tls.crt
 /etc/jetson-control/tls.key
 /var/lib/jetson-control/managed-upload-targets.json
@@ -95,6 +96,17 @@ sudo backend/scripts/install.sh \
 /etc/systemd/system/jetson-sensor-monitor.service
 /etc/udev/rules.d/99-jetson-controller-sensors.rules
 /etc/jetson-sensor-monitor.json
+```
+
+파이프라인별 비밀 환경변수는 공개 YAML 대신
+`/etc/jetson-control/pipelines/<pipeline-id>.env`에 저장한다. 설치 스크립트가
+이 디렉터리를 root 전용(`0700`)으로 만들고, systemd 템플릿은 해당 파일이 있을
+때만 읽는다. NTRIP 인증이 필요한 파이프라인은 root 권한으로 다음 두 키를
+설정하고 파일 권한을 `0600`으로 유지한다.
+
+```ini
+NTRIP_USERNAME=...
+NTRIP_PASSWORD=...
 ```
 
 새 Jetson에서 package와 BlueZ 5.55까지 자동 설치하는 절차는 [MULTI_JETSON_PIPELINE_DEPLOYMENT.md](MULTI_JETSON_PIPELINE_DEPLOYMENT.md)를 따른다.

@@ -6,6 +6,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/jetson-control/pipelines/%i.env
 ExecStart=/opt/jetson-control/run-pipeline.py %i
 Restart=on-failure
 RestartSec=15
