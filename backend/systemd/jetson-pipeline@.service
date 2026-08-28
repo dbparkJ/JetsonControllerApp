@@ -16,6 +16,10 @@ TimeoutStopSec=30
 UMask=0027
 LogsDirectory=jetson-pipelines/%i
 LogsDirectoryMode=0750
+# The runner and boot monitor coordinate exclusive sensor ownership through
+# lock and marker files in this broker directory. ProtectSystem=strict makes
+# /var read-only unless this path is explicitly delegated to the pipeline.
+ReadWritePaths=-/var/lib/jetson-sensors
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

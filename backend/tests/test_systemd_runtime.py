@@ -28,6 +28,11 @@ class SharedRuntimeDirectoryTest(unittest.TestCase):
             unit,
         )
 
+    def test_pipeline_template_can_request_sensor_handoff(self) -> None:
+        unit = (SYSTEMD_ROOT / "jetson-pipeline@.service").read_text(encoding="utf-8")
+
+        self.assertIn("ReadWritePaths=-/var/lib/jetson-sensors\n", unit)
+
 
 if __name__ == "__main__":
     unittest.main()
