@@ -39,6 +39,8 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
         python.chmod(0o755)
         self.working = self.root / "working"
         self.working.mkdir()
+        self.secrets_root = self.root / "secrets"
+        self.secrets_root.mkdir(mode=0o700)
         manifest = {
             "schema_version": 1,
             "id": "depthai-capture",
@@ -71,6 +73,7 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
         runtime = load_monitor_runtime(
             self.settings,
             expected_owner_uid=os.getuid(),
+            pipeline_env_root=self.secrets_root,
         )
 
         self.assertEqual(runtime.command[0], str(self.virtualenv / "bin" / "python"))
@@ -85,6 +88,54 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
         self.assertNotIn("JETSON_PIPELINE_RESULTS_DIR", runtime.environment)
         self.assertEqual(runtime.release, self.release)
 
+    def test_runtime_loads_protected_pipeline_environment(self) -> None:
+        secrets = self.secrets_root / "depthai-capture.env"
+        secrets.write_text(
+            "# NTRIP credentials\n"
+            "NTRIP_USERNAME='field user'\n"
+            'NTRIP_PASSWORD="field-password"\n',
+            encoding="utf-8",
+        )
+        secrets.chmod(0o600)
+
+        runtime = load_monitor_runtime(
+            self.settings,
+            expected_owner_uid=os.getuid(),
+            pipeline_env_root=self.secrets_root,
+        )
+
+        self.assertEqual(runtime.environment["NTRIP_USERNAME"], "field user")
+        self.assertEqual(runtime.environment["NTRIP_PASSWORD"], "field-password")
+        self.assertEqual(runtime.pipeline_environment["NTRIP_USERNAME"], "field user")
+
+    def test_runtime_reuses_preloaded_pipeline_environment(self) -> None:
+        unavailable_secrets_root = self.root / "unavailable-secrets"
+
+        runtime = load_monitor_runtime(
+            self.settings,
+            expected_owner_uid=os.getuid(),
+            pipeline_env_root=unavailable_secrets_root,
+            pipeline_environment={
+                "NTRIP_USERNAME": "field-user",
+                "NTRIP_PASSWORD": "field-password",
+            },
+        )
+
+        self.assertEqual(runtime.environment["NTRIP_USERNAME"], "field-user")
+        self.assertEqual(runtime.environment["NTRIP_PASSWORD"], "field-password")
+
+    def test_runtime_rejects_public_pipeline_environment(self) -> None:
+        secrets = self.secrets_root / "depthai-capture.env"
+        secrets.write_text("NTRIP_PASSWORD=secret\n", encoding="utf-8")
+        secrets.chmod(0o640)
+
+        with self.assertRaisesRegex(ValueError, "secrets permissions are unsafe"):
+            load_monitor_runtime(
+                self.settings,
+                expected_owner_uid=os.getuid(),
+                pipeline_env_root=self.secrets_root,
+            )
+
     def test_runtime_rejects_release_symlink_outside_registry(self) -> None:
         outside = self.root / "outside"
         outside.mkdir()
@@ -95,6 +146,7 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
             load_monitor_runtime(
                 self.settings,
                 expected_owner_uid=os.getuid(),
+                pipeline_env_root=self.secrets_root,
             )
 
     def test_runtime_rejects_writable_or_wrong_owner_pipeline_metadata(self) -> None:
@@ -111,6 +163,7 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
             load_monitor_runtime(
                 self.settings,
                 expected_owner_uid=os.getuid() + 1,
+                pipeline_env_root=self.secrets_root,
             )
 
     def test_runtime_rejects_writable_release_and_root_execution(self) -> None:
@@ -119,6 +172,7 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
             load_monitor_runtime(
                 self.settings,
                 expected_owner_uid=os.getuid(),
+                pipeline_env_root=self.secrets_root,
             )
 
         self.release.chmod(0o750)
@@ -131,6 +185,7 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
             load_monitor_runtime(
                 self.settings,
                 expected_owner_uid=os.getuid(),
+                pipeline_env_root=self.secrets_root,
             )
 
     def test_runtime_reloads_after_current_release_changes(self) -> None:
@@ -151,6 +206,7 @@ class SensorMonitorRuntimeTest(unittest.TestCase):
         runtime = load_monitor_runtime(
             self.settings,
             expected_owner_uid=os.getuid(),
+            pipeline_env_root=self.secrets_root,
         )
 
         self.assertEqual(runtime.release, second)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import re
+import shlex
 import signal
 import stat
 import subprocess
@@ -21,10 +23,16 @@ from .sensor_handoff import (
 )
 
 
+DEFAULT_PIPELINE_ENV_ROOT = Path("/etc/jetson-control/pipelines")
+ENVIRONMENT_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+MAX_PIPELINE_ENV_BYTES = 64 * 1024
+
+
 @dataclass(frozen=True)
 class MonitorRuntime:
     command: tuple[str, ...]
     environment: Mapping[str, str]
+    pipeline_environment: Mapping[str, str]
     working_directory: Path
     user: str
     release: Path
@@ -90,6 +98,79 @@ def _load_trusted_manifest(path: Path, expected_owner_uid: int) -> Mapping[str, 
     return value
 
 
+def _load_pipeline_environment(
+    root: Path,
+    pipeline_id: str,
+    expected_owner_uid: int,
+) -> Mapping[str, str]:
+    """Load the root-owned EnvironmentFile used by the managed pipeline unit."""
+
+    if not root.exists():
+        return {}
+    trusted_root = _trusted_directory(
+        root,
+        "pipeline secrets directory",
+        expected_owner_uid,
+    )
+    path = trusted_root / f"{pipeline_id}.env"
+    descriptor: Optional[int] = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != expected_owner_uid
+            or metadata.st_mode & (stat.S_IRWXG | stat.S_IRWXO)
+        ):
+            raise ValueError("Sensor monitor pipeline secrets permissions are unsafe")
+        with os.fdopen(descriptor, "r", encoding="utf-8") as source:
+            descriptor = None
+            content = source.read(MAX_PIPELINE_ENV_BYTES + 1)
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeDecodeError) as error:
+        raise ValueError(f"Could not load sensor monitor pipeline secrets: {error}") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if len(content.encode("utf-8")) > MAX_PIPELINE_ENV_BYTES:
+        raise ValueError("Sensor monitor pipeline secrets file is too large")
+
+    environment: dict[str, str] = {}
+    for line_number, raw_line in enumerate(content.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        key, separator, raw_value = raw_line.partition("=")
+        key = key.strip()
+        if not separator or not ENVIRONMENT_KEY_PATTERN.fullmatch(key):
+            raise ValueError(
+                f"Sensor monitor pipeline secrets line {line_number} is invalid"
+            )
+        value = raw_value.strip()
+        if value.startswith(("'", '"')):
+            try:
+                parsed = shlex.split(value, comments=False, posix=True)
+            except ValueError as error:
+                raise ValueError(
+                    f"Sensor monitor pipeline secrets line {line_number} is invalid"
+                ) from error
+            if len(parsed) != 1:
+                raise ValueError(
+                    f"Sensor monitor pipeline secrets line {line_number} is invalid"
+                )
+            value = parsed[0]
+        if "\x00" in value:
+            raise ValueError(
+                f"Sensor monitor pipeline secrets line {line_number} is invalid"
+            )
+        environment[key] = value
+    return environment
+
+
 def _trusted_release_file(
     path: Path,
     release: Path,
@@ -127,6 +208,8 @@ def load_monitor_runtime(
     settings: SensorMonitorSettings,
     *,
     expected_owner_uid: int = 0,
+    pipeline_env_root: Path = DEFAULT_PIPELINE_ENV_ROOT,
+    pipeline_environment: Optional[Mapping[str, str]] = None,
 ) -> MonitorRuntime:
     registry_root = _trusted_directory(
         settings.registry_root,
@@ -205,9 +288,16 @@ def load_monitor_runtime(
         *arguments,
         *settings.monitor_arguments,
     )
+    if pipeline_environment is None:
+        pipeline_environment = _load_pipeline_environment(
+            pipeline_env_root,
+            settings.pipeline_id,
+            expected_owner_uid,
+        )
     environment = os.environ.copy()
     environment.pop("JETSON_PIPELINE_RESULTS_DIR", None)
     environment.pop("JETSON_PIPELINE_LOGS_DIR", None)
+    environment.update(pipeline_environment)
     environment.update(
         {
             "JETSON_PIPELINE_ID": settings.pipeline_id,
@@ -227,7 +317,14 @@ def load_monitor_runtime(
             "LOGNAME": account.pw_name,
         }
     )
-    return MonitorRuntime(command, environment, working_directory, user, release)
+    return MonitorRuntime(
+        command,
+        environment,
+        dict(pipeline_environment),
+        working_directory,
+        user,
+        release,
+    )
 
 
 def drop_privileges(user: str) -> None:
@@ -301,7 +398,8 @@ def supervise(
     user: str,
     *,
     retry_seconds: float = 3.0,
-    runtime_loader: Callable[[SensorMonitorSettings], MonitorRuntime] = load_monitor_runtime,
+    pipeline_environment: Optional[Mapping[str, str]] = None,
+    runtime_loader: Optional[Callable[[SensorMonitorSettings], MonitorRuntime]] = None,
 ) -> int:
     stopping = False
     child: Optional[subprocess.Popen] = None
@@ -331,7 +429,13 @@ def supervise(
 
             runtime: Optional[MonitorRuntime] = None
             try:
-                runtime = runtime_loader(settings)
+                if runtime_loader is None:
+                    runtime = load_monitor_runtime(
+                        settings,
+                        pipeline_environment=pipeline_environment,
+                    )
+                else:
+                    runtime = runtime_loader(settings)
             except (KeyError, OSError, ValueError) as error:
                 # Registration atomically replaces current and pipeline.json in
                 # separate operations.  A monitor reload can observe that short
@@ -433,7 +537,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if check_only:
             return 0
         drop_privileges(runtime.user)
-        return supervise(settings, runtime.user)
+        return supervise(
+            settings,
+            runtime.user,
+            pipeline_environment=runtime.pipeline_environment,
+        )
     except (KeyError, OSError, ValueError) as error:
         print(str(error), file=sys.stderr, flush=True)
         return 1

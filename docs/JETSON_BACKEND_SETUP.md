@@ -109,6 +109,10 @@ NTRIP_USERNAME=...
 NTRIP_PASSWORD=...
 ```
 
+일반 수집 작업과 부팅 센서 모니터는 모두 현재 `pipeline_id`에 대응하는 같은
+환경 파일을 읽는다. 따라서 앱 프리뷰 모니터와 실제 데이터 수집 작업에서 동일한
+NTRIP 계정이 사용되며, 공개 pipeline YAML이나 snapshot에는 계정을 넣지 않는다.
+
 새 Jetson에서 package와 BlueZ 5.55까지 자동 설치하는 절차는 [MULTI_JETSON_PIPELINE_DEPLOYMENT.md](MULTI_JETSON_PIPELINE_DEPLOYMENT.md)를 따른다.
 
 ## 4. 외부 업로드 설정
