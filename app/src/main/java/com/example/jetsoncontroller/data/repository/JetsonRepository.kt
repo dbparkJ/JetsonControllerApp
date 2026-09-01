@@ -173,6 +173,13 @@ class JetsonRepository(
 
     init {
         scope.launch {
+            val storedDeviceId = credentialStore.getPreferredDeviceId()
+            if (preferredAutomaticDeviceId.value == null) {
+                preferredAutomaticDeviceId.value = storedDeviceId
+            }
+        }
+
+        scope.launch {
             gattClient.status.drop(1).collect { currentStatus ->
                 updateStatus(currentStatus)
             }
@@ -194,7 +201,7 @@ class JetsonRepository(
                 } else if (state is ConnectionState.Ready) {
                     val deviceId = gattClient.currentDeviceId()
                     if (deviceId != null) {
-                        preferredAutomaticDeviceId.value = deviceId
+                        setPreferredAutomaticDeviceId(deviceId)
                     }
                     qrPairingActive.value = false
                     ensureAutomaticBleReconnectLoop()
@@ -416,7 +423,7 @@ class JetsonRepository(
                 updateStatus(probe.status)
                 _capabilities.value = probe.capabilities.toModel()
                 wifiDirectManager.markApiReady(probe.hello.deviceName)
-                preferredAutomaticDeviceId.value = probe.hello.deviceId
+                setPreferredAutomaticDeviceId(probe.hello.deviceId)
                 consecutiveIpStatusFailures.set(0)
                 automaticDirectFallbackReady.value = false
                 autoLanAttempts.clear()
@@ -591,11 +598,22 @@ class JetsonRepository(
         ) {
             disconnectActiveTransportForTargetSwitch()
         }
-        preferredAutomaticDeviceId.value = deviceId
+        setPreferredAutomaticDeviceId(deviceId)
         automaticConnectivityEnabled.value = true
         ensureAutomaticBleReconnectLoop()
         if (scheduleFallback) {
             scheduleAutomaticIpFallback()
+        }
+    }
+
+    private fun setPreferredAutomaticDeviceId(deviceId: String?) {
+        val normalizedDeviceId = deviceId?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
+        if (preferredAutomaticDeviceId.value == normalizedDeviceId) {
+            return
+        }
+        preferredAutomaticDeviceId.value = normalizedDeviceId
+        scope.launch {
+            credentialStore.setPreferredDeviceId(normalizedDeviceId)
         }
     }
 
@@ -757,7 +775,7 @@ class JetsonRepository(
     fun startPairing(info: PairingInfo): Boolean {
         explicitDisconnectRequested.set(false)
         automaticConnectivityEnabled.value = true
-        preferredAutomaticDeviceId.value = info.deviceId
+        setPreferredAutomaticDeviceId(info.deviceId)
         ensureAutomaticBleReconnectLoop()
         if (gattClient.authenticateConnectedDevice(info)) {
             return true
@@ -804,7 +822,7 @@ class JetsonRepository(
     fun connectForPairing(device: JetsonDevice, info: PairingInfo) {
         explicitDisconnectRequested.set(false)
         automaticConnectivityEnabled.value = true
-        preferredAutomaticDeviceId.value = info.deviceId
+        setPreferredAutomaticDeviceId(info.deviceId)
         scanner.stopScan()
         gattClient.connectForPairing(
             device = device.device,
@@ -829,7 +847,7 @@ class JetsonRepository(
                 credentialStore.getSecret(preferred) == null &&
                 preferredAutomaticDeviceId.value.equals(preferred, ignoreCase = true)
             ) {
-                preferredAutomaticDeviceId.value = null
+                setPreferredAutomaticDeviceId(null)
             }
             scheduleAutomaticIpFallback()
         }
@@ -1053,7 +1071,7 @@ class JetsonRepository(
                         }
                     }
 
-                    preferredAutomaticDeviceId.value = hello.deviceId
+                    setPreferredAutomaticDeviceId(hello.deviceId)
                     consecutiveIpStatusFailures.set(0)
                     automaticDirectFallbackReady.value = false
                     automaticDirectFallbackJob?.cancel()

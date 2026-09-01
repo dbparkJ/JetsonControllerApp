@@ -123,6 +123,28 @@ class DeviceCredentialStore(private val context: Context) {
                         it.removePrefix("device_").equals(normalizedDeviceId, ignoreCase = true)
                 }
                 .forEach { prefs.remove(stringPreferencesKey(it)) }
+            if (prefs[PREFERRED_DEVICE_ID_KEY]
+                    ?.equals(normalizedDeviceId, ignoreCase = true) == true
+            ) {
+                prefs.remove(PREFERRED_DEVICE_ID_KEY)
+            }
+        }
+    }
+
+    suspend fun getPreferredDeviceId(): String? =
+        context.dataStore.data.first()[PREFERRED_DEVICE_ID_KEY]
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.lowercase()
+
+    suspend fun setPreferredDeviceId(deviceId: String?) {
+        context.dataStore.edit { prefs ->
+            val normalizedDeviceId = deviceId?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
+            if (normalizedDeviceId == null) {
+                prefs.remove(PREFERRED_DEVICE_ID_KEY)
+            } else {
+                prefs[PREFERRED_DEVICE_ID_KEY] = normalizedDeviceId
+            }
         }
     }
 
@@ -160,6 +182,7 @@ class DeviceCredentialStore(private val context: Context) {
     }.getOrNull()
 
     private companion object {
+        val PREFERRED_DEVICE_ID_KEY = stringPreferencesKey("preferred_device_id")
         const val KEY_ALIAS = "jetson_auth_key"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val AES_MODE = "AES/GCM/NoPadding"

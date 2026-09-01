@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from jetson_control.wifi_direct import (
     WifiDirectController,
     WifiDirectError,
+    WifiDirectRuntime,
     WifiDirectSettings,
     configured_ipv4_address,
     dhcp_lease_range,
@@ -58,6 +59,7 @@ class FakeRunner:
         fail_first_p2p_listen=False,
         fail_all_p2p_listen=False,
         station_connected=True,
+        wifi_driver="rtw_8822ce",
     ):
         self.calls = []
         self.group_created = False
@@ -70,6 +72,7 @@ class FakeRunner:
         self.fail_first_p2p_listen = fail_first_p2p_listen
         self.fail_all_p2p_listen = fail_all_p2p_listen
         self.station_connected = station_connected
+        self.wifi_driver = wifi_driver
         self.p2p_listen_attempts = 0
         self.dnsmasq_processes = []
 
@@ -92,6 +95,12 @@ class FakeRunner:
 """.format(group_interface)
                 if not self.single_interface_group:
                     stdout += "\tInterface wlan0\n\t\ttype managed\n"
+        elif command == [
+            "/usr/bin/readlink",
+            "-f",
+            "/sys/class/net/wlan0/device/driver",
+        ]:
+            stdout = "/sys/bus/pci/drivers/{}\n".format(self.wifi_driver)
         elif command == ["/usr/sbin/iw", "dev", "wlan0", "info"]:
             if self.concurrency_supported is not None:
                 stdout = "Interface wlan0\n\twiphy 0\n\ttype managed\n"
@@ -162,6 +171,28 @@ class FakeRunner:
 
 
 class WifiDirectTest(unittest.TestCase):
+    def test_iwlwifi_uses_active_find_so_android_can_discover_it(self):
+        runner = FakeRunner(wifi_driver="iwlwifi")
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner,
+                start_process=runner.start_process,
+                status_path=Path(temporary) / "wifi-direct.json",
+                sleep=lambda _seconds: None,
+            )
+
+            self.assertTrue(controller.refresh_discovery())
+
+        discovery_calls = [
+            call[7:]
+            for call in runner.calls
+            if call and call[0] == "/usr/sbin/wpa_cli" and (
+                "p2p_find" in call or "p2p_listen" in call
+            )
+        ]
+        self.assertEqual(discovery_calls, [["p2p_find", "600"]])
+
     def test_discovery_recovers_busy_scan_before_starting_listener(self):
         runner = FakeRunner(fail_first_p2p_listen=True)
         with tempfile.TemporaryDirectory() as temporary:
@@ -419,6 +450,25 @@ class WifiDirectTest(unittest.TestCase):
             "AA:BB:CC:DD:EE:FF",
         )
         self.assertIsNone(peer_address_from_path("/not-a-peer"))
+
+    def test_pbc_provision_discovery_request_starts_connection(self):
+        controller = Mock()
+        runtime = WifiDirectRuntime(controller)
+
+        runtime._on_provision_discovery_pbc_request(
+            "/fi/w1/wpa_supplicant1/Interfaces/0/Peers/aabbccddeeff"
+        )
+
+        controller.request_connection.assert_called_once_with("AA:BB:CC:DD:EE:FF")
+
+    def test_go_negotiation_request_still_accepts_pbc(self):
+        controller = Mock()
+        runtime = WifiDirectRuntime(controller)
+        peer_path = "/fi/w1/wpa_supplicant1/Interfaces/0/Peers/aabbccddeeff"
+
+        runtime._on_go_negotiation_request(peer_path, 4, 0)
+
+        controller.request_connection.assert_called_once_with("AA:BB:CC:DD:EE:FF")
 
     def test_controller_waits_then_activates_requested_peer_through_networkmanager(self):
         runner = FakeRunner()

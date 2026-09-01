@@ -28,6 +28,7 @@ WPA_PEER_INTERFACE = "fi.w1.wpa_supplicant1.Peer"
 DBUS_PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties"
 PROFILE_PREFIX = "jetson-control-p2p-"
 DNSMASQ_PATH = "/usr/sbin/dnsmasq"
+DISCOVERY_SECONDS = 600
 DISCOVERY_SETTLE_SECONDS = 5
 DISCOVERY_RETRY_SECONDS = 10
 P2P_PEER_ABSENCE_GRACE_SECONDS = 10
@@ -342,8 +343,10 @@ class WifiDirectController:
 
     def refresh_discovery(self, stop_existing: bool = True) -> bool:
         # RTL8822CE can leave a scan pending after p2p_find ends, permanently
-        # rejecting later discovery. Listen-only mode advertises the Jetson on a
-        # social channel without issuing scans; Android remains the active finder.
+        # rejecting later discovery, so it must remain listen-only. Other drivers
+        # actively search as well: iwlwifi in particular is not reliably visible
+        # to Android from listen-only mode while its managed interface is associated.
+        discovery_arguments = self._discovery_arguments()
         try:
             if stop_existing:
                 self._wpa(
@@ -354,7 +357,7 @@ class WifiDirectController:
             try:
                 self._wpa(
                     self.settings.interface,
-                    "p2p_listen",
+                    *discovery_arguments,
                 )
             except (OSError, subprocess.TimeoutExpired, WifiDirectError):
                 if not stop_existing:
@@ -373,13 +376,27 @@ class WifiDirectController:
                 )
                 self._wpa(
                     self.settings.interface,
-                    "p2p_listen",
+                    *discovery_arguments,
                 )
         except (OSError, subprocess.TimeoutExpired, WifiDirectError):
             return False
         self._discovery_stopped_at = None
         self._discovery_retry_at = None
         return True
+
+    def _discovery_arguments(self) -> Tuple[str, ...]:
+        result = self._run(
+            [
+                "/usr/bin/readlink",
+                "-f",
+                "/sys/class/net/{}/device/driver".format(self.settings.interface),
+            ],
+            allow_failure=True,
+        )
+        driver_name = Path(result.stdout.strip()).name.lower()
+        if "8822ce" in driver_name:
+            return ("p2p_listen",)
+        return ("p2p_find", str(DISCOVERY_SECONDS))
 
     def discovery_stopped(self) -> None:
         if self._state == "DISCOVERABLE":
@@ -1150,6 +1167,12 @@ class WifiDirectRuntime:
         self.bus = dbus.SystemBus()
         self.wpa_interface_path = self._find_wpa_interface_path()
         self.bus.add_signal_receiver(
+            self._on_provision_discovery_pbc_request,
+            signal_name="ProvisionDiscoveryPBCRequest",
+            dbus_interface=WPA_P2P_INTERFACE,
+            path=self.wpa_interface_path,
+        )
+        self.bus.add_signal_receiver(
             self._on_go_negotiation_request,
             signal_name="GONegotiationRequest",
             dbus_interface=WPA_P2P_INTERFACE,
@@ -1175,6 +1198,16 @@ class WifiDirectRuntime:
         GLib.timeout_add_seconds(2, self.controller.monitor)
         self.loop.run()
         return 0
+
+    def _on_provision_discovery_pbc_request(self, peer_path) -> None:
+        """Accept an Android PBC request before GO negotiation starts.
+
+        Android's WifiP2pManager sends provision discovery first and waits for
+        the receiving device to authorize group formation. Waiting only for a
+        GONegotiationRequest therefore deadlocks before that later signal can
+        be emitted.
+        """
+        self._request_connection_for_peer(str(peer_path))
 
     def _find_wpa_interface_path(self) -> str:
         import dbus
@@ -1203,8 +1236,11 @@ class WifiDirectRuntime:
                 "Ignored a Wi-Fi Direct request that did not use WPS PBC",
             )
             return
+        self._request_connection_for_peer(str(peer_path))
+
+    def _request_connection_for_peer(self, peer_path: str) -> None:
         try:
-            peer_address = self._peer_address(str(peer_path))
+            peer_address = self._peer_address(peer_path)
             self.controller.request_connection(peer_address)
         except (ValueError, WifiDirectError) as error:
             self.controller._publish("ERROR", str(error))
