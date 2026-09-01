@@ -43,6 +43,50 @@ class AutomaticConnectionPolicyTest {
     }
 
     @Test
+    fun `automatic direct never replaces infrastructure wifi`() {
+        assertFalse(
+            allowsAutomaticDirectConnection(
+                TransportState.Disconnected,
+                infrastructureWifiConnected = true
+            )
+        )
+        assertFalse(
+            allowsAutomaticDirectConnection(
+                TransportState.Connected(TransportType.BLE),
+                infrastructureWifiConnected = true
+            )
+        )
+        assertTrue(
+            allowsAutomaticDirectConnection(
+                TransportState.Connected(TransportType.BLE),
+                infrastructureWifiConnected = false
+            )
+        )
+    }
+
+    @Test
+    fun `infrastructure wifi removes only automatic direct groups`() {
+        assertTrue(
+            shouldDisconnectAutomaticDirect(
+                infrastructureWifiConnected = true,
+                explicitlyRequested = false
+            )
+        )
+        assertFalse(
+            shouldDisconnectAutomaticDirect(
+                infrastructureWifiConnected = true,
+                explicitlyRequested = true
+            )
+        )
+        assertFalse(
+            shouldDisconnectAutomaticDirect(
+                infrastructureWifiConnected = false,
+                explicitlyRequested = false
+            )
+        )
+    }
+
+    @Test
     fun `same target LAN can replace wifi direct`() {
         assertTrue(allowsAutomaticLanUpgrade(TransportState.Disconnected))
         assertTrue(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.BLE)))

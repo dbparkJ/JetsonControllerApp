@@ -31,6 +31,22 @@ internal fun allowsAutomaticDirectFallback(transportState: TransportState): Bool
         transportState is TransportState.Error ||
         (transportState is TransportState.Connected && transportState.type == TransportType.BLE)
 
+/**
+ * Wi-Fi Direct is an offline fallback, not an automatic replacement for an
+ * infrastructure Wi-Fi connection. Some Jetson adapters cannot keep managed
+ * Wi-Fi and a P2P group active at the same time, so starting P2P while the phone
+ * is already on Wi-Fi can tear down the very LAN connection being discovered.
+ */
+internal fun allowsAutomaticDirectConnection(
+    transportState: TransportState,
+    infrastructureWifiConnected: Boolean
+): Boolean = !infrastructureWifiConnected && allowsAutomaticDirectFallback(transportState)
+
+internal fun shouldDisconnectAutomaticDirect(
+    infrastructureWifiConnected: Boolean,
+    explicitlyRequested: Boolean
+): Boolean = infrastructureWifiConnected && !explicitlyRequested
+
 internal fun allowsAutomaticLanUpgrade(transportState: TransportState): Boolean =
     allowsAutomaticDirectFallback(transportState) ||
         (transportState is TransportState.Connected &&

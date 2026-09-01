@@ -42,6 +42,10 @@ class LanDiscoveryManager(private val context: Context) {
             if (service.serviceType.trimEnd('.') == SERVICE_TYPE.trimEnd('.')) {
                 nsdManager.resolveService(service, object : NsdManager.ResolveListener {
                     override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                        Log.w(
+                            "JetsonLAN",
+                            "NSD resolve failed for ${serviceInfo.serviceName}: $errorCode"
+                        )
                         _error.value = "LAN 장비 주소 확인 실패: $errorCode"
                     }
                     override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
@@ -58,6 +62,11 @@ class LanDiscoveryManager(private val context: Context) {
                         if (host.isBlank() || serviceInfo.port <= 0) {
                             return
                         }
+                        Log.d(
+                            "JetsonLAN",
+                            "Resolved ${serviceInfo.serviceName} at $host:${serviceInfo.port} " +
+                                "for $deviceId"
+                        )
                         val endpoint = DeviceEndpoint(
                             deviceId = deviceId,
                             displayName = serviceInfo.serviceName,

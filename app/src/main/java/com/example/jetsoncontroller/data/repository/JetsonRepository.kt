@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.jetsoncontroller.data.bluetooth.BleGattClient
 import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.BleScanner
@@ -65,6 +66,7 @@ class JetsonRepository(
     private val ipConnectionGeneration = AtomicLong(0)
     private val consecutiveIpStatusFailures = AtomicInteger(0)
     private val explicitDisconnectRequested = AtomicBoolean(false)
+    private val explicitWifiDirectRequested = AtomicBoolean(false)
 
     @Volatile
     private var activeIpClient: LocalApiClient? = null
@@ -236,6 +238,16 @@ class JetsonRepository(
                 _connectingLanDeviceId
             ).collectLatest { (connected, host, lanConnectionPending) ->
                     if (connected && host != null) {
+                        if (shouldDisconnectAutomaticDirect(
+                                infrastructureWifiConnected =
+                                    !wifiAccessPointScanner.state.value.currentSsid.isNullOrBlank(),
+                                explicitlyRequested = explicitWifiDirectRequested.get()
+                            )
+                        ) {
+                            pendingWifiDirectTargetDeviceId = null
+                            wifiDirectManager.cancelConnect()
+                            return@collectLatest
+                        }
                         if (!allowsWifiDirectApiProbe(
                                 transportCoordinator.state.value,
                                 lanConnectionPending = lanConnectionPending,
@@ -273,6 +285,7 @@ class JetsonRepository(
                         transportCoordinator.currentTransport()?.type ==
                             TransportType.WIFI_DIRECT
                     ) {
+                        explicitWifiDirectRequested.set(false)
                         markIpTransportOffline("Wi-Fi 연결이 끊어졌습니다.")
                     }
                 }
@@ -338,9 +351,11 @@ class JetsonRepository(
                 automaticConnectivityEnabled,
                 automaticDirectFallbackReady,
                 qrPairingActive,
-                wifiProvisioningHandoff
-            ) { enabled, fallbackReady, pairing, handoffPending ->
-                enabled && fallbackReady && !pairing && !handoffPending
+                wifiProvisioningHandoff,
+                wifiAccessPointScanner.state
+            ) { enabled, fallbackReady, pairing, handoffPending, wifiState ->
+                enabled && fallbackReady && !pairing && !handoffPending &&
+                    wifiState.currentSsid.isNullOrBlank()
             }
             combine(
                 wifiDirectManager.state,
@@ -359,6 +374,7 @@ class JetsonRepository(
             }.collect { peer ->
                 peer ?: return@collect
                 scanner.stopScan()
+                explicitWifiDirectRequested.set(false)
                 pendingWifiDirectTargetDeviceId = automaticTargetDeviceId(
                     preferredAutomaticDeviceId.value,
                     registeredDevices.value
@@ -546,6 +562,7 @@ class JetsonRepository(
         _connectingLanDeviceId.value = null
         _visibleConnectingLanDeviceId.value = null
         pendingWifiDirectTargetDeviceId = null
+        explicitWifiDirectRequested.set(false)
         scanner.stopScan()
         stopLanDiscovery()
         gattClient.disconnect()
@@ -591,6 +608,7 @@ class JetsonRepository(
         _connectingLanDeviceId.value = null
         _visibleConnectingLanDeviceId.value = null
         pendingWifiDirectTargetDeviceId = null
+        explicitWifiDirectRequested.set(false)
         activeIpClient = null
         gattClient.disconnect()
         wifiDirectManager.cancelConnect()
@@ -834,6 +852,13 @@ class JetsonRepository(
         } else {
             stopLanDiscovery()
         }
+        if (effectiveEnabled && nearbyWifiPermissionGranted && !qrPairingActive.value) {
+            // Register even when automatic Direct fallback is suppressed. Android
+            // may retain a P2P group created by an older app process; observing it
+            // lets the state collector remove that stale group and restore the
+            // Jetson's single-radio infrastructure Wi-Fi connection.
+            wifiDirectManager.register()
+        }
         if (effectiveEnabled && !qrPairingActive.value) {
             ensureAutomaticBleReconnectLoop()
             scheduleAutomaticIpFallback()
@@ -849,6 +874,7 @@ class JetsonRepository(
 
     fun startWifiDirectDiscovery() {
         explicitDisconnectRequested.set(false)
+        explicitWifiDirectRequested.set(true)
         automaticConnectivityEnabled.value = true
         cancelWifiProvisioningHandoff()
         automaticDirectFallbackReady.value = true
@@ -856,11 +882,15 @@ class JetsonRepository(
     }
 
     fun stopWifiDirectDiscovery() {
+        if (!wifiDirectManager.state.value.connected) {
+            explicitWifiDirectRequested.set(false)
+        }
         wifiDirectManager.stopDiscovery()
     }
 
     fun connectWifiDirect(peer: WifiDirectPeer) {
         explicitDisconnectRequested.set(false)
+        explicitWifiDirectRequested.set(true)
         automaticConnectivityEnabled.value = true
         cancelWifiProvisioningHandoff()
         pendingWifiDirectTargetDeviceId = registeredDevices.value
@@ -926,6 +956,11 @@ class JetsonRepository(
         requireSameWifi: Boolean,
         automaticAttemptKey: String? = null
     ) {
+        Log.d(
+            "JetsonLAN",
+            "Connecting to ${endpoint.host}:${endpoint.port} for ${endpoint.deviceId}; " +
+                "automatic=${automaticAttemptKey != null}"
+        )
         val userVisibleAttempt = automaticAttemptKey == null
         val generation = ipConnectionGeneration.incrementAndGet()
         connectingLanGeneration = generation
@@ -985,6 +1020,13 @@ class JetsonRepository(
                             status.wifiSsid
                         )
                     ) {
+                        Log.w(
+                            "JetsonLAN",
+                            "Automatic LAN rejected: mobileSsid=" +
+                                "${wifiAccessPointScanner.state.value.currentSsid}, " +
+                                "jetsonConnected=${status.wifiConnected}, " +
+                                "jetsonSsid=${status.wifiSsid}"
+                        )
                         publishUserVisibleError(
                             "모바일과 Jetson의 Wi-Fi가 같지 않아 자동 LAN 연결을 건너뛰었습니다."
                         )
@@ -1030,15 +1072,25 @@ class JetsonRepository(
                         deviceName = hello.deviceName
                     )
                     connectedSuccessfully = true
+                    Log.i(
+                        "JetsonLAN",
+                        "LAN connected to ${endpoint.host}:${endpoint.port} for ${hello.deviceId}"
+                    )
                     automaticAttemptKey?.let {
                         autoLanAttempts.remove(it)
                         autoLanFailureCounts.remove(it)
                     }
                     gattClient.disconnect()
                     pendingWifiDirectTargetDeviceId = null
+                    explicitWifiDirectRequested.set(false)
                     wifiDirectManager.cancelConnect()
                 }
                 .onFailure { error ->
+                    Log.w(
+                        "JetsonLAN",
+                        "LAN hello failed for ${endpoint.host}:${endpoint.port}",
+                        error
+                    )
                     if (ipConnectionGeneration.get() == generation) {
                         publishUserVisibleError(
                             "${endpoint.displayName} API 연결 실패: " +
@@ -1186,7 +1238,11 @@ class JetsonRepository(
                 !wifiProvisioningHandoff.value &&
                 nearbyWifiPermissionGranted.value &&
                 !wifiDirectManager.state.value.connected &&
-                allowsAutomaticDirectFallback(transportCoordinator.state.value) &&
+                allowsAutomaticDirectConnection(
+                    transportCoordinator.state.value,
+                    infrastructureWifiConnected =
+                        !wifiAccessPointScanner.state.value.currentSsid.isNullOrBlank()
+                ) &&
                 automaticTargetDeviceId(
                     preferredAutomaticDeviceId.value,
                     registeredDevices.value

@@ -20,8 +20,11 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.NetworkInterface
 
 data class WifiDirectPeer(
     val name: String,
@@ -570,7 +573,7 @@ class WifiDirectManager(
         }.getOrNull() ?: return null
         val readyConnectivityManager = connectivityManager ?: return null
 
-        return runCatching {
+        val connectivityAddress = runCatching {
             readyConnectivityManager.allNetworks
                 .mapNotNull { network ->
                     val linkProperties = readyConnectivityManager.getLinkProperties(network)
@@ -586,6 +589,46 @@ class WifiDirectManager(
                     if (hasP2pInterface && reachesGroupOwner) localAddress else null
                 }
                 .firstOrNull()
+        }.getOrNull()
+        if (connectivityAddress != null) return connectivityAddress
+
+        // Android does not expose Wi-Fi Direct as a ConnectivityManager Network
+        // on every vendor build (notably Samsung Android 16). The kernel P2P
+        // interface still exists and carries the API connection, so inspect the
+        // system interfaces before falling back to the selected route.
+        val interfaceAddress = runCatching {
+            val candidates = NetworkInterface.getNetworkInterfaces()
+                ?.asSequence()
+                ?.filter { it.isUp }
+                ?.flatMap { networkInterface ->
+                    networkInterface.interfaceAddresses.asSequence().map { address ->
+                        WifiDirectInterfaceAddressCandidate(
+                            interfaceName = networkInterface.name.orEmpty(),
+                            address = address.address,
+                            prefixLength = address.networkPrefixLength.toInt()
+                        )
+                    }
+                }
+                ?.toList()
+                .orEmpty()
+            selectWifiDirectInterfaceAddress(targetAddress, candidates)
+        }.getOrNull()
+        if (interfaceAddress != null) return interfaceAddress
+
+        return runCatching {
+            DatagramSocket().use { socket ->
+                socket.connect(InetSocketAddress(targetAddress, ROUTE_PROBE_PORT))
+                socket.localAddress.takeIf { localAddress ->
+                    localAddress is Inet4Address &&
+                        !localAddress.isAnyLocalAddress &&
+                        !localAddress.isLoopbackAddress &&
+                        ipv4PrefixMatches(
+                            localAddress,
+                            targetAddress,
+                            WIFI_DIRECT_FALLBACK_PREFIX_LENGTH
+                        )
+                }
+            }
         }.getOrNull()
     }
 
@@ -673,5 +716,45 @@ internal fun wifiDirectAttemptIsCurrent(
     connectingPeerAddress == callbackPeerAddress &&
     !connected
 
+internal data class WifiDirectInterfaceAddressCandidate(
+    val interfaceName: String,
+    val address: InetAddress,
+    val prefixLength: Int
+)
+
+internal fun selectWifiDirectInterfaceAddress(
+    targetAddress: InetAddress,
+    candidates: List<WifiDirectInterfaceAddressCandidate>
+): InetAddress? = candidates.firstOrNull { candidate ->
+    candidate.interfaceName.contains("p2p", ignoreCase = true) &&
+        candidate.address is Inet4Address &&
+        !candidate.address.isAnyLocalAddress &&
+        !candidate.address.isLoopbackAddress &&
+        ipv4PrefixMatches(candidate.address, targetAddress, candidate.prefixLength)
+}?.address
+
+private fun ipv4PrefixMatches(
+    first: InetAddress,
+    second: InetAddress,
+    prefixLength: Int
+): Boolean {
+    val firstBytes = first.address
+    val secondBytes = second.address
+    if (firstBytes.size != 4 || secondBytes.size != 4 || prefixLength !in 0..32) {
+        return false
+    }
+    val fullBytes = prefixLength / 8
+    val remainingBits = prefixLength % 8
+    for (index in 0 until fullBytes) {
+        if (firstBytes[index] != secondBytes[index]) return false
+    }
+    if (remainingBits == 0) return true
+    val mask = (0xFF shl (8 - remainingBits)) and 0xFF
+    return (firstBytes[fullBytes].toInt() and mask) ==
+        (secondBytes[fullBytes].toInt() and mask)
+}
+
 private const val WIFI_DIRECT_CONNECT_TIMEOUT_MILLIS = 70_000L
 private const val WIFI_DIRECT_CONNECT_FAILURE_COOLDOWN_MILLIS = 2_000L
+private const val ROUTE_PROBE_PORT = 9
+private const val WIFI_DIRECT_FALLBACK_PREFIX_LENGTH = 24
