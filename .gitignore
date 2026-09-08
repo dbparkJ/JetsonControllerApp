@@ -32,6 +32,7 @@ local.properties
 
 # AI Agent Artifacts
 .artifacts/
+/artifacts/
 
 # System files
 .DS_Store

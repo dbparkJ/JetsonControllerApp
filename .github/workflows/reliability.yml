@@ -35,6 +35,10 @@ jobs:
           ./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
           --tests '*TransportCoordinatorTest'
           --tests '*AutomaticConnectionPolicyTest'
+          --tests '*JetsonRepositoryStabilityTest'
+          --tests '*LocalApiClientReplayTest'
+          --tests '*ApiCompatibilityTest'
+          --tests '*HttpAuthSignerTest'
           --tests '*LanAddressSelectionTest'
           --tests '*WifiNetworkSelectionTest'
           --tests '*UploadQueueFilterTest'
