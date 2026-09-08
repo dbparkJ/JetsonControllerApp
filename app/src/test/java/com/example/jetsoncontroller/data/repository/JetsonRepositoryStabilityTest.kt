@@ -112,6 +112,34 @@ class JetsonRepositoryStabilityTest {
     }
 
     @Test
+    fun `R12 automatic API recovery verifies reads without synchronizing device time`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateDirect()
+            h.probeSucceeds = true
+            h.mobileTimeSync = true
+            repeat(IP_STATUS_FAILURE_LIMIT) { h.repository.refreshStatus() }
+            testScheduler.runCurrent()
+            assertTrue(h.repository.transportState.value is TransportState.Connected)
+            assertEquals("Automatic control recovery must only verify reads", 0, h.timeSyncCalls)
+        }
+    }
+
+    @Test
+    fun `R12 initial group verification retains the existing time synchronization capability`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateDirect()
+            h.directState.value = WifiDirectState(connected = false)
+            testScheduler.runCurrent()
+            h.probeSucceeds = true
+            h.mobileTimeSync = true
+            h.directState.value = WifiDirectState(connected = true, groupOwnerAddress = "192.0.2.1")
+            testScheduler.runCurrent()
+            assertTrue(h.repository.transportState.value is TransportState.Connected)
+            assertEquals(1, h.timeSyncCalls)
+        }
+    }
+
+    @Test
     fun `R13 exhausted API recovery stays unavailable until explicit retry starts a new episode`() = runTest {
         Harness(testScheduler).use { h ->
             h.activateDirect()
@@ -298,6 +326,45 @@ class JetsonRepositoryStabilityTest {
         }
     }
 
+    @Test
+    fun `R6 repeated recovery requests cancel the old IO and merge queued work`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateDirect()
+            h.holdProbe = true
+            repeat(IP_STATUS_FAILURE_LIMIT) { h.repository.refreshStatus() }
+            testScheduler.runCurrent()
+            h.repository.retryWifiDirectApi()
+            h.repository.retryWifiDirectApi()
+            testScheduler.runCurrent()
+            assertEquals(1, h.probeCancellations)
+            assertEquals(2, h.probeCalls)
+            assertTrue(h.probeJobActive())
+            assertEquals(0, h.directConnectCalls())
+            assertEquals(0, h.cleanupCalls())
+        }
+    }
+
+    @Test
+    fun `R3 explicit disconnect cancels in-flight recovery and rejects late success`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateDirect()
+            h.holdProbe = true
+            repeat(IP_STATUS_FAILURE_LIMIT) { h.repository.refreshStatus() }
+            testScheduler.runCurrent()
+            val pending = requireNotNull(h.pendingProbe)
+            h.repository.disconnect()
+            testScheduler.runCurrent()
+            pending.resume(h.helloResponse())
+            testScheduler.advanceTimeBy(600_000)
+            testScheduler.runCurrent()
+            assertEquals(1, h.probeCalls)
+            assertEquals(1, h.probeCancellations)
+            assertEquals(TransportState.Disconnected, h.repository.transportState.value)
+            assertFalse(h.probeJobActive())
+            assertEquals(0, h.directConnectCalls())
+        }
+    }
+
     private class FakeTransport : ControlTransport {
         override val type = TransportType.WIFI_DIRECT
         override val capabilities = TransportCapabilities(true, true, true, true, true)
@@ -328,6 +395,8 @@ class JetsonRepositoryStabilityTest {
         var probeCancellations = 0
         val probeTimes = mutableListOf<Long>()
         var pendingProbe: CancellableContinuation<Any>? = null
+        var mobileTimeSync = false
+        var timeSyncCalls = 0
         val repository: JetsonRepository
         val coordinator: TransportCoordinator
 
@@ -385,7 +454,8 @@ class JetsonRepositoryStabilityTest {
                                 }
                             }
                             "getStatus" -> JetsonStatus()
-                            "getCapabilities" -> LocalControlApi.CapabilitiesResponse()
+                            "getCapabilities" -> LocalControlApi.CapabilitiesResponse(mobileTimeSync = mobileTimeSync)
+                            "synchronizeSystemTime" -> { timeSyncCalls += 1; null }
                             else -> Answers.RETURNS_DEFAULTS.answer(invocation)
                         }
                     }

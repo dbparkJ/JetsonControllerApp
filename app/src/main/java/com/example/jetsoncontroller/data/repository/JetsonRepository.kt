@@ -455,7 +455,7 @@ class JetsonRepository(
                 return
             }
             wifiDirectManager.markApiChecking()
-            val result = probeWifiDirectApiOnce(host, expectedDeviceId)
+            val result = probeWifiDirectApiOnce(host, expectedDeviceId, synchronizeTime = !preserveGroupOnFailure)
             if (!wifiDirectAttemptIsCurrent(generation, host, expectedDeviceId)) {
                 return
             }
@@ -528,7 +528,8 @@ class JetsonRepository(
 
     private suspend fun probeWifiDirectApiOnce(
         host: String,
-        expectedDeviceId: String
+        expectedDeviceId: String,
+        synchronizeTime: Boolean
     ): Result<WifiDirectApiProbe> = try {
         withTimeoutOrNull(IP_CONNECTION_ATTEMPT_TIMEOUT_MILLIS) {
             val candidateClient = LocalApiClient(credentialStore)
@@ -542,7 +543,7 @@ class JetsonRepository(
             }
             val status = candidateClient.getStatus().getOrThrow()
             val capabilities = candidateClient.getCapabilities().getOrThrow()
-            if (capabilities.mobileTimeSync) {
+            if (synchronizeTime && capabilities.mobileTimeSync) {
                 candidateClient.synchronizeSystemTime(System.currentTimeMillis())
             }
             Result.success(WifiDirectApiProbe(candidateClient, hello, status, capabilities))
