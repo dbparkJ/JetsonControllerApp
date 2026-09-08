@@ -277,6 +277,37 @@ class LocalApiClientReplayTest {
         }
     }
 
+    @Test
+    fun `reauthentication cannot silently adopt a different registered device sharing a certificate`() = runBlocking {
+        TestBackend().use { backend ->
+            val client = backend.connectedClient()
+            backend.switchRegisteredDevice()
+            val result = client.getStatus()
+
+            assertTrue("An existing session must retain its authenticated device identity", result.isFailure)
+            assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("장비"))
+            assertEquals("Reject the new hello identity before issuing a new authenticated read", 1, backend.queries.get())
+            assertEquals(2, backend.hellos.get())
+            assertEquals(0, backend.mutations.get())
+            backend.assertAuthenticatedRequests()
+        }
+    }
+
+    @Test
+    fun `explicit endpoint reset may authenticate another registered device`() = runBlocking {
+        TestBackend().use { backend ->
+            val client = backend.connectedClient()
+            backend.switchRegisteredDevice()
+            backend.resetEndpoint(client)
+
+            assertTrue(client.hello().isSuccess)
+            assertTrue(client.getStatus().isSuccess)
+            assertEquals(1, backend.queries.get())
+            assertEquals(2, backend.hellos.get())
+            backend.assertAuthenticatedRequests()
+        }
+    }
+
     private enum class Damage {
         NONE, SIGNATURE, DROP_RESPONSE, SIGNED_503, SIGNED_307, SIGNED_401, UNSIGNED_401,
         HOLD_RESPONSE, NULL_BODY, SIGNED_204

@@ -65,6 +65,7 @@ class LocalApiClient(
     private val sessionRefreshMutex = Mutex()
     private val endpointLock = Any()
     private val activeCalls = mutableSetOf<Call>()
+    private var authenticatedDeviceId: String? = null
 
     @Volatile
     private var sessionRevision = 0L
@@ -86,6 +87,7 @@ class LocalApiClient(
             endpointRevision += 1
             currentBaseUrl = url
             authInterceptor.clearSession()
+            authenticatedDeviceId = null
             sessionRevision += 1
             bootstrapTrustManager = HelloBootstrapTrustManager()
             api = buildApi(bootstrapTrustManager ?: HelloBootstrapTrustManager())
@@ -190,6 +192,11 @@ class LocalApiClient(
             if (endpointRevision != helloEndpoint) {
                 throw CancellationException("장비 주소가 변경되어 인증 결과를 폐기했습니다.")
             }
+            val expectedDeviceId = authenticatedDeviceId
+            if (expectedDeviceId != null && !expectedDeviceId.equals(body.deviceId, ignoreCase = true)) {
+                authInterceptor.clearSession()
+                throw IllegalArgumentException("인증된 장비와 응답의 장비 정보가 일치하지 않습니다.")
+            }
             if (secretHex == null) {
                 authInterceptor.clearSession()
             } else {
@@ -216,6 +223,7 @@ class LocalApiClient(
                     secret = secret,
                     serverTimeEpochSeconds = body.serverTimeEpochSeconds
                 )
+                authenticatedDeviceId = body.deviceId.lowercase()
                 sessionRevision += 1
             }
         }
