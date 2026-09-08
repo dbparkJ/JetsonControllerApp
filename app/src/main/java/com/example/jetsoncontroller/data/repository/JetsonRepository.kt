@@ -12,6 +12,7 @@ import com.example.jetsoncontroller.data.network.LocalControlApi
 import com.example.jetsoncontroller.data.network.JetsonAuthenticationRecoveryException
 import com.example.jetsoncontroller.data.network.JetsonResponseSignatureException
 import com.example.jetsoncontroller.data.network.JetsonUnsignedServerErrorException
+import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.network.WifiDirectManager
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiAccessPointScanner
@@ -1667,7 +1668,14 @@ class JetsonRepository(
         if (!transportCoordinator.isCurrent(sessionRequest)) {
             throw CancellationException("장비 연결이 변경되어 작업 결과를 다시 확인해야 합니다.")
         }
-        if (controlled.isFailure && relayPrepared) {
+        // A lost response does not prove that start/restart failed. A verified
+        // same-session read can preserve the prepared relay without promoting
+        // the original RESULT_UNKNOWN into command success.
+        val observedPipeline = (controlled.exceptionOrNull() as? JetsonCommandResultUnknownException)
+            ?.stateQueryResult?.getOrNull() as? ManagedPipeline
+        val observedRunning = observedPipeline != null && observedPipeline.id == pipelineId &&
+            observedPipeline.state in setOf(PipelineState.RUNNING, PipelineState.STARTING)
+        if (controlled.isFailure && relayPrepared && !observedRunning) {
             mobileRtkRelayManager.stop(client)
         } else if (
             controlled.isSuccess &&
