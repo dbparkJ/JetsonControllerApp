@@ -68,12 +68,15 @@ class HttpAuthInterceptor : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        val trace = request.tag(ApiDiagnosticTrace::class.java)
         if (request.url.encodedPath == "/v1/hello") {
             return chain.proceed(request)
         }
 
-        val currentSession = session
-            ?: throw IOException("Jetson API 인증 세션이 준비되지 않았습니다.")
+        val currentSession = session ?: run {
+            trace?.record("api_auth", mapOf("authenticated" to false, "reasonCode" to "AUTHENTICATION"), incident = true)
+            throw IOException("Jetson API 인증 세션이 준비되지 않았습니다.")
+        }
         val canonicalPath = buildString {
             append(request.url.encodedPath)
             request.url.encodedQuery?.let { query ->
@@ -102,7 +105,9 @@ class HttpAuthInterceptor : Interceptor {
             .header("X-Request-Timestamp", headers.requestTimestamp)
             .header("X-Signature", headers.signature)
             .build()
+        trace?.signed(headers.requestNonce)
         val response = chain.proceed(signedRequest)
+        trace?.record("api_response", mapOf("httpStatus" to response.code))
         val responseBody = response.body
         val contentType = responseBody?.contentType()
         val responseBytes = responseBody?.bytes() ?: byteArrayOf()
@@ -110,6 +115,8 @@ class HttpAuthInterceptor : Interceptor {
 
         if (responseSignature == null) {
             response.close()
+            trace?.record("api_auth", mapOf("authenticated" to false, "httpStatus" to response.code,
+                "reasonCode" to "UNSIGNED_RESPONSE"), incident = true)
             throw unsignedResponseException(response.code)
         }
 
@@ -125,8 +132,12 @@ class HttpAuthInterceptor : Interceptor {
             )
         ) {
             response.close()
+            trace?.record("api_auth", mapOf("authenticated" to false, "httpStatus" to response.code,
+                "reasonCode" to "RESPONSE_SIGNATURE"), incident = true)
             throw JetsonResponseSignatureException()
         }
+
+        trace?.record("api_authenticated", mapOf("authenticated" to true, "httpStatus" to response.code))
 
         return response.newBuilder()
             .body(responseBody?.let { responseBytes.toResponseBody(contentType) })

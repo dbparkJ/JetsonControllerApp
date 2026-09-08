@@ -2,6 +2,9 @@ package com.example.jetsoncontroller.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
+import com.example.jetsoncontroller.data.network.ApiDiagnosticContext
+import com.example.jetsoncontroller.data.network.diagnosticFailure
 import com.example.jetsoncontroller.data.bluetooth.BleGattClient
 import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.BleScanner
@@ -23,6 +26,7 @@ import com.example.jetsoncontroller.protocol.CommandCodec
 import com.example.jetsoncontroller.protocol.JetsonCommand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -185,6 +189,14 @@ class JetsonRepository(
 
     init {
         scope.launch {
+            mobileRtkRelayManager.state.map { Triple(it.active, it.preparing, it.error != null) }
+                .distinctUntilChanged().collect { (active, preparing, errorPresent) ->
+                    ConnectionDiagnostics.record("rtk_state", mapOf(
+                        "active" to active, "preparing" to preparing, "errorPresent" to errorPresent
+                    ), incident = errorPresent)
+                }
+        }
+        scope.launch {
             val storedDeviceId = credentialStore.getPreferredDeviceId()
             if (preferredAutomaticDeviceId.value == null) {
                 preferredAutomaticDeviceId.value = storedDeviceId
@@ -313,7 +325,7 @@ class JetsonRepository(
                         ((transportCoordinator.state.value as? TransportState.Error)?.type ==
                             TransportType.WIFI_DIRECT && pendingWifiDirectTargetDeviceId != null)
                     ) {
-                        markIpTransportOffline("Wi-Fi 연결이 끊어졌습니다.")
+                        markIpTransportOffline("Wi-Fi 연결이 끊어졌습니다.", diagnosticReason = "LINK_LOST")
                     }
                 }
         }
@@ -436,8 +448,17 @@ class JetsonRepository(
         if (wifiDirectApiProbeJob !== probeJob) wifiDirectApiProbeJob?.cancel()
         val generation = transportCoordinator.nextConnectionAttempt()
         wifiDirectApiProbeJob = probeJob
+        ConnectionDiagnostics.record("recovery_state", mapOf(
+            "attemptId" to generation, "state" to "STARTED", "groupPresent" to wifiDirectManager.state.value.connected,
+            "deviceRef" to ConnectionDiagnostics.privateRef(expectedDeviceId)
+        ))
         try {
-            runWifiDirectApiProbe(host, expectedDeviceId, generation, preserveGroupOnFailure)
+            withContext(ApiDiagnosticContext(attemptId = generation)) {
+                runWifiDirectApiProbe(host, expectedDeviceId, generation, preserveGroupOnFailure)
+            }
+        } catch (error: CancellationException) {
+            ConnectionDiagnostics.record("recovery_state", mapOf("attemptId" to generation, "state" to "CANCELED"))
+            throw error
         } finally {
             if (wifiDirectApiProbeJob === probeJob) wifiDirectApiProbeJob = null
         }
@@ -457,6 +478,12 @@ class JetsonRepository(
             }
             wifiDirectManager.markApiChecking()
             val result = probeWifiDirectApiOnce(host, expectedDeviceId, synchronizeTime = !preserveGroupOnFailure)
+            ConnectionDiagnostics.record("recovery_state", mapOf(
+                "attemptId" to generation, "retryCount" to attempt, "success" to result.isSuccess,
+                "state" to if (result.isSuccess) "SUCCESS" else "FAILURE",
+                "exceptionClass" to result.exceptionOrNull()?.let(::diagnosticFailure),
+                "stale" to !wifiDirectAttemptIsCurrent(generation, host, expectedDeviceId)
+            ))
             if (!wifiDirectAttemptIsCurrent(generation, host, expectedDeviceId)) {
                 return
             }
@@ -489,15 +516,26 @@ class JetsonRepository(
                 ?: "Jetson API가 응답하지 않습니다."
             wifiDirectManager.markApiError(lastErrorMessage)
             if (preserveGroupOnFailure && isDirectTrustFailure(result.exceptionOrNull())) {
+                ConnectionDiagnostics.record("recovery_state", mapOf(
+                    "attemptId" to generation, "state" to "STOPPED", "reasonCode" to "TRUST_FAILURE"
+                ), incident = true)
                 reportWifiDirectApiError(lastErrorMessage)
                 return
             }
             if (attempt + 1 < WIFI_DIRECT_API_MAX_ATTEMPTS) {
+                ConnectionDiagnostics.record("recovery_state", mapOf(
+                    "attemptId" to generation, "state" to "RETRYING", "retryCount" to attempt + 1,
+                    "nextRetryMs" to WIFI_DIRECT_API_RETRY_DELAY_MILLIS * (attempt + 1L)
+                ))
                 delay(WIFI_DIRECT_API_RETRY_DELAY_MILLIS * (attempt + 1L))
             }
         }
 
         if (wifiDirectAttemptIsCurrent(generation, host, expectedDeviceId)) {
+            ConnectionDiagnostics.record("recovery_state", mapOf(
+                "attemptId" to generation, "state" to "EXHAUSTED", "reasonCode" to "BUDGET_EXHAUSTED",
+                "retryCount" to WIFI_DIRECT_API_MAX_ATTEMPTS
+            ), incident = true)
             reportWifiDirectApiError(lastErrorMessage)
             // An established group's API recovery has a finite episode. Keep
             // control unavailable and allow retryWifiDirectApi to resume it;
@@ -632,6 +670,9 @@ class JetsonRepository(
 
 
     fun disconnect() {
+        ConnectionDiagnostics.record("connection_intent", mapOf(
+            "desiredTransport" to "NONE", "reasonCode" to "USER", "intended" to false
+        ))
         stopMobileRtkRelay()
         explicitDisconnectRequested.set(true)
         automaticConnectivityEnabled.value = false
@@ -656,6 +697,10 @@ class JetsonRepository(
     }
 
     private fun activateAutomaticTarget(deviceId: String, scheduleFallback: Boolean) {
+        ConnectionDiagnostics.record("connection_intent", mapOf(
+            "desiredTransport" to "AUTO", "deviceRef" to ConnectionDiagnostics.privateRef(deviceId),
+            "intended" to true
+        ))
         explicitDisconnectRequested.set(false)
         val current = transportCoordinator.state.value as? TransportState.Connected
         val changingPreferred = preferredAutomaticDeviceId.value?.let {
@@ -778,13 +823,30 @@ class JetsonRepository(
         if (request.transport.type == TransportType.BLE) {
             return gattClient.writeCommand(CommandCodec.encode(JetsonCommand.GET_STATUS))
         }
-        val result = request.transport.getStatus()
+        val diagnosticFields = mapOf(
+            "sessionId" to request.sessionId, "requestSequence" to request.requestId,
+            "actualTransport" to request.transport.type
+        )
+        ConnectionDiagnostics.record("status_refresh", diagnosticFields + ("state" to "STARTED"))
+        val result = withContext(ApiDiagnosticContext(request.sessionId, request.requestId)) {
+            request.transport.getStatus()
+        }
         val applied = transportCoordinator.applyResponse(request) {
             result.onSuccess {
                 consecutiveIpStatusFailures.set(0)
                 updateStatus(it)
+                ConnectionDiagnostics.record("status_refresh", diagnosticFields + mapOf(
+                    "outcome" to "APPLIED", "success" to true, "failureCount" to 0,
+                    "sensorAvailable" to it.sensorTelemetryAvailable, "sensorFresh" to it.sensorTelemetryFresh,
+                    "measurementAgeMs" to it.sensorTelemetryAgeSeconds?.times(1000)?.toLong(),
+                    "ntripConnected" to it.gnssSensor.ntripConnected, "rtcmBytes" to it.gnssSensor.rtcmBytes
+                ))
             }.onFailure { error ->
                 val failures = consecutiveIpStatusFailures.incrementAndGet()
+                ConnectionDiagnostics.record("status_refresh", diagnosticFields + mapOf(
+                    "outcome" to "APPLIED", "success" to false, "failureCount" to failures,
+                    "exceptionClass" to diagnosticFailure(error)
+                ), incident = ipConnectionIsOffline(failures))
                 if (ipConnectionIsOffline(failures)) {
                     val direct = wifiDirectManager.state.value
                     val host = direct.groupOwnerAddress
@@ -804,6 +866,9 @@ class JetsonRepository(
                 }
             }
         }
+        if (!applied) ConnectionDiagnostics.record("status_refresh", diagnosticFields + mapOf(
+            "outcome" to "DISCARDED", "stale" to true, "success" to result.isSuccess
+        ))
         return applied && result.isSuccess
     }
 
@@ -981,6 +1046,10 @@ class JetsonRepository(
         if (registeredDevices.value.none { it.deviceId.equals(deviceId, ignoreCase = true) }) return
         activateAutomaticTarget(deviceId, scheduleFallback = false)
         explicitWifiDirectRequested.set(true)
+        ConnectionDiagnostics.record("connection_intent", mapOf(
+            "desiredTransport" to "WIFI_DIRECT", "reasonCode" to "USER", "intended" to true,
+            "deviceRef" to ConnectionDiagnostics.privateRef(deviceId)
+        ))
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackReady.value = false
         // Retire an automatic LAN candidate before honoring the explicit transport choice.
@@ -999,6 +1068,9 @@ class JetsonRepository(
     }
 
     fun cancelWifiDirectConnection() {
+        ConnectionDiagnostics.record("connection_intent", mapOf(
+            "desiredTransport" to "WIFI_DIRECT", "reasonCode" to "USER", "intended" to false
+        ))
         explicitWifiDirectRequested.set(false)
         automaticDirectFallbackReady.value = false
         automaticDirectFallbackJob?.cancel()
@@ -1087,6 +1159,10 @@ class JetsonRepository(
     fun connectLan(endpoint: DeviceEndpoint) {
         explicitWifiDirectRequested.set(false)
         activateAutomaticTarget(endpoint.deviceId, scheduleFallback = false)
+        ConnectionDiagnostics.record("connection_intent", mapOf(
+            "desiredTransport" to "LAN", "reasonCode" to "USER", "intended" to true,
+            "deviceRef" to ConnectionDiagnostics.privateRef(endpoint.deviceId)
+        ))
         connectLan(endpoint, automaticAttemptKey = null)
     }
 
@@ -1328,7 +1404,14 @@ class JetsonRepository(
         consecutiveIpStatusFailures.set(0)
     }
 
-    private fun markIpTransportOffline(message: String?, preserveDirectGroup: Boolean = false) {
+    private fun markIpTransportOffline(
+        message: String?, preserveDirectGroup: Boolean = false, diagnosticReason: String = "API_THRESHOLD"
+    ) {
+        ConnectionDiagnostics.record("transport_state", mapOf(
+            "newState" to "DISCONNECTED", "reasonCode" to diagnosticReason,
+            "groupPresent" to wifiDirectManager.state.value.connected,
+            "actualTransport" to transportCoordinator.currentTransport()?.type
+        ), incident = true)
         nextConnectionAttempt()
         // Keep the existing RTK safety policy until its independent lease/data
         // health can be established; preserving a group alone does not prove it.

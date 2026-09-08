@@ -19,6 +19,12 @@ val escapedVworldApiKey = vworldApiKey
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
 
+// Explicit provenance, separate from versionCode and the installed APK digest.
+// Restrict caller input so build metadata cannot introduce arbitrary log content.
+val diagnosticsBuildId = providers.gradleProperty("diagnosticsBuildId")
+    .orElse("local-unidentified").get()
+    .takeIf { it.matches(Regex("[A-Za-z0-9._-]{1,80}")) } ?: "local-unidentified"
+
 android {
     namespace = "com.example.jetsoncontroller"
     compileSdk {
@@ -33,6 +39,7 @@ android {
         versionName = "1.15.3"
 
         buildConfigField("String", "VWORLD_API_KEY", "\"$escapedVworldApiKey\"")
+        buildConfigField("String", "DIAGNOSTICS_BUILD_ID", "\"$diagnosticsBuildId\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -62,7 +62,8 @@ fun AlertSettingsScreen(
     onPipelineFailedEnabledChange: (Boolean) -> Unit,
     onUploadStartedEnabledChange: (Boolean) -> Unit,
     onUploadEndedEnabledChange: (Boolean) -> Unit,
-    onSectionSelected: (ControlSection) -> Unit
+    onSectionSelected: (ControlSection) -> Unit,
+    onOpenDiagnostics: () -> Unit = {}
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -77,6 +78,9 @@ fun AlertSettingsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text("연결 진단 기록")
+            }
             if (!notificationPermissionGranted) {
                 NotificationPermissionBanner(onRequestNotificationPermission)
             }

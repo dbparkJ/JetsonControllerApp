@@ -65,6 +65,7 @@ import com.example.jetsoncontroller.ui.sensors.CameraPreviewScreen
 import com.example.jetsoncontroller.ui.sensors.CameraPreviewViewModel
 import com.example.jetsoncontroller.ui.sensors.GnssMapScreen
 import com.example.jetsoncontroller.ui.settings.AlertSettingsScreen
+import com.example.jetsoncontroller.ui.diagnostics.ConnectionDiagnosticsScreen
 import com.example.jetsoncontroller.ui.settings.AlertSettingsViewModel
 import com.example.jetsoncontroller.ui.components.ControlSection
 
@@ -135,6 +136,8 @@ private object Routes {
     const val GNSS_MAP = "gnss_map"
 
     const val SETTINGS = "settings"
+
+    const val DIAGNOSTICS = "connection_diagnostics"
 
     const val ALERTS = "alerts"
 }
@@ -1087,6 +1090,10 @@ fun JetsonApp(
             )
         }
 
+        composable(Routes.DIAGNOSTICS) {
+            ConnectionDiagnosticsScreen(onBack = { navController.popBackStack() })
+        }
+
         composable(Routes.CAMERA_PREVIEW) {
             StatusPollingLifecycleEffect(dashboardViewModel)
             val camera = dashboardState.status.cameraSensor
@@ -1142,7 +1149,8 @@ fun JetsonApp(
                     alertSettingsViewModel::setUploadStartedEnabled,
                 onUploadEndedEnabledChange =
                     alertSettingsViewModel::setUploadEndedEnabled,
-                onSectionSelected = onSectionSelected
+                onSectionSelected = onSectionSelected,
+                onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) }
             )
         }
     }

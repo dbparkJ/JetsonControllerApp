@@ -39,6 +39,8 @@ jobs:
           --tests '*LocalApiClientReplayTest'
           --tests '*ApiCompatibilityTest'
           --tests '*HttpAuthSignerTest'
+          --tests '*DiagnosticFileStoreTest'
+          --tests '*DiagnosticPrivacyTest'
           --tests '*LanAddressSelectionTest'
           --tests '*WifiNetworkSelectionTest'
           --tests '*UploadQueueFilterTest'

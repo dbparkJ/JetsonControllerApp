@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.repository
 
 import android.content.Context
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import com.example.jetsoncontroller.data.bluetooth.BleGattClient
 import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.BleScanner
@@ -65,6 +66,25 @@ import kotlin.coroutines.resume
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class JetsonRepositoryStabilityTest {
+    @Test
+    fun `diagnostics separate current API threshold from physical group loss`() = runTest {
+        val events = mutableListOf<Pair<String, Map<String, Any?>>>()
+        ConnectionDiagnostics.setSinkForTests { event, fields, _ -> events += event to fields }
+        try {
+            Harness(testScheduler).use { h ->
+                h.activateDirect()
+                repeat(IP_STATUS_FAILURE_LIMIT) { assertFalse(h.repository.refreshStatus()) }
+                val failures = events.filter { it.first == "status_refresh" && it.second["outcome"] == "APPLIED" }
+                assertEquals(listOf(1, 2, 3), failures.map { it.second["failureCount"] })
+                assertEquals(1, failures.map { it.second["sessionId"] }.toSet().size)
+                assertEquals(3, failures.map { it.second["requestSequence"] }.toSet().size)
+                assertTrue(events.any { it.second["reasonCode"] == "API_THRESHOLD" && it.second["groupPresent"] == true })
+                assertTrue(events.none { it.second["reasonCode"] == "LINK_LOST" })
+                assertEquals(0, h.cleanupCalls())
+            }
+        } finally { ConnectionDiagnostics.setSinkForTests(null) }
+    }
+
     @Test
     fun `R1 two API failures on a present Direct link do not request cleanup`() = runTest {
         Harness(testScheduler).use { h ->

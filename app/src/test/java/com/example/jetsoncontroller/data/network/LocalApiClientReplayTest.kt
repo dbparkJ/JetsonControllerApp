@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.network
 
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineState
@@ -22,6 +23,7 @@ import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -36,6 +38,54 @@ import org.mockito.Mockito
 
 /** Runs the public client through Retrofit, OkHttp, TLS pinning and response HMAC. */
 class LocalApiClientReplayTest {
+    @Test
+    fun `diagnostics correlate real signed requests and never promote rejected responses`() = runBlocking {
+        val events = CopyOnWriteArrayList<Pair<String, Map<String, Any?>>>()
+        ConnectionDiagnostics.setSinkForTests { event, fields, _ -> events += event to fields }
+        try {
+            TestBackend().use { backend ->
+                val client = backend.connectedClient()
+                listOf(37L to 91L, 38L to 92L).map { (session, sequence) ->
+                    async(ApiDiagnosticContext(sessionId = session, requestSequence = sequence) + Dispatchers.Default) {
+                        client.getStatus().getOrThrow()
+                    }
+                }.forEach { it.await() }
+                val verifiedRows = events.filter { it.first == "api_authenticated" && it.second["route"] == "STATUS" }
+                assertEquals(setOf(37L to 91L, 38L to 92L), verifiedRows.map { it.second["sessionId"] to it.second["requestSequence"] }.toSet())
+                val verified = verifiedRows.single { it.second["sessionId"] == 37L }.second
+                assertEquals(37L, verified["sessionId"])
+                assertEquals(91L, verified["requestSequence"])
+                assertTrue(backend.requestRefs.contains(verified["requestRef"]))
+                assertTrue(events.any { it.first == "api_connection" && it.second["requestId"] == verified["requestId"] })
+                val endIndex = events.indexOfFirst { it.first == "api_call_ended" && it.second["requestId"] == verified["requestId"] }
+                val verifiedIndex = events.indexOfFirst { it.first == "api_authenticated" && it.second === verified }
+                assertTrue("Body transport end is not HMAC authentication", endIndex in 0 until verifiedIndex)
+
+                events.clear()
+                backend.readDamage = Damage.SIGNATURE
+                backend.alwaysDamageReads = true
+                assertTrue(client.getStatus().isFailure)
+                assertTrue(events.any { it.first == "api_auth" && it.second["authenticated"] == false })
+                assertTrue(events.none { it.first == "api_authenticated" })
+                assertTrue(events.none { it.second.values.any { value -> value == "127.0.0.1" || value == "test-boot" } })
+                backend.assertAuthenticatedRequests()
+            }
+        } finally { ConnectionDiagnostics.setSinkForTests(null) }
+    }
+
+    @Test
+    fun `diagnostic sink failure cannot break authenticated request or call release`() = runBlocking {
+        ConnectionDiagnostics.setSinkForTests { _, _, _ -> throw IllegalStateException("storage unavailable") }
+        try {
+            TestBackend().use { backend ->
+                val client = backend.connectedClient()
+                client.getStatus().getOrThrow()
+                backend.assertCallsReleased(client)
+                backend.assertAuthenticatedRequests()
+            }
+        } finally { ConnectionDiagnostics.setSinkForTests(null) }
+    }
+
     @Test
     fun `pipeline restart with damaged response is never executed twice`() = runBlocking {
         TestBackend().use { backend ->
@@ -350,6 +400,7 @@ class LocalApiClientReplayTest {
         val mutations = AtomicInteger()
         val queries = AtomicInteger()
         val hellos = AtomicInteger()
+        val requestRefs = CopyOnWriteArrayList<String>()
         val mutationReceived = CompletableDeferred<Unit>()
         val queryReceived = CompletableDeferred<Unit>()
         val releaseResponse = CountDownLatch(1)
@@ -402,6 +453,10 @@ class LocalApiClientReplayTest {
                 }
                 val bytes = exchange.requestBody.readBytes()
                 val headers = exchange.requestHeaders
+                headers.getFirst("X-Request-Nonce")?.let { nonce ->
+                    requestRefs += MessageDigest.getInstance("SHA-256").digest(("STAB1:" + nonce).toByteArray())
+                        .joinToString("") { "%02x".format(it) }.take(16)
+                }
                 if (headers.getFirst("X-Device-Id") != deviceId) {
                     if (exchange.requestMethod == "GET") queries.incrementAndGet()
                     else mutations.incrementAndGet()

@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.network
 
 import android.annotation.SuppressLint
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.model.CameraPreviewFrame
 import com.example.jetsoncontroller.model.JetsonStatus
@@ -40,7 +41,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl
 import okhttp3.Call
+import okhttp3.Connection
 import okhttp3.EventListener
+import okhttp3.Request
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -58,6 +61,7 @@ class LocalApiClient(
     private val credentialStore: DeviceCredentialStore
 ) {
     private val gson = Gson()
+    private val diagnosticClientId = ConnectionDiagnostics.newId()
     private val authInterceptor = HttpAuthInterceptor()
     private var currentBaseUrl: String? = null
     private var api: LocalControlApi? = null
@@ -94,6 +98,10 @@ class LocalApiClient(
             activeCalls.toList()
         }
         staleCalls.forEach { it.cancel() }
+        ConnectionDiagnostics.record("api_endpoint", mapOf(
+            "clientId" to diagnosticClientId, "endpointGeneration" to endpointRevision,
+            "endpointRef" to ConnectionDiagnostics.privateRef(url), "authRevision" to sessionRevision
+        ))
     }
 
     @SuppressLint("BadHostnameVerifier")
@@ -117,14 +125,30 @@ class LocalApiClient(
                     }
                     // Covers a call created before reset but enqueued afterwards.
                     if (stale) call.cancel()
+                    call.request().tag(ApiDiagnosticTrace::class.java)?.record(
+                        "api_call_started", mapOf("stale" to stale)
+                    )
+                }
+
+                override fun connectionAcquired(call: Call, connection: Connection) {
+                    call.request().tag(ApiDiagnosticTrace::class.java)?.acquired(connection)
+                }
+
+                override fun requestHeadersEnd(call: Call, request: Request) {
+                    // This is wire metadata only. Authentication is recorded after HMAC verification.
+                    request.tag(ApiDiagnosticTrace::class.java)?.record("api_request_headers")
                 }
 
                 override fun callEnd(call: Call) {
                     synchronized(endpointLock) { activeCalls.remove(call) }
+                    call.request().tag(ApiDiagnosticTrace::class.java)?.record("api_call_ended")
                 }
 
                 override fun callFailed(call: Call, ioe: IOException) {
                     synchronized(endpointLock) { activeCalls.remove(call) }
+                    call.request().tag(ApiDiagnosticTrace::class.java)?.record(
+                        "api_failure", mapOf("exceptionClass" to diagnosticFailure(ioe)), incident = true
+                    )
                 }
             })
             .connectTimeout(5, TimeUnit.SECONDS)
@@ -143,7 +167,9 @@ class LocalApiClient(
             .build()
         return Retrofit.Builder()
             .baseUrl(currentBaseUrl ?: error("Jetson API 주소가 설정되지 않았습니다."))
-            .callFactory { request ->
+            .callFactory { original ->
+                val request = original.newBuilder().tag(ApiDiagnosticTrace::class.java,
+                    ApiDiagnosticTrace(original, diagnosticClientId, apiEndpointRevision)).build()
                 if (request.method !in setOf("GET", "HEAD", "OPTIONS")) {
                     // OkHttp may also follow a 503 Retry-After: 0 even with IO retry
                     // disabled. Mark mutations one-shot, including bodyless DELETEs.
@@ -168,6 +194,8 @@ class LocalApiClient(
 
     suspend fun hello(): Result<LocalControlApi.HelloResponse> = suspendResult {
         val helloEndpoint = endpointRevision
+        val helloStartedUtcMs = System.currentTimeMillis()
+        val helloStartedNanos = System.nanoTime()
         val response = requireApi().hello()
         val body = requireBody(response, "장비 확인")
         require(body.authScheme == "JETSONHTTP2") {
@@ -225,6 +253,18 @@ class LocalApiClient(
                 )
                 authenticatedDeviceId = body.deviceId.lowercase()
                 sessionRevision += 1
+                val elapsedMs = (System.nanoTime() - helloStartedNanos) / 1_000_000
+                val helloEndedUtcMs = System.currentTimeMillis()
+                val clockStepMs = kotlin.math.abs(helloEndedUtcMs - helloStartedUtcMs - elapsedMs)
+                response.raw().request.tag(ApiDiagnosticTrace::class.java)?.record(
+                    "api_hello_clock", mapOf(
+                        "authenticated" to true, "authRevision" to sessionRevision,
+                        "deviceRef" to ConnectionDiagnostics.privateRef(body.deviceId),
+                        "offsetEstimateMs" to body.serverTimeEpochSeconds * 1000 - (helloEndedUtcMs - elapsedMs / 2),
+                        // Server time has whole-second precision; estimate is not clock synchronization.
+                        "uncertaintyMs" to elapsedMs / 2 + 1000 + clockStepMs
+                    )
+                )
             }
         }
         body
@@ -623,6 +663,11 @@ class LocalApiClient(
             val observation = withTimeoutOrNull(COMMAND_STATE_QUERY_TIMEOUT_MILLIS) { query() }
                 ?: Result.failure<Any>(IOException("현재 상태 조회 시간이 초과되었습니다."))
             requireCurrentEndpoint()
+            ConnectionDiagnostics.record("api_result_unknown", mapOf(
+                "clientId" to diagnosticClientId, "endpointGeneration" to commandEndpoint,
+                "exceptionClass" to diagnosticFailure(error), "success" to observation.isSuccess,
+                "outcome" to "UNKNOWN"
+            ), incident = true)
             throw JetsonCommandResultUnknownException(operation, observation, error)
         }
     }
