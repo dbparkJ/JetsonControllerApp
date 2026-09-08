@@ -37,11 +37,18 @@ import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl
+import okhttp3.Call
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.IOException
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
@@ -56,9 +63,14 @@ class LocalApiClient(
     private var api: LocalControlApi? = null
     private var bootstrapTrustManager: HelloBootstrapTrustManager? = null
     private val sessionRefreshMutex = Mutex()
+    private val endpointLock = Any()
+    private val activeCalls = mutableSetOf<Call>()
 
     @Volatile
     private var sessionRevision = 0L
+
+    @Volatile
+    private var endpointRevision = 0L
 
     fun updateEndpoint(host: String, port: Int) {
         val normalizedHost = host.removePrefix("[").removeSuffix("]")
@@ -70,15 +82,21 @@ class LocalApiClient(
             .build()
             .toString()
 
-        currentBaseUrl = url
-        authInterceptor.clearSession()
-        sessionRevision += 1
-        bootstrapTrustManager = HelloBootstrapTrustManager()
-        api = buildApi(bootstrapTrustManager ?: HelloBootstrapTrustManager())
+        val staleCalls = synchronized(endpointLock) {
+            endpointRevision += 1
+            currentBaseUrl = url
+            authInterceptor.clearSession()
+            sessionRevision += 1
+            bootstrapTrustManager = HelloBootstrapTrustManager()
+            api = buildApi(bootstrapTrustManager ?: HelloBootstrapTrustManager())
+            activeCalls.toList()
+        }
+        staleCalls.forEach { it.cancel() }
     }
 
     @SuppressLint("BadHostnameVerifier")
     private fun buildApi(trustManager: X509TrustManager): LocalControlApi {
+        val apiEndpointRevision = endpointRevision
         val sslContext = SSLContext.getInstance("TLS").apply {
             init(null, arrayOf(trustManager), SecureRandom())
         }
@@ -87,6 +105,26 @@ class LocalApiClient(
             // Device identity is the exact certificate pin, not a changing LAN IP.
             .hostnameVerifier { _, _ -> true }
             .addInterceptor(authInterceptor)
+            .eventListener(object : EventListener() {
+                override fun callStart(call: Call) {
+                    val stale = synchronized(endpointLock) {
+                        if (endpointRevision == apiEndpointRevision) {
+                            activeCalls.add(call)
+                            false
+                        } else true
+                    }
+                    // Covers a call created before reset but enqueued afterwards.
+                    if (stale) call.cancel()
+                }
+
+                override fun callEnd(call: Call) {
+                    synchronized(endpointLock) { activeCalls.remove(call) }
+                }
+
+                override fun callFailed(call: Call, ioe: IOException) {
+                    synchronized(endpointLock) { activeCalls.remove(call) }
+                }
+            })
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(45, TimeUnit.SECONDS)
             .writeTimeout(45, TimeUnit.SECONDS)
@@ -97,10 +135,25 @@ class LocalApiClient(
             .writeTimeout(6, TimeUnit.SECONDS)
             .callTimeout(8, TimeUnit.SECONDS)
             .build()
+        val commandClient = client.newBuilder()
+            .retryOnConnectionFailure(false)
+            .followRedirects(false)
+            .build()
         return Retrofit.Builder()
             .baseUrl(currentBaseUrl ?: error("Jetson API 주소가 설정되지 않았습니다."))
             .callFactory { request ->
-                if (request.url.encodedPath in setOf("/v1/hello", "/v1/status", "/v1/capabilities")) {
+                if (request.method !in setOf("GET", "HEAD", "OPTIONS")) {
+                    // OkHttp may also follow a 503 Retry-After: 0 even with IO retry
+                    // disabled. Mark mutations one-shot, including bodyless DELETEs.
+                    val body = request.body ?: byteArrayOf().toRequestBody()
+                    val oneShotBody = object : RequestBody() {
+                        override fun contentType() = body.contentType()
+                        override fun contentLength() = body.contentLength()
+                        override fun writeTo(sink: BufferedSink) = body.writeTo(sink)
+                        override fun isOneShot() = true
+                    }
+                    commandClient.newCall(request.newBuilder().method(request.method, oneShotBody).build())
+                } else if (request.url.encodedPath in setOf("/v1/hello", "/v1/status", "/v1/capabilities")) {
                     statusClient.newCall(request)
                 } else {
                     client.newCall(request)
@@ -112,6 +165,7 @@ class LocalApiClient(
     }
 
     suspend fun hello(): Result<LocalControlApi.HelloResponse> = suspendResult {
+        val helloEndpoint = endpointRevision
         val response = requireApi().hello()
         val body = requireBody(response, "장비 확인")
         require(body.authScheme == "JETSONHTTP2") {
@@ -132,33 +186,38 @@ class LocalApiClient(
             "Jetson TLS 인증서 정보가 일치하지 않습니다."
         }
         val secretHex = credentialStore.getSecret(body.deviceId)
-        if (secretHex == null) {
-            authInterceptor.clearSession()
-        } else {
-            val secret = hexToBytes(secretHex)
-            require(
-                HttpAuthSigner.verifyHello(
-                    secret = secret,
-                    apiVersion = body.apiVersion,
-                    deviceId = body.deviceId,
-                    deviceName = body.deviceName,
-                    bootNonce = body.bootNonce,
-                    serverTimeEpochSeconds = body.serverTimeEpochSeconds,
-                    authScheme = body.authScheme,
-                    tlsCertificateSha256 = body.tlsCertificateSha256,
-                    receivedProof = body.helloProof
-                )
-            ) {
-                "Jetson TLS 인증서 증명에 실패했습니다."
+        synchronized(endpointLock) {
+            if (endpointRevision != helloEndpoint) {
+                throw CancellationException("장비 주소가 변경되어 인증 결과를 폐기했습니다.")
             }
-            api = buildApi(PinnedCertificateTrustManager(peerFingerprint))
-            authInterceptor.updateSession(
-                deviceId = body.deviceId,
-                bootNonce = body.bootNonce,
-                secret = secret,
-                serverTimeEpochSeconds = body.serverTimeEpochSeconds
-            )
-            sessionRevision += 1
+            if (secretHex == null) {
+                authInterceptor.clearSession()
+            } else {
+                val secret = hexToBytes(secretHex)
+                require(
+                    HttpAuthSigner.verifyHello(
+                        secret = secret,
+                        apiVersion = body.apiVersion,
+                        deviceId = body.deviceId,
+                        deviceName = body.deviceName,
+                        bootNonce = body.bootNonce,
+                        serverTimeEpochSeconds = body.serverTimeEpochSeconds,
+                        authScheme = body.authScheme,
+                        tlsCertificateSha256 = body.tlsCertificateSha256,
+                        receivedProof = body.helloProof
+                    )
+                ) {
+                    "Jetson TLS 인증서 증명에 실패했습니다."
+                }
+                api = buildApi(PinnedCertificateTrustManager(peerFingerprint))
+                authInterceptor.updateSession(
+                    deviceId = body.deviceId,
+                    bootNonce = body.bootNonce,
+                    secret = secret,
+                    serverTimeEpochSeconds = body.serverTimeEpochSeconds
+                )
+                sessionRevision += 1
+            }
         }
         body
     }
@@ -187,11 +246,8 @@ class LocalApiClient(
     suspend fun sendCommand(
         command: String,
         body: Map<String, Any> = emptyMap()
-    ): Result<Unit> = suspendResult {
-        requireSuccess(
-            withSessionRetry { requireApi().sendCommand(command, body) },
-            "명령 전송"
-        )
+    ): Result<Unit> = commandUnit("명령 전송", query = { getStatus() }) {
+        requireApi().sendCommand(command, body)
     }
 
     suspend fun getRoots(): Result<List<RemoteRoot>> =
@@ -217,7 +273,9 @@ class LocalApiClient(
     suspend fun deleteStorageEntry(
         rootId: String,
         path: String
-    ): Result<DeviceStorageDeletion> = request("장치 데이터 삭제") {
+    ): Result<DeviceStorageDeletion> = command(
+        "장치 데이터 삭제", query = { listFiles(rootId, path.substringBeforeLast('/', "")) }
+    ) {
         requireApi().deleteStorageEntry(
             rootId,
             path,
@@ -294,7 +352,9 @@ class LocalApiClient(
     suspend fun deleteUploadLibrarySession(
         targetId: String,
         sessionId: String
-    ): Result<UploadDeletionResponse> = request("서버 데이터 삭제") {
+    ): Result<UploadDeletionResponse> = command(
+        "서버 데이터 삭제", query = { getUploadLibrarySessions(targetId) }
+    ) {
         requireApi().deleteUploadLibrarySession(
             sessionId,
             targetId,
@@ -314,25 +374,23 @@ class LocalApiClient(
         label: String,
         baseUrl: String,
         token: String?
-    ): Result<UploadTarget> = request("업로드 서버 저장") {
+    ): Result<UploadTarget> = command("업로드 서버 저장", query = { getUploadTargets() }) {
         requireApi().saveUploadTarget(
             targetId,
             LocalControlApi.SaveUploadTargetRequest(label, baseUrl, token)
         )
     }
 
-    suspend fun deleteUploadTarget(targetId: String): Result<Unit> = suspendResult {
-        requireSuccess(
-            withSessionRetry { requireApi().deleteUploadTarget(targetId) },
-            "업로드 서버 삭제"
-        )
-    }
+    suspend fun deleteUploadTarget(targetId: String): Result<Unit> =
+        commandUnit("업로드 서버 삭제", query = { getUploadTargets() }) {
+            requireApi().deleteUploadTarget(targetId)
+        }
 
     suspend fun startUpload(
         rootId: String,
         relativePath: String,
         targetId: String
-    ): Result<UploadJob> = request("업로드 시작") {
+    ): Result<UploadJob> = command("업로드 시작", query = { getUploadJobs() }) {
         requireApi().startUpload(
             LocalControlApi.StartUploadRequest(rootId, relativePath, targetId)
         )
@@ -346,29 +404,22 @@ class LocalApiClient(
     suspend fun getUploadJob(jobId: String): Result<UploadJob> =
         request("업로드 상태 조회") { requireApi().getUploadJob(jobId) }
 
-    suspend fun deleteUploadJob(jobId: String): Result<Unit> = suspendResult {
-        requireSuccess(
-            withSessionRetry {
-                requireApi().deleteUploadJob(
-                    jobId,
-                    LocalControlApi.ConfirmDeletionRequest()
-                )
-            },
-            "업로드 기록 삭제"
-        )
-    }
+    suspend fun deleteUploadJob(jobId: String): Result<Unit> =
+        commandUnit("업로드 기록 삭제", query = { getUploadJobs() }) {
+            requireApi().deleteUploadJob(jobId, LocalControlApi.ConfirmDeletionRequest())
+        }
 
     suspend fun cancelUpload(jobId: String): Result<UploadJob> =
-        request("업로드 취소") { requireApi().cancelUpload(jobId) }
+        command("업로드 취소", query = { getUploadJob(jobId) }) { requireApi().cancelUpload(jobId) }
 
     suspend fun retryUpload(jobId: String): Result<UploadJob> =
-        request("업로드 재시도") { requireApi().retryUpload(jobId) }
+        command("업로드 재시도", query = { getUploadJob(jobId) }) { requireApi().retryUpload(jobId) }
 
     suspend fun verifyUploadSource(jobId: String): Result<UploadVerification> =
-        request("업로드 데이터 검증") { requireApi().verifyUploadSource(jobId) }
+        command("업로드 데이터 검증", query = { getUploadJob(jobId) }) { requireApi().verifyUploadSource(jobId) }
 
     suspend fun deleteUploadSource(jobId: String): Result<UploadJob> =
-        request("업로드 원본 삭제") {
+        command("업로드 원본 삭제", query = { getUploadJob(jobId) }) {
             requireApi().deleteUploadSource(
                 jobId,
                 LocalControlApi.ConfirmDeletionRequest()
@@ -390,7 +441,7 @@ class LocalApiClient(
         path: String,
         name: String,
         autostart: Boolean
-    ): Result<ManagedPipeline> = request("작업 폴더 등록") {
+    ): Result<ManagedPipeline> = command("작업 폴더 등록", query = { getPipelines() }) {
         requireApi().registerPipelineFolder(
             RegisterPipelineFolderRequest(rootId, path, name, autostart)
         )
@@ -399,22 +450,25 @@ class LocalApiClient(
     suspend fun registerPipeline(
         request: RegisterPipelineRequest
     ): Result<ManagedPipeline> =
-        request("자동 실행 작업 등록") { requireApi().registerPipeline(request) }
+        command("자동 실행 작업 등록", query = { getPipelines() }) { requireApi().registerPipeline(request) }
 
     suspend fun controlPipeline(
         pipelineId: String,
         action: String
     ): Result<ManagedPipeline> =
-        request("자동 실행 작업 제어") {
+        command("자동 실행 작업 제어", query = {
+            getPipelines().mapCatching { pipelines ->
+                pipelines.firstOrNull { it.id == pipelineId }
+                    ?: error("현재 작업 상태를 확인할 수 없습니다.")
+            }
+        }) {
             requireApi().controlPipeline(pipelineId, action)
         }
 
-    suspend fun removePipeline(pipelineId: String): Result<Unit> = suspendResult {
-        requireSuccess(
-            withSessionRetry { requireApi().removePipeline(pipelineId) },
-            "자동 실행 작업 등록 해제"
-        )
-    }
+    suspend fun removePipeline(pipelineId: String): Result<Unit> =
+        commandUnit("자동 실행 작업 등록 해제", query = { getPipelines() }) {
+            requireApi().removePipeline(pipelineId)
+        }
 
     suspend fun getSystemTime(): Result<SystemTimeStatus> =
         request("장치 시간 조회") { requireApi().getSystemTime() }
@@ -422,7 +476,7 @@ class LocalApiClient(
     suspend fun synchronizeSystemTime(
         mobileTimeEpochMillis: Long
     ): Result<SystemTimeStatus> = suspendResult {
-        val response = withSessionRetry {
+        val response = withCommandRecovery("장치 시간 동기화", query = { getSystemTime() }) {
             requireApi().synchronizeSystemTime(
                 LocalControlApi.SynchronizeSystemTimeRequest(mobileTimeEpochMillis)
             )
@@ -437,7 +491,7 @@ class LocalApiClient(
         request("FAN 상태 조회") { requireApi().getFanStatus() }
 
     suspend fun setFan(mode: String, percent: Int? = null): Result<FanStatus> =
-        request("FAN 제어") {
+        command("FAN 제어", query = { getFanStatus() }) {
             requireApi().setFan(LocalControlApi.SetFanRequest(mode, percent))
         }
 
@@ -464,7 +518,7 @@ class LocalApiClient(
         pipelineId: String,
         content: String
     ): Result<PipelineConfigDocument> =
-        request("YAML 설정 저장") {
+        command("YAML 설정 저장", query = { getPipelineConfig(pipelineId) }) {
             requireApi().updatePipelineConfig(
                 pipelineId,
                 UpdatePipelineConfigRequest(content)
@@ -481,7 +535,7 @@ class LocalApiClient(
         revision: String,
         values: Map<String, String>
     ): Result<PipelineConfigFieldsDocument> =
-        request("작업 설정 저장") {
+        command("작업 설정 저장", query = { getPipelineConfigFields(pipelineId) }) {
             requireApi().updatePipelineConfigFields(
                 pipelineId,
                 UpdatePipelineConfigFieldsRequest(revision, values)
@@ -499,27 +553,71 @@ class LocalApiClient(
         pipelineId: String,
         port: Int
     ): Result<MobileRtkRelayRegistration> =
-        request("모바일 RTK 중계 등록") {
+        command("모바일 RTK 중계 등록", query = { getStatus() }) {
             requireApi().registerMobileRtkRelay(
                 RegisterMobileRtkRelayRequest(pipelineId, port)
             )
         }
 
     suspend fun unregisterMobileRtkRelay(pipelineId: String): Result<Unit> =
-        suspendResult {
-            requireSuccess(
-                withSessionRetry { requireApi().unregisterMobileRtkRelay(pipelineId) },
-                "모바일 RTK 중계 해제"
-            )
+        commandUnit("모바일 RTK 중계 해제", query = { getStatus() }) {
+            requireApi().unregisterMobileRtkRelay(pipelineId)
         }
 
     suspend fun configureWifi(
         request: WifiProvisionRequest
     ): Result<LocalControlApi.WifiProvisionResponse> =
-        request("Wi-Fi 설정") { requireApi().configureWifi(request) }
+        command("Wi-Fi 설정", query = { getStatus() }) { requireApi().configureWifi(request) }
 
     private fun requireApi(): LocalControlApi =
         api ?: error("Jetson API 주소가 설정되지 않았습니다.")
+
+    private suspend fun <T> command(
+        operation: String,
+        query: suspend () -> Result<*>,
+        call: suspend () -> Response<T>
+    ): Result<T> = suspendResult {
+        requireBody(withCommandRecovery(operation, query, call = call), operation)
+    }
+
+    private suspend fun commandUnit(
+        operation: String,
+        query: suspend () -> Result<*>,
+        call: suspend () -> Response<Unit>
+    ): Result<Unit> = suspendResult {
+        requireSuccess(withCommandRecovery(operation, query, allowEmptyBody = true, call = call), operation)
+    }
+
+    private suspend fun <T> withCommandRecovery(
+        operation: String,
+        query: suspend () -> Result<*>,
+        allowEmptyBody: Boolean = false,
+        call: suspend () -> Response<T>
+    ): Response<T> {
+        val commandEndpoint = endpointRevision
+        fun requireCurrentEndpoint() {
+            if (endpointRevision != commandEndpoint) {
+                throw CancellationException("장비 주소가 변경되어 명령 결과를 다시 확인해야 합니다.")
+            }
+        }
+        return try {
+            call().also { response ->
+                requireCurrentEndpoint()
+                if (response.isSuccessful && !allowEmptyBody && response.body() == null) {
+                    throw IOException("$operation 응답이 비어 있어 실행 결과를 확인할 수 없습니다.")
+                }
+            }
+        } catch (error: IOException) {
+            requireCurrentEndpoint()
+            // An unverified 401, invalid response signature or lost response cannot
+            // prove that a mutation was not applied. Only safe reads may retry auth.
+            // A successful state query is observation, not an operation receipt.
+            val observation = withTimeoutOrNull(COMMAND_STATE_QUERY_TIMEOUT_MILLIS) { query() }
+                ?: Result.failure<Any>(IOException("현재 상태 조회 시간이 초과되었습니다."))
+            requireCurrentEndpoint()
+            throw JetsonCommandResultUnknownException(operation, observation, error)
+        }
+    }
 
     private suspend fun <T> request(
         operation: String,
@@ -542,9 +640,16 @@ class LocalApiClient(
 
     private suspend fun <T> withSessionRetry(call: suspend () -> T): T {
         val attemptedRevision = sessionRevision
+        val attemptedEndpoint = endpointRevision
+        fun requireCurrentEndpoint() {
+            if (endpointRevision != attemptedEndpoint) {
+                throw CancellationException("장비 주소가 변경되었습니다.")
+            }
+        }
         return try {
-            call()
+            call().also { requireCurrentEndpoint() }
         } catch (error: Exception) {
+            requireCurrentEndpoint()
             if (
                 error !is JetsonSessionExpiredException &&
                 error !is JetsonResponseSignatureException
@@ -553,12 +658,15 @@ class LocalApiClient(
             }
             try {
                 sessionRefreshMutex.withLock {
+                    requireCurrentEndpoint()
                     if (sessionRevision == attemptedRevision) {
                         hello().getOrThrow()
                     }
                 }
-                call()
+                requireCurrentEndpoint()
+                call().also { requireCurrentEndpoint() }
             } catch (retryError: Exception) {
+                requireCurrentEndpoint()
                 throw authenticationRecoveryException(retryError)
             }
         }
@@ -617,6 +725,25 @@ class LocalApiClient(
 }
 
 private const val CAMERA_PREVIEW_WAIT_MILLIS = 1_000
+// Match the existing status call budget; never leave an uncertain command waiting
+// through the general client's 45-second read timeout or an unbounded auth loop.
+private const val COMMAND_STATE_QUERY_TIMEOUT_MILLIS = 8_000L
+
+class JetsonCommandResultUnknownException(
+    val operation: String,
+    val stateQueryResult: Result<*>,
+    cause: Throwable
+) : IOException(
+    "$operation 실행 결과를 확인하지 못했습니다. 명령은 다시 보내지 않았습니다. " +
+        if (stateQueryResult.isSuccess) {
+            "현재 상태를 조회했으므로 작업 상태를 확인한 뒤 다시 시도해 주세요."
+        } else {
+            "현재 상태도 조회하지 못했습니다. 연결 복구 후 작업 상태를 확인해 주세요."
+        },
+    cause
+) {
+    val resultCode: String = "RESULT_UNKNOWN"
+}
 
 internal suspend fun <T> withLegacyEndpointFallback(
     call: suspend () -> T,
