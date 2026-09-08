@@ -17,6 +17,7 @@ from . import __version__
 from .auth import RequestAuthenticator, sign_hello, sign_response
 from .commands import CommandDisabled, CommandError, CommandRunner
 from .config import DeviceConfig, RuntimePaths
+from .diagnostics import DiagnosticsStore, RequestEvidenceMiddleware, safe_direct_network
 from .filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
 from .network import WifiProvisioner, validate_wifi_credentials
 from .mobile_rtk import MobileRtkRelayRegistry
@@ -260,15 +261,20 @@ def create_app(
     )
 
     status_snapshots = StatusSnapshotService(status_service)
+    diagnostics = DiagnosticsStore(runtime_paths.state_dir, "api")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        await run_in_threadpool(status_snapshots.refresh)
-        status_snapshots.start()
+        diagnostics.start()
         try:
-            yield
+            await run_in_threadpool(status_snapshots.refresh)
+            status_snapshots.start()
+            try:
+                yield
+            finally:
+                await run_in_threadpool(status_snapshots.stop)
         finally:
-            await run_in_threadpool(status_snapshots.stop)
+            await run_in_threadpool(diagnostics.close)
 
     app = FastAPI(
         title="Jetson Control API",
@@ -277,6 +283,7 @@ def create_app(
         lifespan=lifespan,
     )
 
+    app.state.connection_diagnostics = diagnostics
     app.state.device_config = device_config
     app.state.authenticator = request_auth
     app.state.status_collector = status_service
@@ -312,6 +319,7 @@ def create_app(
             body=body,
             received_signature=request.headers.get("X-Signature", ""),
         )
+        request.state.diagnostics_auth = "verified" if valid else "rejected"
         if not valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -324,6 +332,7 @@ def create_app(
 
     @app.middleware("http")
     async def authenticate_and_sign_v1_response(request: Request, call_next):
+        request.state.diagnostics_auth = "public" if request.url.path == "/v1/hello" else "unverified"
         if request.url.path.startswith("/v1/") and request.url.path != "/v1/hello":
             try:
                 await authenticate_request(request)
@@ -368,6 +377,12 @@ def create_app(
             headers=headers,
             background=response.background,
         )
+
+    app.add_middleware(
+        RequestEvidenceMiddleware,
+        store=diagnostics,
+        direct_network=safe_direct_network(device_config.wifi_direct_address),
+    )
 
     async def require_auth(request: Request) -> None:
         await authenticate_request(request)

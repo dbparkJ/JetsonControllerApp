@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from .config import DeviceConfig
+from .config import DeviceConfig, RuntimePaths
+from .diagnostics import DiagnosticsStore, NullDiagnostics
 
 
 STATUS_PATH = Path("/run/jetson-control/wifi-direct.json")
@@ -286,8 +287,10 @@ class WifiDirectController:
         status_path: Path = STATUS_PATH,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
+        diagnostics=None,
     ) -> None:
         self.settings = settings.validated()
+        self.diagnostics = diagnostics if diagnostics is not None else NullDiagnostics()
         self._run_process = run
         self._start_process = start_process
         self._sleep = sleep
@@ -416,6 +419,7 @@ class WifiDirectController:
 
     def request_connection(self, peer_address: str) -> bool:
         peer = normalize_mac_address(peer_address)
+        self.diagnostics.record("p2p_connect_request", attempt=self._attempt_id)
         with self._activation_lock:
             if self._activation_thread is not None and self._activation_thread.is_alive():
                 return False
@@ -632,6 +636,7 @@ class WifiDirectController:
         self._publish("STOPPED", "Wi-Fi Direct service stopped")
 
     def _activate_peer(self, peer: str, attempt_id: int) -> str:
+        self.diagnostics.record("p2p_worker_start", attempt=attempt_id)
         profile = PROFILE_PREFIX + peer.replace(":", "").lower()
         self._attempt_context.attempt_id = attempt_id
         self.active_peer = peer
@@ -664,6 +669,7 @@ class WifiDirectController:
             return ""
         finally:
             self._attempt_context.attempt_id = None
+            self.diagnostics.record("p2p_worker_end", attempt=attempt_id, state=self._state)
 
     def _recover_connection(self, error: Exception) -> None:
         self._attempt_deadline = None
@@ -868,8 +874,16 @@ class WifiDirectController:
                 )
 
     def _first_group_interface(self) -> Optional[str]:
-        result = self._run(["/usr/sbin/iw", "dev"])
+        try:
+            result = self._run(["/usr/sbin/iw", "dev"])
+        except WifiDirectError:
+            self.diagnostics.record("p2p_observation", group="unknown", attempt=self._attempt_id,
+                                    incident=True, episode="p2p")
+            raise
         groups = parse_p2p_group_interfaces(result.stdout)
+        self.diagnostics.record("p2p_observation", group="present" if groups else "absent",
+                                attempt=self._attempt_id,
+                                incident=not groups and self.group_interface is not None, episode="p2p")
         return groups[0] if groups else None
 
     def _group_has_connected_peer(self, interface: str) -> Optional[bool]:
@@ -878,13 +892,17 @@ class WifiDirectController:
             allow_failure=True,
         )
         if result.returncode != 0:
+            self.diagnostics.record("p2p_observation", peer="unknown", attempt=self._attempt_id)
             return None
-        return bool(
+        present = bool(
             re.search(
                 r"(?mi)^\s*Station\s+[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b",
                 result.stdout,
             )
         )
+        self.diagnostics.record("p2p_observation", peer="present" if present else "absent",
+                                attempt=self._attempt_id)
+        return present
 
     def _wait_for_group_interface(self) -> str:
         for _attempt in range(60):
@@ -895,10 +913,18 @@ class WifiDirectController:
         raise WifiDirectError("NetworkManager did not create a P2P Group Owner interface")
 
     def _interface_address(self, interface: str) -> Optional[str]:
-        result = self._run(
-            ["/usr/sbin/ip", "-j", "-4", "address", "show", "dev", interface],
-        )
-        return configured_ipv4_address(result.stdout, self.settings.address)
+        try:
+            result = self._run(
+                ["/usr/sbin/ip", "-j", "-4", "address", "show", "dev", interface],
+            )
+        except WifiDirectError:
+            self.diagnostics.record("p2p_observation", address="unknown", attempt=self._attempt_id,
+                                    incident=True, episode="p2p")
+            raise
+        address = configured_ipv4_address(result.stdout, self.settings.address)
+        self.diagnostics.record("p2p_observation", address="present" if address else "absent",
+                                attempt=self._attempt_id)
+        return address
 
     def _wait_for_interface_address(self, interface: str) -> str:
         for _attempt in range(40):
@@ -1073,6 +1099,18 @@ class WifiDirectController:
                 pass
 
     def _cleanup_direct_connection(self) -> None:
+        self.diagnostics.record("p2p_cleanup_requested", attempt=self._attempt_id,
+                                groupPresent=self.group_interface is not None)
+        try:
+            self._cleanup_direct_connection_impl()
+        except Exception:
+            self.diagnostics.record("p2p_cleanup_failed", attempt=self._attempt_id,
+                                    incident=True, episode="p2p")
+            raise
+        self.diagnostics.record("p2p_cleanup_completed", attempt=self._attempt_id,
+                                confirmed=False)
+
+    def _cleanup_direct_connection_impl(self) -> None:
         self._peer_absent_since = None
         if not self._manual_owner_mode:
             self._delete_active_profile()
@@ -1199,6 +1237,11 @@ class WifiDirectController:
         self._check_attempt()
         if getattr(self._attempt_context, "attempt_id", None) is not None and self._attempt_deadline is not None:
             timeout = min(timeout, max(0.001, self._attempt_deadline - self._monotonic()))
+        diagnostic_command = Path(command[0]).name
+        if diagnostic_command == "wpa_cli":
+            diagnostic_command = command[7] if len(command) > 7 else "other"
+        if diagnostic_command not in {"iw", "ip", "nmcli", "p2p_group_remove", "p2p_group_add", "p2p_connect", "p2p_cancel", "p2p_find", "p2p_stop_find", "p2p_flush"}:
+            diagnostic_command = "other"
         try:
             result = self._run_process(
                 list(command),
@@ -1208,12 +1251,20 @@ class WifiDirectController:
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as error:
+            self.diagnostics.record("p2p_command_result", command=diagnostic_command,
+                                    outcome="timeout", attempt=self._attempt_id)
             raise WifiDirectError("Command timed out: {}".format(" ".join(command))) from error
         except OSError as error:
+            self.diagnostics.record("p2p_command_result", command=diagnostic_command,
+                                    outcome="unavailable", attempt=self._attempt_id)
             raise WifiDirectError("Command unavailable: {} ({})".format(command[0], error)) from error
         self._check_attempt()
         output_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         control_failed = bool(output_lines and output_lines[-1].startswith("FAIL"))
+        self.diagnostics.record("p2p_command_result", command=diagnostic_command,
+                                outcome="accepted" if result.returncode == 0 and not control_failed else "rejected",
+                                osAccepted=result.returncode == 0 and not control_failed,
+                                confirmed=False, attempt=self._attempt_id)
         if not allow_failure and (result.returncode != 0 or control_failed):
             detail = result.stderr.strip() or result.stdout.strip() or "no output"
             raise WifiDirectError(
@@ -1227,6 +1278,7 @@ class WifiDirectController:
         message: str,
         address: Optional[str] = None,
     ) -> None:
+        previous_state = self._state
         self._state = state
         payload: Dict[str, object] = {
             "enabled": state in {"DISCOVERABLE", "CONNECTING", "READY"},
@@ -1245,6 +1297,12 @@ class WifiDirectController:
             "attemptId": self._attempt_id,
             "lastError": self._last_error,
         }
+        self.diagnostics.record("p2p_state", state=state, previousState=previous_state,
+                                attempt=self._attempt_id, groupPresent=self.group_interface is not None,
+                                dhcpActive=payload["dhcpActive"], ownerMode=payload["ownerMode"],
+                                frequencyMhz=self.settings.frequency,
+                                incident=state == "ERROR" or (previous_state == "READY" and state == "DISCOVERABLE"),
+                                recovered=state == "READY", episode="p2p")
         with self._status_lock:
             self.status_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.status_path.with_suffix(".tmp")
@@ -1400,14 +1458,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     config = DeviceConfig.load(args.device_config)
-    controller = WifiDirectController(
-        WifiDirectSettings.from_device_config(config),
-        status_path=args.status_path,
-    )
-    if not config.wifi_direct_enabled:
-        controller._publish("DISABLED", "Wi-Fi Direct is disabled in device configuration")
-        return 0
-    return run_daemon(controller)
+    diagnostics = DiagnosticsStore(RuntimePaths().state_dir, "p2p")
+    diagnostics.start()
+    try:
+        controller = WifiDirectController(
+            WifiDirectSettings.from_device_config(config),
+            status_path=args.status_path,
+            diagnostics=diagnostics,
+        )
+        if not config.wifi_direct_enabled:
+            controller._publish("DISABLED", "Wi-Fi Direct is disabled in device configuration")
+            return 0
+        return run_daemon(controller)
+    finally:
+        diagnostics.close()
 
 
 if __name__ == "__main__":
