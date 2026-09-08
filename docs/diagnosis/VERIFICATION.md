@@ -1,5 +1,7 @@
 # v3 검증 기록 — 2026-09-08
 
+> 최신 추가분: 상시 로그 소스 구현은 완료했으나 사용자 지시로 앱 빌드·Android 테스트는 **NOT RUN**입니다. 아래 기존 PASS/APK 기록은 이전 소스의 결과입니다. 문서 끝의 상시 진단 추가분과 [사용 안내](CONTINUOUS_LOGGING.md)를 함께 확인하세요.
+
 G0 PARTIAL 기록 후 로컬 검증 진행. 실제 실행 결과는 아래에 추가한다. 기존 보고 PASS는 이번 PASS로 승격하지 않는다.
 
 실기 목표 유지: T1 LAN 30분, T2 Direct 30분, T3 각 10회, T4 잠금 10분, T5 백그라운드 30분, T7 해제 후 10분. T6A API와 T6B 링크 각각 3/10/60초. 무선 ADB만으로 T6/T9 안전 조건을 충족하지 못한다. 아직 시작하지 않은 시간은 0이며 짧은 smoke로 대체하지 않는다.
@@ -97,3 +99,22 @@ backend는 기존 `backend/.venv` Python3.8.10 및 `PYTHONDONTWRITEBYTECODE=1`. 
 G2는 **수정한 독립 결함의 자동 검증 PASS / v3 전체 요구 범위 PARTIAL**이다. R9(API장애 중 유효 RTK lease의 독립 유지), Android H3 cleanup 미확정 경계, OS/실제 네트워크 조건 등 미실행 항목이 남는다. G3는 BLOCKED/NOT RUN이며 실기 완료로 승격하지 않는다. 추가 자동 실행을 예약하거나 이후 결과 전달을 약속하지 않는다.
 
 로컬 증거 바로가기(git 미포함): [수정 전 Android 실패](../../artifacts/20260908-015500_G0/android-baseline.json), [최종 Android 실행](../../artifacts/20260908-015500_G0/android-final.json), [174개 테스트 집계](../../artifacts/20260908-015500_G0/android-final-summary.json), [백엔드 전후·211개 전체 기록](../../artifacts/20260908-015500_G0/backend-summary.md), [무선 ADB 단절](../../artifacts/20260908-015500_G0/adb-infrastructure-timeline.json), [최종 소스·산출물·배포 대조](../../artifacts/20260908-015500_G0/final-manifest.json).
+
+
+## 상시 진단 기록 추가분 검증 (2026-09-08)
+
+| 항목 | 실제 실행/증거 | 판정 |
+|---|---|---|
+| 백엔드 전체 회귀 | 03:02:38.398735–03:02:47.686317 UTC, wall9.2876초, 223 tests, failure0/error0/skip0 | PASS(LAB) |
+| 신규 backend 진단 | 저장량/순환/7일 정리/비밀 필터/전후 보존/쓰기 오류/불완전 로그/안전 ZIP/실제 ASGI 메시지·기존 서명/throwing clock·observer/원래 send 예외/시계 역행/실제 P2P 관측; 신규12개 포함 | PASS(LAB; 위 전체에 포함) |
+| Android 신규 테스트 | DiagnosticFileStoreTest/DiagnosticPrivacyTest 신규14개 + 실제 HTTPS/HMAC 동시 요청 식별·throwing sink 2개 + 실제 Repository API 임계값 구분 1개 작성 | NOT RUN — 사용자 앱 빌드 보류 지시 |
+| Android 전체 기존 R1–R16 회귀 | 새 계측 소스에 대해 Gradle/JUnit/lint 실행0회 | NOT RUN — 이전174 PASS는 이전 소스 결과 |
+| Android 소스 정적 검토 | enum/field 허용 목록·Call별 context/tag·기존 HMAC/one-shot/세대/owner 보존·WifiDirect 비진단 토큰 대조·git diff --check | PASS(정적 범위만; 컴파일 보장 아님) |
+| APK 빌드/설치 | 새 build0회, 설치0회 | NOT RUN — 사용자 직접 빌드 예정 |
+| Jetson 운영 배포/재시작 | 0회 | BLOCKED — v3 §9 별도 승인·배포 절차 미수행 |
+| 실기 T1–T9 | 새 시작0회, 시간0분/주입0초/재연결0회 | 기존 표의 BLOCKED/NOT RUN 유지 |
+| 원격 push/PR/merge/CI | 0회 | NOT RUN |
+
+백엔드 실행 증거: [backend-reviewed-tests.json](../../artifacts/20260908-continuous-logs/backend-reviewed-tests.json), [실행 로그](../../artifacts/20260908-continuous-logs/backend-reviewed-tests.log). 테스트의 경로·키·요청은 임시 fixture 또는 공개 test-only 값이다. 운영 API/P2P에 장애나 수집 작업을 주입하지 않았다.
+
+R1–R8과 관련 R9–R16의 이전 표는 보존하며, **새 Android 계측이 포함된 소스의 실행 판정은 모두 NOT RUN**으로 별도 구분한다. 백엔드 223 PASS도 실제 앱↔장치 링크·서명·시간 오차·장시간 보존·SAF 내보내기 실기 PASS를 뜻하지 않는다. T1/T2 30분, T3 10회, T4 10분, T5 30분, T6A/B 3/10/60초, T7 해제10분, T8/T9는 이번 단계에서 시작하지 않았고 짧은 smoke로 대체하지 않았다. 시작 후 중단된 실기 시험도 없으므로 INCOMPLETE로 시간을 부풀리지 않는다.
