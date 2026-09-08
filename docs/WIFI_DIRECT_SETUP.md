@@ -21,7 +21,7 @@ p2p-wlan0-* (Jetson Group Owner, 192.168.49.1/24)
 
 Jetson이 부팅되자마자 영구 P2P group을 만들지는 않는다. 서비스는 discovery를 켜고 Android 요청을 기다린다. 요청을 받으면 그 peer를 지정한 임시 NetworkManager profile을 만들고 PBC negotiation을 시작한다. Android의 GO intent는 0이고 NetworkManager 1.22의 Jetson intent는 7이므로 Jetson이 Group Owner가 된다.
 
-이 방식은 NetworkManager가 관리 중인 `wlan0`에서 외부 `p2p_group_add`로 만든 group을 즉시 제거하는 문제를 피한다. 일반 Wi-Fi `wlan0` 연결은 유지하며, P2P profile에는 `ipv4.never-default=yes`를 적용해 인터넷 기본 경로를 바꾸지 않는다.
+이 방식은 NetworkManager가 관리 중인 `wlan0`에서 외부 `p2p_group_add`로 만든 group을 즉시 제거하는 문제를 피한다. P2P profile에는 `ipv4.never-default=yes`를 적용한다. 일반 Wi-Fi 유지 여부는 어댑터의 동시 인터페이스 지원과 드라이버에 달려 있으며, 단일 인터페이스 방식에서는 Jetson의 공유기 연결과 서버 업로드가 중단될 수 있다. 앱은 휴대전화가 일반 Wi-Fi에 연결된 동안 자동 Direct 전환을 하지 않는다.
 
 ## 2. 사전 조건
 
@@ -107,13 +107,17 @@ sudo backend/scripts/install.sh \
 
 1. 앱에서 QR을 스캔하고 BLE challenge-response 인증을 완료한다.
 2. 최초 등록이면 앱이 바로 Wi-Fi 설정 화면을 열며, 필요한 경우 일반 공유기 Wi-Fi를 BLE로 설정한다.
-3. 공유기 없이 제어할 때 연결 허브의 `Wi-Fi Direct`를 연다.
+3. 연결 허브에서 등록된 장비의 `장비에 직접 연결`을 누른다. 공유기 연결·서버 업로드 중단 가능성 안내를 확인하고 직접 연결을 선택한다. 명시적으로 선택한 Direct 연결은 자동 LAN 탐색이 즉시 되돌리지 않는다.
 4. 주변 기기 권한을 허용하고 Android 위치 서비스를 켠다.
 5. Jetson 장비를 선택한다. 앱은 WPS PBC와 `groupOwnerIntent=0`으로 연결한다.
 6. 앱은 Group Owner 주소의 `https://<address>:8765/v1/hello`를 검사한다.
 7. QR secret 기반 인증서 proof와 요청·응답 HMAC 검증 후 Dashboard를 연다.
 
 Wi-Fi Direct association만으로 장비 제어 권한을 부여하지 않는다. QR로 등록된 장비 ID와 secret이 없으면 API 연결은 거부된다.
+
+연결 시간 초과·취소 시에는 `이전 연결 정리 중` 단계를 거친다. Android 협상 취소와 대상 그룹 제거가 끝나거나 정리 제한 시간이 지나기 전까지 다음 연결을 중첩하지 않는다. 다른 장비의 그룹을 임의로 삭제하지 않는다. 정리에 실패했다면 표시된 안내에 따라 Wi-Fi Direct 상태를 확인한 후 재시도한다.
+
+상태 API는 별도 수집 루프의 마지막 스냅샷을 반환한다. `collectedAtEpochMillis`, `statusFresh`, `metricValidity`로 응답 수신 시각과 실제 측정 시각을 구분한다. 측정 실패의 기존 숫자 필드는 호환 목적으로 남으며, 새 앱은 해당 지표를 `확인 불가`로 표시한다.
 
 ## 7. 점검
 

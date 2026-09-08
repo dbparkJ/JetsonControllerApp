@@ -9,3 +9,5 @@
 5. [UPLOAD_LIBRARY_SERVER_AGENT_GUIDE.md](UPLOAD_LIBRARY_SERVER_AGENT_GUIDE.md): 완료된 서버 업로드를 앱에서 안전하게 탐색·미리보기 위한 API와 서버 배포 절차
 
 개발 요청 체크리스트는 [addlist.md](addlist.md)에 기록하며, 구현과 검증이 끝난 항목은 체크 표시와 검증 근거를 함께 남긴다.
+
+최근 안정화 내용과 검증 범위는 [2026-09-08 연결 안정성 개선 기록](RELIABILITY_IMPROVEMENTS_2026-09-08.md)을 참고한다.
