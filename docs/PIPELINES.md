@@ -1,31 +1,12 @@
-# Multi-Jetson and Python Pipeline Deployment
+# 파이프라인 배포·운영
 
-이 문서는 Controller backend와 Python 수집 pipeline을 여러 Jetson에 동일하게 설치하는 절차다. 현재 기준 pipeline은 다음 작업 트리다.
+Controller 백엔드와 Python 수집 작업을 여러 Jetson에 배포하는 절차입니다. 작업의 실행 규칙, 소스 스냅샷, 센서 모니터, 시간 동기화와 FAN 제어를 함께 다룹니다.
 
-```text
-/home/jm/geo_multifusion_sensors
-```
-
-## 1. 현재 확인값
-
-| 항목 | 확인 결과 |
-|---|---|
-| Git branch | `main` |
-| Git worktree와 실행 source | `/home/jm/geo_multifusion_sensors` |
-| Git remote | `origin` (`geonLabs/geonova-depthai-mapper`) |
-| 메인 entrypoint | `main.py` |
-| 실행 config | `config.yaml` |
-| virtualenv | `/home/jm/geo_multifusion_sensors/.venv` |
-| Python | 장비에서 만든 위 venv의 Python; 등록 manifest에 실제 버전 기록 |
-| 기본 출력 | preset이 `--output-dir /data/collections`로 고정 |
-
-원본 작업 트리는 source version history와 개발용으로 유지한다. 자동 실행 서비스는 이 디렉터리의 Python source를 직접 실행하지 않고, 등록 시점의 working tree를 시스템 release로 복사해 실행한다. 따라서 개발 중 파일 변경이 실행 중 프로세스에 섞이지 않는다.
-
-## 2. 새 Jetson 자동 설치
+## 새 Jetson 자동 설치
 
 ControllerApp 저장소, DepthAI Git 작업 트리, 해당 장비에서 생성한 virtualenv를 새
 장비에 준비한 뒤 한 번 실행한다. `<user>`는 카메라, GPS, IMU 장치에 접근할 Linux
-사용자다. DepthAI 저장소는 승인된 `origin`에서 `/home/<user>/geo_multifusion_sensors`로
+사용자다. DepthAI 저장소는 사용하는 원격 저장소에서 `/home/<user>/geo_multifusion_sensors`로
 clone한다. virtualenv는 장비와 Python ABI에 종속되므로 다른 Jetson에서 그대로
 복사하지 않고 각 장비의 repository root에 `.venv`로 생성한다.
 
@@ -57,7 +38,7 @@ session에서 바로 수집을 시작하려면 마지막에 `--start-depthai-now
 장치를 연다. 수집 서비스는 부팅 자동 실행하지 않으므로 장치 오류가 반복되어도 상시
 센서 상태가 주기적으로 끊기지 않는다.
 
-현재 장비처럼 BlueZ 5.55 binary가 이미 있으면 `/usr/local/libexec/bluetooth/bluetoothd-5.55`를 검증해 재사용한다. 별도 빌드 binary를 배포할 때는 다음 옵션을 쓴다.
+BlueZ 5.55 binary가 이미 있으면 `/usr/local/libexec/bluetooth/bluetoothd-5.55`를 검증해 재사용한다. 별도 빌드 binary를 배포할 때는 다음 옵션을 쓴다.
 
 ```bash
 sudo backend/scripts/bootstrap-jetson.sh \
@@ -65,9 +46,9 @@ sudo backend/scripts/bootstrap-jetson.sh \
   ...
 ```
 
-package와 BlueZ를 장비 이미지에서 이미 관리한다면 각각 `--skip-packages`, `--skip-bluez`를 사용할 수 있다. 건너뛰기 전 `bluetoothd-5.55 -v`, systemd ExecStart, BLE 광고를 별도로 확인한다. Wi-Fi Direct는 기본 활성화되며 adapter가 P2P-GO를 지원하지 않는 장비만 `--disable-wifi-direct`를 사용한다. 자세한 검증은 [WIFI_DIRECT_SETUP.md](WIFI_DIRECT_SETUP.md)에 있다.
+package와 BlueZ를 장비 이미지에서 이미 관리한다면 각각 `--skip-packages`, `--skip-bluez`를 사용할 수 있다. 건너뛰기 전 `bluetoothd-5.55 -v`, systemd ExecStart, BLE 광고를 별도로 확인한다. Wi-Fi Direct는 기본 활성화되며 adapter가 P2P-GO를 지원하지 않는 장비만 `--disable-wifi-direct`를 사용한다. 자세한 검증은 [WIFI_DIRECT.md](WIFI_DIRECT.md)에 있다.
 
-## 3. QR와 BLE 재등록
+## QR와 BLE 재등록
 
 신규 장비의 QR은 다음 root 전용 경로에 생성된다.
 
@@ -80,7 +61,7 @@ package와 BlueZ를 장비 이미지에서 이미 관리한다면 각각 `--skip
 
 QR 등록 뒤 앱은 BLE challenge-response로 장비를 인증한다. Wi-Fi 비밀번호는 challenge에서 파생한 AES-256-GCM key로 암호화되어 GATT로 전달된다. LAN API 연결에서는 같은 QR secret으로 TLS 인증서 proof와 HTTP HMAC을 검증한다.
 
-## 4. Pipeline 작성 계약
+## Pipeline 작성 계약
 
 자동 관리 대상은 pipeline 안에서 실제 수집을 시작하고 종료 signal을 처리하는 하나의
 메인 Python 파일이다. 보조 script와 library를 각각 서비스로 등록할 필요는 없다.
@@ -122,7 +103,71 @@ DepthAI preset은 같은 등록 snapshot을 `--monitor-only`로 실행하는 부
 `/dev/serial/by-id`의 장치 식별자로 선택한다. Android 휴대폰은 GNSS 후보에서
 제외한다.
 
-## 5. 현재 DepthAI 작업 등록
+## 작업 폴더 규칙
+
+작업 폴더 이름은 내부 작업 ID가 된다. 영문 소문자, 숫자, 점(`.`),
+밑줄(`_`), 하이픈(`-`)만 사용하고 64자 이내로 만든다. 첫 글자는 영문 소문자나
+숫자여야 하며 공백, 한글, 대문자는 폴더 이름에 사용할 수 없다. 앱에 표시할
+**작업 이름**에는 한글을 사용할 수 있다.
+장치 안에서 작업 폴더 이름은 서로 달라야 한다. 같은 이름의 다른 폴더를 등록하면
+동일한 내부 작업의 새 스냅샷으로 취급된다.
+
+```text
+26_camera_record/           # 내부 작업 ID: 26_camera_record
+├── .venv/
+│   └── bin/python          # 실행 가능한 Python 인터프리터
+├── main.py                 # 고정 실행 진입점
+├── config.yaml             # config.yml도 가능하지만 둘 중 하나만 존재해야 함
+└── results/                # 결과 폴더; 없으면 등록할 때 자동 생성
+```
+
+추가 요구사항은 다음과 같다.
+
+- 작업 폴더는 Git 작업 트리 안에 있어야 한다.
+- `main.py`, YAML 설정, 작업에서 import하는 소스는 Git에 추적되거나
+  `.gitignore`에 의해 제외되지 않은 파일이어야 한다.
+- `.venv/`와 `results/`는 보통 `.gitignore`에 넣는다. 가상환경은 스냅샷에
+  복사하지 않고 그 위치의 인터프리터를 그대로 사용한다. 폴더 등록기는 안전을
+  위해 `.venv/`, `logs/`, `results/`를 소스 스냅샷에서 항상 제외한다.
+- `main.py`는 `--config <절대경로>` 인자를 받아야 한다.
+- YAML 파일과 `main.py`는 심볼릭 링크가 아닌 일반 파일이어야 한다.
+- 결과는 `results/`에 저장한다. 실행 시
+  `JETSON_PIPELINE_RESULTS_DIR` 환경변수에도 같은 절대경로가 제공된다.
+  앱 API로 등록하면 수집 storage root의 `<pipeline-id>/`를 결과 경로로 사용하므로
+  작업 코드는 이 환경변수를 우선 사용한다.
+- 로그 파일을 작업 코드에서 따로 만들 필요가 없다. 표준 출력과 표준 오류가
+  `/var/log/jetson-pipelines/<작업-ID>/run-*.log`와 journald에 함께 기록된다.
+
+실행 환경에는 다음 값도 제공된다.
+
+| 환경변수 | 의미 |
+|---|---|
+| `JETSON_PIPELINE_ID` | 내부 작업 ID |
+| `JETSON_PIPELINE_RELEASE` | 실행 중인 읽기 전용 소스 스냅샷 |
+| `JETSON_PIPELINE_CONFIG` | 실행 중인 YAML 설정 절대경로 |
+| `JETSON_PIPELINE_RESULTS_DIR` | 결과 폴더 절대경로 |
+| `JETSON_PIPELINE_LOGS_DIR` | 해당 실행의 관리 로그 폴더 |
+
+## 폴더만으로 등록하기
+
+다음 명령은 `.venv`, `main.py`, YAML, `results/`를 자동으로 찾아 등록한다.
+`--name`만 사용자가 보는 이름이며 내부 ID는 폴더 이름에서 결정된다.
+
+```bash
+sudo /opt/jetson-control/register-pipeline.py \
+  --folder /home/<user>/26_camera_record \
+  --name "카메라 수집" \
+  --user <user> \
+  --autostart
+```
+
+`--folder` 방식은 `--autostart`와 `--no-autostart`를 모두 생략해도 자동 실행이
+기본값이다. 등록기는 기존과 동일하게 Git 파일만 `/opt/jetson-pipelines` 아래에
+스냅샷으로 복사하고, `jetson-pipeline@26_camera_record.service`를 부팅 자동 실행에
+등록한다. 기존의 `--repo`, `--venv`, `--entry` 등 상세 옵션 방식도 계속 사용할
+수 있다.
+
+## DepthAI 작업 등록
 
 backend 설치 후 preset script를 실행한다.
 
@@ -163,7 +208,7 @@ sudo /opt/jetson-control/register-pipeline.sh \
 
 `--autostart`는 다음 부팅을 활성화하고 현재 process는 시작하지 않는다. 즉시 실행은 `--start-now`, 실행 중인 작업을 새 snapshot으로 바꿀 때는 `--restart-running`을 추가한다.
 
-## 6. Source snapshot과 버전 이력
+## Source snapshot과 버전 이력
 
 등록기는 선택한 source 디렉터리에서 `git ls-files --cached --others --exclude-standard -- .` 결과만 복사한다. source가 Git worktree의 하위 프로젝트여도 선택 디렉터리 밖의 파일은 포함하지 않는다. 따라서 현재 commit의 tracked 파일뿐 아니라 ignore되지 않은 미커밋 새 파일도 정확히 snapshot에 포함되며, 원본 `.git`, ignored image dataset, cache, 기존 venv는 복사하지 않는다.
 
@@ -179,7 +224,7 @@ manifest에는 source repo, branch, commit, dirty 여부, Python/venv, entrypoin
 
 source 변경을 배포할 때는 pipeline을 중지한 뒤 같은 ID로 다시 등록하거나 CLI에서 `--restart-running`을 쓴다. 이전 release는 그대로 남는다. 등록 해제는 실행 release를 삭제하지 않고 `/opt/jetson-pipelines/.archive/`로 이동한다.
 
-## 7. 변경분 시스템 반영
+## 변경분 시스템 반영
 
 Controller backend 코드, systemd unit, helper script가 바뀌면 Git 작업 트리를 최신 commit으로 맞춘 뒤 설치 script를 다시 실행한다. `install.sh`는 `/opt/jetson-control/jetson_control`을 새 복사본으로 교체하고, systemd unit과 실행 script를 덮어쓰며, 기존 `/etc/jetson-control/device.json`, QR identity, storage/upload 설정은 보존한다.
 
@@ -223,7 +268,7 @@ sudo /opt/jetson-control/register-pipeline.sh \
 
 운영 순서는 `Git 최신화 -> backend install 재실행 -> 필요한 pipeline 재등록 -> doctor와 앱 연결 확인`으로 고정한다. 설정 파일을 직접 복사해 덮어쓰지 말고, 설치 script와 등록기를 통해 원자적으로 반영한다.
 
-## 8. 앱에서 작업 추가
+## 앱에서 작업 추가
 
 Jetson에 LAN 또는 Wi-Fi Direct로 연결한 뒤 `대시보드 > 자동 실행 작업 > 작업 추가`로 이동한다. 앱에서 다음 순서로 선택한다.
 
@@ -235,14 +280,110 @@ Jetson에 LAN 또는 Wi-Fi Direct로 연결한 뒤 `대시보드 > 자동 실행
 숫자로 시작하고 소문자, 숫자, 점, 밑줄, 하이픈만 사용할 수 있으므로
 `26_camera_record`도 유효한 작업 ID다. 선택한 폴더 root에는 `.venv/bin/python`,
 `main.py`, `config.yaml` 또는 `config.yml` 중 하나가 있어야 한다. backend는 Git root,
-venv Python, Python syntax, config 파일 유형을 다시 검사하고 `results/`를 유일한 표준
-출력 폴더로 등록한다. 임의 shell command는 앱에서 등록할 수 없다. `/data/collections`와
+venv Python, Python syntax, config 파일 유형을 다시 검사한다. API로 등록한 작업의
+출력은 수집 storage root의 `<pipeline-id>/`에 저장되며 `JETSON_PIPELINE_RESULTS_DIR`로 전달된다. 임의 shell command는 앱에서 등록할 수 없다. `/data/collections`와
 Controller sensor bridge가 필요한 현재 DepthAI 운영 preset은 앞 절의
 `install-depthai-pipeline.sh`로 명시적 등록한다.
 
 등록된 작업 카드에서는 실시간 실행 로그, 현재 release의 YAML 설정, 첫 출력 폴더를 각각 별도 화면으로 연다. 로그는 자동 재시작마다 `/var/log/jetson-pipelines/<id>/run-*.log`로 분리되어 앱에서 이전 실행까지 선택할 수 있다. YAML 저장은 실행 snapshot에 원자 반영되며 작업 재시작 후 적용된다. 소스 레포를 다시 등록하면 새 snapshot의 YAML이 기준이 된다.
 
-## 9. 운영 명령
+## 모바일 시스템 시간 동기화
+
+부팅할 때마다 `/run`이 초기화되므로 실제 수집을 실행하는 모든 Python 작업은 인증된
+모바일 시간 동기화가 성공할 때까지 대기한다. DepthAI 부팅 센서 모니터는 dataset을
+만들지 않는 별도 서비스이므로 시간 동기화 전에도 장치 상태를 게시한다. 시간 설정이
+성공하고 실제 장치 시간을 다시 검증한 뒤에만 root 소유 마커
+`/run/jetson-control/time-synchronized.json`이 생성된다.
+
+- 모바일은 Unix epoch 밀리초를 보낸다. 허용 범위는 2020-01-01 이상,
+  2100-01-01 미만이다.
+- 같은 부팅에서 첫 동기화가 끝나면 5분 이내의 반복 요청은 성공한 idempotent 요청으로
+  처리하되 장치 시계를 다시 설정하지 않는다. 5분을 넘는 재보정은 거부한다. 모바일
+  재연결 때문에 실행 중인 데이터의 시각이 점프하거나 역행하지 않게 하기 위한 제한이다.
+- `date` 명령은 셸 없이 고정 인자 배열로 실행한다.
+- 시간 설정 또는 사후 검증에 실패하면 마커를 만들지 않으므로 작업은 시작되지 않는다.
+- 대기 중인 작업 상태는 `WAITING_FOR_TIME_SYNC`로 노출된다.
+
+## FAN 제어
+
+Jetson의 NVIDIA `nvfancontrol.service`와 알려진 PWM sysfs 경로를 함께 사용한다.
+
+- `AUTO`: `nvfancontrol.service`를 다시 시작해 NVIDIA 온도 정책에 제어를 돌려준다.
+- `MANUAL`: 자동 데몬을 멈춘 뒤 20~100% 범위의 PWM만 허용한다. 20% 미만은
+  과열 위험 때문에 거부한다.
+- PWM 쓰기 또는 확인에 실패하면 기존에 실행 중이던 자동 데몬을 즉시 다시 시작한다.
+- API 서비스는 알려진 PWM FAN sysfs 경로만 쓰기 가능하며, 임의 경로나 셸 명령을
+  받지 않는다.
+- 재부팅 후에는 NVIDIA 자동 제어가 기본이며 수동 설정은 영구 저장하지 않는다.
+
+응답에는 사용 가능 여부, `AUTO`/`MANUAL` 모드, 현재 비율, PWM 원시값,
+최대 PWM, 지원 장치의 RPM, 자동 제어 가능 여부가 포함된다.
+
+구형 Xavier 계열의 `target_pwm`(0~255)과 별도 tachometer `rpm` 경로는
+[NVIDIA Jetson Linux 전원 관리 문서](https://docs.nvidia.com/jetson/l4t/Tegra%20Linux%20Driver%20Package%20Development%20Guide/power_management_jetson_xavier.html)의
+FAN 제어 규칙을 따른다. JetPack 6 계열에서는 `nvfancontrol`과 PWM hwmon 경로를
+우선 사용한다.
+
+## API 연결 계약
+
+백엔드 API 라우터에서 다음 계약으로 연결한다. 모든 경로는 기존 `/v1` 인증과
+응답 서명을 그대로 적용해야 한다.
+
+### 폴더 검사
+
+`POST /v1/pipelines/discover-folder`
+
+```json
+{"rootId":"workspace","path":"jobs/camera-capture"}
+```
+
+선택한 루트와 상대경로를 기존 안전한 파일시스템 resolver로 해석한 뒤
+`PipelineManager.discover_folder(resolved_path)`를 호출한다.
+
+### 폴더 등록
+
+`POST /v1/pipelines/register-folder`
+
+```json
+{
+  "rootId":"workspace",
+  "path":"jobs/camera-capture",
+  "name":"카메라 수집",
+  "autostart":true
+}
+```
+
+`PipelineManager.register_folder(label=name, repository=resolved_path,
+autostart=autostart)`를 호출한다. 폴더 오류는 400, 실행 중 재등록 충돌은 409,
+등록기/systemd 실패는 502로 응답한다.
+
+앱 API로 등록한 폴더 방식의 실행 결과는 수집 storage root의 `<pipeline-id>/`에 저장한다. API는
+등록 snapshot 경로와 storage root에만 쓰며, 홈 작업공간은 읽기 전용으로 유지한다.
+
+### 시간 상태·동기화
+
+- `GET /v1/system/time` → `SystemTimeSynchronizer.status()`
+- `PUT /v1/system/time` + `{"mobileTimeEpochMillis":1777000123456}` →
+  `SystemTimeSynchronizer.synchronize(...)`
+
+입력 오류는 400, 같은 부팅의 큰 재보정 충돌은 409, 장치 시간 설정 실패는 502로
+응답한다. `SystemTimeSynchronizer`를 만들 때는 `on_clock_changed`에 인증기의
+thread-safe nonce 기록 시각 재기준화 함수를 전달해야 한다. 특히 시간을 뒤로
+보정하면 기존 nonce의 기록 시각이 미래가 될 수 있기 때문이다. 이때 nonce를
+삭제하면 현재 요청을 재전송할 수 있게 되므로, nonce 키는 모두 보존하고 저장된
+시각만 새 장치 시각으로 바꾼다. 동기화 응답을 보낸 직후에는 서버 시간이 바뀌므로
+앱은 `/v1/hello`를 다시 읽어 인증용 서버 시각 오프셋을 갱신한다.
+
+### FAN 상태·제어
+
+- `GET /v1/system/fan` → `FanController.status()`
+- `PUT /v1/system/fan` + `{"mode":"AUTO"}`
+- `PUT /v1/system/fan` + `{"mode":"MANUAL","percent":40}`
+
+`FanController.set(mode, percent)`를 호출한다. 입력 오류는 400, 지원 장치나 자동
+제어기가 없으면 409, sysfs/systemd 제어 실패는 502로 응답한다.
+
+## 운영 명령
 
 ```bash
 systemctl status jetson-sensor-monitor.service
@@ -264,7 +405,7 @@ sudo systemctl disable jetson-pipeline@depthai-capture.service
 
 pipeline 사용자에게 필요한 장치 group을 장비 정책에 맞게 부여한다. 일반적인 후보는 `video`, `dialout`, `plugdev`지만 실제 `/dev` node의 owner/group을 먼저 확인한다. group 변경 후에는 사용자 session 재로그인 또는 재부팅이 필요하다.
 
-## 10. 검증
+## 검증
 
 ```bash
 /usr/local/libexec/bluetooth/bluetoothd-5.55 -v

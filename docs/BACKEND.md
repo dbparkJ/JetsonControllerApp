@@ -1,8 +1,8 @@
-# Jetson Controller Backend Setup
+# Jetson 백엔드 설치·운영
 
-이 문서는 이 저장소의 `backend/` 구현, Android 연동 계약, Jetson 배포 방법을 설명한다. 외부 업로드 수신 서버 구현은 [UPLOAD_RECEIVER_AGENT_GUIDE.md](UPLOAD_RECEIVER_AGENT_GUIDE.md)를 따른다.
+이 문서는 이 저장소의 `backend/` 구현, Android 연동 계약, Jetson 배포 방법을 설명한다. 외부 업로드 수신 서버 구현은 [UPLOAD_SERVER.md](UPLOAD_SERVER.md)를 따른다.
 
-## 1. 구성
+## 구성
 
 ```text
 Android app
@@ -21,44 +21,18 @@ Android app
 
 제어 plane은 BLE/LAN/Wi-Fi Direct를 사용한다. 실제 업로드 파일은 Jetson이 인터넷상의 HTTPS 수신 서버로 직접 보낸다. 업로드 대상과 Android 기기가 같은 LAN일 필요가 없다.
 
-## 2. 구현 파일
+## 소스 위치
 
-| 경로 | 역할 |
-|---|---|
-| `backend/jetson_control/api.py` | FastAPI endpoint와 인증 적용 |
-| `backend/jetson_control/auth.py` | HTTP HMAC 서명, boot nonce, replay 방지 |
-| `backend/jetson_control/tls.py` | Jetson TLS 인증서 SHA-256 지문 계산 |
-| `backend/jetson_control/ble.py` | BlueZ GATT, QR secret 인증, 상태/명령/Wi-Fi |
-| `backend/jetson_control/ble_crypto.py` | BLE challenge 파생키와 Wi-Fi AES-GCM 복호화 |
-| `backend/jetson_control/status.py` | CPU, GPU, RAM, 온도, 저장공간, 서비스 상태 |
-| `backend/jetson_control/commands.py` | systemd service와 power allow-list |
-| `backend/jetson_control/filesystem.py` | 허용 root 내부 탐색과 traversal 차단 |
-| `backend/jetson_control/uploads.py` | 영속 작업, 외부 HTTPS 청크 전송, 재시도/취소 |
-| `backend/jetson_control/network.py` | BLE/API Wi-Fi payload 검증과 NetworkManager 실행 |
-| `backend/jetson_control/wifi_direct.py` | P2P 검색, peer 요청, NetworkManager GO/DHCP와 runtime 상태 |
-| `backend/jetson_control/pipelines.py` | 등록된 Python 파이프라인 제어와 실행별 로그 조회 |
-| `backend/jetson_control/sensor_handoff.py` | 부팅 센서 모니터와 실제 수집 작업 사이의 장치 소유권 handoff |
-| `backend/jetson_control/sensor_monitor.py` | 등록 snapshot을 비기록 센서 모드로 상시 감독 |
-| `backend/scripts/install.sh` | 기존 장비 ID/secret을 보존하는 설치/업데이트 |
-| `backend/scripts/bootstrap-jetson.sh` | 새 Jetson의 package, BlueZ, backend, pipeline 일괄 설치 |
-| `backend/scripts/install-bluez-5.55.sh` | BlueZ 5.55 검증·설치·systemd override |
-| `backend/scripts/register-pipeline.py` | Git 작업 트리 스냅샷과 systemd instance 등록 |
-| `backend/scripts/install-depthai-pipeline.sh` | 현재 DepthAI 수집 pipeline preset 등록 |
-| `backend/scripts/run-pipeline.py` | manifest를 검증하고 venv Python 출력을 journal과 실행별 파일에 동시 기록 |
-| `backend/scripts/configure-upload-target.sh` | 외부 HTTPS 대상 설정 |
-| `backend/scripts/doctor.sh` | 설치 상태 점검 |
-| `backend/systemd/jetson-wifi-direct.service` | Wi-Fi Direct 부팅 자동 시작과 장애 재시작 |
-| `backend/systemd/jetson-sensor-monitor.service` | dataset 없이 카메라·GNSS·IMU 상태를 부팅부터 게시 |
-| `backend/udev/99-jetson-controller-sensors.rules` | 배포된 EBIMU CP2102를 ModemManager probe에서 제외 |
+주요 코드는 [backend/jetson_control](../backend/jetson_control/), 설치·등록 도구는 [backend/scripts](../backend/scripts/), 서비스 정의는 [backend/systemd](../backend/systemd/)에 있습니다.
 
-## 3. 설치
+## 설치
 
-Jetson에서 저장소 root 기준으로 실행한다.
+Jetson에서 저장소 root 기준으로 실행한다. 최초 패키지·BlueZ 구성은 [README의 초기 설치](../README.md#jetson-설치와-첫-연결)를 따른다. 아래 명령은 사전 구성된 장비의 설치·업데이트용이며 기존 설정을 보존한다.
 
 ```bash
 sudo backend/scripts/install.sh \
   --device-name MMS-JETSON-01 \
-  --pipeline-user jm \
+  --pipeline-user <user> \
   --enable-power
 ```
 
@@ -113,33 +87,13 @@ NTRIP_PASSWORD=...
 환경 파일을 읽는다. 따라서 앱 프리뷰 모니터와 실제 데이터 수집 작업에서 동일한
 NTRIP 계정이 사용되며, 공개 pipeline YAML이나 snapshot에는 계정을 넣지 않는다.
 
-새 Jetson에서 package와 BlueZ 5.55까지 자동 설치하는 절차는 [MULTI_JETSON_PIPELINE_DEPLOYMENT.md](MULTI_JETSON_PIPELINE_DEPLOYMENT.md)를 따른다.
+새 Jetson에서 package와 BlueZ 5.55까지 자동 설치하는 절차는 [PIPELINES.md](PIPELINES.md)를 따른다.
 
-## 4. 외부 업로드 설정
+## 외부 업로드 설정
 
 수신 서버가 준비된 뒤 발급받은 token 파일을 설정 script에 전달한다. script가 token을 root 전용 경로로 복사하고 원본 경로를 설정에 남기지 않는다.
 
-2026-08-13에 이 저장소와 함께 구축한 수신기의 base URL은 `https://125-142-22-24.sslip.io`다. Token은 장비 ID마다 별도로 발급하며 다른 Jetson의 token을 재사용하지 않는다. 현재 등록된 token 파일은 다음과 같고, 원문은 문서나 명령행에 복사하지 않는다.
-
-```text
-/data/server_storage/jetson-upload-receiver/secrets/device-tokens/d606c26d-98d6-4b09-99d7-c3da7dda4de0.token
-/data/server_storage/jetson-upload-receiver/secrets/device-tokens/9e7b51ac-1ca3-4f61-86c4-849704c9d137.token
-```
-
-대상 Jetson의 장비 ID와 일치하는 파일을 신뢰할 수 있는 방법으로 임시 `./receiver.token`에 전달한 뒤 다음처럼 설정한다.
-
-```bash
-sudo /opt/jetson-control/configure-upload-target.sh \
-  https://125-142-22-24.sslip.io \
-  ./receiver.token \
-  "Operations upload server"
-
-rm -f ./receiver.token
-```
-
-위 관리자 script 방식을 사용하면 Android 앱에 URL이나 token을 다시 입력할 필요 없이 Jetson의 target 목록에서 `Operations upload server`를 선택한다. 최신 앱의 업로드 서버 관리 화면에서 같은 URL과 token을 입력해 앱 관리 target으로 등록하는 방법도 있다. 이 경우 token은 QR secret으로 인증되고 인증서가 고정된 Local Control API 요청으로 Jetson에 전달되며, Jetson은 root 전용 파일로 저장하고 이후 API 응답으로 되돌려주지 않는다. 공인 IP가 바뀌면 `sslip.io` hostname도 바뀌므로 수신기 HTTPS와 해당 target을 함께 갱신한다. 서버의 전체 설치·점검·복구 절차는 [UPLOAD_RECEIVER_AGENT_GUIDE.md](UPLOAD_RECEIVER_AGENT_GUIDE.md)의 실제 배포 절을 따른다. 2026-08-18에는 `MMS-D137`을 이 절차로 등록하고 Jetson 자체 네트워크에서 deferred upload, complete, library preview와 서버 HDD 객체 일치까지 검증했다.
-
-일반적인 별도 수신 서버의 예시는 다음과 같다.
+수신 서버에서 해당 Jetson UUID에 발급한 token 파일을 전달받아 설정합니다. 다른 장비의 token을 재사용하지 않습니다.
 
 ```bash
 sudo /opt/jetson-control/configure-upload-target.sh \
@@ -147,6 +101,8 @@ sudo /opt/jetson-control/configure-upload-target.sh \
   ./receiver.token \
   "Operations cloud"
 ```
+
+설정 후 앱에서 대상 서버를 선택합니다. 앱의 업로드 서버 관리 화면으로 등록하는 경우에도 token은 인증된 Jetson API로 전달되고 장비의 root 전용 파일에 보관됩니다. 이후 조회 응답에는 token을 포함하지 않습니다. 수신 서버 배포와 기존 운영 주소는 [업로드 서버](UPLOAD_SERVER.md)를 확인합니다.
 
 생성되는 `/etc/jetson-control/upload_targets.json`:
 
@@ -164,7 +120,7 @@ sudo /opt/jetson-control/configure-upload-target.sh \
 
 운영 backend는 로컬 복사 target을 앱에 노출하지 않는다. `verify_tls: false`와 `http://`는 backend 단위 테스트용 loopback receiver에서만 사용한다.
 
-## 5. 장비 설정
+## 장비 설정
 
 `/etc/jetson-control/device.json`의 필드:
 
@@ -207,7 +163,7 @@ Storage root 예시:
 }
 ```
 
-## 6. Local Control API
+## Local Control API
 
 API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설치 script가 장비별 self-signed 인증서를 만들며 Android는 평문 HTTP를 거부한다.
 
@@ -295,7 +251,7 @@ backend는 서버 시각 기준 120초 밖의 요청, nonce 재사용, nonce 기
 
 인증 endpoint의 모든 응답은 상태 코드와 정확한 body hash를 `JETSONHTTPRESP1`로 HMAC 서명하고 `X-Response-Signature`에 넣는다. 앱은 Retrofit에 body를 넘기기 전에 서명을 검증한다. TLS가 기밀성을 제공하고 양방향 HMAC이 장비 인증과 메시지 무결성을 보강한다.
 
-## 7. 명령과 전원 제어
+## 명령과 전원 제어
 
 허용 action:
 
@@ -313,7 +269,7 @@ shutdown
 - API와 BLE systemd service가 root로 동작하므로 별도 광범위 sudoers 규칙을 만들지 않는다.
 - 운영 검증 중 실제 재부팅/종료 endpoint를 자동 호출하지 않는다. mock unit test와 앱 확인 dialog로 검증한다.
 
-## 8. BLE GATT
+## BLE GATT
 
 ### QR와 BLE 인증 흐름
 
@@ -386,7 +342,7 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - backend는 비밀번호를 로그나 process argument에 남기지 않고 `nmcli --ask` 표준입력으로 전달한다.
 - 설치 전에 system Python의 `python3-cryptography` AESGCM 지원을 검사한다.
 
-## 9. 저장소와 업로드 상태
+## 저장소와 업로드 상태
 
 - 모든 API path는 설정된 root 아래로 `resolve`한 뒤 containment를 다시 검사한다.
 - symlink는 업로드 대상에서 제외한다.
@@ -401,44 +357,17 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - 실패 작업의 retry는 같은 job ID와 receiver session을 재사용해 offset부터 이어간다.
 - receiver 완료 처리에서 수 TiB 전체 SHA-256 검증을 기다릴 수 있도록 완료 응답 read timeout만 24시간이며, 세션/offset/청크 요청은 기존 60초 timeout을 유지한다.
 
-## 10. Python 파이프라인 자동 실행
+## Python 수집 작업
 
-앱은 인증 후 `pipeline_user`의 홈 작업공간(`~/`) 아래에서 표준 작업 폴더 하나와
-부팅 시 자동 실행 여부를 선택해 등록한다. 폴더 이름은 소문자나 숫자로 시작하고
-소문자, 숫자, 점, 밑줄, 하이픈만 사용한다. 폴더 root에는 실행 가능한
-`.venv/bin/python`, 일반 파일 `main.py`, `config.yaml` 또는 `config.yml` 중 정확히
-하나가 있어야 한다. 앱에서 폴더를 등록하면 등록기는 수집 storage root의
-`<pipeline-id>/`(기본값 `/data/collections/<pipeline-id>/`)를 출력용 쓰기
-디렉터리로 만들고 `JETSON_PIPELINE_RESULTS_DIR`로 전달한다. 따라서 API와 실행
-서비스는 홈 작업공간에 쓸 필요가 없고, 수집 데이터 화면에서 같은 결과 폴더를 연다.
+작업 등록, 스냅샷 배포, 실행별 로그, 센서 모니터와 실제 수집의 장치 인계, 시간 동기화·FAN API는 [파이프라인 운영](PIPELINES.md)에 정리되어 있습니다.
 
-backend는 임의 shell 문자열을 저장하지 않는다. 등록기는 Git tracked 파일과 ignore되지 않은 untracked 파일만 `/opt/jetson-pipelines/<id>/releases/`에 복사하고, commit·branch·dirty 상태를 manifest에 남긴다. `.git`, ignored dataset, cache는 실행 사본에 들어가지 않는다. `current` symlink가 활성 release를 가리키며 `jetson-pipeline@<id>.service`가 선택한 virtualenv Python으로 실행한다.
-
-앱의 YAML 편집기는 `current` release 안의 등록된 `.yaml` 또는 `.yml` 파일만 UTF-8 텍스트로 읽고 원자 저장한다. 저장 후 작업을 재시작하면 반영된다. 출력 버튼은 등록 시 지정한 쓰기 경로가 수집 storage root 안에 있을 때 그 폴더를 바로 연다.
-
-pipeline runner는 stdout과 stderr를 journald에 계속 보내면서 `/var/log/jetson-pipelines/<id>/`에도 기록한다. systemd가 자동 재시작할 때마다 `run-<UTC>-<pid>.log`를 새로 만들어 이전 오류 로그를 보존한다. 앱은 로그 파일 목록을 매초 확인하고 선택한 파일의 새 바이트만 최대 128 KiB씩 받아 최신 실행을 실시간으로 따라가며, 이전 실행도 목록에서 다시 열 수 있다. 디스크 보호를 위해 pipeline별 최근 20개, 전체 1 GiB, 실행 파일당 128 MiB로 제한하고 파일 한도 이후 출력은 journald에 계속 남긴다.
-
-DepthAI preset을 등록하면 `jetson-sensor-monitor.service`가 부팅 직후 같은 snapshot을
-`--monitor-only`로 실행한다. 모니터는 수집 디렉터리를 만들지 않고
-`/var/lib/jetson-sensors`의 상태와 최대 1920 px 폭 JPEG 프리뷰만 갱신한다.
-카메라 출력은 센서에 맞는 최대 캡처 크기를 선택하되 최대 5 FPS로 제한하고,
-USB2 급 연결에서는 MJPEG으로 전송한다. 실제 수집 runner는 모바일 시간
-동기화가 끝난 뒤 handoff 요청을 만들고 장치 lock을 넘겨받은 다음에만 시작한다. 수집이
-중지되거나 실패하면 lock과 요청을 정리하고 부팅 모니터가 자동으로 재개된다. 강제 종료
-뒤 남은 요청 파일도 advisory lock으로 판별해 자동 정리하므로 PID 재사용에 의존하지
-않는다.
-
-관리 action은 정확히 `start`, `stop`, `restart`, `enable`, `disable`만 허용한다. 등록 해제 시 unit은 중지·비활성화하고 release는 `/opt/jetson-pipelines/.archive/`로 이동해 보존한다.
-
-Python pipeline 작성 규칙과 현재 DepthAI 등록값은 [MULTI_JETSON_PIPELINE_DEPLOYMENT.md](MULTI_JETSON_PIPELINE_DEPLOYMENT.md)에 있다.
-
-## 11. BlueZ 5.55
+## BlueZ 5.55
 
 현재 BLE daemon 기준은 BlueZ 5.55다. `install-bluez-5.55.sh`는 실행 파일의 `-v` 결과와 shared library 연결을 검사하고 `/usr/local/libexec/bluetooth/bluetoothd-5.55`에 설치한다. 이미 정상 binary가 있으면 재사용하며, 없으면 공식 source tarball을 고정 SHA-256으로 검증한 뒤 빌드한다. systemd override는 이 exact binary만 실행한다.
 
 BlueZ 5.55는 Bluetooth Core spec의 표현이 아니라 Linux Bluetooth stack daemon 버전이다. 앱의 BLE 동작과 GATT protocol 버전은 별도로 관리한다.
 
-## 12. Wi-Fi Direct
+## Wi-Fi Direct
 
 `jetson-wifi-direct.service`는 부팅 시 `wpa_supplicant` discovery를 시작하고 Android의 PBC GO negotiation 요청을 D-Bus로 기다린다. 요청을 받으면 해당 peer만 지정한 임시 NetworkManager `wifi-p2p` profile을 활성화한다. Jetson의 GO intent 7과 Android 앱의 intent 0으로 Jetson이 Group Owner가 되며, 기본값 `192.168.49.1/24`와 DHCP는 NetworkManager shared IPv4가 담당한다. API는 `0.0.0.0:8765`에 이미 bind되어 있으므로 P2P 주소에서도 같은 TLS/HMAC endpoint를 사용한다.
 
@@ -446,9 +375,9 @@ BlueZ 5.55는 Bluetooth Core spec의 표현이 아니라 Linux Bluetooth stack d
 
 Android는 `WifiP2pManager.discoverPeers()`로 Jetson을 찾고 WPS PBC로 group client가 된 뒤 `WifiP2pInfo.groupOwnerAddress`의 `:8765`를 검사한다. P2P association 자체는 장비 제어 권한이 아니다. QR secret 기반 TLS proof와 요청·응답 HMAC이 성공해야 저장소, 업로드, 파이프라인, 전원 기능이 열린다.
 
-설치·검증·장애 대응의 전체 절차는 [WIFI_DIRECT_SETUP.md](WIFI_DIRECT_SETUP.md)에 있다. 구현은 [Android Wi-Fi Direct 공식 흐름](https://developer.android.com/develop/connectivity/wifi/wifip2p)과 [wpa_supplicant P2P control interface](https://w1.fi/wpa_supplicant/devel/p2p.html)를 기준으로 한다.
+설치·검증·장애 대응의 전체 절차는 [WIFI_DIRECT.md](WIFI_DIRECT.md)에 있다. 구현은 [Android Wi-Fi Direct 공식 흐름](https://developer.android.com/develop/connectivity/wifi/wifip2p)과 [wpa_supplicant P2P control interface](https://w1.fi/wpa_supplicant/devel/p2p.html)를 기준으로 한다.
 
-## 13. mDNS
+## mDNS
 
 설치 script가 `/etc/avahi/services/jetson-control.service`를 장비 설정에서 생성한다.
 
@@ -462,7 +391,7 @@ TXT: tls=1
 
 앱은 발견한 `deviceId`가 QR로 등록된 장비인지 확인하고, TLS hello proof, `/v1/hello` ID 일치, HMAC `/v1/status`가 모두 성공한 뒤에만 연결 완료로 표시한다. 연결 시도마다 독립 API client를 사용하므로 동시에 발견된 다른 장비의 endpoint가 활성 session을 덮지 않는다.
 
-## 14. 점검
+## 점검
 
 ```bash
 sudo /opt/jetson-control/doctor.sh
@@ -473,26 +402,11 @@ journalctl -u jetson-control-api.service -n 100 --no-pager
 curl --fail --insecure https://127.0.0.1:8765/v1/hello
 ```
 
-Python test:
+위 curl은 인증 정보를 보내지 않는 로컬 도달성 점검이며 인증서·장비 인증 성공을 검증하지 않습니다. 실제 제어 연결은 앱의 TLS proof와 HMAC 검증으로 확인합니다.
 
-```bash
-python3 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements-dev.txt
-PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v
-```
+개발 환경과 Android·Python 테스트 명령은 [README](../README.md)를 따릅니다. 연결 장애의 로그 수집과 배포 대기 상태는 [연결 진단](DIAGNOSTICS.md)을 확인합니다.
 
-Android test/build:
-
-```bash
-scripts/setup-mobile-build-env.sh  # 최초 1회 또는 빌드 도구 갱신 시
-./gradlew testDebugUnitTest assembleDebug
-```
-
-Android SDK, Gradle 배포본/의존성, ARM64용 AAPT2 실행 도구는 Git에서 제외된
-`.mobile-build/`에 재사용된다. `gradlew`는 이 저장소 내부 Gradle home을 기본으로
-사용하므로 매 빌드마다 도구를 다시 설치하지 않는다.
-
-## 15. 운영 체크리스트
+## 운영 체크리스트
 
 - 장비 ID와 QR secret 보존
 - `/etc/jetson-control/*.json` 및 token `0600`
