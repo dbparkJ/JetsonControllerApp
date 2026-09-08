@@ -1,5 +1,7 @@
 # v3 검증 기록 — 2026-09-08
 
+> 04:05 UTC 최신 상태: 사용자 빌드 보류 해제 후 새 APK·Android191개 시험·lint PASS. 단말 접속 거부/경로 없음으로 설치·실기는 BLOCKED입니다. 아래 이전 NOT RUN 기록은 이전 단계의 상태입니다.
+
 > 최신 추가분: 상시 로그 소스 구현은 완료했으나 사용자 지시로 앱 빌드·Android 테스트는 **NOT RUN**입니다. 아래 기존 PASS/APK 기록은 이전 소스의 결과입니다. 문서 끝의 상시 진단 추가분과 [사용 안내](CONTINUOUS_LOGGING.md)를 함께 확인하세요.
 
 G0 PARTIAL 기록 후 로컬 검증 진행. 실제 실행 결과는 아래에 추가한다. 기존 보고 PASS는 이번 PASS로 승격하지 않는다.
@@ -118,3 +120,25 @@ G2는 **수정한 독립 결함의 자동 검증 PASS / v3 전체 요구 범위 
 백엔드 실행 증거: [backend-reviewed-tests.json](../../artifacts/20260908-continuous-logs/backend-reviewed-tests.json), [실행 로그](../../artifacts/20260908-continuous-logs/backend-reviewed-tests.log). 테스트의 경로·키·요청은 임시 fixture 또는 공개 test-only 값이다. 운영 API/P2P에 장애나 수집 작업을 주입하지 않았다.
 
 R1–R8과 관련 R9–R16의 이전 표는 보존하며, **새 Android 계측이 포함된 소스의 실행 판정은 모두 NOT RUN**으로 별도 구분한다. 백엔드 223 PASS도 실제 앱↔장치 링크·서명·시간 오차·장시간 보존·SAF 내보내기 실기 PASS를 뜻하지 않는다. T1/T2 30분, T3 10회, T4 10분, T5 30분, T6A/B 3/10/60초, T7 해제10분, T8/T9는 이번 단계에서 시작하지 않았고 짧은 smoke로 대체하지 않았다. 시작 후 중단된 실기 시험도 없으므로 INCOMPLETE로 시간을 부풀리지 않는다.
+
+
+## 빌드 보류 해제 후 실제 Android 검증 (2026-09-08)
+
+- `android-build-1.log`: 실제 Kotlin 컴파일 FAIL(진단용 Connecting 분기 누락). 앞선 디렉터리 준비 경합으로 shell redirection1회 실패한 시도에서는 Gradle이 시작되지 않았으며 시험 횟수에 포함하지 않는다.
+- `android-build-2.log` 및 `android-first-test-xml/`: APK 생성/lint PASS, 42 suites/191 tests 중190 PASS·1 FAIL. 실패는 새 진단 시험의 Call 종료 순서 가정이며 실패 증거를 보존했다.
+- 최종 `android-build-3.json/.log`: **04:03:11.044338–04:03:39.992940 UTC, wall28.9486초, exit0**. `assembleDebug`, `lintDebug`, `testDebugUnitTest` 실행. APK/제품 컴파일은 직전 실행 산출물로 UP-TO-DATE이고 수정한 테스트 컴파일/전체 테스트는 다시 실행됐다.
+- **42 suites / 191 tests, failure0/error0/skip0 PASS. lint Error0/Warning72.** 기존174개와 새 진단 관련17개를 포함하며 이전 파일 결과를 최신 PASS로 승격한 것이 아니다. 실제 결과 XML/집계는 [android-final-summary.json](../../artifacts/20260908-install-logs/android-final-summary.json), `android-final-test-xml/`에 보존했다.
+- APK SHA-256 **56c0649bbd75f170f7f2e8469bd389616fa6f19717238ef7bcf85092fed91890**, 148277032 bytes, versionCode22/versionName1.15.3, build ID **4ba808a-diagfix1**. apksigner verify exit0, certificate SHA-256 **7e78141e5f83032ca3092c0691df3ca2ef5ce3c3dbba18cabec3d8c7405cb66a**. 이 ID는 `4ba808a`+컴파일 보정의 검토 가능한 표식이며 source commit `d15726d` 및 source diff 지문으로 대응했다. 테스트 수정은 APK 내용을 바꾸지 않았고 최종 hash 동일 확인.
+- backend 소스는 변경하지 않아 직전223 PASS를 별도 근거로 유지한다. 이번 단계에서 backend 테스트를 다시 실행했다고 기록하지 않는다.
+
+| 실제 기기 항목 | 실제 시간/횟수 | 판정·근거 |
+|---|---|---|
+| 현재 PHONE_A 연결/설치 baseline 조회 | 새 포트2회 연결 시도, 조회 성공0 | BLOCKED: 접속 거부 후 경로 없음; `adb-connect.json`, `adb-retry.json` |
+| APK 업데이트 설치·설치 후 해시/서명/데이터 보존 확인 | 설치0회 | BLOCKED: 현재 단말 접속 불가 |
+| 진단 화면·마커·SAF ZIP·실제 요청 소켓/서명 연결 | 진입0회, marker0회, ZIP0개 | BLOCKED: 미설치/미접속 |
+| T1/T2 LAN·Direct30분 | 각0/30분 | BLOCKED: 정상 인증 세션 미확보 |
+| T3 재연결10회, T4 잠금10분, T5 백그라운드30분, T7 해제10분 | 각0회/0분 | BLOCKED/NOT RUN: 실제 시작 안 함 |
+| T6A/T6B API·링크 각각3/10/60초, T8/T9 | 주입0초/수행0회 | 기존 안전/접근 경계 유지, BLOCKED |
+| 원격 push/PR/merge/CI | 0회 | NOT RUN |
+
+새 Android 소스의 R1–R8 및 관련 R9–R16 **기존 자동 시험 범위**는 위191개 전체 실행으로 검증됐다. 전체 R/실기 요구 PASS를 뜻하지 않으며 기존 미구현·미검증 조건은 유지한다. 소켓/인증 경로는 공개 test-only TLS/HMAC fixture의 LAB 관측이고 실제 장치 관측은 아니다. 실기 시험을 시작한 뒤 시간이 부족한 사례는 없으므로 INCOMPLETE 대신 BLOCKED/NOT RUN을 사용한다.

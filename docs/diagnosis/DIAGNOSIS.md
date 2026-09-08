@@ -1,5 +1,7 @@
 # 연결 안정성 v3 진단 — 2026-09-08
 
+> 04:05 UTC 최신 상태: 사용자 빌드 보류 해제 후 새 APK·Android191개 시험·lint PASS. 단말 접속 거부/경로 없음으로 설치·실기는 BLOCKED입니다. 아래 이전 NOT RUN 기록은 이전 단계의 상태입니다.
+
 > 최신 추가분: 상시 로그 소스 구현은 완료했으나 사용자 지시로 앱 빌드·Android 테스트는 **NOT RUN**입니다. 아래 기존 PASS/APK 기록은 이전 소스의 결과입니다. 문서 끝의 상시 진단 추가분과 [사용 안내](CONTINUOUS_LOGGING.md)를 함께 확인하세요.
 
 ## G0 초기 기록 (2026-09-08 01:55 UTC, 제품 동작 수정 전)
@@ -178,3 +180,16 @@ H/R 연결: H1/H4/H9 ↔ R1/R2/R6/R13(API 실패·복구), H2/H5/H14 ↔ R3/R4/R
 사용법·형식·용량·수집 한계·사용자 재개 빌드 명령: [CONTINUOUS_LOGGING.md](CONTINUOUS_LOGGING.md). 자동 검증은 아래 VERIFICATION 추가 항목을 따른다. 앞선 Android 174 PASS와 이전 APK는 이 새 계측 소스를 검증하거나 포함하지 않는다.
 
 로컬 구현 커밋: `d3a1a89`(Jetson), `cd2cf4f`(Android/CI 선택 목록). 원격 반영 없음. [소스 지문·실행 여부·이전 APK 구분](../../artifacts/20260908-continuous-logs/implementation-manifest.json).
+
+
+## 재개: 앱 빌드·설치 요청 (2026-09-08 03:57–04:05 UTC)
+
+사용자가 새 무선 ADB 포트로 **앱 빌드·업데이트 설치·테스트를 명시 승인**했다. 이전의 빌드 보류를 해제한 지시로 적용했고 설치 승인을 다시 요구하지 않았다. Jetson 운영 배포·서비스 재시작·T6/T9 장애 주입 승인을 확장해서 해석하지 않았다.
+
+**G0 PARTIAL:** 시작 브랜치 `codex/connection-stability-v3-20260908`, HEAD `4ba808a`, tracked 미커밋 변경0, 사용자 v3 문서 untracked1 유지. 기본 ADB5037 목록은 읽기 전용으로 조회하여 빈 목록임을 확인했다. 소유 ADB5040에서 사용자가 지정한 PHONE_A 접속은 처음 `Connection refused`, 04:03:54 UTC 재시도는 `No route to host`. 현재 포트 확인을 요청했으나 이 기록 시점까지 새 접속 정보가 없어 단말 모델·설치 APK·데이터·키·활성 세션 재조회 및 설치는 **BLOCKED**이다. ADB 인프라 접속 실패이며 앱/물리 링크 장애로 분류하지 않는다. 제품 끊김 타임라인 추가0건, 최초 제품 계층 UNKNOWN.
+
+**앱만 갱신되고 백엔드는 이전 상태인가: 판단 불가.** 이번 앱 설치0회이고 현재 설치 앱을 조회하지 못했다. 04:01:32 UTC Jetson 읽기 조회에서는 API PID1398/P2P PID1399가 active/running·NRestarts0이며, 발견한 배포 경로 `/opt/jetson-control/jetson_control`에 새 `diagnostics.py`가 없고 API/P2P 소스 해시는 작업 소스와 다르다. auth 소스 해시는 일치한다. 디스크의 새 백엔드 로그 기능 미배포는 확인했지만 실행 메모리 동일성 및 프로토콜 비호환은 확정하지 않는다. `/proc` cwd/exe와 runtime 진단 디렉터리는 권한 제한. systemd wall 시작시각1970은 신뢰 불가로 보존하고 monotonic 시작 값과 구분했다.
+
+**실제 발견/수정:** 진단 상태 `when`에 `TransportState.Connecting` 분기가 빠져 첫 실제 컴파일이 실패했다(CODE_DEFECT CONFIRMED; 사용자 끊김 원인 아님). 분기만 추가해 해결했다. 첫 전체191개 시험 중 새 진단 시험1개는 Call 종료가 HMAC 확인보다 먼저여야 한다는 잘못된 순서 가정으로 실패했다. 실제 관측 순서는 `api_response → api_authenticated → api_call_ended`였다. 순서 가정을 제거하고 Call 종료에 인증 성공 필드가 없어야 하며 잘못 서명된 HTTP200은 인증 성공 이벤트를 만들지 않아야 한다는 의미를 검증하도록 수정했다. 기존 제품 인증/복구 정책을 이 시험에 맞춰 변경하지 않았다. 커밋 `d15726d`.
+
+새 APK 생성·서명 검증·전체191개 시험·lint는 PASS(LAB). 설치/실기/원격 반영은 미완료로 남긴다. 모든 H의 FIELD_CAUSE 판정은 기존대로 미확정/미검증이며 본 빌드 결함과 분리한다. 산출물 및 실제 실행: [final-manifest.json](../../artifacts/20260908-install-logs/final-manifest.json), [backend-runtime.json](../../artifacts/20260908-install-logs/backend-runtime.json).
