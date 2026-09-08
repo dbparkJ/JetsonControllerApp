@@ -39,6 +39,8 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.ConcurrentHashMap
+import java.net.InetAddress
+import java.net.Inet6Address
 
 class JetsonRepository(
     context: Context,
@@ -257,7 +259,7 @@ class JetsonRepository(
                     if (connected && host != null) {
                         if (shouldDisconnectAutomaticDirect(
                                 infrastructureWifiConnected =
-                                    !wifiAccessPointScanner.state.value.currentSsid.isNullOrBlank(),
+                                    wifiAccessPointScanner.state.value.infrastructureWifiConnected,
                                 explicitlyRequested = explicitWifiDirectRequested.get()
                             )
                         ) {
@@ -317,20 +319,21 @@ class JetsonRepository(
             }
             val automaticLanAllowed = combine(
                 autoLanEnabled,
-                qrPairingActive
-            ) { enabled, pairing -> enabled && !pairing }
+                qrPairingActive,
+                _connectingLanDeviceId
+            ) { enabled, pairing, pendingDeviceId ->
+                enabled && !pairing && pendingDeviceId == null
+            }
             combine(
                 lanDiscoveryManager.discoveredEndpoints,
                 automaticDeviceId,
                 transportCoordinator.state,
                 automaticLanAllowed,
-                wifiAccessPointScanner.state
-            ) { endpoints, targetDeviceId, transport, enabled, wifiState ->
+                wifiDirectManager.state
+            ) { endpoints, targetDeviceId, transport, enabled, directState ->
                 if (
                     !enabled || targetDeviceId == null ||
-                    !allowsAutomaticLanUpgrade(transport, explicitWifiDirectRequested.get()) ||
-                    wifiState.currentSsid.isNullOrBlank() ||
-                    _connectingLanDeviceId.value != null
+                    !allowsAutomaticLanUpgrade(transport, explicitWifiDirectRequested.get())
                 ) {
                     return@combine null
                 }
@@ -342,7 +345,8 @@ class JetsonRepository(
                     return@combine null
                 }
                 endpoints.firstOrNull { endpoint ->
-                    endpoint.deviceId.equals(targetDeviceId, ignoreCase = true)
+                    endpoint.deviceId.equals(targetDeviceId, ignoreCase = true) &&
+                        isLanEndpointCandidate(endpoint, directState.groupOwnerAddress)
                 }
             }.collect { endpoint ->
                 endpoint ?: return@collect
@@ -350,7 +354,6 @@ class JetsonRepository(
                 if (autoLanAttempts.add(attemptKey)) {
                     connectLan(
                         endpoint,
-                        requireSameWifi = true,
                         automaticAttemptKey = attemptKey
                     )
                 }
@@ -372,16 +375,18 @@ class JetsonRepository(
                 wifiAccessPointScanner.state
             ) { enabled, fallbackReady, pairing, handoffPending, wifiState ->
                 enabled && fallbackReady && !pairing && !handoffPending &&
-                    wifiState.currentSsid.isNullOrBlank()
+                    !wifiState.infrastructureWifiConnected
             }
             combine(
                 wifiDirectManager.state,
                 automaticDeviceId,
                 transportCoordinator.state,
-                automaticDirectAllowed
-            ) { direct, targetDeviceId, transport, enabled ->
+                automaticDirectAllowed,
+                _connectingLanDeviceId
+            ) { direct, targetDeviceId, transport, enabled, pendingLanDeviceId ->
                 if (
                     !enabled || targetDeviceId == null ||
+                    pendingLanDeviceId != null ||
                     !allowsAutomaticDirectFallback(transport) ||
                     direct.connected || direct.cleaningUp || direct.connectingPeerAddress != null
                 ) {
@@ -1015,12 +1020,11 @@ class JetsonRepository(
     fun connectLan(endpoint: DeviceEndpoint) {
         explicitWifiDirectRequested.set(false)
         activateAutomaticTarget(endpoint.deviceId, scheduleFallback = false)
-        connectLan(endpoint, requireSameWifi = false)
+        connectLan(endpoint, automaticAttemptKey = null)
     }
 
     private fun connectLan(
         endpoint: DeviceEndpoint,
-        requireSameWifi: Boolean,
         automaticAttemptKey: String? = null
     ) {
         Log.d(
@@ -1029,6 +1033,12 @@ class JetsonRepository(
                 "automatic=${automaticAttemptKey != null}"
         )
         if (automaticAttemptKey != null && explicitWifiDirectRequested.get()) return
+        if (!isLanEndpointCandidate(endpoint, wifiDirectManager.state.value.groupOwnerAddress)) {
+            if (automaticAttemptKey == null) {
+                _lanConnectionError.value = "같은 네트워크에서 사용할 수 있는 장비 주소를 찾지 못했습니다. 다시 검색해 주세요."
+            }
+            return
+        }
         val userVisibleAttempt = automaticAttemptKey == null
         val generation = transportCoordinator.nextConnectionAttempt()
         connectingLanGeneration = generation
@@ -1082,25 +1092,9 @@ class JetsonRepository(
                         }
 
                         val status = statusResult.getOrThrow()
-                        if (
-                            requireSameWifi && !wifiNetworksMatch(
-                                wifiAccessPointScanner.state.value.currentSsid,
-                                status.wifiConnected,
-                                status.wifiSsid
-                            )
-                        ) {
-                            Log.w(
-                                "JetsonLAN",
-                                "Automatic LAN rejected: mobileSsid=" +
-                                    "${wifiAccessPointScanner.state.value.currentSsid}, " +
-                                    "jetsonConnected=${status.wifiConnected}, " +
-                                    "jetsonSsid=${status.wifiSsid}"
-                            )
-                            publishUserVisibleError(
-                                "모바일과 Jetson의 Wi-Fi가 같지 않아 자동 LAN 연결을 건너뛰었습니다."
-                            )
-                            return@onSuccess
-                        }
+                        // A discovered LAN address plus authenticated API responses establishes
+                        // reachability. SSIDs can be redacted, differ across bridged APs, or be
+                        // absent entirely when Jetson uses Ethernet.
                         val capabilitiesResult = candidateClient.getCapabilities()
                         if (!transportCoordinator.connectionAttemptIsCurrent(generation)) {
                             return@onSuccess
@@ -1217,7 +1211,8 @@ class JetsonRepository(
                 automaticConnectivityEnabled.value &&
                 !qrPairingActive.value &&
                 targetDeviceId.equals(endpoint.deviceId, ignoreCase = true) &&
-                endpointStillPresent &&
+                endpointStillPresent && autoLanEnabled.value &&
+                isLanEndpointCandidate(endpoint, wifiDirectManager.state.value.groupOwnerAddress) &&
                 _connectingLanDeviceId.value == null &&
                 allowsAutomaticLanUpgrade(transportCoordinator.state.value, explicitWifiDirectRequested.get())
             ) {
@@ -1225,7 +1220,6 @@ class JetsonRepository(
                 if (autoLanAttempts.add(attemptKey)) {
                     connectLan(
                         endpoint,
-                        requireSameWifi = true,
                         automaticAttemptKey = attemptKey
                     )
                 }
@@ -1318,7 +1312,7 @@ class JetsonRepository(
                 allowsAutomaticDirectConnection(
                     transportCoordinator.state.value,
                     infrastructureWifiConnected =
-                        !wifiAccessPointScanner.state.value.currentSsid.isNullOrBlank()
+                        wifiAccessPointScanner.state.value.infrastructureWifiConnected
                 ) &&
                 automaticTargetDeviceId(
                     preferredAutomaticDeviceId.value,
@@ -1753,9 +1747,23 @@ internal fun canonicalPairingDisplayName(
 ): String =
     pairingInfo.expectedBleName
 
-internal fun wifiNetworksMatch(
-    mobileSsid: String?,
-    jetsonConnected: Boolean,
-    jetsonSsid: String?
-): Boolean = jetsonConnected && !mobileSsid.isNullOrBlank() &&
-    !jetsonSsid.isNullOrBlank() && mobileSsid == jetsonSsid
+internal fun isLanEndpointCandidate(
+    endpoint: DeviceEndpoint,
+    wifiDirectHost: String? = null
+): Boolean {
+    if (endpoint.transport != EndpointTransport.LAN || endpoint.port !in 1..65535) return false
+    val address = numericEndpointAddress(endpoint.host) ?: return false
+    if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isMulticastAddress ||
+        (address is Inet6Address && address.isLinkLocalAddress)) {
+        return false
+    }
+    return wifiDirectHost?.let(::numericEndpointAddress) != address
+}
+
+private fun numericEndpointAddress(host: String): InetAddress? {
+    val literal = host.removeSurrounding("[", "]").substringBefore('%')
+    // NSD supplies numeric addresses. Never perform a DNS lookup on the main thread.
+    if (!literal.matches(Regex("[0-9.]+")) &&
+        !(literal.contains(':') && literal.matches(Regex("[0-9a-fA-F:.]+")))) return null
+    return runCatching { InetAddress.getByName(literal) }.getOrNull()
+}

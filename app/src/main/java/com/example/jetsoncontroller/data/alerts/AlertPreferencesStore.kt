@@ -94,13 +94,12 @@ class AlertPreferencesStore(context: Context) {
         }
     }
 
-    suspend fun replaceDashboardHealthDismissals(dismissals: Set<String>) {
+    suspend fun rememberDashboardHealthDismissals(dismissals: Set<String>) {
+        if (dismissals.isEmpty()) return
         dataStore.edit { preferences ->
-            if (dismissals.isEmpty()) {
-                preferences.remove(DASHBOARD_HEALTH_DISMISSALS)
-            } else {
-                preferences[DASHBOARD_HEALTH_DISMISSALS] = dismissals.toSet()
-            }
+            // A delayed screen snapshot must never erase a previously acknowledged warning.
+            preferences[DASHBOARD_HEALTH_DISMISSALS] =
+                preferences[DASHBOARD_HEALTH_DISMISSALS].orEmpty() + dismissals
         }
     }
 

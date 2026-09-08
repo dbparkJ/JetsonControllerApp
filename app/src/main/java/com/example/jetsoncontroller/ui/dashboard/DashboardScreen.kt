@@ -51,7 +51,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -121,33 +120,12 @@ fun DashboardScreen(
         pipelines = pipelines,
         uploads = uploads
     )
-    val healthKey = dashboardHealthKey(health)
     val currentDismissalKeys = dashboardHealthDismissalKeys(healthDeviceId, health)
-    val reconciledDismissals = reconcileDashboardHealthDismissals(
-        dismissals = dismissedHealthKeys,
-        deviceId = healthDeviceId,
-        health = health,
-        online = state.isOnline
-    )
     val effectiveDismissals = dismissedHealthKeys + optimisticDismissedHealthKeys
     val healthDismissed = currentDismissalKeys.isNotEmpty() &&
         effectiveDismissals.containsAll(currentDismissalKeys)
     val connectionStage = userConnectionStage(state.isOnline, state.transportType)
     val activeUploads = uploads.filter { it.state.isActiveUploadState() }
-
-    LaunchedEffect(
-        dismissedHealthKeys,
-        healthDeviceId,
-        healthKey,
-        state.isOnline
-    ) {
-        if (reconciledDismissals != dismissedHealthKeys) {
-            onHealthDismissalsChange(reconciledDismissals)
-        }
-        if (health.level != DashboardHealthLevel.ATTENTION) {
-            optimisticDismissedHealthKeys = emptyList()
-        }
-    }
 
     pendingPowerAction?.let { action ->
         val rebooting = action == PowerAction.REBOOT
@@ -262,7 +240,7 @@ fun DashboardScreen(
                                 healthyCardDismissed = true
                             } else if (health.level == DashboardHealthLevel.ATTENTION) {
                                     optimisticDismissedHealthKeys =
-                                        currentDismissalKeys.toList()
+                                        (optimisticDismissedHealthKeys + currentDismissalKeys).distinct()
                                     onHealthDismissalsChange(
                                         dismissDashboardHealth(
                                             effectiveDismissals,

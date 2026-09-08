@@ -1,8 +1,12 @@
 package com.example.jetsoncontroller.data.network
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import android.util.Log
 import com.example.jetsoncontroller.model.DeviceEndpoint
 import com.example.jetsoncontroller.model.EndpointTransport
@@ -16,6 +20,7 @@ class LanDiscoveryManager(private val context: Context) {
 
     private val SERVICE_TYPE = "_jetsonctl._tcp."
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+    private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
 
     private val _discoveredEndpoints = MutableStateFlow<List<DeviceEndpoint>>(emptyList())
     val discoveredEndpoints: StateFlow<List<DeviceEndpoint>> = _discoveredEndpoints.asStateFlow()
@@ -58,14 +63,36 @@ class LanDiscoveryManager(private val context: Context) {
                         val deviceId = runCatching {
                             UUID.fromString(attributes["id"]).toString().lowercase()
                         }.getOrNull() ?: return
-                        val host = serviceInfo.host?.hostAddress.orEmpty()
+                        val addresses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            serviceInfo.hostAddresses
+                        } else {
+                            listOfNotNull(serviceInfo.host)
+                        }
+                        val serviceNetwork = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            serviceInfo.network
+                        } else null
+                        if (serviceNetwork != null && isDirectNetwork(serviceNetwork)) return
+                        val localPrefixes = runCatching {
+                            val networks = serviceNetwork?.let(::listOf)
+                                ?: connectivityManager.allNetworks.filter { network ->
+                                    val capabilities = connectivityManager.getNetworkCapabilities(network)
+                                    !isDirectNetwork(network) &&
+                                        (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                                            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true)
+                                }
+                            networks.flatMap { network ->
+                                connectivityManager.getLinkProperties(network)?.linkAddresses.orEmpty()
+                                    .map { LanAddressPrefix(it.address, it.prefixLength) }
+                            }
+                        }.getOrDefault(emptyList())
+                        val host = selectLanServiceAddress(addresses, localPrefixes)?.hostAddress.orEmpty()
                         if (host.isBlank() || serviceInfo.port <= 0) {
                             return
                         }
                         Log.d(
                             "JetsonLAN",
                             "Resolved ${serviceInfo.serviceName} at $host:${serviceInfo.port} " +
-                                "for $deviceId"
+                                "for $deviceId; advertised=${addresses.map { it.hostAddress }}"
                         )
                         val endpoint = DeviceEndpoint(
                             deviceId = deviceId,
@@ -137,6 +164,11 @@ class LanDiscoveryManager(private val context: Context) {
             discoveryActive = false
             _isDiscovering.value = false
         }
+    }
+
+    private fun isDirectNetwork(network: Network): Boolean {
+        val name = connectivityManager.getLinkProperties(network)?.interfaceName.orEmpty()
+        return name.contains("p2p", ignoreCase = true) || name.contains("wifi-direct", ignoreCase = true)
     }
 
     private fun updateEndpoints(endpoint: DeviceEndpoint) {

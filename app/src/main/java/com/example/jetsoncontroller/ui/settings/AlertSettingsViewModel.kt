@@ -57,7 +57,7 @@ class AlertSettingsViewModel(
     }
 
     fun replaceDashboardHealthDismissals(dismissals: Set<String>) = viewModelScope.launch {
-        preferences.replaceDashboardHealthDismissals(dismissals)
+        preferences.rememberDashboardHealthDismissals(dismissals)
     }
 
     class Factory(

@@ -8,11 +8,17 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import java.util.concurrent.ConcurrentHashMap
 
 data class WifiAccessPoint(
     val ssid: String,
@@ -44,6 +50,7 @@ enum class WifiSecurity {
 data class WifiAccessPointState(
     val accessPoints: List<WifiAccessPoint> = emptyList(),
     val currentSsid: String? = null,
+    val infrastructureWifiConnected: Boolean = false,
     val scanning: Boolean = false,
     val error: String? = null
 )
@@ -55,11 +62,41 @@ class WifiAccessPointScanner(context: Context) {
         appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val locationManager =
         appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private val connectivityManager =
+        appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val infrastructureNetworks = ConcurrentHashMap.newKeySet<Network>()
 
     private val _state = MutableStateFlow(WifiAccessPointState())
     val state: StateFlow<WifiAccessPointState> = _state.asStateFlow()
 
     private var registered = false
+
+    // SSID access requires location permission/services and can be redacted even while
+    // Wi-Fi is connected. Track the transport independently so automatic Direct cannot
+    // replace the phone's infrastructure network. INTERNET is the network's configured
+    // capability; VALIDATED is intentionally not required for a local-only router.
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            infrastructureNetworks.add(network)
+            publishCurrentConnection()
+        }
+
+        override fun onLost(network: Network) {
+            infrastructureNetworks.remove(network)
+            publishCurrentConnection()
+        }
+    }
+
+    init {
+        refreshCurrentConnection()
+        connectivityManager.registerNetworkCallback(
+            NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build(),
+            networkCallback
+        )
+    }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -112,7 +149,24 @@ class WifiAccessPointScanner(context: Context) {
 
     @SuppressLint("MissingPermission")
     fun refreshCurrentConnection() {
-        _state.value = _state.value.copy(currentSsid = readCurrentSsid())
+        val connectedNetworks = connectivityManager.allNetworks.filter { network ->
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        }
+        infrastructureNetworks.retainAll(connectedNetworks.toSet())
+        infrastructureNetworks.addAll(connectedNetworks)
+        publishCurrentConnection()
+    }
+
+    private fun publishCurrentConnection() {
+        _state.update {
+            it.copy(
+                currentSsid = readCurrentSsid(),
+                infrastructureWifiConnected = infrastructureNetworks.isNotEmpty()
+            )
+        }
     }
 
     private fun register() {
@@ -156,6 +210,7 @@ class WifiAccessPointScanner(context: Context) {
         _state.value = WifiAccessPointState(
             accessPoints = accessPoints,
             currentSsid = readCurrentSsid(),
+            infrastructureWifiConnected = infrastructureNetworks.isNotEmpty(),
             scanning = scanning,
             error = null
         )

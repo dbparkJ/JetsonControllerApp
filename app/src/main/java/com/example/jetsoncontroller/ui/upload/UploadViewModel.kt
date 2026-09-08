@@ -86,6 +86,12 @@ class UploadViewModel(
                     _uiState.value = _uiState.value.copy(controlAvailable = true, isLoading = false, isCalculatingSource = false, isSavingTarget = false)
                     refresh(connectionGeneration)
                     startQueuePolling(connectionGeneration)
+                    _uiState.value.currentJob?.takeIf { it.state in activeUploadStates }?.let {
+                        startCurrentPolling(it.id, connectionGeneration)
+                    }
+                    _uiState.value.sourceSummaryKey?.split('\u0000', limit = 2)?.let { source ->
+                        if (source.size == 2) loadSourceSummary(source[0], source[1], force = true)
+                    }
                 } else {
                     _uiState.value = _uiState.value.copy(
                         controlAvailable = false, isLoading = false, isCalculatingSource = false,
@@ -173,7 +179,7 @@ class UploadViewModel(
                 }
                 val current = state.currentJob
                 val rememberedJobId = current?.id
-                    ?: savedStateHandle.get<String>(CURRENT_UPLOAD_JOB_ID_KEY)
+                    ?: savedStateHandle.get<String>(currentUploadJobIdKey())
                 val matchingJob = queue.firstOrNull { it.id == rememberedJobId }
                 val refreshedCurrent = when {
                     matchingJob != null -> matchingJob
@@ -218,9 +224,18 @@ class UploadViewModel(
     }
 
     fun loadSourceSummary(rootId: String, path: String, force: Boolean = false) {
-        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         val key = "$rootId\u0000$path"
+        if (!_uiState.value.controlAvailable) {
+            _uiState.value = _uiState.value.copy(
+                sourceSummaryKey = key,
+                sourceSummary = _uiState.value.sourceSummary?.takeIf {
+                    it.matchesUploadSource(rootId, path)
+                },
+                isCalculatingSource = false
+            )
+            return
+        }
         if (!force &&
             _uiState.value.sourceSummaryKey == key &&
             (_uiState.value.sourceSummary != null || _uiState.value.isCalculatingSource)
@@ -417,6 +432,7 @@ class UploadViewModel(
     }
 
     fun openJob(job: UploadJob) {
+        currentPollingJob?.cancel()
         rememberCurrentJobId(job.id)
         _uiState.value = _uiState.value.copy(
             currentJob = job,
@@ -619,11 +635,14 @@ class UploadViewModel(
 
     private fun rememberCurrentJobId(jobId: String?) {
         if (jobId == null) {
-            savedStateHandle.remove<String>(CURRENT_UPLOAD_JOB_ID_KEY)
+            savedStateHandle.remove<String>(currentUploadJobIdKey())
         } else {
-            savedStateHandle[CURRENT_UPLOAD_JOB_ID_KEY] = jobId
+            savedStateHandle[currentUploadJobIdKey()] = jobId
         }
     }
+
+    private fun currentUploadJobIdKey(): String =
+        "$CURRENT_UPLOAD_JOB_ID_KEY:${_uiState.value.deviceId?.lowercase().orEmpty()}"
 
     private fun cancelConnectionJobs() {
         targetsJob?.cancel()

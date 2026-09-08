@@ -5,6 +5,7 @@ import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
+import java.security.MessageDigest
 
 enum class DashboardHealthLevel {
     HEALTHY,
@@ -26,7 +27,8 @@ data class DashboardHealth(
     val title: String,
     val detail: String,
     val issues: List<String>,
-    val issueKinds: Set<DashboardHealthIssue> = emptySet()
+    val issueKinds: Set<DashboardHealthIssue> = emptySet(),
+    val issueKeys: Set<String> = issueKinds.mapTo(linkedSetOf()) { it.name }
 )
 
 internal fun assessDashboardHealth(
@@ -45,32 +47,48 @@ internal fun assessDashboardHealth(
     }
 
     val issueKinds = linkedSetOf<DashboardHealthIssue>()
+    val issueKeys = linkedSetOf<String>()
     val issues = buildList {
         if (freshness == StatusFreshness.STALE) {
             issueKinds += DashboardHealthIssue.STALE_STATUS
+            issueKeys += DashboardHealthIssue.STALE_STATUS.name
             add("상태 정보가 오래되었습니다.")
         }
         if (status.metricValidity.values.any { it.validity != "valid" }) {
             issueKinds += DashboardHealthIssue.UNAVAILABLE_METRICS
+            status.metricValidity.filterValues { it.validity != "valid" }.forEach { (name, metric) ->
+                issueKeys += healthIssueKey(DashboardHealthIssue.UNAVAILABLE_METRICS, name, metric.validity)
+            }
             add("일부 장비 지표를 확인하지 못했거나 이전 측정값입니다.")
         }
         if (status.metricIsValid("temperatureC") && status.temperatureC >= 80f) {
             issueKinds += DashboardHealthIssue.HIGH_TEMPERATURE
+            issueKeys += DashboardHealthIssue.HIGH_TEMPERATURE.name
             add("장비 온도가 ${status.temperatureC.toInt()} C로 높습니다.")
         }
         if (status.metricIsValid("storagePercent") && status.storagePercent >= 90) {
             issueKinds += DashboardHealthIssue.STORAGE_PRESSURE
+            issueKeys += DashboardHealthIssue.STORAGE_PRESSURE.name
             add("저장 공간이 ${status.storagePercent}% 사용 중입니다.")
         }
-        val failedPipelines = pipelines.count { it.state == PipelineState.FAILED }
-        if (failedPipelines > 0) {
+        val failedPipelines = pipelines.filter { it.state == PipelineState.FAILED }
+        if (failedPipelines.isNotEmpty()) {
             issueKinds += DashboardHealthIssue.FAILED_PIPELINE
-            add("실패한 작업이 ${failedPipelines}개 있습니다.")
+            failedPipelines.forEach { pipeline ->
+                issueKeys += healthIssueKey(
+                    DashboardHealthIssue.FAILED_PIPELINE,
+                    pipeline.id, pipeline.result, pipeline.lastExitCode.toString(), pipeline.sourceRevision
+                )
+            }
+            add("실패한 작업이 ${failedPipelines.size}개 있습니다.")
         }
-        val failedUploads = uploads.count { it.state == UploadJobState.FAILED }
-        if (failedUploads > 0) {
+        val failedUploads = uploads.filter { it.state == UploadJobState.FAILED }
+        if (failedUploads.isNotEmpty()) {
             issueKinds += DashboardHealthIssue.FAILED_UPLOAD
-            add("실패한 업로드가 ${failedUploads}개 있습니다.")
+            failedUploads.forEach { upload ->
+                issueKeys += healthIssueKey(DashboardHealthIssue.FAILED_UPLOAD, upload.id, upload.errorMessage.orEmpty())
+            }
+            add("실패한 업로드가 ${failedUploads.size}개 있습니다.")
         }
     }
 
@@ -87,7 +105,8 @@ internal fun assessDashboardHealth(
             title = "확인이 필요합니다",
             detail = issues.first(),
             issues = issues,
-            issueKinds = issueKinds
+            issueKinds = issueKinds,
+            issueKeys = issueKeys
         )
     }
 }
@@ -95,7 +114,7 @@ internal fun assessDashboardHealth(
 internal fun dashboardHealthKey(health: DashboardHealth): String = buildString {
     append(health.level.name)
     append('|')
-    append(health.issueKinds.sortedBy { it.name }.joinToString(",") { it.name })
+    append(health.issueKeys.sorted().joinToString(","))
 }
 
 internal fun dashboardHealthDismissalKeys(
@@ -104,8 +123,8 @@ internal fun dashboardHealthDismissalKeys(
 ): Set<String> = if (deviceId.isBlank() || health.level != DashboardHealthLevel.ATTENTION) {
     emptySet()
 } else {
-    health.issueKinds.mapTo(linkedSetOf()) { issue ->
-        dashboardHealthDevicePrefix(deviceId) + issue.name
+    health.issueKeys.mapTo(linkedSetOf()) { issueKey ->
+        dashboardHealthDevicePrefix(deviceId) + issueKey
     }
 }
 
@@ -116,27 +135,6 @@ internal fun dismissDashboardHealth(
 ): Set<String> {
     val keys = dashboardHealthDismissalKeys(deviceId, health)
     return if (keys.isEmpty()) dismissals else dismissals + keys
-}
-
-internal fun reconcileDashboardHealthDismissals(
-    dismissals: Set<String>,
-    deviceId: String,
-    health: DashboardHealth,
-    online: Boolean
-): Set<String> {
-    if (!online || deviceId.isBlank() || health.level == DashboardHealthLevel.UNKNOWN) {
-        return dismissals
-    }
-    val prefix = dashboardHealthDevicePrefix(deviceId)
-    return when (health.level) {
-        DashboardHealthLevel.HEALTHY -> dismissals.filterNot { it.startsWith(prefix) }.toSet()
-        // Keep each issue kind independently dismissed until the device is
-        // observed healthy. A newly added issue has a different key and remains
-        // visible, while a temporary status/reconnect transition cannot resurrect
-        // an alert that the user already acknowledged.
-        DashboardHealthLevel.ATTENTION -> dismissals
-        DashboardHealthLevel.UNKNOWN -> dismissals
-    }
 }
 
 internal fun isDashboardHealthDismissed(
@@ -150,3 +148,10 @@ internal fun isDashboardHealthDismissed(
 
 private fun dashboardHealthDevicePrefix(deviceId: String): String =
     "${deviceId.length}:$deviceId:"
+
+private fun healthIssueKey(kind: DashboardHealthIssue, vararg identity: String): String {
+    // Stable content identity distinguishes new failures without storing error text in preferences.
+    val content = identity.joinToString("") { "${it.length}:$it" }
+    val digest = MessageDigest.getInstance("SHA-256").digest(content.toByteArray(Charsets.UTF_8))
+    return kind.name + ":" + digest.joinToString("") { "%02x".format(it) }
+}
