@@ -1,5 +1,7 @@
 # 연결 끊김 사후 분석용 기록
 
+> 2026-09-08 04:46 UTC 최신 상태: 앱 업데이트 설치 및 실제 진단 마커·ZIP 저장/회수 PASS. Android191개·backend232개 자동 시험 PASS. 작업 브랜치 push 확인. Jetson 운영 배포는 BLOCKED이며 사용자 터미널용 명령을 준비했습니다. 실제 사용 중 끊김 원인은 미확정, T1–T9 완료0건입니다. 아래 시각이 앞선 미설치/미푸시 기록은 당시 상태로 보존합니다.
+
 > 2026-09-08 04:05 UTC 갱신: 사용자 요청으로 빌드와 Android191개 자동 시험을 완료했습니다. 새 APK build ID는 `4ba808a-diagfix1`입니다. 단말 접속 불가로 설치·실기 확인은 BLOCKED이며, 아래의 “빌드 보류/이전 APK” 설명은 이전 단계 기록입니다. 최신 결과는 [VERIFICATION.md](VERIFICATION.md) 마지막 절을 따릅니다.
 
 2026-09-08 추가. **소스 구현이며 현재 스마트폰/운영 Jetson에 설치·배포하지 않았다.** 사용자의 후속 지시에 따라 앱 빌드·Android 테스트는 실행하지 않았다. 예전 APK와 예전 자동 테스트 결과에는 이 기능이 들어 있지 않다.
@@ -70,3 +72,19 @@ GRADLE_USER_HOME="$PWD/.mobile-build/gradle-home" nice -n 10 ./gradlew \
 ```
 
 이 명령은 설치를 포함하지 않는다. 신규 Android 진단/회귀 테스트는 작성만 했으므로 **NOT RUN**이다. 현재 `app/build/outputs/apk/debug/app-debug.apk`가 존재하더라도 이전 작업의 산출물이다. 이 로그 기능이 반영된 신규 APK라고 배포하지 않는다.
+
+
+## 현재 설치 상태와 복사할 Jetson 명령 (2026-09-08 04:46 UTC)
+
+앱은 실제 PHONE_A에 설치됐고 build ID `4ba808a-diagfix1` 및 APK 해시를 재확인했다. **앱 알림 설정 → 연결 진단 기록 → 지금 끊김 시점 표시 → 약60초 뒤 앱 진단 ZIP 저장**의 실제 UI 동작과 ZIP 회수까지 완료했다. 앱은 별도 PC 수집기를 켜두지 않아도 자기 저장소에 기록한다. 이번 ZIP은75개 기록, 쓰기 오류/누락0이며 연결 시도 타임아웃과 마커 전후 기록을 포함한다. 앱 종료·보존 상한 등 위 제한은 그대로다.
+
+Jetson의 새 진단 기능은 **아직 미배포**이므로 현재 양쪽 로그 수집이 완성된 상태는 아니다. 지금 터미널에서 실행할 읽기 전용 검사:
+
+```bash
+cd /home/jm/ControllerApp/JetsonControllerApp
+sudo /usr/bin/python3 scripts/diagnosis/deploy_backend.py
+```
+
+실제 설치·재시작용 복사 명령과 원복은 [scripts/diagnosis/README.md](../../scripts/diagnosis/README.md)에 있다. 현재 USB ADB/독립 관리 경로가 없다는 응답을 반영해 해당 조건이 확보될 때까지 apply는 BLOCKED로 남겼다. 비밀번호는 자신의 sudo 터미널에만 입력한다. 검사 실패 시 baseline/운영 기록을 삭제하거나 검사 플래그를 우회하지 않는다. 배포 이후에만 위 Jetson ZIP 내보내기가 새 API/P2P 로그를 포함할 수 있다.
+
+작업 브랜치 `codex/connection-stability-v3-20260908`는 원격에 반영했다. 이 사실은 Jetson 배포 또는 T1–T9 실기 완료를 의미하지 않는다. 최신 실제 실행량·남은 제한은 [VERIFICATION.md](VERIFICATION.md) 마지막 절을 따른다.

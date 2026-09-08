@@ -1,8 +1,10 @@
 # 연결 안정성 v3 진단 — 2026-09-08
 
-> 04:05 UTC 최신 상태: 사용자 빌드 보류 해제 후 새 APK·Android191개 시험·lint PASS. 단말 접속 거부/경로 없음으로 설치·실기는 BLOCKED입니다. 아래 이전 NOT RUN 기록은 이전 단계의 상태입니다.
+> 2026-09-08 04:46 UTC 최신 상태: 앱 업데이트 설치 및 실제 진단 마커·ZIP 저장/회수 PASS. Android191개·backend232개 자동 시험 PASS. 작업 브랜치 push 확인. Jetson 운영 배포는 BLOCKED이며 사용자 터미널용 명령을 준비했습니다. 실제 사용 중 끊김 원인은 미확정, T1–T9 완료0건입니다. 아래 시각이 앞선 미설치/미푸시 기록은 당시 상태로 보존합니다.
 
-> 최신 추가분: 상시 로그 소스 구현은 완료했으나 사용자 지시로 앱 빌드·Android 테스트는 **NOT RUN**입니다. 아래 기존 PASS/APK 기록은 이전 소스의 결과입니다. 문서 끝의 상시 진단 추가분과 [사용 안내](CONTINUOUS_LOGGING.md)를 함께 확인하세요.
+> 04:05 UTC 당시 상태: 사용자 빌드 보류 해제 후 새 APK·Android191개 시험·lint PASS. 단말 접속 거부/경로 없음으로 설치·실기는 BLOCKED입니다. 아래 이전 NOT RUN 기록은 이전 단계의 상태입니다.
+
+> 이전 빌드 보류 단계: 상시 로그 소스 구현은 완료했으나 사용자 지시로 앱 빌드·Android 테스트는 **NOT RUN**입니다. 아래 기존 PASS/APK 기록은 이전 소스의 결과입니다. 문서 끝의 상시 진단 추가분과 [사용 안내](CONTINUOUS_LOGGING.md)를 함께 확인하세요.
 
 ## G0 초기 기록 (2026-09-08 01:55 UTC, 제품 동작 수정 전)
 
@@ -193,3 +195,39 @@ H/R 연결: H1/H4/H9 ↔ R1/R2/R6/R13(API 실패·복구), H2/H5/H14 ↔ R3/R4/R
 **실제 발견/수정:** 진단 상태 `when`에 `TransportState.Connecting` 분기가 빠져 첫 실제 컴파일이 실패했다(CODE_DEFECT CONFIRMED; 사용자 끊김 원인 아님). 분기만 추가해 해결했다. 첫 전체191개 시험 중 새 진단 시험1개는 Call 종료가 HMAC 확인보다 먼저여야 한다는 잘못된 순서 가정으로 실패했다. 실제 관측 순서는 `api_response → api_authenticated → api_call_ended`였다. 순서 가정을 제거하고 Call 종료에 인증 성공 필드가 없어야 하며 잘못 서명된 HTTP200은 인증 성공 이벤트를 만들지 않아야 한다는 의미를 검증하도록 수정했다. 기존 제품 인증/복구 정책을 이 시험에 맞춰 변경하지 않았다. 커밋 `d15726d`.
 
 새 APK 생성·서명 검증·전체191개 시험·lint는 PASS(LAB). 설치/실기/원격 반영은 미완료로 남긴다. 모든 H의 FIELD_CAUSE 판정은 기존대로 미확정/미검증이며 본 빌드 결함과 분리한다. 산출물 및 실제 실행: [final-manifest.json](../../artifacts/20260908-install-logs/final-manifest.json), [backend-runtime.json](../../artifacts/20260908-install-logs/backend-runtime.json).
+
+
+## 재개: 실제 앱 설치·로그 회수·수동 Jetson 배포 준비 (04:17–04:46 UTC)
+
+사용자의 최신 포트, 빌드·설치·배포·커밋·push 승인에 따라 작업을 재개했다. 무선 PHONE_A는 현재 조회한 SM-S908N/Android16(API36)이다. 소유 ADB5040만 사용했고 USB/독립 관리 경로는 미확보다. 사용자 후속 응답은 지금 독립 경로를 제공할 수 없으므로 **직접 터미널에 복사할 명령을 요청**한 것이다. 해당 명령을 준비했으며 안전 조건이 충족됐다고 대신 선언하거나 Jetson을 재시작하지 않았다.
+
+**앱만 갱신되고 백엔드는 이전 상태인가: 확인(CONFIRMED).** 04:21:54–04:24:09 UTC `install -r` 1회 성공, 04:26:08 설치 APK SHA가 빌드와 정확히 같다. versionCode22/versionName1.15.3은 이전과 같지만 SHA는 `49afd594a355d8c1a290b1f341c5ea079796a278fe1f391cbf834e16fef46334`에서 `56c0649bbd75f170f7f2e8469bd389616fa6f19717238ef7bcf85092fed91890`으로 변경됐다. 서명 SHA `7e78141e5f83032ca3092c0691df3ca2ef5ce3c3dbba18cabec3d8c7405cb66a` 동일, 실행 로그 build ID `4ba808a-diagfix1` 일치, 실행 PID19871 확인. 이전 APK는 해시가 일치하는 보호 백업으로 보존했다.
+
+Jetson의 실제 unit은 `jetson-control-api.service`와 `jetson-wifi-direct.service`, 작업 경로는 `/opt/jetson-control`이다. 종료 시에도 PID1398/1399, active/running, NRestarts0이고 배포 `diagnostics.py`는 없다. 디스크의 API/P2P 소스가 작업 소스와 다르고 auth 소스는 같다. wall 시작시각1970은 신뢰 불가로 그대로 남기며 monotonic 시작16890240/16910519를 별도 기록했다. `/proc`와 업로드 저장소 접근 제한은 유지한다. **배포 차이는 확인했지만 프로토콜 비호환·이번 타임아웃의 인과는 미확정**이다. baseline을 갱신하거나 폐기하지 않았다.
+
+설치 직후·앱 실행 전 DataStore3개 해시는 모두 원본과 같았다. UI 시험 후 알림/이력은 같고 credential 파일 집계 해시는 달라졌다. 비밀을 저장하지 않는 메모리 내 구조 확인에서 등록 암호화 자격 증명2개가 유효한 형태로 남아 있다. 기존 `BleGattClient`는 자동 BLE 재인증 성공 뒤 `saveCredential()`을 다시 호출하고 같은 secret도 새 AES-GCM IV로 암호화하므로 파일 해시가 달라질 수 있다. 이 두 클래스는 이번 진단 변경에 포함되지 않았다. 관측된 BLE 연결과 맞는 설명이지만 필드별 이전 값/secret 평문 동일성을 직접 대조하지 않았으므로 원인 확정이나 모든 키의 바이트 동일성을 주장하지 않는다. 재등록·데이터 초기화·키 재발급은 수행하지 않았다. [설치 직후 식별](../../artifacts/20260908-deploy-logs/installed-identity.json), [실행 후 구조 확인](../../artifacts/20260908-deploy-logs/credential-preservation-audit.json).
+
+### 실제 로그에서 확인한 초기 연결 실패
+
+04:20:49 UTC 시계 표본은 phone−host **+2ms, 추정 오차 ±80ms**다. 시계를 조정하지 않았다. 앱 설정의 수동 마커를 04:30:17.270 UTC 1회 기록하고 78.608초 뒤 SAF ZIP을 저장했다. 이 마커는 장애 주입이 아니다. 앱/Android의 마스킹된 증거는 회수했으나 Jetson 새 진단 런타임은 미배포이므로 같은 요청의 양쪽 마커·서버 수신/응답이 완성됐다고 주장하지 않는다.
+
+회수한 75개 고유 이벤트에는 HELLO GET **20회, 각 5011–5040ms TIMEOUT**이 남았다. 확보된 정상 IP 제어 세션이 없으므로 이는 **초기 연결 시도 실패**이며 사용 중 세션 끊김 20건으로 세지 않는다. `api_connection`, 응답, 인증 성공 이벤트는 0개다. BLE는 연결 상태로 관측됐지만 인증된 IP 세션의 증거를 대신하지 않는다. 각 Call별 시작/실패·requestId/clientId·endpointGeneration·원본/보정 UTC/elapsed·출처 행을 [20개 사례 다중 행 타임라인](../../artifacts/20260908-deploy-logs/request-timeline.json)에 남겼다.
+
+| case/event | 원본 PHONE_A UTC | 보정 host UTC·오차 | elapsed | 출처 | 관측 계층·상관 |
+|---|---|---|---|---|---|
+| CONNECT_ATTEMPT_01/시작 | 04:26:22.082 | 04:26:22.080 ±80ms | 16708045ms | ZIP events-0.jsonl:8 | HELLO Call 시작, request e6b939ad… / client14160107… / endpointGeneration1 |
+| CONNECT_ATTEMPT_01/실패 | 04:26:27.122 | 04:26:27.120 ±80ms | 16713085ms | ZIP events-0.jsonl:9 | 같은 Call 5040ms TIMEOUT, L3 증상, 최초 계층 UNKNOWN |
+| LOGGER_UI_MARKER_1 | 04:30:17.270 | 04:30:17.268 ±80ms | seq58, 별도 이벤트 | ZIP events-0.jsonl 및 incident-3… | 사용자 수동 표시, 실제 링크 장애 아님 |
+| LOGGER_UI_EXPORT_1 | 04:31:35.878 | 04:31:35.876 ±80ms | 마커 이후78.608s | ZIP manifest | 전/후 기록 보존, 후속 실제 이벤트 최대58.532s |
+
+마스킹한 기존 LAN 후보 로그26개에서 후보 주소가 현재 Jetson 주소와 같음을 메모리 내 대조했다. 이 로그에는 Call ID가 없으므로 시간 인접성만으로 같은 요청의 실제 소켓 경로를 확정하지 않는다. Jetson 8765 listener를 읽기 확인했지만 로컬 TLS hello 확인은 신뢰 인증서 읽기 권한으로 BLOCKED였다. TLS 검증을 끄거나 인증 오류를 우회하지 않았다. L1/L2 선행 여부와 서버 수신 여부가 없어 **UNKNOWN_FIRST_LAYER / FIELD_CAUSE 미확정**을 유지한다. 기본 cellular 또는 P2P Network 객체 부재만으로 장애를 판정하지 않는다.
+
+모든 H1–H14의 기존 CODE_DEFECT/FIELD_CAUSE 판정과 R별 미구현 경계는 유지한다. 새 관측은 H7/H8/H11 요청 경로 조사에 필요한 실패 증거이고 원인 확정이 아니다. H1/H2/H12/H13/D1의 이전 LAB 결함은 수정 완료지만 현장 장애 원인과 별도로 남긴다. logger 구현/실제 앱 저장 검증과 안정성 전체 실기 완료를 분리한다.
+
+### Jetson 수동 배포 준비와 원격 반영
+
+커밋 `102e8a2`에 [수동 배포 명령·롤백](../../scripts/diagnosis/README.md), 해시 manifest, `deploy_backend.py`, 테스트를 추가했다. 배포 전 비교에서 진단3파일만 바꾸면 새 API의 `StatusSnapshotService` import와 관련 동시 실행 잠금이 빠짐을 확인하여 **api/diagnostics/mobile_rtk/pipelines/status/wifi_direct 6파일**을 정확한 배포 묶음으로 고정했다. 나머지 모듈·requirements·unit과 기존 `storage-roots.conf` drop-in은 대조 후 보존한다. 기존5파일은 알려진 과거 소스와 일치하며 확인한 범위에서 별도 현장 수정은 없다.
+
+기본 명령은 읽기 전용 검사다. 실제 apply는 검토한 baseline/운영 idle/권한과 USB·독립 경로가 확보돼야 한다. 변경 전 파일 백업, 고정45초 새 PID/build/TLS hello/시작 로그 확인, 실패 후 원복 절차가 있다. **이 45초는 향후 배포 시작 검사 한도이며 T6/T9 복구 합격 예산이 아니다.** 실제 root apply·서비스 재시작·백엔드 새 로그 확인은 0회다. 현재 root 없는 preflight는 업로드 저장소 접근 제한으로 BLOCKED였다. 사용자가 직접 실행할 명령을 준비한 것을 배포 완료로 기록하지 않는다.
+
+04:43:57–04:44:03 UTC 작업 브랜치를 origin에 최초 push하고 원격 HEAD `102e8a2268f774211c43b13f73e4d2737c76da1f` 일치를 확인했다. 이후 이 설치/검증 문서도 같은 브랜치에 추가 push하는 기록은 로컬 `push-final.json`으로 별도 남긴다. 사용자 v3 첨부·실기 ZIP·보호 백업·빌드 산출물은 git에 추가하지 않는다. PR/merge는 수행하지 않았다. [push 확인](../../artifacts/20260908-deploy-logs/push-initial.json).

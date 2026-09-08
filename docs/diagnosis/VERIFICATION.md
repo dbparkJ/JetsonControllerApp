@@ -1,8 +1,10 @@
 # v3 검증 기록 — 2026-09-08
 
-> 04:05 UTC 최신 상태: 사용자 빌드 보류 해제 후 새 APK·Android191개 시험·lint PASS. 단말 접속 거부/경로 없음으로 설치·실기는 BLOCKED입니다. 아래 이전 NOT RUN 기록은 이전 단계의 상태입니다.
+> 2026-09-08 04:46 UTC 최신 상태: 앱 업데이트 설치 및 실제 진단 마커·ZIP 저장/회수 PASS. Android191개·backend232개 자동 시험 PASS. 작업 브랜치 push 확인. Jetson 운영 배포는 BLOCKED이며 사용자 터미널용 명령을 준비했습니다. 실제 사용 중 끊김 원인은 미확정, T1–T9 완료0건입니다. 아래 시각이 앞선 미설치/미푸시 기록은 당시 상태로 보존합니다.
 
-> 최신 추가분: 상시 로그 소스 구현은 완료했으나 사용자 지시로 앱 빌드·Android 테스트는 **NOT RUN**입니다. 아래 기존 PASS/APK 기록은 이전 소스의 결과입니다. 문서 끝의 상시 진단 추가분과 [사용 안내](CONTINUOUS_LOGGING.md)를 함께 확인하세요.
+> 04:05 UTC 당시 상태: 사용자 빌드 보류 해제 후 새 APK·Android191개 시험·lint PASS. 단말 접속 거부/경로 없음으로 설치·실기는 BLOCKED입니다. 아래 이전 NOT RUN 기록은 이전 단계의 상태입니다.
+
+> 이전 빌드 보류 단계: 상시 로그 소스 구현은 완료했으나 사용자 지시로 앱 빌드·Android 테스트는 **NOT RUN**입니다. 아래 기존 PASS/APK 기록은 이전 소스의 결과입니다. 문서 끝의 상시 진단 추가분과 [사용 안내](CONTINUOUS_LOGGING.md)를 함께 확인하세요.
 
 G0 PARTIAL 기록 후 로컬 검증 진행. 실제 실행 결과는 아래에 추가한다. 기존 보고 PASS는 이번 PASS로 승격하지 않는다.
 
@@ -142,3 +144,46 @@ R1–R8과 관련 R9–R16의 이전 표는 보존하며, **새 Android 계측�
 | 원격 push/PR/merge/CI | 0회 | NOT RUN |
 
 새 Android 소스의 R1–R8 및 관련 R9–R16 **기존 자동 시험 범위**는 위191개 전체 실행으로 검증됐다. 전체 R/실기 요구 PASS를 뜻하지 않으며 기존 미구현·미검증 조건은 유지한다. 소켓/인증 경로는 공개 test-only TLS/HMAC fixture의 LAB 관측이고 실제 장치 관측은 아니다. 실기 시험을 시작한 뒤 시간이 부족한 사례는 없으므로 INCOMPLETE 대신 BLOCKED/NOT RUN을 사용한다.
+
+
+## 실제 설치·로그 기능 시험·수동 배포 하네스 검증 (04:17–04:46 UTC)
+
+최신 제품 APK는 직전 **Android191 PASS / lint Error0 Warning72**로 검증한 동일 해시이며 이후 Android 제품 코드는 바뀌지 않았다. backend는 수동 배포 하네스9개를 포함해 **232 tests, failure0/error0/skip0 PASS**, 04:37:41.783399–04:37:51.190928 UTC, wall9.4075초다. 이9개는 임시 파일과 모의 서비스 명령을 사용한다. 실기 root 설치/재시작을 테스트했다고 주장하지 않는다. [backend 실행](../../artifacts/20260908-deploy-logs/backend-with-deploy-helper-tests.json).
+
+| 항목 | 실제 시간·횟수·증거 | 판정 |
+|---|---|---|
+| 기존 APK 재전송 | 90초 후73777152byte 부분 파일, 제거 확인; 전체 해시는 기존 보호 백업과 별도로 일치 확인 | INCOMPLETE 전송 / 검증된 기존 전체 백업 재사용 |
+| APK 업데이트 설치 | 04:21:54.230387–04:24:09.579721 UTC,135.3493초, `install -r` 1회 Success; install-result.json | PASS |
+| 설치 해시·데이터 | 04:26:08.540456 UTC, 설치 SHA=56c0649b…91890, DataStore3개 기존 hash동일; installed-identity.json | PASS(설치 직후 보존 범위) |
+| 앱 실제 실행/진단 화면 | MainActivity 실행1회, 기록 켜짐, ui-diagnostics-before-marker.json | PASS(기능 smoke) |
+| 수동 끊김 시점 표시 | 실제04:30:17.270 UTC 1회, seq58; marker-trial.json/ui-marker-confirmed.json | PASS(마커, 장애 주입 아님) |
+| SAF ZIP 저장/회수 | export04:31:35.878 UTC, 완료UI04:31:38.296804, 회수04:31:59.831882–59.951873; ZIP1개11633bytes | PASS(실제 UI·저장·회수) |
+| ZIP 식별/스키마 검사 | APK/build ID일치, 75고유행,87,553JSONL bytes, ring1/incident3, dropped0/writeFailures0; zip-audit.json | PASS(허용 필드/타입/어휘 검사 범위) |
+| 마커 전후 보존 | 마커→export78.608초, 직전/후속행 존재, 후속 마지막 관측+58.532초; field-log-summary.json | PASS(관측 범위; 60초 내내 이벤트 발생 주장은 아님) |
+| 실제 요청 관측 | HELLO20회 TIMEOUT, 정상 IP 응답/인증0, 소켓관측0; request-timeline.json | 증거 수집 PASS / 연결 정상성 FAIL·최초 계층 UNKNOWN |
+| 실행 후 credential 파일 | 등록 암호화 항목2개 구조 확인, 파일 집계hash변경, BLE 재인증 재암호화 경로 확인 | 변경 원인 추정; 모든 secret 동일성 직접 검증 NOT RUN |
+| Jetson 읽기 preflight | 04:38:57 UTC exit1 PermissionError; manual-helper-readonly-preflight.json | BLOCKED(운영 업로드 조회 권한) |
+| Jetson 실제 배포/재시작/시작 로그 | 0회 | BLOCKED(권한·USB·독립관리 경로), 명령 준비만 완료 |
+| 원격 push | 04:43:57–04:44:03 UTC origin 작업 브랜치 HEAD102e8a2 일치; push-initial.json | PASS(원격 git 반영), PR/merge NOT RUN |
+
+ZIP SHA-256 `560d48c4afc0fec9e90a9c08a4f33623af7cefe30c7bb1244727cf5a5247112c`. 원본 ZIP과 마스킹된 UI/시계/요청 ledger는 [현재 증거 디렉터리](../../artifacts/20260908-deploy-logs/)에 로컬로 보존하며 git에 포함하지 않는다. 앱 UI에서 등록 소개 화면을 한 차례 열었다가 바로 뒤로 돌아왔고 QR/저장/재등록은 하지 않았다. 시스템 저장 창의 짧은 background 이벤트를 T5로 집계하지 않는다.
+
+R1–R8 및 관련 R9–R16은 위쪽 개별 테스트 매핑의 LAB 범위를 최신 Android191/backend232 실행으로 유지한다. **R11의 실제 동일 요청 소켓·인증 응답 연결은 여전히 미확인**이며 실패 Call만 확보했다. R9 lease 독립 유지 등 기존 미구현·미검증 사항은 그대로다. 마커/ZIP PASS가 전체 R PASS를 뜻하지 않는다.
+
+| 실기 T | 최신 실제 수행량 | 최신 실행 상태·남은 조건 |
+|---|---|---|
+| T1 LAN / T2 Direct | 각0/30분 | BLOCKED — 정상 인증 IP 세션 미확보. APK 설치 제한만 해소 |
+| T3 LAN/Direct 재연결 | 각0/10회 | BLOCKED — 시험 기준 정상 세션 미확보 |
+| T4 USB 잠금 | 0/10분 | BLOCKED — USB·정상 세션 미확보 |
+| T4 자연 절전/잠금 | 0/10분 | NOT RUN — 별도 자연절전 유지시험 미시작 |
+| T4 강제 Doze | 0회 | BLOCKED — 안전 경로·구체 주입 승인 미확보 |
+| T5 일반/RTK background | 각0/30분 | NOT RUN — 문서 저장 창 전환으로 대체 안 함 |
+| T5 OS 회수 / 사용자 force-stop | 각0회 | BLOCKED — 구체 종료시험 조건 미확보, 두 원인 구분 |
+| T6A API만 / T6B 실제 링크 | 각각3/10/60초, 모든 하위case0회·0초 | BLOCKED — USB·독립경로·구체 주입·롤백 미확보 |
+| T7 명시 해제 후 유지 | 0/10분 | NOT RUN — 사용자 해제/대기 미수행 |
+| T8 cellular+Direct 경로 | 0회 | BLOCKED — Direct 및 같은 요청의 실제 소켓/인증 응답 미확보 |
+| T9 API / P2P 재시작 | 각각0회 | BLOCKED — USB·독립경로·구체 시험 조건 미확보 |
+
+T별 시간 목표를 줄이지 않았으며 실제 링크 소실을 정상 표시해야 한다는 기준도 사용하지 않았다. 현재 실기 복구 예산은 시험 시작 전 확정하지 못했고 해당 시험을 시작하지 않았다. 미시작 T를 INCOMPLETE/PASS로 바꾸지 않는다. 유일한 INCOMPLETE는 위 APK 재전송이며, 설치 자체는 별도 성공했다. 이후 자동 시험/배포 예약은 없다.
+
+최종 [설치·시험·정리 manifest](../../artifacts/20260908-deploy-logs/final-manifest.json)와 [텍스트 증거 검사](../../artifacts/20260908-deploy-logs/final-evidence-check.json)를 보존했다. 검사한 실제 폰/호스트 IP·MAC 노출0이며 임의의 모든 비밀을 탐지한 검사라고 주장하지 않는다. Reliability 원격 CI는 push 대상이 main인 workflow로, 이번 작업 브랜치 push는 해당 실행 조건이 아니다. PR/workflow_dispatch를 실행하지 않았으므로 원격 CI는 NOT RUN이다.

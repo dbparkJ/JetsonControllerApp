@@ -1,5 +1,7 @@
 # v3 원복 기록 — 2026-09-08
 
+> 2026-09-08 04:46 UTC 최신 상태: 앱 업데이트 설치 및 실제 진단 마커·ZIP 저장/회수 PASS. Android191개·backend232개 자동 시험 PASS. 작업 브랜치 push 확인. Jetson 운영 배포는 BLOCKED이며 사용자 터미널용 명령을 준비했습니다. 실제 사용 중 끊김 원인은 미확정, T1–T9 완료0건입니다. 아래 시각이 앞선 미설치/미푸시 기록은 당시 상태로 보존합니다.
+
 - 기존 사용자 v3 문서 및 이전 기록 보존. 작업 브랜치에서만 변경한다.
 - 설치·배포·서비스 재시작·Doze/배터리 override·라우팅/무선 설정·장애 주입 없음. 앱 데이터/키/설정 변경 없음.
 - 첫 기본 ADB 조회가 구버전 client/server 충돌로 기존 서버를 자동 재시작함. 이전 연결 목록을 복구했다고 주장하지 않으며, 사용자가 제공한 현재 endpoint로 별도 읽기 접속을 시도한다.
@@ -65,3 +67,18 @@ Jetson은 **배포변경 없음**이므로 운영 백업/복원은 수행하지 
 작업 소유 ADB5040 서버는 종료 exit0, 실행 session 종료 exit0 확인. 기본5037 서버에는 read-only device-list만 사용했으며 종료/재시작/연결 변경하지 않았다. 장애 주입·Wi-Fi/라우팅·Doze/배터리 override·서비스 재시작·앱 launch/force-stop·별도 장기 수집·예약 작업 모두0회다. [cleanup.json](../../artifacts/20260908-install-logs/cleanup.json)에 기록했다. 로컬 HTTPS/JVM 테스트는 종료되었고 합성 fixture만 사용했다.
 
 현재 새 APK와 실패/통과 증거는 보존한다. 제품 진단 컴파일 보정 및 시험 수정은 `d15726d` 한 커밋으로 검토 가능하다. 단말 재접속 시 실제 설치 앱/활성 세션/동일 서명/현재 baseline 백업을 다시 확인한 후 이미 승인된 `install -r` 범위로 진행한다. uninstall·데이터 초기화·키 재발급으로 문제를 우회하지 않는다. 운영 원복을 수행했다고 주장하지 않는다.
+
+
+## 실제 앱 설치 후 보존·정리 및 Jetson 수동 원복 준비 (04:44–04:46 UTC)
+
+사용자 승인 범위의 앱 `install -r` 1회는 완료했다. 기존 versionCode22 APK는 `/home/jm/.local/state/jetson-stability-backups/20260908/baseline-v22.apk`에 전체 파일로 보존하며 현재 설치 전 APK SHA `49afd594a355d8c1a290b1f341c5ea079796a278fe1f391cbf834e16fef46334`와 일치한다. 새 SHA는 `56c0649bbd75f170f7f2e8469bd389616fa6f19717238ef7bcf85092fed91890`, 서명은 동일하다. 부분 재전송 파일은 별도 INCOMPLETE로 기록한 후 제거했다. 새 앱이 정상 실행돼 baseline APK 재설치는 실행하지 않았다.
+
+설치 직후 DataStore3개 해시는 그대로였다. 앱 실행 후 credential 파일은 기존 BLE 재인증 재암호화 경로와 부합하는 변경이 관측됐지만 secret 평문/Keystore 추출 비교는 하지 않았다. 등록2개와 암호화 형식은 확인했다. uninstall/데이터 clear/키 재발급·credential 원시 파일 백업/비밀 로그 저장은 수행하지 않았다. rollback 때도 `install -r`로 데이터 보존 업데이트하고, 최신 endpoint와 동일 서명/현재 운영 상태를 재확인해야 한다. 이전 APK 설치만으로 과거 실행 중 설정값까지 되돌렸다고 주장하지 않는다.
+
+Jetson 코드/설정/unit/키/운영 서비스에는 변경0회, 자동 또는 수동 원복0회다. [수동 배포 README](../../scripts/diagnosis/README.md)에 지금 실행 가능한 read-only preflight와 안전 조건 확보 후 apply/rollback 명령을 구분했다. 스크립트는 정확한6파일의 기존 상태·권한·mtime·서비스 상태를 백업하고 전체 rollback 해시/대상을 중단 전에 검사한다. 실제 운영 백업 디렉터리는 아직 생성하지 않았다. 손상된 baseline·알 수 없는 운영 상태를 무시하는 플래그는 제공하지 않는다. 원래 API `storage-roots.conf` drop-in과 나머지 설정·키를 보존한다. 실제 장애 시 자동 원복 성공을 검증한 것은 아니다.
+
+**04:44:46 UTC 소유 ADB5040 서버 종료exit0, 소유 실행 session 종료exit0, 5040 listener 없음**을 확인했다. 전화기의 작업 전용 UI XML은 없고, incomplete APK 파일도 없다. 실제 내보낸 ZIP은 폰 Downloads와 로컬 증거에 보존하며 앱의 상시 진단 기능은 의도대로 실행 상태에 둔다. 이 제품 기능은 종료해야 할 임시 수집 작업이 아니다. 별도 수집/장애 주입/예약 작업은 없다. 기본ADB5037, Wi-Fi/라우팅, Doze/배터리 override, RTK/pipeline 및 운영 서비스를 변경하지 않았다.
+
+종료 조회에서 잘못된 이름 `jetson-control-p2p.service`의 inactive를 잠시 수집했으나 LoadState=not-found를 확인해 보정했다. 실제 unit `jetson-wifi-direct.service` 재조회는 PID1399 active/running·NRestarts0이며 API1398도 동일하다. 이 오조회는 실제 P2P 중단 사건이 아니다. 수집 보정 이력은 [cleanup.json](../../artifacts/20260908-deploy-logs/cleanup.json)에 남겼다. 현재 증거 디렉터리는0700, 파일0600으로 제한하고 git에서 제외했다. 보호 baseline 및 실패 증거를 삭제하지 않았다.
+
+작업 브랜치 push는 명시 승인 후 수행했다. 운영 코드 배포와 git push는 별개다. 원격 main 변경/PR/merge는0회이며 원격 작업 브랜치를 삭제하거나 force-push하는 원복은 수행하지 않았다. 사용자 첨부 v3 문서는 기존 untracked 상태로 보존했다.
