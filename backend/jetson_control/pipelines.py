@@ -8,7 +8,9 @@ import os
 import re
 import stat
 import subprocess
+import threading
 from datetime import datetime, timezone
+from functools import wraps
 from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
@@ -51,6 +53,16 @@ class PipelineConflict(PipelineError):
 CommandRunner = Callable[..., subprocess.CompletedProcess]
 
 
+def _serialized_mutation(method):
+    @wraps(method)
+    def invoke(self, *args, **kwargs):
+        # HTTP handlers run in worker threads; keep revision checks and writes
+        # atomic with respect to other mutations in this API process.
+        with self._mutation_lock:
+            return method(self, *args, **kwargs)
+    return invoke
+
+
 class PipelineManager:
     MAX_CONFIG_BYTES = 512 * 1024
     MAX_CONFIG_FIELDS = 2048
@@ -80,6 +92,7 @@ class PipelineManager:
         )
         self.time_sync_marker = time_sync_marker
         self.time_sync_marker_owner_uid = time_sync_marker_owner_uid
+        self._mutation_lock = threading.RLock()
 
     def discover_folder(self, repository: Path) -> Dict[str, object]:
         layout = discover_pipeline_folder(repository)
@@ -114,6 +127,7 @@ class PipelineManager:
         manifest = self._load_manifest(pipeline_id)
         return self._response(manifest, self._status(pipeline_id))
 
+    @_serialized_mutation
     def control(self, pipeline_id: str, action: str) -> Dict[str, object]:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         if action not in PIPELINE_ACTIONS:
@@ -330,6 +344,7 @@ class PipelineManager:
             "upstreamPort": port if available else None,
         }
 
+    @_serialized_mutation
     def update_config(self, pipeline_id: str, content: str) -> Dict[str, str]:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         if "\x00" in content:
@@ -370,6 +385,7 @@ class PipelineManager:
             "fields": self._config_scalar_fields(document),
         }
 
+    @_serialized_mutation
     def update_config_fields(
         self,
         pipeline_id: str,
@@ -582,6 +598,7 @@ class PipelineManager:
         finally:
             temporary.unlink(missing_ok=True)
 
+    @_serialized_mutation
     def register(
         self,
         *,
@@ -635,6 +652,7 @@ class PipelineManager:
             raise PipelineError(message)
         return self.get(pipeline_id)
 
+    @_serialized_mutation
     def register_folder(
         self,
         *,
@@ -685,6 +703,7 @@ class PipelineManager:
             return layout.results
         return self.folder_results_root / layout.pipeline_id
 
+    @_serialized_mutation
     def remove(self, pipeline_id: str) -> None:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         self._load_manifest(pipeline_id)

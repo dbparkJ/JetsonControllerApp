@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 import stat
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -28,8 +29,13 @@ class MobileRtkRelayRegistry:
         self.path = path
         self.clock_millis = clock_millis
         self.owner_uid = owner_uid
+        self._mutation_lock = threading.Lock()
 
     def register(self, pipeline_id: str, relay_host: str, relay_port: int) -> Dict[str, object]:
+        with self._mutation_lock:
+            return self._register(pipeline_id, relay_host, relay_port)
+
+    def _register(self, pipeline_id: str, relay_host: str, relay_port: int) -> Dict[str, object]:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         try:
             address = ipaddress.ip_address(relay_host)
@@ -54,6 +60,10 @@ class MobileRtkRelayRegistry:
         return {**value, "active": True}
 
     def unregister(self, pipeline_id: str) -> bool:
+        with self._mutation_lock:
+            return self._unregister(pipeline_id)
+
+    def _unregister(self, pipeline_id: str) -> bool:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         current = self.read(require_active=False)
         if current is not None and current.get("pipelineId") != pipeline_id:

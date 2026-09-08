@@ -4,6 +4,7 @@ import ipaddress
 import logging
 import mimetypes
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -26,7 +27,7 @@ from .pipelines import (
     PipelineManager,
     PipelineNotFound,
 )
-from .status import StatusCollector
+from .status import StatusCollector, StatusSnapshotService
 from .sensors import SensorBridgeStore
 from .system_control import (
     FanControlError,
@@ -258,15 +259,28 @@ def create_app(
         runtime_paths.tls_certificate
     )
 
+    status_snapshots = StatusSnapshotService(status_service)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        await run_in_threadpool(status_snapshots.refresh)
+        status_snapshots.start()
+        try:
+            yield
+        finally:
+            await run_in_threadpool(status_snapshots.stop)
+
     app = FastAPI(
         title="Jetson Control API",
         version=__version__,
         description="Authenticated local control API for Jetson Controller Android.",
+        lifespan=lifespan,
     )
 
     app.state.device_config = device_config
     app.state.authenticator = request_auth
     app.state.status_collector = status_service
+    app.state.status_snapshots = status_snapshots
     app.state.sensor_bridge = sensor_bridge
     app.state.command_runner = commands
     app.state.storage = storage_service
@@ -436,7 +450,7 @@ def create_app(
         return response
 
     @app.get("/v1/capabilities", dependencies=authenticated)
-    async def capabilities() -> Dict[str, object]:
+    def capabilities() -> Dict[str, object]:
         wifi_direct = read_wifi_direct_status()
         return {
             "status": True,
@@ -456,7 +470,10 @@ def create_app(
 
     @app.get("/v1/status", dependencies=authenticated)
     async def device_status() -> Dict[str, object]:
-        return status_service.collect()
+        try:
+            return status_snapshots.snapshot()
+        except LookupError as error:
+            raise HTTPException(status_code=503, detail=str(error), headers={"Retry-After": "2"}) from error
 
     @app.get("/v1/camera/preview/frame", dependencies=authenticated)
     async def camera_preview_frame(
@@ -502,7 +519,7 @@ def create_app(
         )
 
     @app.post("/v1/commands/{action}", dependencies=authenticated)
-    async def run_command(
+    def run_command(
         action: str,
         _body: Dict[str, Any] = Body(default_factory=dict),
     ) -> Dict[str, object]:
@@ -516,7 +533,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.get("/v1/fs/roots", dependencies=authenticated)
-    async def filesystem_roots() -> List[Dict[str, object]]:
+    def filesystem_roots() -> List[Dict[str, object]]:
         try:
             return storage_service.roots_response()
         except (RuntimeError, ValueError) as error:
@@ -536,7 +553,7 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(error)) from error
 
     @app.get("/v1/fs/file", dependencies=authenticated)
-    async def read_file(root: str, path: str) -> Response:
+    def read_file(root: str, path: str) -> Response:
         try:
             target, content = storage_service.read_file(
                 root,
@@ -581,7 +598,7 @@ def create_app(
             ) from error
 
     @app.get("/v1/fs/workspaces", dependencies=authenticated)
-    async def workspace_roots() -> List[Dict[str, object]]:
+    def workspace_roots() -> List[Dict[str, object]]:
         return workspace_service.roots_response()
 
     @app.get("/v1/fs/workspace/list", dependencies=authenticated)
@@ -598,7 +615,7 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(error)) from error
 
     @app.get("/v1/fs/workspace/file", dependencies=authenticated)
-    async def read_workspace_file(root: str, path: str) -> Response:
+    def read_workspace_file(root: str, path: str) -> Response:
         try:
             target, content = workspace_service.read_file(
                 root,
@@ -617,14 +634,14 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(error)) from error
 
     @app.get("/v1/upload/targets", dependencies=authenticated)
-    async def upload_targets() -> List[Dict[str, object]]:
+    def upload_targets() -> List[Dict[str, object]]:
         try:
             return uploads.targets_response()
         except (RuntimeError, ValueError) as error:
             raise HTTPException(status_code=500, detail=str(error)) from error
 
     @app.put("/v1/upload/targets/{target_id}", dependencies=authenticated)
-    async def save_upload_target(
+    def save_upload_target(
         target_id: str,
         body: SaveUploadTargetRequest,
     ) -> Dict[str, object]:
@@ -647,7 +664,7 @@ def create_app(
         status_code=204,
         dependencies=authenticated,
     )
-    async def delete_upload_target(target_id: str) -> Response:
+    def delete_upload_target(target_id: str) -> Response:
         try:
             uploads.delete_http_target(target_id)
             return Response(status_code=204)
@@ -659,7 +676,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/v1/upload/library/sessions", dependencies=authenticated)
-    async def upload_library_sessions(
+    def upload_library_sessions(
         target: str,
         offset: int = 0,
     ) -> Dict[str, object]:
@@ -673,7 +690,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.get("/v1/upload/library/files", dependencies=authenticated)
-    async def upload_library_files(
+    def upload_library_files(
         target: str,
         session: str,
         path: str = "",
@@ -688,7 +705,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.get("/v1/upload/library/file", dependencies=authenticated)
-    async def upload_library_file(
+    def upload_library_file(
         target: str,
         session: str,
         path: str,
@@ -746,7 +763,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/v1/uploads", status_code=202, dependencies=authenticated)
-    async def start_upload(
+    def start_upload(
         request: Request,
         body: StartUploadRequest,
     ) -> Dict[str, object]:
@@ -765,11 +782,11 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/v1/uploads", dependencies=authenticated)
-    async def list_uploads(active: bool = False) -> List[Dict[str, object]]:
+    def list_uploads(active: bool = False) -> List[Dict[str, object]]:
         return uploads.list_jobs(active_only=active)
 
     @app.get("/v1/uploads/{job_id}", dependencies=authenticated)
-    async def get_upload(job_id: str) -> Dict[str, object]:
+    def get_upload(job_id: str) -> Dict[str, object]:
         try:
             return uploads.get(job_id)
         except (KeyError, ValueError) as error:
@@ -800,7 +817,7 @@ def create_app(
             ) from error
 
     @app.post("/v1/uploads/{job_id}/cancel", dependencies=authenticated)
-    async def cancel_upload(job_id: str) -> Dict[str, object]:
+    def cancel_upload(job_id: str) -> Dict[str, object]:
         try:
             return uploads.cancel(job_id)
         except (KeyError, ValueError) as error:
@@ -844,7 +861,7 @@ def create_app(
         status_code=202,
         dependencies=authenticated,
     )
-    async def retry_upload(request: Request, job_id: str) -> Dict[str, object]:
+    def retry_upload(request: Request, job_id: str) -> Dict[str, object]:
         require_lan_upload_request(request)
         try:
             return uploads.retry(job_id)
@@ -856,7 +873,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/v1/network/wifi", status_code=202, dependencies=authenticated)
-    async def configure_wifi(body: WifiRequest) -> Dict[str, object]:
+    def configure_wifi(body: WifiRequest) -> Dict[str, object]:
         try:
             ssid, password = validate_wifi_credentials(body.ssid, body.password)
             return wifi.submit(ssid, password, body.hidden)
@@ -870,11 +887,11 @@ def create_app(
         return wifi.status()
 
     @app.get("/v1/network/wifi-direct/status", dependencies=authenticated)
-    async def wifi_direct_status() -> Dict[str, object]:
+    def wifi_direct_status() -> Dict[str, object]:
         return read_wifi_direct_status()
 
     @app.get("/v1/pipelines", dependencies=authenticated)
-    async def list_pipelines() -> List[Dict[str, object]]:
+    def list_pipelines() -> List[Dict[str, object]]:
         try:
             return [pipeline_response(item) for item in pipelines.list_pipelines()]
         except PipelineError as error:
@@ -915,7 +932,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.post("/v1/pipelines", status_code=201, dependencies=authenticated)
-    async def register_pipeline(body: RegisterPipelineRequest) -> Dict[str, object]:
+    def register_pipeline(body: RegisterPipelineRequest) -> Dict[str, object]:
         try:
             repository = resolve_pipeline_source(
                 body.repository_root_id, body.repository_path
@@ -988,7 +1005,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.delete("/v1/pipelines/{pipeline_id}", status_code=204, dependencies=authenticated)
-    async def remove_pipeline(pipeline_id: str) -> Response:
+    def remove_pipeline(pipeline_id: str) -> Response:
         try:
             pipelines.remove(pipeline_id)
             return Response(status_code=204)
@@ -1000,7 +1017,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.get("/v1/pipelines/{pipeline_id}/logs", dependencies=authenticated)
-    async def pipeline_logs(pipeline_id: str, lines: int = 200) -> Dict[str, object]:
+    def pipeline_logs(pipeline_id: str, lines: int = 200) -> Dict[str, object]:
         try:
             return pipelines.logs(pipeline_id, lines)
         except PipelineNotFound as error:
@@ -1009,7 +1026,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/v1/pipelines/{pipeline_id}/log-files", dependencies=authenticated)
-    async def pipeline_log_files(pipeline_id: str) -> Dict[str, object]:
+    def pipeline_log_files(pipeline_id: str) -> Dict[str, object]:
         try:
             return pipelines.log_files(pipeline_id)
         except PipelineNotFound as error:
@@ -1021,7 +1038,7 @@ def create_app(
         "/v1/pipelines/{pipeline_id}/log-files/{log_id}",
         dependencies=authenticated,
     )
-    async def pipeline_log_file(
+    def pipeline_log_file(
         pipeline_id: str,
         log_id: str,
         offset: int = 0,
@@ -1035,7 +1052,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/v1/pipelines/{pipeline_id}/config", dependencies=authenticated)
-    async def pipeline_config(pipeline_id: str) -> Dict[str, str]:
+    def pipeline_config(pipeline_id: str) -> Dict[str, str]:
         try:
             return pipelines.config_document(pipeline_id)
         except PipelineNotFound as error:
@@ -1044,7 +1061,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.put("/v1/pipelines/{pipeline_id}/config", dependencies=authenticated)
-    async def update_pipeline_config(
+    def update_pipeline_config(
         pipeline_id: str,
         body: UpdatePipelineConfigRequest,
     ) -> Dict[str, str]:
@@ -1056,7 +1073,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/v1/pipelines/{pipeline_id}/config/fields", dependencies=authenticated)
-    async def pipeline_config_fields(pipeline_id: str) -> Dict[str, object]:
+    def pipeline_config_fields(pipeline_id: str) -> Dict[str, object]:
         try:
             return pipelines.config_fields(pipeline_id)
         except PipelineNotFound as error:
@@ -1065,7 +1082,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.patch("/v1/pipelines/{pipeline_id}/config/fields", dependencies=authenticated)
-    async def update_pipeline_config_fields(
+    def update_pipeline_config_fields(
         pipeline_id: str,
         body: UpdatePipelineConfigFieldsRequest,
     ) -> Dict[str, object]:
@@ -1092,7 +1109,7 @@ def create_app(
                 pipeline_id,
                 action,
             )
-            return pipeline_response(controlled)
+            return await run_in_threadpool(pipeline_response, controlled)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -1128,14 +1145,14 @@ def create_app(
                     status_code=409,
                     detail="Pipeline does not have mobile-relay-compatible NTRIP enabled",
                 )
-            return mobile_rtk.register(body.pipeline_id, relay_host, body.port)
+            return await run_in_threadpool(mobile_rtk.register, body.pipeline_id, relay_host, body.port)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except (ValueError, PipelineError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.delete("/v1/rtk/mobile-relay/{pipeline_id}", dependencies=authenticated)
-    async def unregister_mobile_rtk_relay(pipeline_id: str) -> Response:
+    def unregister_mobile_rtk_relay(pipeline_id: str) -> Response:
         try:
             mobile_rtk.unregister(pipeline_id)
         except ValueError as error:

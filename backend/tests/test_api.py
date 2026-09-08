@@ -235,9 +235,11 @@ class ApiContractTest(unittest.TestCase):
             tls_fingerprint=self.tls_fingerprint,
         )
         self.client = TestClient(app, client=("192.168.10.20", 50000))
+        self.client.__enter__()
         self.nonce_counter = 0
 
     def tearDown(self) -> None:
+        self.client.__exit__(None, None, None)
         self.temporary.cleanup()
 
     def signed_request(self, method: str, path: str, body: bytes = b""):

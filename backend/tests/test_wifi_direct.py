@@ -171,6 +171,85 @@ class FakeRunner:
 
 
 class WifiDirectTest(unittest.TestCase):
+    def test_activation_timeout_restores_wifi_and_accepts_next_request(self):
+        runner = FakeRunner(concurrency_supported=False, managed_wifi_active=True,
+                            single_interface_group=True)
+        timed_out = [False]
+
+        def run(command, **kwargs):
+            if "p2p_connect" in command and not timed_out[0]:
+                timed_out[0] = True
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return runner(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=run, start_process=runner.start_process, status_path=path,
+                sleep=lambda _seconds: None,
+            )
+            controller.prepare()
+            self.assertEqual(controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"), "")
+            status = read_wifi_direct_status(path)
+            self.assertEqual(status["state"], "DISCOVERABLE")
+            self.assertIn("timed out", status["lastError"])
+            self.assertTrue(runner.managed_wifi_active)
+            self.assertTrue(controller.request_connection("AA:BB:CC:DD:EE:FF"))
+            controller._activation_thread.join(timeout=2)
+            self.assertEqual(read_wifi_direct_status(path)["state"], "READY")
+            controller.stop()
+
+    def test_attempt_deadline_rejects_late_success_and_cleans_created_group(self):
+        runner = FakeRunner(concurrency_supported=False, managed_wifi_active=True,
+                            single_interface_group=True)
+        now = [1000.0]
+
+        def run(command, **kwargs):
+            result = runner(command, **kwargs)
+            if "p2p_connect" in command:
+                now[0] += 121
+            return result
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=run, start_process=runner.start_process, status_path=path,
+                sleep=lambda _seconds: None, monotonic=lambda: now[0],
+            )
+            controller.prepare()
+            self.assertEqual(controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"), "")
+            self.assertEqual(read_wifi_direct_status(path)["state"], "DISCOVERABLE")
+            self.assertFalse(runner.group_created)
+            self.assertTrue(runner.managed_wifi_active)
+
+    def test_monitor_recovers_dead_worker_and_surfaces_cleanup_failure(self):
+        runner = FakeRunner()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=runner, start_process=runner.start_process, status_path=path,
+                sleep=lambda _seconds: None,
+            )
+            controller.prepare()
+            controller._begin_attempt()
+            controller._publish("CONNECTING", "dead worker")
+            controller.monitor()
+            self.assertEqual(read_wifi_direct_status(path)["state"], "DISCOVERABLE")
+
+            controller._begin_attempt()
+            controller._publish("CONNECTING", "dead worker")
+            with patch.object(controller, "_cleanup_direct_connection", side_effect=WifiDirectError("DHCP cleanup failed")), patch.object(controller, "_restore_suspended_wifi") as restore:
+                controller.monitor()
+                restore.assert_called_once()
+            controller.monitor()
+            status = read_wifi_direct_status(path)
+            self.assertEqual(status["state"], "ERROR")
+            self.assertIn("DHCP cleanup failed", status["lastError"])
+            self.assertFalse(controller.request_connection("AA:BB:CC:DD:EE:FF"))
+
     def test_iwlwifi_uses_active_find_so_android_can_discover_it(self):
         runner = FakeRunner(wifi_driver="iwlwifi")
         with tempfile.TemporaryDirectory() as temporary:

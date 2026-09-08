@@ -1,14 +1,15 @@
 import json
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from jetson_control.config import DeviceConfig
 from jetson_control.sensors import SensorBridgeStore
-from jetson_control.status import StatusCollector
+from jetson_control.status import StatusCollector, StatusSnapshotService
 
 
 class StatusCollectorSensorTest(unittest.TestCase):
@@ -106,6 +107,17 @@ class StatusCollectorWifiTest(unittest.TestCase):
         )
         self.collector = StatusCollector(self.config)
 
+    def test_failed_measurement_is_distinct_from_valid_zero(self) -> None:
+        with patch.object(self.collector, "cpu_percent", side_effect=OSError("CPU unavailable")), patch.object(self.collector, "gpu_percent", return_value=0), patch.object(self.collector, "wifi_status", side_effect=OSError("NetworkManager unavailable")):
+            status = self.collector.collect()
+        self.assertEqual(status["cpuPercent"], 0)
+        self.assertEqual(status["gpuPercent"], 0)
+        self.assertEqual(status["metricValidity"]["cpuPercent"]["validity"], "unavailable")
+        self.assertIsNone(status["metricValidity"]["cpuPercent"]["observedAtEpochMillis"])
+        self.assertEqual(status["metricValidity"]["gpuPercent"]["validity"], "valid")
+        self.assertEqual(status["metricValidity"]["wifiConnected"]["validity"], "unavailable")
+        self.assertGreater(status["collectedAtEpochMillis"], 0)
+
     @staticmethod
     def result(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess([], returncode, stdout, "")
@@ -148,6 +160,43 @@ class StatusCollectorWifiTest(unittest.TestCase):
             self.collector.wifi_status(),
             (True, "Fallback profile"),
         )
+
+
+class StatusSnapshotTest(unittest.TestCase):
+    def test_reads_do_not_wait_for_slow_collection_and_keep_observation_time(self):
+        collector = Mock()
+        collector.collect.return_value = {
+            "cpuPercent": 12, "collectedAtEpochMillis": 1234,
+            "metricValidity": {"cpuPercent": {"validity": "valid", "observedAtEpochMillis": 1234, "reason": None}},
+        }
+        now = [100.0]
+        snapshots = StatusSnapshotService(collector, monotonic=lambda: now[0])
+        snapshots.refresh()
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocked_collection():
+            entered.set()
+            release.wait(timeout=2)
+            raise OSError("sensor timed out")
+
+        collector.collect.side_effect = blocked_collection
+        worker = threading.Thread(target=snapshots.refresh)
+        with self.assertLogs("jetson_control.status", level="ERROR"):
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(timeout=1))
+                now[0] += 11
+                snapshot = snapshots.snapshot()
+                self.assertEqual(snapshot["cpuPercent"], 12)
+                self.assertEqual(snapshot["collectedAtEpochMillis"], 1234)
+                self.assertFalse(snapshot["statusFresh"])
+                self.assertEqual(snapshot["metricValidity"]["cpuPercent"]["validity"], "stale")
+                self.assertTrue(worker.is_alive())
+            finally:
+                release.set()
+                worker.join(timeout=2)
+        self.assertEqual(snapshots.snapshot()["statusCollectionError"], "sensor timed out")
 
 
 if __name__ == "__main__":
