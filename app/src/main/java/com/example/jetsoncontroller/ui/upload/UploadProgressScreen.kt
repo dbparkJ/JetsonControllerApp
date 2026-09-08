@@ -187,7 +187,7 @@ fun UploadProgressScreen(
                 ) {
                     Text("${(progress * 100).toInt()}%", fontWeight = FontWeight.SemiBold)
                     Text(
-                        "${formatMegabytes(job.bytesTransferred ?: 0)} / ${formatMegabytes(job.bytesTotal ?: 0)}",
+                        "${formatSize(job.bytesTransferred ?: 0)} / ${formatSize(job.bytesTotal ?: 0)}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -322,9 +322,6 @@ fun UploadProgressScreen(
         }
     }
 }
-
-internal fun formatMegabytes(bytes: Long): String =
-    "%.1f MB".format(bytes.coerceAtLeast(0L).toDouble() / (1024.0 * 1024.0))
 
 internal fun formatEta(seconds: Long): String {
     val safe = seconds.coerceAtLeast(0L)

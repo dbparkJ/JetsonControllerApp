@@ -35,6 +35,9 @@ jobs:
           ./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
           --tests '*TransportCoordinatorTest'
           --tests '*AutomaticConnectionPolicyTest'
+          --tests '*LanAddressSelectionTest'
+          --tests '*WifiNetworkSelectionTest'
+          --tests '*UploadQueueFilterTest'
           --tests '*WifiDirectConnectionPolicyTest'
           --tests '*NavigationWorkflowTest'
           --tests '*DashboardHealthTest'

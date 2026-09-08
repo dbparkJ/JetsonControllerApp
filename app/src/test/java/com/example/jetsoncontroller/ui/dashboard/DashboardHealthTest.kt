@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.ui.dashboard
 
 import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.model.UploadJob
+import com.example.jetsoncontroller.model.UploadJobState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -45,26 +47,16 @@ class DashboardHealthTest {
     }
 
     @Test
-    fun reconnect_keepsDismissal_butHealthyRecoveryRearmsIt() {
-        val attention = health(JetsonStatus(temperatureC = 85f))
-        val dismissals = dismissDashboardHealth(emptySet(), "device-a", attention)
+    fun savedDismissal_hidesTheSameUploadButShowsANewFailureWithTheSameCount() {
+        val upload = failedUpload("upload-a")
+        val original = uploadHealth(listOf(upload))
+        // Preferences restore the same stable keys in a new app process.
+        val restored = dismissDashboardHealth(emptySet(), "device-a", original).toList().toSet()
 
-        val whileOffline = reconcileDashboardHealthDismissals(
-            dismissals,
-            deviceId = "device-a",
-            health = attention,
-            online = false
-        )
-        assertEquals(dismissals, whileOffline)
-        assertTrue(isDashboardHealthDismissed(whileOffline, "device-a", attention))
-
-        val afterRecovery = reconcileDashboardHealthDismissals(
-            whileOffline,
-            deviceId = "device-a",
-            health = health(JetsonStatus(temperatureC = 45f, storagePercent = 40)),
-            online = true
-        )
-        assertFalse(isDashboardHealthDismissed(afterRecovery, "device-a", attention))
+        assertTrue(isDashboardHealthDismissed(restored, "device-a", uploadHealth(listOf(upload.copy()))))
+        assertFalse(isDashboardHealthDismissed(restored, "device-b", original))
+        assertFalse(isDashboardHealthDismissed(restored, "device-a", uploadHealth(listOf(failedUpload("upload-b")))))
+        assertFalse(isDashboardHealthDismissed(restored, "device-a", uploadHealth(listOf(upload.copy(errorMessage = "인증 실패")))))
     }
 
     @Test
@@ -89,37 +81,36 @@ class DashboardHealthTest {
     }
 
     @Test
-    fun dismissals_areDeviceAndIssueScoped_untilHealthy() {
-        val temperature = health(JetsonStatus(temperatureC = 85f))
-        val storage = health(JetsonStatus(storagePercent = 95))
-        val firstDevice = dismissDashboardHealth(emptySet(), "device-a", temperature)
-        val bothDevices = dismissDashboardHealth(firstDevice, "device-b", temperature)
+    fun acknowledgedUploadsStayHiddenWhenTheListIsReorderedOrAnOldFailureIsRemoved() {
+        val first = failedUpload("upload-a")
+        val second = failedUpload("upload-b")
+        val dismissals = dismissDashboardHealth(emptySet(), "device-a", uploadHealth(listOf(first, second)))
 
-        val changed = reconcileDashboardHealthDismissals(
-            bothDevices,
-            deviceId = "device-a",
-            health = storage,
-            online = true
-        )
-
-        assertTrue(isDashboardHealthDismissed(changed, "device-a", temperature))
-        assertFalse(isDashboardHealthDismissed(changed, "device-a", storage))
-        assertTrue(isDashboardHealthDismissed(changed, "device-b", temperature))
-
-        val bothIssues = dismissDashboardHealth(changed, "device-a", storage)
-        assertTrue(isDashboardHealthDismissed(bothIssues, "device-a", temperature))
-        assertTrue(isDashboardHealthDismissed(bothIssues, "device-a", storage))
-
-        val recovered = reconcileDashboardHealthDismissals(
-            bothIssues,
-            deviceId = "device-a",
-            health = health(JetsonStatus(temperatureC = 45f, storagePercent = 40)),
-            online = true
-        )
-        assertFalse(isDashboardHealthDismissed(recovered, "device-a", temperature))
-        assertFalse(isDashboardHealthDismissed(recovered, "device-a", storage))
-        assertTrue(isDashboardHealthDismissed(recovered, "device-b", temperature))
+        assertTrue(isDashboardHealthDismissed(dismissals, "device-a", uploadHealth(listOf(second, first))))
+        assertTrue(isDashboardHealthDismissed(dismissals, "device-a", uploadHealth(listOf(second))))
+        assertFalse(isDashboardHealthDismissed(dismissals, "device-a", uploadHealth(listOf(second, failedUpload("upload-c")))))
     }
+
+    private fun uploadHealth(uploads: List<UploadJob>): DashboardHealth = assessDashboardHealth(
+        JetsonStatus(temperatureC = 45f, storagePercent = 40),
+        StatusFreshness.CURRENT,
+        emptyList(),
+        uploads
+    )
+
+    private fun failedUpload(id: String) = UploadJob(
+        id = id,
+        rootId = "recordings",
+        relativePath = "session",
+        targetId = "server",
+        state = UploadJobState.FAILED,
+        bytesTotal = null,
+        bytesTransferred = null,
+        filesTotal = null,
+        filesTransferred = null,
+        currentFile = null,
+        errorMessage = "연결 시간 초과"
+    )
 
     private fun health(
         status: JetsonStatus,

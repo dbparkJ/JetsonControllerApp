@@ -1,11 +1,7 @@
 package com.example.jetsoncontroller.ui
 
 import android.net.Uri
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.Modifier
-import com.example.jetsoncontroller.ui.components.AppBanner
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.ConnectionRecoveryLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -461,21 +457,22 @@ fun JetsonApp(
     }
 
 
-    Column(Modifier.fillMaxSize()) {
-        if (!fullControlConnected && currentRoute in routesRequiringDeviceConnection) {
-            AppBanner(
-                message = if (connectedTransportType == TransportType.BLE) {
-                    "기본 연결 상태입니다. 전체 제어 연결이 필요하며 작성한 내용은 유지됩니다."
-                } else {
-                    "장비 연결을 기다리고 있습니다. 작성한 내용과 선택은 유지됩니다."
-                },
-                tone = StatusTone.INFO,
-                actionLabel = "연결 문제 해결",
-                onAction = { navController.navigate(Routes.CONNECTION_HUB) { launchSingleTop = true } }
-            )
+    ConnectionRecoveryLayout(
+        message = if (!fullControlConnected && currentRoute in routesRequiringDeviceConnection) {
+            if (connectedTransportType == TransportType.BLE) {
+                "전체 제어 연결이 필요합니다. 작성한 내용은 유지됩니다."
+            } else {
+                "장비 연결을 기다리고 있습니다. 작성한 내용은 유지됩니다."
+            }
+        } else {
+            null
+        },
+        onResolveConnection = {
+            navController.navigate(Routes.CONNECTION_HUB) { launchSingleTop = true }
         }
+    ) { screenModifier ->
     NavHost(
-        modifier = Modifier.weight(1f),
+        modifier = screenModifier,
         navController =
             navController,
         startDestination =
@@ -849,6 +846,9 @@ fun JetsonApp(
         }
 
         composable(Routes.SERVER_STORAGE) {
+            LaunchedEffect(Unit) {
+                serverStorageViewModel.refresh()
+            }
             ServerStorageScreen(
                 state = serverStorageState,
                 onBack = {
