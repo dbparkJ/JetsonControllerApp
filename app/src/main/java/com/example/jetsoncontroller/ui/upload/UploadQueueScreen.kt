@@ -55,10 +55,12 @@ fun UploadQueueScreen(
     onManageTargets: () -> Unit,
     onJobClick: (UploadJob) -> Unit,
     onDeleteJob: (UploadJob) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    mutationEnabled: Boolean = true,
+    deviceId: String? = null
 ) {
     val targetLabels = targets.associate { it.id to it.label }
-    var pendingDeletion by remember { mutableStateOf<UploadJob?>(null) }
+    var pendingDeletion by remember(deviceId, mutationEnabled) { mutableStateOf<UploadJob?>(null) }
     pendingDeletion?.let { job ->
         AlertDialog(
             onDismissRequest = { pendingDeletion = null },
@@ -71,6 +73,7 @@ fun UploadQueueScreen(
             },
             confirmButton = {
                 Button(
+                    enabled = mutationEnabled,
                     onClick = {
                         pendingDeletion = null
                         onDeleteJob(job)
@@ -95,7 +98,7 @@ fun UploadQueueScreen(
                     IconButton(onClick = onManageTargets) {
                         Icon(Icons.Default.Dns, contentDescription = "업로드 서버 관리")
                     }
-                    IconButton(onClick = onRefresh, enabled = !isLoading) {
+                    IconButton(onClick = onRefresh, enabled = mutationEnabled && !isLoading) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로고침")
                     }
                 }
@@ -196,7 +199,7 @@ fun UploadQueueScreen(
                             if (isDeletableUploadJob(job)) {
                                 IconButton(
                                     onClick = { pendingDeletion = job },
-                                    enabled = !isLoading
+                                    enabled = mutationEnabled && !isLoading
                                 ) {
                                     Icon(
                                         Icons.Default.Delete,

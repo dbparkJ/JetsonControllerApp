@@ -74,7 +74,7 @@ fun ServerStorageScreen(
     onSectionSelected: (ControlSection) -> Unit,
     deletionEnabled: Boolean = true
 ) {
-    var pendingDeletion by remember { mutableStateOf<UploadLibrarySession?>(null) }
+    var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<UploadLibrarySession?>(null) }
     pendingDeletion?.let { session ->
         AlertDialog(
             onDismissRequest = { pendingDeletion = null },

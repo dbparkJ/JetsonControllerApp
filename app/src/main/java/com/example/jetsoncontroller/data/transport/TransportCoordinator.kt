@@ -10,15 +10,61 @@ class TransportCoordinator {
     val state: StateFlow<TransportState> = _state.asStateFlow()
 
     private var activeTransport: ControlTransport? = null
+    private var sessionId = 0L
+    private var requestId = 0L
+    private var connectionAttemptId = 0L
+    private val appliedRequests = mutableMapOf<String, Long>()
 
+    // A temporary BLE session and an IP verification attempt have independent lifetimes.
+    @Synchronized
+    fun nextConnectionAttempt(): Long = ++connectionAttemptId
+
+    @Synchronized
+    fun connectionAttemptIsCurrent(attemptId: Long): Boolean =
+        connectionAttemptId == attemptId
+
+    class Request internal constructor(
+        val transport: ControlTransport,
+        val deviceId: String?,
+        internal val sessionId: Long,
+        internal val requestId: Long,
+        internal val operation: String
+    )
+
+    @Synchronized
+    fun beginRequest(operation: String): Request? {
+        val transport = activeTransport ?: return null
+        return Request(transport, (_state.value as? TransportState.Connected)?.deviceId,
+            sessionId, ++requestId, operation)
+    }
+
+    @Synchronized
+    fun isCurrent(request: Request): Boolean =
+        request.sessionId == sessionId && request.transport === activeTransport &&
+            request.deviceId == (_state.value as? TransportState.Connected)?.deviceId
+
+    /** Commit a response only once and never over a newer response in the same stream. */
+    @Synchronized
+    fun applyResponse(request: Request, apply: () -> Unit): Boolean {
+        if (!isCurrent(request) ||
+            request.requestId <= (appliedRequests[request.operation] ?: 0L)) return false
+        appliedRequests[request.operation] = request.requestId
+        apply()
+        return true
+    }
+
+    @Synchronized
     fun currentTransport(): ControlTransport? = activeTransport
 
+    @Synchronized
     fun setActiveTransport(
         transport: ControlTransport,
         endpoint: String? = null,
         deviceId: String? = null,
         deviceName: String? = null
     ) {
+        sessionId += 1
+        appliedRequests.clear()
         activeTransport = transport
         _state.value = TransportState.Connected(
             type = transport.type,
@@ -28,12 +74,19 @@ class TransportCoordinator {
         )
     }
 
+    @Synchronized
     fun disconnect() {
+        sessionId += 1
+        appliedRequests.clear()
         activeTransport = null
         _state.value = TransportState.Disconnected
     }
 
+    @Synchronized
     fun setError(type: TransportType?, message: String) {
+        sessionId += 1
+        appliedRequests.clear()
+        activeTransport = null
         _state.value = TransportState.Error(type, message)
     }
 }

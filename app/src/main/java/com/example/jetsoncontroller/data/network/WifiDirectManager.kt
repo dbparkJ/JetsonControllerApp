@@ -45,6 +45,7 @@ data class WifiDirectState(
     val discovering: Boolean = false,
     val peers: List<WifiDirectPeer> = emptyList(),
     val connectingPeerAddress: String? = null,
+    val cleaningUp: Boolean = false,
     val connected: Boolean = false,
     val groupOwnerAddress: String? = null,
     val discoveryAttempted: Boolean = false,
@@ -81,7 +82,8 @@ class WifiDirectManager(
     )
     val state: StateFlow<WifiDirectState> = _state.asStateFlow()
 
-    private var connectionAttemptGeneration = 0L
+    private val connectionSession = WifiDirectConnectionSession()
+    private var connectionInfoQueryGeneration = 0L
     private var channel: WifiP2pManager.Channel? = createChannel()
     private var registered = false
 
@@ -119,6 +121,11 @@ class WifiDirectManager(
                     val enabled =
                         wifiP2pState == WifiP2pManager.WIFI_P2P_STATE_ENABLED
 
+                    if (!enabled) {
+                        resetDisconnectedState(
+                            "Wi-Fi가 꺼져 있습니다. Wi-Fi를 켠 뒤 다시 검색해 주세요."
+                        )
+                    }
                     _state.value = _state.value.copy(
                         enabled = enabled,
                         discovering = if (enabled) _state.value.discovering else false,
@@ -136,7 +143,7 @@ class WifiDirectManager(
                         WifiP2pManager.WIFI_P2P_DISCOVERY_STOPPED
                     )
                     _state.value = _state.value.copy(
-                        discovering =
+                        discovering = !_state.value.cleaningUp &&
                             discoveryState == WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED
                     )
                 }
@@ -205,7 +212,7 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun startDiscovery() {
-        if (_state.value.discovering) {
+        if (_state.value.discovering || _state.value.cleaningUp) {
             return
         }
         if (!hasNearbyWifiPermission()) {
@@ -241,6 +248,7 @@ class WifiDirectManager(
             peers = emptyList(),
             error = null
         )
+        val discoveryGeneration = connectionSession.generation
 
         try {
             readyManager.discoverPeers(
@@ -251,7 +259,9 @@ class WifiDirectManager(
                     }
 
                     override fun onFailure(reason: Int) {
-                        fail(actionFailure("장비 검색", reason))
+                        if (connectionSession.isCurrent(discoveryGeneration) &&
+                            _state.value.discovering
+                        ) fail(actionFailure("장비 검색", reason))
                     }
                 }
             )
@@ -285,8 +295,7 @@ class WifiDirectManager(
                     .sortedBy { it.name.lowercase() }
 
                 _state.value = _state.value.copy(
-                    peers = peers,
-                    error = null
+                    peers = peers
                 )
             }
         } catch (_: SecurityException) {
@@ -296,7 +305,7 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun connect(peer: WifiDirectPeer) {
-        if (_state.value.connected || _state.value.connectingPeerAddress != null) {
+        if (connectionSession.phase != WifiDirectConnectionSession.Phase.IDLE) {
             return
         }
         if (!hasNearbyWifiPermission()) {
@@ -317,89 +326,113 @@ class WifiDirectManager(
             wps.setup = WpsInfo.PBC
         }
 
-        val attemptGeneration = ++connectionAttemptGeneration
+        if (!register()) return
+        val attemptGeneration = connectionSession.begin(peer.deviceAddress) ?: return
         _state.value = _state.value.copy(
             discovering = false,
             connectingPeerAddress = peer.deviceAddress,
             error = null
         )
-        scheduleConnectionTimeout(peer.deviceAddress, attemptGeneration)
+        scheduleConnectionTimeout(attemptGeneration)
 
         try {
-            readyManager.connect(
-                readyChannel,
-                config,
-                object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        // Connection details arrive through the connection broadcast.
-                    }
-
-                    override fun onFailure(reason: Int) {
-                        if (!wifiDirectAttemptIsCurrent(
-                                currentGeneration = connectionAttemptGeneration,
-                                callbackGeneration = attemptGeneration,
-                                connectingPeerAddress = _state.value.connectingPeerAddress,
-                                callbackPeerAddress = peer.deviceAddress,
-                                connected = _state.value.connected
-                            )
-                        ) {
-                            return
-                        }
-                        _state.value = _state.value.copy(
-                            error = actionFailure("장비 연결", reason)
-                        )
-                        releaseFailedConnectionAfterCooldown(
+            readyManager.requestGroupInfo(readyChannel) groupInfo@{ group ->
+                if (!connectionSession.isConnecting(attemptGeneration)) return@groupInfo
+                if (group != null) {
+                    if (wifiDirectGroupBelongsToPeer(
                             peer.deviceAddress,
-                            attemptGeneration
+                            group.owner?.deviceAddress,
+                            group.clientList.map { it.deviceAddress }
+                        )
+                    ) {
+                        requestConnectionInfo()
+                    } else {
+                        resetDisconnectedState(
+                            "다른 장비에 Wi-Fi Direct로 연결되어 있습니다. Android Wi-Fi 설정에서 연결을 해제한 뒤 다시 시도해 주세요."
                         )
                     }
+                    return@groupInfo
                 }
-            )
+                try {
+                    readyManager.connect(
+                        readyChannel,
+                        config,
+                        object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                // Connection details arrive through the connection broadcast.
+                            }
+
+                            override fun onFailure(reason: Int) {
+                                if (!connectionSession.isConnecting(attemptGeneration)) return
+                                beginConnectionCleanup(actionFailure("장비 연결", reason))
+                            }
+                        }
+                    )
+                } catch (_: SecurityException) {
+                    beginConnectionCleanup("주변 기기 권한을 허용한 뒤 다시 연결해 주세요.")
+                }
+            }
         } catch (_: SecurityException) {
-            fail("주변 기기 권한을 허용한 뒤 다시 연결해 주세요.")
+            beginConnectionCleanup("주변 기기 권한을 허용한 뒤 다시 연결해 주세요.")
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun requestConnectionInfo() {
-        if (!hasNearbyWifiPermission()) {
+        if (!hasNearbyWifiPermission() ||
+            connectionSession.phase == WifiDirectConnectionSession.Phase.IDLE ||
+            connectionSession.phase == WifiDirectConnectionSession.Phase.CLEANING_UP
+        ) {
             return
         }
 
         val readyManager = manager ?: return
         val readyChannel = ensureChannel() ?: return
-        val queryGeneration = connectionAttemptGeneration
+        val queryGeneration = connectionSession.generation
+        val infoQueryGeneration = ++connectionInfoQueryGeneration
 
         try {
             readyManager.requestConnectionInfo(readyChannel) { info ->
-                if (queryGeneration != connectionAttemptGeneration) {
+                if (!connectionSession.isCurrent(queryGeneration) ||
+                    infoQueryGeneration != connectionInfoQueryGeneration
+                ) {
                     return@requestConnectionInfo
                 }
                 if (info.groupFormed && info.groupOwnerAddress != null) {
-                    connectionAttemptGeneration += 1
-                    _state.value = _state.value.copy(
-                        discovering = false,
-                        connectingPeerAddress = null,
-                        connected = true,
-                        groupOwnerAddress = info.groupOwnerAddress.hostAddress,
-                        apiStatus = WifiDirectApiStatus.IDLE,
-                        apiDeviceName = null,
-                        apiError = null,
-                        error = null
-                    )
+                    // A broadcast has no attempt identifier. Verify the actual peer before
+                    // accepting a group, including a late group from an earlier attempt.
+                    try {
+                        readyManager.requestGroupInfo(readyChannel) groupInfo@{ group ->
+                            if (infoQueryGeneration != connectionInfoQueryGeneration ||
+                                group == null ||
+                                !connectionSession.acceptGroup(
+                                    queryGeneration,
+                                    group.owner?.deviceAddress,
+                                    group.clientList.map { it.deviceAddress }
+                                )
+                            ) return@groupInfo
+                            val sameLink = _state.value.connected &&
+                                _state.value.groupOwnerAddress == info.groupOwnerAddress.hostAddress
+                            _state.value = _state.value.copy(
+                                discovering = false,
+                                connectingPeerAddress = null,
+                                connected = true,
+                                groupOwnerAddress = info.groupOwnerAddress.hostAddress,
+                                apiStatus = if (sameLink) _state.value.apiStatus else WifiDirectApiStatus.IDLE,
+                                apiDeviceName = if (sameLink) _state.value.apiDeviceName else null,
+                                apiError = if (sameLink) _state.value.apiError else null,
+                                error = null
+                            )
+                        }
+                    } catch (_: SecurityException) {
+                        beginConnectionCleanup("Wi-Fi Direct 연결 정보를 읽을 권한이 없습니다.")
+                    }
                 } else if (!shouldPreservePendingWifiDirectConnection(
                         connectingPeerAddress = _state.value.connectingPeerAddress,
                         groupFormed = info.groupFormed
                     )
                 ) {
-                    _state.value = _state.value.copy(
-                        connectingPeerAddress = null,
-                        connected = false,
-                        groupOwnerAddress = null,
-                        apiStatus = WifiDirectApiStatus.IDLE,
-                        apiDeviceName = null,
-                        apiError = null
-                    )
+                    resetDisconnectedState()
                 }
             }
         } catch (_: SecurityException) {
@@ -412,7 +445,9 @@ class WifiDirectManager(
         val readyManager = manager
         val readyChannel = channel
 
-        if (readyManager != null && readyChannel != null && _state.value.discovering) {
+        if (readyManager != null && readyChannel != null &&
+            (_state.value.discovering || _state.value.cleaningUp)
+        ) {
             try {
                 readyManager.stopPeerDiscovery(
                     readyChannel,
@@ -427,99 +462,179 @@ class WifiDirectManager(
         }
 
         _state.value = _state.value.copy(discovering = false)
-        if (!_state.value.connected && _state.value.connectingPeerAddress == null) {
+        if (!_state.value.connected && _state.value.connectingPeerAddress == null &&
+            !_state.value.cleaningUp
+        ) {
             unregister()
         }
     }
 
-    @SuppressLint("MissingPermission")
     fun cancelConnect() {
-        if (_state.value.connected) {
-            disconnect()
-            return
-        }
+        beginConnectionCleanup()
+    }
 
-        connectionAttemptGeneration += 1
-        val readyManager = manager
-        val readyChannel = ensureChannel()
-        if (readyManager == null || readyChannel == null) {
-            resetDisconnectedState()
-            unregister()
-            return
-        }
-
-        if (_state.value.connectingPeerAddress == null) {
-            stopDiscovery()
-            resetDisconnectedState()
-            return
-        }
-
-        try {
-            readyManager.cancelConnect(
-                readyChannel,
-                object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        resetDisconnectedState()
-                        stopDiscovery()
-                    }
-
-                    override fun onFailure(reason: Int) {
-                        _state.value = _state.value.copy(
-                            connectingPeerAddress = null,
-                            error = actionFailure("연결 취소", reason)
-                        )
-                        stopDiscovery()
-                    }
-                }
-            )
-        } catch (_: SecurityException) {
-            resetDisconnectedState("Wi-Fi Direct 연결을 취소할 권한이 없습니다.")
-            stopDiscovery()
-        }
+    fun disconnect() {
+        beginConnectionCleanup()
     }
 
     @SuppressLint("MissingPermission")
-    fun disconnect() {
-        if (!_state.value.connected) {
-            cancelConnect()
+    private fun beginConnectionCleanup(error: String? = null) {
+        val wasNegotiating = connectionSession.phase == WifiDirectConnectionSession.Phase.CONNECTING
+        val targetPeerAddress = connectionSession.peerAddress
+        val cleanupGeneration = connectionSession.beginCleanup()
+        if (cleanupGeneration == null) {
+            if (connectionSession.phase == WifiDirectConnectionSession.Phase.IDLE) stopDiscovery()
             return
         }
 
-        connectionAttemptGeneration += 1
+        _state.value = _state.value.copy(
+            connectingPeerAddress = null,
+            cleaningUp = true,
+            connected = false,
+            groupOwnerAddress = null,
+            apiStatus = WifiDirectApiStatus.IDLE,
+            apiDeviceName = null,
+            apiError = null,
+            error = error
+        )
+        stopDiscovery()
         val readyManager = manager
         val readyChannel = ensureChannel()
-        if (readyManager == null || readyChannel == null) {
-            resetDisconnectedState()
+        var cleanupError: String? = null
+        var inspectionStarted = false
+        var negotiationStopped = !wasNegotiating
+
+        fun finish(timedOut: Boolean = false) {
+            if (!connectionSession.finishCleanup(cleanupGeneration)) return
+            val messages = listOfNotNull(
+                error,
+                cleanupError,
+                if (timedOut) {
+                    "Wi-Fi Direct 정리 시간이 초과되었습니다. 다시 연결되지 않으면 Wi-Fi를 껐다 켜 주세요."
+                } else null
+            )
+            resetDisconnectedState(messages.takeIf { it.isNotEmpty() }?.joinToString("\n"))
             unregister()
+        }
+
+        mainHandler.postDelayed(
+            { finish(timedOut = true) },
+            WIFI_DIRECT_CLEANUP_TIMEOUT_MILLIS
+        )
+        if (readyManager == null || readyChannel == null) {
+            cleanupError = "Wi-Fi Direct 정리 채널이 없습니다. Wi-Fi를 껐다 켜 주세요."
+            finish()
             return
         }
 
-        try {
-            readyManager.removeGroup(
-                readyChannel,
-                object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        resetDisconnectedState()
-                        unregister()
+        // Cancellation/removal callbacks only confirm that Android accepted the
+        // request. Observe the group afterwards, including a quiet second check.
+        fun inspectGroup(previouslyAbsent: Boolean = false) {
+            if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+            try {
+                readyManager.requestGroupInfo(readyChannel) groupInfo@{ group ->
+                    if (!connectionSession.isCleaningUp(cleanupGeneration)) return@groupInfo
+                    if (group == null) {
+                        if (previouslyAbsent && negotiationStopped) {
+                            finish()
+                        } else {
+                            mainHandler.postDelayed(
+                                { inspectGroup(previouslyAbsent = true) },
+                                WIFI_DIRECT_CLEANUP_RECHECK_MILLIS
+                            )
+                        }
+                        return@groupInfo
+                    }
+                    if (!wifiDirectGroupBelongsToPeer(
+                            targetPeerAddress,
+                            group.owner?.deviceAddress,
+                            group.clientList.map { it.deviceAddress }
+                        )
+                    ) {
+                        cleanupError = "다른 장비의 Wi-Fi Direct 그룹이 있어 유지했습니다. Android Wi-Fi 설정에서 연결 상태를 확인해 주세요."
+                        finish()
+                        return@groupInfo
                     }
 
-                    override fun onFailure(reason: Int) {
-                        _state.value = _state.value.copy(
-                            error = actionFailure("연결 해제", reason)
+                    try {
+                        readyManager.removeGroup(
+                            readyChannel,
+                            object : WifiP2pManager.ActionListener {
+                                override fun onSuccess() {
+                                    if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                                    negotiationStopped = true
+                                    mainHandler.postDelayed(
+                                        { inspectGroup() },
+                                        WIFI_DIRECT_CLEANUP_RECHECK_MILLIS
+                                    )
+                                }
+
+                                override fun onFailure(reason: Int) {
+                                    if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                                    cleanupError = actionFailure("연결 해제", reason)
+                                    mainHandler.postDelayed(
+                                        { inspectGroup() },
+                                        WIFI_DIRECT_CLEANUP_RECHECK_MILLIS
+                                    )
+                                }
+                            }
                         )
+                    } catch (_: SecurityException) {
+                        cleanupError = "Wi-Fi Direct 연결을 해제할 권한이 없습니다. Android Wi-Fi 설정에서 연결을 해제해 주세요."
+                        finish()
                     }
                 }
+            } catch (_: SecurityException) {
+                cleanupError = "Wi-Fi Direct 그룹을 확인할 권한이 없습니다. Android Wi-Fi 설정에서 연결을 해제해 주세요."
+                finish()
+            }
+        }
+
+        fun startInspection() {
+            if (!connectionSession.isCleaningUp(cleanupGeneration) || inspectionStarted) return
+            inspectionStarted = true
+            inspectGroup()
+        }
+
+        if (wasNegotiating) {
+            // A vendor callback can be lost; still check for a group before the
+            // bounded cleanup expires, without starting overlapping removals.
+            mainHandler.postDelayed(
+                { startInspection() },
+                WIFI_DIRECT_CANCEL_CALLBACK_TIMEOUT_MILLIS
             )
-        } catch (_: SecurityException) {
-            fail("Wi-Fi Direct 연결을 해제할 권한이 없습니다.")
+            try {
+                readyManager.cancelConnect(
+                    readyChannel,
+                    object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() {
+                            if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                            negotiationStopped = true
+                            startInspection()
+                        }
+
+                        override fun onFailure(reason: Int) {
+                            if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                            cleanupError = actionFailure("연결 취소", reason)
+                            startInspection()
+                        }
+                    }
+                )
+            } catch (_: SecurityException) {
+                cleanupError = "Wi-Fi Direct 연결을 취소할 권한이 없습니다. Android Wi-Fi 설정에서 연결을 해제해 주세요."
+                finish()
+            }
+        } else {
+            startInspection()
         }
     }
 
     private fun resetDisconnectedState(error: String? = null) {
-        connectionAttemptGeneration += 1
+        connectionSession.reset()
         _state.value = _state.value.copy(
             discovering = false,
             connectingPeerAddress = null,
+            cleaningUp = false,
             connected = false,
             groupOwnerAddress = null,
             apiStatus = WifiDirectApiStatus.IDLE,
@@ -543,6 +658,7 @@ class WifiDirectManager(
     }
 
     fun markApiChecking() {
+        if (!_state.value.connected) return
         _state.value = _state.value.copy(
             apiStatus = WifiDirectApiStatus.CHECKING,
             apiDeviceName = null,
@@ -551,6 +667,7 @@ class WifiDirectManager(
     }
 
     fun markApiReady(deviceName: String) {
+        if (!_state.value.connected) return
         _state.value = _state.value.copy(
             apiStatus = WifiDirectApiStatus.READY,
             apiDeviceName = deviceName,
@@ -559,6 +676,7 @@ class WifiDirectManager(
     }
 
     fun markApiError(message: String) {
+        if (!_state.value.connected) return
         _state.value = _state.value.copy(
             apiStatus = WifiDirectApiStatus.ERROR,
             apiDeviceName = null,
@@ -633,10 +751,12 @@ class WifiDirectManager(
     }
 
     private fun fail(message: String) {
-        connectionAttemptGeneration += 1
+        if (connectionSession.phase == WifiDirectConnectionSession.Phase.CONNECTING) {
+            beginConnectionCleanup(message)
+            return
+        }
         _state.value = _state.value.copy(
             discovering = false,
-            connectingPeerAddress = null,
             error = message
         )
     }
@@ -656,20 +776,12 @@ class WifiDirectManager(
     }
 
     private fun scheduleConnectionTimeout(
-        peerAddress: String,
         attemptGeneration: Long
     ) {
         mainHandler.postDelayed(
             {
-                if (wifiDirectAttemptIsCurrent(
-                        currentGeneration = connectionAttemptGeneration,
-                        callbackGeneration = attemptGeneration,
-                        connectingPeerAddress = _state.value.connectingPeerAddress,
-                        callbackPeerAddress = peerAddress,
-                        connected = _state.value.connected
-                    )
-                ) {
-                    resetDisconnectedState(
+                if (connectionSession.isConnecting(attemptGeneration)) {
+                    beginConnectionCleanup(
                         "Wi-Fi Direct 연결 시간이 초과되었습니다. 다시 시도해 주세요."
                     )
                 }
@@ -678,43 +790,12 @@ class WifiDirectManager(
         )
     }
 
-    private fun releaseFailedConnectionAfterCooldown(
-        peerAddress: String,
-        attemptGeneration: Long
-    ) {
-        mainHandler.postDelayed(
-            {
-                if (wifiDirectAttemptIsCurrent(
-                        currentGeneration = connectionAttemptGeneration,
-                        callbackGeneration = attemptGeneration,
-                        connectingPeerAddress = _state.value.connectingPeerAddress,
-                        callbackPeerAddress = peerAddress,
-                        connected = _state.value.connected
-                    )
-                ) {
-                    connectionAttemptGeneration += 1
-                    _state.value = _state.value.copy(connectingPeerAddress = null)
-                }
-            },
-            WIFI_DIRECT_CONNECT_FAILURE_COOLDOWN_MILLIS
-        )
-    }
 }
 
 internal fun shouldPreservePendingWifiDirectConnection(
     connectingPeerAddress: String?,
     groupFormed: Boolean
 ): Boolean = connectingPeerAddress != null && !groupFormed
-
-internal fun wifiDirectAttemptIsCurrent(
-    currentGeneration: Long,
-    callbackGeneration: Long,
-    connectingPeerAddress: String?,
-    callbackPeerAddress: String,
-    connected: Boolean
-): Boolean = currentGeneration == callbackGeneration &&
-    connectingPeerAddress == callbackPeerAddress &&
-    !connected
 
 internal data class WifiDirectInterfaceAddressCandidate(
     val interfaceName: String,
@@ -755,6 +836,8 @@ private fun ipv4PrefixMatches(
 }
 
 private const val WIFI_DIRECT_CONNECT_TIMEOUT_MILLIS = 70_000L
-private const val WIFI_DIRECT_CONNECT_FAILURE_COOLDOWN_MILLIS = 2_000L
+private const val WIFI_DIRECT_CLEANUP_TIMEOUT_MILLIS = 8_000L
+private const val WIFI_DIRECT_CLEANUP_RECHECK_MILLIS = 750L
+private const val WIFI_DIRECT_CANCEL_CALLBACK_TIMEOUT_MILLIS = 1_500L
 private const val ROUTE_PROBE_PORT = 9
 private const val WIFI_DIRECT_FALLBACK_PREFIX_LENGTH = 24

@@ -68,12 +68,14 @@ fun UploadTargetSettingsScreen(
     onDelete: (targetId: String) -> Unit,
     onRefresh: () -> Unit,
     onClearFeedback: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    controlAvailable: Boolean = true,
+    deviceId: String? = null
 ) {
-    var editingTarget by remember { mutableStateOf<UploadTarget?>(null) }
-    var showNewTarget by rememberSaveable { mutableStateOf(false) }
-    var deletingTarget by remember { mutableStateOf<UploadTarget?>(null) }
-    var editorSubmitted by rememberSaveable { mutableStateOf(false) }
+    var editingTarget by remember(deviceId) { mutableStateOf<UploadTarget?>(null) }
+    var showNewTarget by rememberSaveable(deviceId) { mutableStateOf(false) }
+    var deletingTarget by remember(deviceId, controlAvailable) { mutableStateOf<UploadTarget?>(null) }
+    var editorSubmitted by rememberSaveable(deviceId) { mutableStateOf(false) }
 
     LaunchedEffect(message, isLoading, editorSubmitted) {
         if (editorSubmitted && message != null && !isLoading) {
@@ -87,6 +89,7 @@ fun UploadTargetSettingsScreen(
         UploadTargetEditorDialog(
             target = editingTarget,
             isSaving = isLoading,
+            controlAvailable = controlAvailable,
             error = if (editorSubmitted) error else null,
             onDismiss = {
                 showNewTarget = false
@@ -112,7 +115,7 @@ fun UploadTargetSettingsScreen(
                         onDelete(target.id)
                         deletingTarget = null
                     },
-                    enabled = !isLoading
+                    enabled = controlAvailable && !isLoading
                 ) {
                     Text("삭제")
                 }
@@ -261,6 +264,7 @@ fun UploadTargetSettingsScreen(
 private fun UploadTargetEditorDialog(
     target: UploadTarget?,
     isSaving: Boolean,
+    controlAvailable: Boolean,
     error: String?,
     onDismiss: () -> Unit,
     onSave: (targetId: String, label: String, baseUrl: String, token: String?) -> Unit
@@ -375,7 +379,7 @@ private fun UploadTargetEditorDialog(
                         token.trim().ifEmpty { null }
                     )
                 },
-                enabled = canSave && !isSaving
+                enabled = controlAvailable && canSave && !isSaving
             ) {
                 if (isSaving) {
                     CircularProgressIndicator(

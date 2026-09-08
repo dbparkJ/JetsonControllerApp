@@ -7,6 +7,9 @@ import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.example.jetsoncontroller.data.transport.TransportState
+import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -18,6 +21,9 @@ class NetworkSettingsViewModel(
 
     private val _uiState = MutableStateFlow(NetworkSettingsUiState())
     val uiState = _uiState.asStateFlow()
+    private val workspace = DeviceWorkspace { NetworkSettingsUiState() }
+    private var connectionGeneration = 0L
+    private var submitJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -33,11 +39,22 @@ class NetworkSettingsViewModel(
             }
         }
         viewModelScope.launch {
-            repository.transportState.collect { transport ->
-                _uiState.update {
-                    it.copy(
-                        transportType = (transport as? TransportState.Connected)?.type
-                    )
+            combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
+                deviceId to transport
+            }.collect { (deviceId, transport) ->
+                connectionGeneration += 1
+                submitJob?.cancel()
+                val connected = (transport as? TransportState.Connected)?.takeIf {
+                    it.deviceId.equals(deviceId, ignoreCase = true)
+                }
+                _uiState.update { previous ->
+                    workspace.select(deviceId, previous).let { current ->
+                        current.copy(
+                            transportType = connected?.type,
+                            sending = false,
+                            message = if (current.sending) "전송 결과를 확인하지 못했습니다. 재연결 후 Wi-Fi 연결 상태를 확인해 주세요." else current.message
+                        )
+                    }
                 }
             }
         }
@@ -110,6 +127,8 @@ class NetworkSettingsViewModel(
     }
 
     fun submit() {
+        if (_uiState.value.transportType == null || _uiState.value.sending) return
+        val generation = connectionGeneration
         val current = _uiState.value
         if (current.isCurrentJetsonWifi(current.ssid)) {
             _uiState.update {
@@ -123,7 +142,7 @@ class NetworkSettingsViewModel(
             }
             return
         }
-        viewModelScope.launch {
+        submitJob = viewModelScope.launch {
             _uiState.update { it.copy(sending = true, message = null) }
 
             val result = repository.provisionWifi(
@@ -134,6 +153,7 @@ class NetworkSettingsViewModel(
                 )
             )
 
+            if (generation != connectionGeneration) return@launch
             _uiState.update {
                 if (result.isSuccess) {
                     it.copy(

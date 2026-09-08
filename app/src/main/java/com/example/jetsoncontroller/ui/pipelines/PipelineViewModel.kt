@@ -17,6 +17,8 @@ import com.example.jetsoncontroller.model.RemoteFileEntry
 import com.example.jetsoncontroller.model.RemoteRoot
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -63,6 +65,9 @@ data class PipelinePickerState(
 )
 
 data class PipelineUiState(
+    val deviceId: String? = null,
+    val controlAvailable: Boolean = false,
+    val configNeedsReview: Boolean = false,
     val pipelines: List<ManagedPipeline> = emptyList(),
     val roots: List<RemoteRoot> = emptyList(),
     val draft: PipelineDraft = PipelineDraft(),
@@ -111,24 +116,47 @@ class PipelineViewModel(
     private var operationJob: Job? = null
     private var pollingJob: Job? = null
     private var pickerJob: Job? = null
+    private var configValidationJob: Job? = null
     private var logPollingJob: Job? = null
     private var activeLogPipelineId: String? = null
+    private val workspace = DeviceWorkspace { PipelineUiState() }
     private var connectionGeneration = 0L
 
     init {
         viewModelScope.launch {
-            repository.transportState.collectLatest { transport ->
+            combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
+                deviceId to transport
+            }.collectLatest { (deviceId, transport) ->
+                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId)
                 connectionGeneration += 1
                 operationJob?.cancel()
                 pollingJob?.cancel()
                 pickerJob?.cancel()
                 logPollingJob?.cancel()
-                activeLogPipelineId = null
-                if (transport is TransportState.Connected && transport.type != TransportType.BLE) {
+                configValidationJob?.cancel()
+                if (transport is TransportState.Connected && transport.type != TransportType.BLE &&
+                    transport.deviceId.equals(deviceId, ignoreCase = true)) {
+                    _uiState.value = _uiState.value.copy(
+                        controlAvailable = true, configSaving = false, busyPipelineId = null,
+                        detailLoading = false, isDiscoveringFolder = false,
+                        picker = _uiState.value.picker.copy(isLoading = false)
+                    )
                     refresh(connectionGeneration)
                     startPolling(connectionGeneration)
+                    validateConfigAfterReconnect(connectionGeneration)
+                    if (_uiState.value.picker.root != null) refreshPicker()
+                    activeLogPipelineId?.takeIf { it == _uiState.value.detailPipelineId }?.let(::launchLogPolling)
                 } else {
-                    _uiState.value = PipelineUiState()
+                    val current = _uiState.value
+                    _uiState.value = current.copy(
+                        controlAvailable = false,
+                        isLoading = false, busyPipelineId = null, detailLoading = false,
+                        configSaving = false, logLive = false, isDiscoveringFolder = false,
+                        picker = current.picker.copy(isLoading = false),
+                        message = if (current.configSaving || current.busyPipelineId != null) {
+                            "요청 결과를 확인하지 못했습니다. 재연결 후 장비의 반영 상태를 확인합니다."
+                        } else current.message
+                    )
                 }
             }
         }
@@ -142,6 +170,7 @@ class PipelineViewModel(
     fun refresh() = refresh(connectionGeneration)
 
     private fun refresh(generation: Long) {
+        if (!_uiState.value.controlAvailable) return
         operationJob?.cancel()
         operationJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -305,6 +334,7 @@ class PipelineViewModel(
     }
 
     private fun discoverFolder(rootId: String, path: String) {
+        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         operationJob?.cancel()
         operationJob = viewModelScope.launch {
@@ -374,6 +404,7 @@ class PipelineViewModel(
     }
 
     private fun loadPickerDirectory(rootId: String, path: String) {
+        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         pickerJob?.cancel()
         pickerJob = viewModelScope.launch {
@@ -408,6 +439,7 @@ class PipelineViewModel(
     }
 
     fun register() {
+        if (!_uiState.value.controlAvailable) return
         val draft = _uiState.value.draft
         val repositoryRoot = draft.repositoryRoot ?: return
         if (
@@ -455,6 +487,7 @@ class PipelineViewModel(
     }
 
     fun control(pipeline: ManagedPipeline, action: String) {
+        if (!_uiState.value.controlAvailable) return
         if (_uiState.value.busyPipelineId != null) return
         val generation = connectionGeneration
         operationJob?.cancel()
@@ -498,6 +531,7 @@ class PipelineViewModel(
     }
 
     fun remove(pipeline: ManagedPipeline) {
+        if (!_uiState.value.controlAvailable) return
         if (_uiState.value.busyPipelineId != null) return
         val generation = connectionGeneration
         operationJob?.cancel()
@@ -582,6 +616,7 @@ class PipelineViewModel(
     }
 
     private fun launchLogPolling(pipelineId: String) {
+        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         logPollingJob?.cancel()
         logPollingJob = viewModelScope.launch {
@@ -690,6 +725,11 @@ class PipelineViewModel(
     }
 
     fun loadConfig(pipelineId: String) {
+        if (_uiState.value.detailPipelineId == pipelineId && _uiState.value.configFields.isNotEmpty()) return
+        if (!_uiState.value.controlAvailable) {
+            _uiState.value = _uiState.value.copy(detailPipelineId = pipelineId)
+            return
+        }
         val generation = connectionGeneration
         operationJob?.cancel()
         operationJob = viewModelScope.launch {
@@ -698,6 +738,7 @@ class PipelineViewModel(
                 detailLoading = true,
                 configPath = "",
                 configRevision = "",
+                configNeedsReview = false,
                 configFields = emptyList(),
                 originalConfigValues = emptyMap(),
                 message = null,
@@ -727,6 +768,50 @@ class PipelineViewModel(
         }
     }
 
+    fun reloadConfig() {
+        if (!_uiState.value.controlAvailable) return
+        val pipelineId = _uiState.value.detailPipelineId ?: return
+        _uiState.value = _uiState.value.copy(configFields = emptyList(), configNeedsReview = false)
+        loadConfig(pipelineId)
+    }
+
+    private fun validateConfigAfterReconnect(generation: Long) {
+        val initial = _uiState.value
+        val pipelineId = initial.detailPipelineId ?: return
+        if (initial.configFields.isEmpty()) {
+            if (activeLogPipelineId != pipelineId) loadConfig(pipelineId)
+            return
+        }
+        _uiState.value = initial.copy(detailLoading = true)
+        configValidationJob = viewModelScope.launch {
+            repository.getPipelineConfigFields(pipelineId).onSuccess { document ->
+                if (generation != connectionGeneration || _uiState.value.detailPipelineId != pipelineId) return@onSuccess
+                val current = _uiState.value
+                val remote = document.fields.associate { it.path to it.value }
+                val changed = current.configFields.filter { current.originalConfigValues[it.path] != it.value }
+                val applied = changed.isNotEmpty() && changed.all { remote[it.path] == it.value }
+                val conflict = document.revision != current.configRevision && current.configHasChanges && !applied
+                _uiState.value = current.copy(
+                    detailLoading = false,
+                    configNeedsReview = conflict,
+                    configRevision = if (conflict) current.configRevision else document.revision,
+                    configFields = if (conflict || (current.configHasChanges && !applied)) current.configFields else document.fields,
+                    originalConfigValues = if (conflict) current.originalConfigValues else remote,
+                    message = when {
+                        conflict -> "장비 설정이 변경되었습니다. 초안을 유지했습니다. 내용을 확인한 뒤 장비 설정을 다시 불러와 주세요."
+                        applied -> "재연결 후 장비에서 설정 반영을 확인했습니다."
+                        else -> current.message
+                    }
+                )
+            }.onFailure { error ->
+                if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
+                    detailLoading = false, configNeedsReview = true,
+                    error = "장비의 설정 버전을 확인하지 못했습니다. 다시 불러온 후 저장해 주세요: ${error.message.orEmpty()}"
+                )
+            }
+        }
+    }
+
     fun setConfigValue(path: String, value: String) {
         _uiState.value = _uiState.value.copy(
             configFields = _uiState.value.configFields.map { field ->
@@ -738,10 +823,11 @@ class PipelineViewModel(
     }
 
     fun saveConfig() {
+        if (!_uiState.value.controlAvailable) return
         val pipelineId = _uiState.value.detailPipelineId ?: return
         val current = _uiState.value
         if (
-            current.configSaving || !current.configHasChanges ||
+            current.configSaving || current.configNeedsReview || current.detailLoading || !current.configHasChanges ||
             !current.configValuesValid || current.configRevision.isBlank()
         ) return
         val changedValues = current.configFields

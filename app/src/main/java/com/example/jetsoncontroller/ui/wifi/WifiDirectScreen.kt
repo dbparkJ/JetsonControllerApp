@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -56,7 +57,8 @@ fun WifiDirectScreen(
     onPermissionClick: () -> Unit,
     onDiscoveryClick: () -> Unit,
     onConnectClick: (WifiDirectPeer) -> Unit,
-    onRetryApi: () -> Unit
+    onRetryApi: () -> Unit,
+    onCancel: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -80,7 +82,7 @@ fun WifiDirectScreen(
                     if (permissionGranted && !state.connected) {
                         IconButton(
                             onClick = onDiscoveryClick,
-                            enabled = state.supported && !state.discovering
+                            enabled = state.supported && !state.discovering && !state.cleaningUp && state.connectingPeerAddress == null
                         ) {
                             if (state.discovering) {
                                 CircularProgressIndicator(
@@ -102,7 +104,17 @@ fun WifiDirectScreen(
                 .padding(paddingValues),
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
+            if (state.cleaningUp || state.connectingPeerAddress != null || state.apiStatus == WifiDirectApiStatus.CHECKING) {
+                item {
+                    Column(Modifier.padding(20.dp)) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text(if (state.cleaningUp) "이전 연결 정리 중" else "장비 연결 준비 중")
+                        TextButton(onClick = onCancel, enabled = !state.cleaningUp) { Text("연결 취소") }
+                    }
+                }
+            }
             when {
+                state.cleaningUp -> Unit
                 !state.supported -> item {
                     EmptyState(
                         title = "Wi-Fi Direct를 지원하지 않습니다",
@@ -171,7 +183,7 @@ fun WifiDirectScreen(
                             PeerRow(
                                 peer = peer,
                                 connecting = state.connectingPeerAddress == peer.deviceAddress,
-                                connectionInProgress = state.connectingPeerAddress != null,
+                                connectionInProgress = state.cleaningUp || state.connectingPeerAddress != null,
                                 onConnect = { onConnectClick(peer) }
                             )
                             HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = 20.dp))
@@ -207,7 +219,7 @@ private fun DirectConnectionSummary(state: WifiDirectState) {
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "Android의 인터넷 연결을 유지하면서 Jetson 제어망을 만듭니다.",
+                    "장비에 직접 연결합니다. 공유기 연결과 서버 업로드가 중단될 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -255,12 +267,12 @@ private fun ConnectedPanel(
                 WifiDirectApiStatus.CHECKING -> {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(10.dp))
-                    Text("장비 인증과 API 연결을 확인하고 있습니다.")
+                    Text("장비 인증과 제어 연결을 확인하고 있습니다.")
                 }
 
                 WifiDirectApiStatus.READY -> {
                     Text(
-                        "인증된 제어 API에 연결되었습니다.",
+                        "장비 인증을 마쳤습니다. 전체 제어를 사용할 수 있습니다.",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -275,7 +287,7 @@ private fun ConnectedPanel(
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = onRetryApi, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("API 다시 확인", modifier = Modifier.padding(start = 8.dp))
+                        Text("장비 다시 확인", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }

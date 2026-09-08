@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.model
 
 data class JetsonStatus(
+    val collectedAtEpochMillis: Long? = null,
+    val metricValidity: Map<String, MetricValidity> = emptyMap(),
     val cpuPercent: Int = 0,
     val gpuPercent: Int = 0,
     val ramUsedMb: Int = 0,
@@ -29,6 +31,12 @@ data class JetsonStatus(
     val cameraSensor: CameraSensorStatus = CameraSensorStatus(),
     val gnssSensor: GnssSensorStatus = GnssSensorStatus(),
     val imuSensor: ImuSensorStatus = ImuSensorStatus()
+)
+
+data class MetricValidity(
+    val validity: String = "unavailable",
+    val observedAtEpochMillis: Long? = null,
+    val reason: String? = null
 )
 
 data class CameraSensorStatus(

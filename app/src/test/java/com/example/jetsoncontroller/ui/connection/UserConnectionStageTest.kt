@@ -6,13 +6,9 @@ import org.junit.Test
 
 class UserConnectionStageTest {
     @Test
-    fun directPhoneTransports_usePlainPhoneLabel() {
-        listOf(TransportType.BLE, TransportType.WIFI_DIRECT).forEach { transport ->
-            assertEquals(
-                UserConnectionStage.PHONE_CONNECTED,
-                userConnectionStage(online = true, transportType = transport)
-            )
-        }
+    fun basicBluetoothConnectionIsDistinguishedFromFullDirectControl() {
+        assertEquals(UserConnectionStage.BASIC_CONNECTED, userConnectionStage(true, TransportType.BLE))
+        assertEquals(UserConnectionStage.PHONE_CONNECTED, userConnectionStage(true, TransportType.WIFI_DIRECT))
     }
 
     @Test

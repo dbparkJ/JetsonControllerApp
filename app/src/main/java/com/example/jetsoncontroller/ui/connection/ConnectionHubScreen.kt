@@ -22,6 +22,14 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -69,8 +77,25 @@ fun ConnectionHubScreen(
     onRequestLocalNetworkPermission: () -> Unit,
     onRefreshLan: () -> Unit,
     onConnectLan: (DeviceEndpoint) -> Unit,
-    onReconnectDevice: (RegisteredDevice) -> Unit
+    onReconnectDevice: (RegisteredDevice) -> Unit,
+    onDirectConnect: (RegisteredDevice) -> Unit = {},
+    onSettingsClick: () -> Unit = {},
+    onUploadHistoryClick: () -> Unit = {}
 ) {
+    var directDevice by remember { mutableStateOf<RegisteredDevice?>(null) }
+    directDevice?.let { device ->
+        AlertDialog(
+            onDismissRequest = { directDevice = null },
+            title = { Text("${device.deviceName}에 직접 연결할까요?") },
+            text = { Text("장비의 공유기 연결과 서버 업로드가 중단될 수 있습니다. 휴대전화의 Wi-Fi 연결에도 영향을 줄 수 있습니다. 진행 중인 업로드를 확인한 뒤 전환해 주세요.") },
+            confirmButton = {
+                Button(onClick = { directDevice = null; onDirectConnect(device) }) {
+                    Text("직접 연결로 전환")
+                }
+            },
+            dismissButton = { TextButton(onClick = { directDevice = null }) { Text("취소") } }
+        )
+    }
     val connected = transportState as? TransportState.Connected
     val endpointByDeviceId = lanEndpoints.associateBy { it.deviceId.lowercase() }
 
@@ -140,6 +165,7 @@ fun ConnectionHubScreen(
                         endpoint = endpoint,
                         connectedTransport = if (isConnected) connected?.type else null,
                         connecting = connectingLanDeviceId.equals(device.deviceId, ignoreCase = true),
+                        onDirectConnect = { directDevice = device },
                         onClick = when {
                             isConnected -> onOpenDashboard
                             endpoint != null -> ({ onConnectLan(endpoint) })
@@ -195,7 +221,7 @@ fun ConnectionHubScreen(
             item {
                 Spacer(Modifier.height(AppSpacing.section))
                 SectionHeader(
-                    title = "연결 도구",
+                    title = "연결 도구 및 앱 설정",
                     modifier = Modifier.padding(horizontal = AppSpacing.screen)
                 )
                 ConnectionMethod(
@@ -204,6 +230,8 @@ fun ConnectionHubScreen(
                     description = "QR로 장비 인증 정보 저장",
                     onClick = onAddDevice
                 )
+                ConnectionMethod(Icons.Default.Settings, "앱 알림 설정", "장비 연결 없이 알림 설정 변경", onSettingsClick)
+                ConnectionMethod(Icons.Default.History, "업로드 기록", "마지막으로 확인한 전송 기록 보기", onUploadHistoryClick)
             }
         }
     }
@@ -223,14 +251,20 @@ private fun RegisteredDeviceCard(
     connectedTransport: TransportType?,
     connecting: Boolean,
     onClick: (() -> Unit)?,
+    onDirectConnect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val connected = connectedTransport != null
     val available = endpoint != null
     val online = connected
     val connectionStage = userConnectionStage(online, connectedTransport)
-    val badgeLabel = connectionStage.label
-    val badgeTone = if (online) StatusTone.SUCCESS else StatusTone.WARNING
+    val badgeLabel = when {
+        connecting -> "연결 준비 중"
+        online -> connectionStage.label
+        available -> "장비 발견됨"
+        else -> "등록됨"
+    }
+    val badgeTone = if (online && connectedTransport != TransportType.BLE) StatusTone.SUCCESS else StatusTone.INFO
 
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(AppSpacing.large)) {
@@ -256,7 +290,12 @@ private fun RegisteredDeviceCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        connectionStage.detail,
+                        when {
+                            connecting -> "장비를 확인하고 있습니다."
+                            online -> connectionStage.detail
+                            available -> "같은 네트워크에서 장비를 찾았습니다."
+                            else -> "인증 정보가 저장되어 있습니다. 연결을 시도해 주세요."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -276,12 +315,15 @@ private fun RegisteredDeviceCard(
                 } else {
                     Text(
                         when {
-                            connected -> "대시보드 열기"
+                            connected -> "장비 열기"
                             available -> "연결"
-                            else -> "오프라인 상태 보기"
+                            else -> "연결 시도"
                         }
                     )
                 }
+            }
+            TextButton(onClick = onDirectConnect, modifier = Modifier.fillMaxWidth()) {
+                Text("연결 문제 해결 · 장비에 직접 연결")
             }
         }
     }
