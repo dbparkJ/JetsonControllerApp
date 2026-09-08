@@ -171,6 +171,108 @@ class FakeRunner:
 
 
 class WifiDirectTest(unittest.TestCase):
+    def test_failed_link_observation_preserves_group_and_recovers_after_valid_query(self):
+        for command_type in ("group", "address", "timeout"):
+            with self.subTest(command_type=command_type), tempfile.TemporaryDirectory() as temporary:
+                runner = FakeRunner(concurrency_supported=False, managed_wifi_active=True,
+                                    single_interface_group=True)
+                fail_query = [False]
+
+                def run(command, **kwargs):
+                    targeted = command == ["/usr/sbin/iw", "dev"]
+                    if command_type == "address":
+                        targeted = command[:4] == ["/usr/sbin/ip", "-j", "-4", "address"]
+                    if fail_query[0] and targeted:
+                        runner.calls.append(command)
+                        if command_type == "timeout":
+                            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+                        return subprocess.CompletedProcess(command, 1, "", "query unavailable")
+                    return runner(command, **kwargs)
+
+                path = Path(temporary) / "wifi-direct.json"
+                controller = WifiDirectController(
+                    WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                    run=run, start_process=runner.start_process, status_path=path,
+                    sleep=lambda _seconds: None,
+                )
+                controller.prepare()
+                controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF")
+                before = len(runner.calls)
+                fail_query[0] = True
+                self.assertTrue(controller.monitor())
+                self.assertTrue(runner.group_created, "unknown link state must not remove a group")
+                self.assertFalse(runner.dnsmasq_processes[0].terminated)
+                self.assertFalse(any("p2p_group_remove" in call for call in runner.calls[before:]))
+                self.assertEqual(read_wifi_direct_status(path)["state"], "ERROR")
+                self.assertFalse(controller.request_connection("AA:BB:CC:DD:EE:FF"))
+
+                fail_query[0] = False
+                controller.monitor()
+                self.assertEqual(read_wifi_direct_status(path)["state"], "READY")
+                self.assertTrue(runner.group_created)
+                controller.stop()
+
+    def test_repeated_unknown_group_then_confirmed_absence_uses_existing_recovery(self):
+        runner = FakeRunner(concurrency_supported=False, managed_wifi_active=True,
+                            single_interface_group=True)
+        fail_query = [False]
+
+        def run(command, **kwargs):
+            if fail_query[0] and command == ["/usr/sbin/iw", "dev"]:
+                runner.calls.append(command)
+                return subprocess.CompletedProcess(command, 1, "", "query unavailable")
+            return runner(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "wifi-direct.json"
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=run, start_process=runner.start_process, status_path=path,
+                sleep=lambda _seconds: None,
+            )
+            controller.prepare()
+            controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF")
+            fail_query[0] = True
+            for _tick in range(10):
+                before = len(runner.calls)
+                controller.monitor()
+                self.assertEqual(len(runner.calls) - before, 1)
+                self.assertEqual(read_wifi_direct_status(path)["state"], "ERROR")
+                self.assertTrue(runner.group_created)
+                self.assertFalse(controller.request_connection("AA:BB:CC:DD:EE:FF"))
+            fail_query[0] = False
+            runner.group_created = False
+            controller.monitor()
+            self.assertEqual(read_wifi_direct_status(path)["state"], "DISCOVERABLE")
+            self.assertTrue(runner.dnsmasq_processes[0].terminated)
+            self.assertTrue(runner.managed_wifi_active)
+            controller.stop()
+
+    def test_cleanup_does_not_confirm_absence_when_group_query_fails(self):
+        runner = FakeRunner(concurrency_supported=False, managed_wifi_active=True,
+                            single_interface_group=True)
+        fail_query = [False]
+
+        def run(command, **kwargs):
+            if fail_query[0] and command == ["/usr/sbin/iw", "dev"]:
+                return subprocess.CompletedProcess(command, 1, "", "query unavailable")
+            return runner(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = WifiDirectController(
+                WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+                run=run, start_process=runner.start_process,
+                status_path=Path(temporary) / "wifi-direct.json", sleep=lambda _seconds: None,
+            )
+            controller.prepare()
+            controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF")
+            fail_query[0] = True
+            with self.assertRaises(WifiDirectError):
+                controller._cleanup_direct_connection()
+            self.assertIsNotNone(controller.group_interface)
+            fail_query[0] = False
+            controller.stop()
+
     def test_activation_timeout_restores_wifi_and_accepts_next_request(self):
         runner = FakeRunner(concurrency_supported=False, managed_wifi_active=True,
                             single_interface_group=True)

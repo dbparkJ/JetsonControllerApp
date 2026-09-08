@@ -487,9 +487,16 @@ class WifiDirectController:
         ):
             self._recover_connection(WifiDirectError("Wi-Fi Direct connection worker stopped"))
             return True
-        group_interface = self._first_group_interface()
+        try:
+            group_interface = self._first_group_interface()
+            address = self._interface_address(group_interface) if group_interface else None
+        except WifiDirectError as error:
+            # A failed observation does not prove that the owned group vanished.
+            # Keep its resources until a later monitor tick can observe the link.
+            self._last_error = "Wi-Fi Direct link observation unavailable: {}".format(error)
+            self._publish_discovery_error(self._last_error)
+            return True
         if group_interface:
-            address = self._interface_address(group_interface)
             if address:
                 self.group_interface = group_interface
                 if self._manual_owner_mode and self._state == "CONNECTING":
@@ -546,7 +553,7 @@ class WifiDirectController:
                     )
                 return True
 
-        if self._state == "READY":
+        if self._state == "READY" or self.group_interface is not None:
             self.active_peer = None
             self._cleanup_direct_connection()
             try:
@@ -861,7 +868,7 @@ class WifiDirectController:
                 )
 
     def _first_group_interface(self) -> Optional[str]:
-        result = self._run(["/usr/sbin/iw", "dev"], allow_failure=True)
+        result = self._run(["/usr/sbin/iw", "dev"])
         groups = parse_p2p_group_interfaces(result.stdout)
         return groups[0] if groups else None
 
@@ -890,7 +897,6 @@ class WifiDirectController:
     def _interface_address(self, interface: str) -> Optional[str]:
         result = self._run(
             ["/usr/sbin/ip", "-j", "-4", "address", "show", "dev", interface],
-            allow_failure=True,
         )
         return configured_ipv4_address(result.stdout, self.settings.address)
 
