@@ -1021,10 +1021,8 @@ class JetsonRepository(
     }
 
     fun stopWifiDirectDiscovery() {
-        if (!wifiDirectManager.state.value.connected &&
-            wifiDirectManager.state.value.connectingPeerAddress == null) {
-            explicitWifiDirectRequested.set(false)
-        }
+        // Screen disposal stops discovery; only explicit transport actions
+        // (cancel, disconnect, LAN, or target switch) change the user's intent.
         wifiDirectManager.stopDiscovery()
     }
 

@@ -284,6 +284,20 @@ class JetsonRepositoryStabilityTest {
         }
     }
 
+    @Test
+    fun `R7 closing Direct discovery after link loss preserves manual transport intent`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateDirect()
+            h.directState.value = WifiDirectState(connected = false)
+            testScheduler.runCurrent()
+            assertTrue(h.manualDirectRequested())
+            // JetsonApp's DisposableEffect and WifiDirectViewModel.onCleared
+            // invoke this same public method when the screen goes away.
+            h.repository.stopWifiDirectDiscovery()
+            assertTrue("Stopping discovery is not a user transport cancellation", h.manualDirectRequested())
+        }
+    }
+
     private class FakeTransport : ControlTransport {
         override val type = TransportType.WIFI_DIRECT
         override val capabilities = TransportCapabilities(true, true, true, true, true)
