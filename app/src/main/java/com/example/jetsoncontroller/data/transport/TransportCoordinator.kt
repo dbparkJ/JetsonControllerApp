@@ -109,6 +109,7 @@ class TransportCoordinator {
     }
 
     private fun diagnosticState(): String = when (_state.value) {
+        is TransportState.Connecting -> "CONNECTING"
         is TransportState.Connected -> "CONNECTED"
         is TransportState.Error -> "ERROR"
         TransportState.Disconnected -> "DISCONNECTED"

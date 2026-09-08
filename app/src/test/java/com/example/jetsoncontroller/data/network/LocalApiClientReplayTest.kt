@@ -57,14 +57,22 @@ class LocalApiClientReplayTest {
                 assertEquals(91L, verified["requestSequence"])
                 assertTrue(backend.requestRefs.contains(verified["requestRef"]))
                 assertTrue(events.any { it.first == "api_connection" && it.second["requestId"] == verified["requestId"] })
-                val endIndex = events.indexOfFirst { it.first == "api_call_ended" && it.second["requestId"] == verified["requestId"] }
-                val verifiedIndex = events.indexOfFirst { it.first == "api_authenticated" && it.second === verified }
-                assertTrue("Body transport end is not HMAC authentication", endIndex in 0 until verifiedIndex)
+                val ended = events.single { it.first == "api_call_ended" && it.second["requestId"] == verified["requestId"] }.second
+                // OkHttp may end the Call after the application interceptor returns.
+                // Its callback order is not an authentication contract.
+                assertTrue("Call end must not assert HMAC authentication", !ended.containsKey("authenticated"))
+                assertEquals(true, verified["authenticated"])
+                println("LAB diagnostic event order=" + events.filter {
+                    it.second["requestId"] == verified["requestId"]
+                }.map { it.first }.joinToString(","))
 
                 events.clear()
                 backend.readDamage = Damage.SIGNATURE
                 backend.alwaysDamageReads = true
                 assertTrue(client.getStatus().isFailure)
+                assertTrue("HTTP 200 alone cannot promote a damaged signature", events.any {
+                    it.first == "api_response" && it.second["httpStatus"] == 200
+                })
                 assertTrue(events.any { it.first == "api_auth" && it.second["authenticated"] == false })
                 assertTrue(events.none { it.first == "api_authenticated" })
                 assertTrue(events.none { it.second.values.any { value -> value == "127.0.0.1" || value == "test-boot" } })
