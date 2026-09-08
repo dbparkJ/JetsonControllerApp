@@ -92,6 +92,8 @@ class AutomaticConnectionPolicyTest {
         assertTrue(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.BLE)))
         assertTrue(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.WIFI_DIRECT)))
         assertFalse(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.LAN)))
+        assertFalse(allowsAutomaticLanUpgrade(TransportState.Disconnected, explicitlyRequestedDirect = true))
+        assertFalse(allowsAutomaticLanUpgrade(TransportState.Connected(TransportType.WIFI_DIRECT), explicitlyRequestedDirect = true))
     }
 
     @Test

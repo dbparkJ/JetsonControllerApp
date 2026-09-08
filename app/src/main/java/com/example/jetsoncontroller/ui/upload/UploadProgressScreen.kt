@@ -62,8 +62,8 @@ fun UploadProgressScreen(
     serverMutationDisabledReason: String? = null,
     deviceDeletionEnabled: Boolean = true
 ) {
-    var showCancelDialog by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showCancelDialog by remember(job?.id, deviceDeletionEnabled) { mutableStateOf(false) }
+    var showDeleteDialog by remember(job?.id, deviceDeletionEnabled) { mutableStateOf(false) }
     val active = job?.state?.let(::isActiveUploadState) == true
 
     if (showCancelDialog) {
@@ -72,7 +72,7 @@ fun UploadProgressScreen(
             title = { Text("업로드를 취소할까요?") },
             text = { Text("이미 전송된 일부 데이터는 수신 대상에 남아 있을 수 있습니다.") },
             confirmButton = {
-                Button(onClick = {
+                Button(enabled = deviceDeletionEnabled, onClick = {
                     showCancelDialog = false
                     onCancel()
                 }) { Text("업로드 취소") }
@@ -262,7 +262,7 @@ fun UploadProgressScreen(
                     OutlinedButton(
                         onClick = { showCancelDialog = true },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading
+                        enabled = deviceDeletionEnabled && !isLoading
                     ) {
                         Text("업로드 취소")
                     }

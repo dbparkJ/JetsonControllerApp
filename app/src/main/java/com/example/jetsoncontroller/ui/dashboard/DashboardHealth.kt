@@ -14,6 +14,7 @@ enum class DashboardHealthLevel {
 
 enum class DashboardHealthIssue {
     STALE_STATUS,
+    UNAVAILABLE_METRICS,
     HIGH_TEMPERATURE,
     STORAGE_PRESSURE,
     FAILED_PIPELINE,
@@ -49,11 +50,15 @@ internal fun assessDashboardHealth(
             issueKinds += DashboardHealthIssue.STALE_STATUS
             add("상태 정보가 오래되었습니다.")
         }
-        if (status.temperatureC >= 80f) {
+        if (status.metricValidity.values.any { it.validity != "valid" }) {
+            issueKinds += DashboardHealthIssue.UNAVAILABLE_METRICS
+            add("일부 장비 지표를 확인하지 못했거나 이전 측정값입니다.")
+        }
+        if (status.metricIsValid("temperatureC") && status.temperatureC >= 80f) {
             issueKinds += DashboardHealthIssue.HIGH_TEMPERATURE
             add("장비 온도가 ${status.temperatureC.toInt()} C로 높습니다.")
         }
-        if (status.storagePercent >= 90) {
+        if (status.metricIsValid("storagePercent") && status.storagePercent >= 90) {
             issueKinds += DashboardHealthIssue.STORAGE_PRESSURE
             add("저장 공간이 ${status.storagePercent}% 사용 중입니다.")
         }

@@ -25,25 +25,48 @@ class WifiDirectConnectionPolicyTest {
     }
 
     @Test
-    fun `callbacks from an older attempt cannot clear a new attempt`() {
+    fun `timeout or cancellation blocks retry until cleanup completes and rejects late success`() {
+        val session = WifiDirectConnectionSession()
+        val attempt = requireNotNull(session.begin("02:00:00:00:00:01"))
+        val cleanup = requireNotNull(session.beginCleanup())
+
+        assertNull(session.begin("02:00:00:00:00:02"))
+        assertNull(session.beginCleanup())
+        assertFalse(session.isConnecting(attempt))
         assertFalse(
-            wifiDirectAttemptIsCurrent(
-                currentGeneration = 3,
-                callbackGeneration = 2,
-                connectingPeerAddress = "02:00:00:00:00:01",
-                callbackPeerAddress = "02:00:00:00:00:01",
-                connected = false
-            )
+            session.acceptGroup(attempt, "02:00:00:00:00:01", emptyList())
         )
-        assertTrue(
-            wifiDirectAttemptIsCurrent(
-                currentGeneration = 3,
-                callbackGeneration = 3,
-                connectingPeerAddress = "02:00:00:00:00:01",
-                callbackPeerAddress = "02:00:00:00:00:01",
-                connected = false
-            )
+        assertFalse(
+            session.acceptGroup(cleanup, "02:00:00:00:00:01", emptyList())
         )
+        assertTrue(session.finishCleanup(cleanup))
+
+        val retry = requireNotNull(session.begin("02:00:00:00:00:02"))
+        assertFalse(session.finishCleanup(cleanup))
+        assertFalse(session.acceptGroup(attempt, "02:00:00:00:00:01", emptyList()))
+        assertFalse(session.acceptGroup(retry, "02:00:00:00:00:01", emptyList()))
+        assertTrue(session.isConnecting(retry))
+        assertTrue(session.acceptGroup(retry, "02:00:00:00:00:02", emptyList()))
+    }
+
+    @Test
+    fun `disconnect retains the target for cleanup and stale callbacks cannot clear reconnect`() {
+        val session = WifiDirectConnectionSession()
+        val attempt = requireNotNull(session.begin("02:00:00:00:00:ab"))
+        assertTrue(session.acceptGroup(attempt, "02:00:00:00:00:AB", emptyList()))
+        assertFalse(session.isConnecting(attempt))
+        val cleanup = requireNotNull(session.beginCleanup())
+        assertEquals("02:00:00:00:00:ab", session.peerAddress)
+        assertTrue(wifiDirectGroupBelongsToPeer(session.peerAddress, null, listOf("02:00:00:00:00:AB")))
+        assertFalse(wifiDirectGroupBelongsToPeer(session.peerAddress, "02:00:00:00:00:cd", emptyList()))
+        assertFalse(wifiDirectGroupBelongsToPeer(null, "02:00:00:00:00:ab", emptyList()))
+
+        // Cleanup completion and the deadline share this same guarded transition.
+        assertTrue(session.finishCleanup(cleanup))
+        val retry = requireNotNull(session.begin("02:00:00:00:00:ab"))
+        assertFalse(session.isCleaningUp(cleanup))
+        assertFalse(session.finishCleanup(cleanup))
+        assertTrue(session.isConnecting(retry))
     }
 
     @Test

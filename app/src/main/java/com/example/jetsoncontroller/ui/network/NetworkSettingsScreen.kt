@@ -216,6 +216,7 @@ fun NetworkSettingsScreen(
                         connected = state.isCurrentJetsonWifi(accessPoint.ssid),
                         password = state.password,
                         sending = state.sending,
+                        controlAvailable = state.transportType != null,
                         message = state.message,
                         messageIsError = state.isError,
                         onSelect = {
@@ -413,6 +414,7 @@ private fun WifiAccessPointRow(
     connected: Boolean,
     password: String,
     sending: Boolean,
+    controlAvailable: Boolean,
     message: String?,
     messageIsError: Boolean,
     onSelect: () -> Unit,
@@ -596,7 +598,7 @@ private fun WifiAccessPointRow(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("wifi-connect-button"),
-                            enabled = !sending &&
+                            enabled = controlAvailable && !sending &&
                                 (!accessPoint.requiresPassword || passwordByteLengthIsValid(password))
                         ) {
                             if (sending) {
@@ -688,7 +690,7 @@ private fun ManualNetworkForm(
         Button(
             onClick = onSubmit,
             modifier = Modifier.fillMaxWidth(),
-            enabled = !state.sending && state.ssid.isNotBlank() &&
+            enabled = state.transportType != null && !state.sending && state.ssid.isNotBlank() &&
                 (state.password.isEmpty() || passwordByteLengthIsValid(state.password)) &&
                 state.ssid.toByteArray(Charsets.UTF_8).size <= 32
         ) {

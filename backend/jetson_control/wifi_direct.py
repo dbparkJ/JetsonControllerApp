@@ -34,6 +34,7 @@ DISCOVERY_RETRY_SECONDS = 10
 P2P_PEER_ABSENCE_GRACE_SECONDS = 10
 P2P_LISTEN_REG_CLASS = 81
 P2P_LISTEN_CHANNEL = 6
+CONNECTION_TIMEOUT_SECONDS = 120
 
 
 class WifiDirectError(RuntimeError):
@@ -310,6 +311,12 @@ class WifiDirectController:
         self._discovery_stopped_at: Optional[float] = None
         self._discovery_retry_at: Optional[float] = None
         self._peer_absent_since: Optional[float] = None
+        self._attempt_id = 0
+        self._attempt_deadline: Optional[float] = None
+        self._attempt_cancelled = threading.Event()
+        self._attempt_context = threading.local()
+        self._last_error: Optional[str] = None
+        self._recovery_failed = False
 
     def prepare(self) -> str:
         self._publish("STARTING", "Preparing NetworkManager Wi-Fi Direct")
@@ -346,8 +353,8 @@ class WifiDirectController:
         # rejecting later discovery, so it must remain listen-only. Other drivers
         # actively search as well: iwlwifi in particular is not reliably visible
         # to Android from listen-only mode while its managed interface is associated.
-        discovery_arguments = self._discovery_arguments()
         try:
+            discovery_arguments = self._discovery_arguments()
             if stop_existing:
                 self._wpa(
                     self.settings.interface,
@@ -416,20 +423,70 @@ class WifiDirectController:
                 return False
             self.active_peer = peer
             self._peer_absent_since = None
+            self._begin_attempt()
             self._publish("CONNECTING", "Android requested a Wi-Fi Direct connection")
             self._activation_thread = threading.Thread(
                 target=self._activate_peer,
-                args=(peer,),
+                args=(peer, self._attempt_id),
                 name="wifi-direct-activate",
                 daemon=True,
             )
-            self._activation_thread.start()
+            try:
+                self._activation_thread.start()
+            except Exception as error:
+                self._activation_thread = None
+                self._recover_connection(error)
+                return False
         return True
 
     def activate_peer_for_test(self, peer_address: str) -> str:
-        return self._activate_peer(normalize_mac_address(peer_address))
+        self._begin_attempt()
+        return self._activate_peer(normalize_mac_address(peer_address), self._attempt_id)
+
+    def _begin_attempt(self) -> None:
+        self._attempt_id += 1
+        self._attempt_deadline = self._monotonic() + CONNECTION_TIMEOUT_SECONDS
+        self._attempt_cancelled.clear()
+        self._last_error = None
+        self._recovery_failed = False
+
+    def _check_attempt(self) -> None:
+        attempt_id = getattr(self._attempt_context, "attempt_id", None)
+        if attempt_id is None:
+            return
+        if attempt_id != self._attempt_id or self._attempt_cancelled.is_set():
+            raise WifiDirectError("Wi-Fi Direct connection attempt was cancelled")
+        if self._attempt_deadline is not None and self._monotonic() >= self._attempt_deadline:
+            raise WifiDirectError("Wi-Fi Direct connection attempt timed out")
 
     def monitor(self) -> bool:
+        with self._activation_lock:
+            return self._monitor()
+
+    def _monitor(self) -> bool:
+        activation_alive = (
+            self._activation_thread is not None and self._activation_thread.is_alive()
+        )
+        if activation_alive:
+            # The worker owns radio changes until its cleanup has finished. Never
+            # publish READY from a half-configured group or overlap recovery.
+            if (
+                self._state == "CONNECTING"
+                and self._attempt_deadline is not None
+                and self._monotonic() >= self._attempt_deadline
+            ):
+                self._attempt_cancelled.set()
+                self._last_error = "Wi-Fi Direct connection timed out; waiting for cleanup"
+                self._publish("ERROR", self._last_error)
+            return True
+        if self._recovery_failed:
+            return True
+        if self._state == "CONNECTING" or (
+            self._state == "ERROR" and self._attempt_deadline is not None
+            and self._attempt_cancelled.is_set()
+        ):
+            self._recover_connection(WifiDirectError("Wi-Fi Direct connection worker stopped"))
+            return True
         group_interface = self._first_group_interface()
         if group_interface:
             address = self._interface_address(group_interface)
@@ -544,9 +601,14 @@ class WifiDirectController:
         return True
 
     def stop(self) -> None:
+        self._attempt_cancelled.set()
         activation = self._activation_thread
         if activation is not None and activation.is_alive():
             activation.join(timeout=2)
+            if activation.is_alive():
+                error = WifiDirectError("Connection cancellation is pending; restart the Wi-Fi Direct service")
+                self._publish("ERROR", str(error))
+                raise error
         self._cleanup_direct_connection()
         restore_error: Optional[WifiDirectError] = None
         try:
@@ -562,16 +624,19 @@ class WifiDirectController:
             raise restore_error
         self._publish("STOPPED", "Wi-Fi Direct service stopped")
 
-    def _activate_peer(self, peer: str) -> str:
+    def _activate_peer(self, peer: str, attempt_id: int) -> str:
         profile = PROFILE_PREFIX + peer.replace(":", "").lower()
+        self._attempt_context.attempt_id = attempt_id
         self.active_peer = peer
         self._publish("CONNECTING", "Android requested a Wi-Fi Direct connection")
         try:
+            self._check_attempt()
             if self._supports_concurrent_managed_and_p2p():
                 group_interface = self._activate_peer_with_networkmanager(profile, peer)
             else:
                 group_interface = self._activate_peer_as_manual_owner(peer)
             address = self._wait_for_interface_address(group_interface)
+            self._check_attempt()
             self.group_interface = group_interface
             self._publish(
                 "READY",
@@ -579,37 +644,43 @@ class WifiDirectController:
                 address=address,
             )
             return group_interface
-        except (OSError, ValueError, WifiDirectError) as error:
+        except Exception as error:
+            # Unexpected worker failures must use the same recovery path as a
+            # rejected negotiation or subprocess timeout.
             print(
                 "Wi-Fi Direct connection failed: {}".format(error),
                 file=sys.stderr,
                 flush=True,
             )
-            self._cleanup_direct_connection()
-            self.active_peer = None
-            restore_failed = False
-            try:
-                self._restore_suspended_wifi()
-            except WifiDirectError as restore_error:
-                error = WifiDirectError("{}; {}".format(error, restore_error))
-                restore_failed = True
-            self._publish("ERROR", str(error))
-            self._sleep(DISCOVERY_SETTLE_SECONDS)
-            if restore_failed:
-                return ""
-            try:
-                if not self.refresh_discovery(stop_existing=False):
-                    self._publish_discovery_error(
-                        "Connection failed and Wi-Fi Direct discovery could not restart"
-                    )
-                    return ""
-                self._publish(
-                    "DISCOVERABLE",
-                    "Connection failed; waiting for another Android request",
-                )
-            except WifiDirectError:
-                pass
+            self._attempt_context.attempt_id = None
+            self._recover_connection(error)
             return ""
+        finally:
+            self._attempt_context.attempt_id = None
+
+    def _recover_connection(self, error: Exception) -> None:
+        self._attempt_deadline = None
+        self._last_error = str(error)
+        self._publish("ERROR", "{}; cleaning up connection".format(error))
+        failures = []
+        for action in (self._cleanup_direct_connection, self._restore_suspended_wifi):
+            try:
+                action()
+            except Exception as cleanup_error:
+                failures.append(str(cleanup_error))
+        self.active_peer = None
+        if failures:
+            self._recovery_failed = True
+            self._last_error = "{}; cleanup failed: {}; restart the Wi-Fi Direct service".format(
+                error, "; ".join(failures)
+            )
+            self._publish("ERROR", self._last_error)
+            return
+        self._sleep(DISCOVERY_SETTLE_SECONDS)
+        if self.refresh_discovery(stop_existing=False):
+            self._publish("DISCOVERABLE", "Connection failed; waiting for another Android request")
+        else:
+            self._publish_discovery_error("Connection failed and Wi-Fi Direct discovery could not restart")
 
     def _activate_peer_with_networkmanager(self, profile: str, peer: str) -> str:
         self.active_profile = profile
@@ -979,7 +1050,6 @@ class WifiDirectController:
 
     def _stop_dnsmasq(self) -> None:
         process = self._dnsmasq_process
-        self._dnsmasq_process = None
         if process is not None and process.poll() is None:
             try:
                 process.terminate()
@@ -987,8 +1057,9 @@ class WifiDirectController:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=2)
-            except OSError:
+            except ProcessLookupError:
                 pass
+        self._dnsmasq_process = None
         for path in (self.dnsmasq_lease_path, self.dnsmasq_pid_path):
             try:
                 path.unlink()
@@ -1002,9 +1073,18 @@ class WifiDirectController:
             self.group_interface = None
             return
 
-        self._stop_dnsmasq()
+        failures = []
+
+        def cleanup(action):
+            try:
+                return action()
+            except Exception as error:
+                failures.append(str(error))
+                return None
+
+        cleanup(self._stop_dnsmasq)
         if self._manual_address_interface:
-            self._run(
+            cleanup(lambda: self._run(
                 [
                     "/usr/sbin/ip",
                     "-4",
@@ -1015,22 +1095,26 @@ class WifiDirectController:
                     self._manual_address_interface,
                 ],
                 allow_failure=True,
-            )
-        self._manual_address_interface = None
-        self._wpa(self.settings.interface, "p2p_cancel", allow_failure=True)
-        group_interface = self.group_interface or self._first_group_interface()
+            ))
+        cleanup(lambda: self._wpa(self.settings.interface, "p2p_cancel", allow_failure=True))
+        group_interface = self.group_interface or cleanup(self._first_group_interface)
         if group_interface:
-            self._wpa(
+            cleanup(lambda: self._wpa(
                 self.settings.interface,
                 "p2p_group_remove",
                 group_interface,
                 allow_failure=True,
-            )
+            ))
             for _attempt in range(20):
-                if self._first_group_interface() is None:
+                if cleanup(self._first_group_interface) is None:
                     break
                 self._sleep(0.1)
-        self._wpa(self.settings.interface, "p2p_flush", allow_failure=True)
+            else:
+                failures.append("Wi-Fi Direct group was not removed")
+        cleanup(lambda: self._wpa(self.settings.interface, "p2p_flush", allow_failure=True))
+        if failures:
+            raise WifiDirectError("; ".join(failures))
+        self._manual_address_interface = None
         self._manual_owner_mode = False
         self.group_interface = None
 
@@ -1063,15 +1147,21 @@ class WifiDirectController:
         profile = self.active_profile or self._active_managed_profile()
         if not profile:
             return
-        self._run(
-            ["/usr/bin/nmcli", "connection", "down", profile],
-            allow_failure=True,
-            timeout=20,
-        )
-        self._run(
-            ["/usr/bin/nmcli", "connection", "delete", profile],
-            allow_failure=True,
-        )
+        try:
+            self._run(
+                ["/usr/bin/nmcli", "connection", "down", profile],
+                allow_failure=True,
+                timeout=20,
+            )
+        finally:
+            # Deleting an active profile also deactivates it. Still attempt this
+            # when the explicit down operation times out, preserving its error.
+            result = self._run(
+                ["/usr/bin/nmcli", "connection", "delete", profile],
+                allow_failure=True,
+            )
+            if result.returncode not in (0, 10):
+                raise WifiDirectError("Failed to delete the Wi-Fi Direct connection profile")
         self.active_profile = None
 
     def _wpa(
@@ -1098,15 +1188,24 @@ class WifiDirectController:
         self,
         command: Sequence[str],
         allow_failure: bool = False,
-        timeout: int = 15,
+        timeout: float = 15,
     ) -> subprocess.CompletedProcess:
-        result = self._run_process(
-            list(command),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        self._check_attempt()
+        if getattr(self._attempt_context, "attempt_id", None) is not None and self._attempt_deadline is not None:
+            timeout = min(timeout, max(0.001, self._attempt_deadline - self._monotonic()))
+        try:
+            result = self._run_process(
+                list(command),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise WifiDirectError("Command timed out: {}".format(" ".join(command))) from error
+        except OSError as error:
+            raise WifiDirectError("Command unavailable: {} ({})".format(command[0], error)) from error
+        self._check_attempt()
         output_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         control_failed = bool(output_lines and output_lines[-1].startswith("FAIL"))
         if not allow_failure and (result.returncode != 0 or control_failed):
@@ -1137,6 +1236,8 @@ class WifiDirectController:
             "dhcpActive": self._dnsmasq_is_running(),
             "frequencyMhz": self.settings.frequency,
             "updatedAtEpochSeconds": int(time.time()),
+            "attemptId": self._attempt_id,
+            "lastError": self._last_error,
         }
         with self._status_lock:
             self.status_path.parent.mkdir(parents=True, exist_ok=True)

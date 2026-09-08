@@ -16,6 +16,8 @@ import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.UploadVerification
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -32,6 +34,8 @@ private const val FULL_HISTORY_POLL_INTERVAL_MILLIS = 15_000L
 private const val CURRENT_UPLOAD_JOB_ID_KEY = "currentUploadJobId"
 
 data class UploadUiState(
+    val deviceId: String? = null,
+    val controlAvailable: Boolean = false,
     val targets: List<UploadTarget> = emptyList(),
     val queue: List<UploadJob> = emptyList(),
     val currentJob: UploadJob? = null,
@@ -61,23 +65,32 @@ class UploadViewModel(
     private var actionJob: Job? = null
     private var queueActionJob: Job? = null
     private var targetActionJob: Job? = null
+    private val workspace = DeviceWorkspace { UploadUiState() }
     private var connectionGeneration = 0L
     private val deletedQueueJobIds = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
-            repository.transportState.collectLatest { transport ->
+            combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
+                deviceId to transport
+            }.collectLatest { (deviceId, transport) ->
+                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId)
                 connectionGeneration += 1
                 cancelConnectionJobs()
                 deletedQueueJobIds.clear()
                 if (
                     transport is TransportState.Connected &&
-                    transport.type != TransportType.BLE
+                    transport.type != TransportType.BLE &&
+                    transport.deviceId.equals(deviceId, ignoreCase = true)
                 ) {
+                    _uiState.value = _uiState.value.copy(controlAvailable = true, isLoading = false, isCalculatingSource = false, isSavingTarget = false)
                     refresh(connectionGeneration)
                     startQueuePolling(connectionGeneration)
                 } else {
-                    _uiState.value = UploadUiState()
+                    _uiState.value = _uiState.value.copy(
+                        controlAvailable = false, isLoading = false, isCalculatingSource = false,
+                        isSavingTarget = false
+                    )
                 }
             }
         }
@@ -93,6 +106,7 @@ class UploadViewModel(
     fun refreshTargets() = loadTargets(connectionGeneration)
 
     private fun loadTargets(generation: Long) {
+        if (!_uiState.value.controlAvailable) return
         targetsJob?.cancel()
         targetsJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -119,6 +133,7 @@ class UploadViewModel(
     fun loadQueue() = loadQueue(connectionGeneration)
 
     private fun loadQueue(generation: Long) {
+        if (!_uiState.value.controlAvailable) return
         queueRefreshJob?.cancel()
         queueRefreshJob = viewModelScope.launch {
             refreshQueue(generation, reportFailure = true, activeOnly = false)
@@ -203,6 +218,7 @@ class UploadViewModel(
     }
 
     fun loadSourceSummary(rootId: String, path: String, force: Boolean = false) {
+        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         val key = "$rootId\u0000$path"
         if (!force &&
@@ -246,6 +262,7 @@ class UploadViewModel(
     }
 
     fun startUpload(rootId: String, path: String, targetId: String) {
+        if (!_uiState.value.controlAvailable) return
         if (!_uiState.value.sourceSummary.matchesUploadSource(rootId, path)) {
             _uiState.value = _uiState.value.copy(
                 message = null,
@@ -298,6 +315,7 @@ class UploadViewModel(
         jobId: String,
         generation: Long = connectionGeneration
     ) {
+        if (!_uiState.value.controlAvailable) return
         currentPollingJob?.cancel()
         currentPollingJob = viewModelScope.launch {
             while (generation == connectionGeneration) {
@@ -323,6 +341,7 @@ class UploadViewModel(
     }
 
     fun cancelCurrentUpload() {
+        if (!_uiState.value.controlAvailable) return
         val jobId = _uiState.value.currentJob?.id ?: return
         val generation = connectionGeneration
         actionJob?.cancel()
@@ -356,6 +375,7 @@ class UploadViewModel(
     }
 
     fun retryCurrentUpload() {
+        if (!_uiState.value.controlAvailable) return
         val current = _uiState.value.currentJob ?: return
         if (canStartFreshReupload(current, _uiState.value.verification)) {
             startNewUpload(current.rootId, current.relativePath, current.targetId)
@@ -408,6 +428,7 @@ class UploadViewModel(
     }
 
     fun deleteJobFromQueue(job: UploadJob) {
+        if (!_uiState.value.controlAvailable) return
         if (!isDeletableUploadJob(job)) {
             _uiState.value = _uiState.value.copy(
                 message = null,
@@ -458,6 +479,7 @@ class UploadViewModel(
     }
 
     fun verifyCurrentUpload() {
+        if (!_uiState.value.controlAvailable) return
         val jobId = _uiState.value.currentJob?.id ?: return
         val generation = connectionGeneration
         actionJob?.cancel()
@@ -490,6 +512,7 @@ class UploadViewModel(
     }
 
     fun deleteCurrentSource() {
+        if (!_uiState.value.controlAvailable) return
         val jobId = _uiState.value.currentJob?.id ?: return
         val generation = connectionGeneration
         actionJob?.cancel()
@@ -525,6 +548,7 @@ class UploadViewModel(
         baseUrl: String,
         token: String?
     ) {
+        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         targetActionJob?.cancel()
         targetActionJob = viewModelScope.launch {
@@ -559,6 +583,7 @@ class UploadViewModel(
     }
 
     fun deleteTarget(targetId: String) {
+        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         targetActionJob?.cancel()
         targetActionJob = viewModelScope.launch {

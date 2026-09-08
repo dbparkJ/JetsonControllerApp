@@ -92,9 +92,20 @@ class LocalApiClient(
             .writeTimeout(45, TimeUnit.SECONDS)
             .build()
 
+        val statusClient = client.newBuilder()
+            .readTimeout(6, TimeUnit.SECONDS)
+            .writeTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(8, TimeUnit.SECONDS)
+            .build()
         return Retrofit.Builder()
             .baseUrl(currentBaseUrl ?: error("Jetson API 주소가 설정되지 않았습니다."))
-            .client(client)
+            .callFactory { request ->
+                if (request.url.encodedPath in setOf("/v1/hello", "/v1/status", "/v1/capabilities")) {
+                    statusClient.newCall(request)
+                } else {
+                    client.newCall(request)
+                }
+            }
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
             .create(LocalControlApi::class.java)

@@ -105,7 +105,7 @@ class CoreWorkflowScreenTest {
     }
 
     @Test
-    fun deviceHubUsesTheSameThreeStageConnectionLabel() {
+    fun deviceHubShowsAuthenticatedControlReadiness() {
         val device = RegisteredDevice(
             deviceId = "00000000-0000-0000-0000-000000000001",
             deviceName = "MMS-Test"
@@ -135,7 +135,7 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("핸드폰과 연결").assertIsDisplayed()
+        composeRule.onNodeWithText("제어 가능").assertIsDisplayed()
         composeRule.onAllNodesWithText("온라인").assertCountEquals(0)
     }
 

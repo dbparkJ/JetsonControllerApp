@@ -12,12 +12,16 @@ import com.example.jetsoncontroller.model.RemoteFileEntry
 import com.example.jetsoncontroller.model.UploadLibrarySession
 import com.example.jetsoncontroller.model.UploadTarget
 import kotlinx.coroutines.Job
+import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 data class ServerStorageUiState(
+    val deviceId: String? = null,
+    val controlAvailable: Boolean = false,
     val targets: List<UploadTarget> = emptyList(),
     val selectedTarget: UploadTarget? = null,
     val sessions: List<UploadLibrarySession> = emptyList(),
@@ -40,24 +44,31 @@ class ServerStorageViewModel(
     val uiState = _uiState.asStateFlow()
     private var loadJob: Job? = null
     private var actionJob: Job? = null
+    private val workspace = DeviceWorkspace { ServerStorageUiState() }
     private var connectionGeneration = 0L
 
     init {
         viewModelScope.launch {
-            repository.transportState.collectLatest { transport ->
+            combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
+                deviceId to transport
+            }.collectLatest { (deviceId, transport) ->
+                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId)
                 connectionGeneration += 1
                 loadJob?.cancel()
                 actionJob?.cancel()
-                if (transport is TransportState.Connected && transport.type != TransportType.BLE) {
-                    loadTargets(connectionGeneration)
+                if (transport is TransportState.Connected && transport.type != TransportType.BLE &&
+                    transport.deviceId.equals(deviceId, ignoreCase = true)) {
+                    _uiState.value = _uiState.value.copy(controlAvailable = true, isLoading = false, isDeleting = false)
+                    refresh()
                 } else {
-                    _uiState.value = ServerStorageUiState()
+                    _uiState.value = _uiState.value.copy(controlAvailable = false, isLoading = false, isDeleting = false)
                 }
             }
         }
     }
 
     fun refresh() {
+        if (!_uiState.value.controlAvailable) return
         val state = _uiState.value
         when {
             state.selectedSession != null -> loadDirectory(
@@ -71,6 +82,7 @@ class ServerStorageViewModel(
     }
 
     fun selectTarget(target: UploadTarget) {
+        if (!_uiState.value.controlAvailable) return
         _uiState.value = _uiState.value.copy(
             selectedTarget = target,
             sessions = emptyList(),
@@ -85,12 +97,14 @@ class ServerStorageViewModel(
     }
 
     fun loadMoreSessions() {
+        if (!_uiState.value.controlAvailable) return
         val target = _uiState.value.selectedTarget ?: return
         if (_uiState.value.nextOffset == null || _uiState.value.isLoading) return
         loadSessions(target.id, true)
     }
 
     fun openSession(session: UploadLibrarySession) {
+        if (!_uiState.value.controlAvailable) return
         _uiState.value = _uiState.value.copy(
             selectedSession = session,
             currentPath = "",
@@ -102,6 +116,7 @@ class ServerStorageViewModel(
     }
 
     fun openDirectory(entry: RemoteFileEntry) {
+        if (!_uiState.value.controlAvailable) return
         if (entry.type != RemoteEntryType.DIRECTORY) return
         val session = _uiState.value.selectedSession ?: return
         _uiState.value = _uiState.value.copy(currentPath = entry.relativePath)
@@ -109,6 +124,7 @@ class ServerStorageViewModel(
     }
 
     fun openFile(entry: RemoteFileEntry) {
+        if (!_uiState.value.controlAvailable) return
         if (entry.type != RemoteEntryType.FILE) return
         val target = _uiState.value.selectedTarget ?: return
         val session = _uiState.value.selectedSession ?: return
@@ -137,6 +153,7 @@ class ServerStorageViewModel(
     }
 
     fun deleteSession(session: UploadLibrarySession) {
+        if (!_uiState.value.controlAvailable) return
         val target = _uiState.value.selectedTarget ?: return
         val generation = connectionGeneration
         actionJob?.cancel()

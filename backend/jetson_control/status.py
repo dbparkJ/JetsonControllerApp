@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import copy
+import logging
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
@@ -27,16 +31,36 @@ class StatusCollector:
         self.config = config
         self.storage_path = storage_path
         self.sensor_bridge = sensor_bridge or SensorBridgeStore()
+        self._metric_validity: Dict[str, object] = {}
+
+    def _record_validity(self, keys, validity="valid", reason=None, observed_at=None):
+        if observed_at is None and validity == "valid":
+            observed_at = int(time.time() * 1000)
+        for key in keys:
+            self._metric_validity[key] = {
+                "validity": validity,
+                "observedAtEpochMillis": observed_at,
+                "reason": reason,
+            }
+
+    def _measure(self, keys, reader, fallback):
+        self._record_validity(keys)
+        try:
+            value = reader()
+            for key in keys:
+                if self._metric_validity[key]["validity"] == "valid":
+                    self._record_validity((key,))
+            return value
+        except Exception as error:
+            self._record_validity(keys, "unavailable", str(error) or type(error).__name__)
+            return fallback
 
     @staticmethod
     def _clamp_percent(value: float) -> int:
         return max(0, min(100, int(round(value))))
 
     def cpu_percent(self) -> int:
-        try:
-            return self._clamp_percent(psutil.cpu_percent(interval=0.05))
-        except Exception:
-            return 0
+        return self._clamp_percent(psutil.cpu_percent(interval=0.05))
 
     def gpu_percent(self) -> int:
         for path in self.GPU_LOAD_PATHS:
@@ -47,18 +71,15 @@ class StatusCollector:
                 return self._clamp_percent(value)
             except (FileNotFoundError, OSError, ValueError):
                 continue
-        return 0
+        raise OSError("GPU load sensor is unavailable")
 
     @staticmethod
     def ram_megabytes() -> Tuple[int, int]:
-        try:
-            memory = psutil.virtual_memory()
-            return (
-                int((memory.total - memory.available) / 1024 / 1024),
-                int(memory.total / 1024 / 1024),
-            )
-        except Exception:
-            return 0, 0
+        memory = psutil.virtual_memory()
+        return (
+            int((memory.total - memory.available) / 1024 / 1024),
+            int(memory.total / 1024 / 1024),
+        )
 
     @staticmethod
     def temperature_c() -> float:
@@ -72,35 +93,31 @@ class StatusCollector:
                     values.append(value)
             except (OSError, ValueError):
                 continue
-        return round(max(values), 1) if values else 0.0
+        if not values:
+            raise OSError("Temperature sensor is unavailable")
+        return round(max(values), 1)
 
     def storage_usage(self) -> Tuple[int, int, int, int]:
-        try:
-            usage = shutil.disk_usage(self.storage_path)
-            return (
-                self._clamp_percent(usage.used * 100 / usage.total),
-                usage.used,
-                usage.total,
-                usage.free,
-            )
-        except (OSError, ZeroDivisionError):
-            return 0, 0, 0, 0
+        usage = shutil.disk_usage(self.storage_path)
+        return (
+            self._clamp_percent(usage.used * 100 / usage.total),
+            usage.used,
+            usage.total,
+            usage.free,
+        )
 
     @staticmethod
     def service_active(unit: str) -> bool:
         if not unit:
-            return False
-        try:
-            return (
-                subprocess.run(
-                    ["/usr/bin/systemctl", "is-active", "--quiet", unit],
-                    check=False,
-                    timeout=3,
-                ).returncode
-                == 0
-            )
-        except (OSError, subprocess.SubprocessError):
-            return False
+            raise ValueError("No service is configured")
+        result = subprocess.run(
+            ["/usr/bin/systemctl", "is-active", "--quiet", unit],
+            check=False,
+            timeout=3,
+        )
+        if result.returncode not in (0, 3):
+            raise OSError("Service state is unavailable")
+        return result.returncode == 0
 
     def wifi_status(self) -> Tuple[bool, str]:
         environment = dict(os.environ)
@@ -125,18 +142,21 @@ class StatusCollector:
                 timeout=3,
                 env=environment,
             )
-        except (OSError, subprocess.SubprocessError):
-            return False, ""
+        except (OSError, subprocess.SubprocessError) as error:
+            raise OSError("Wi-Fi state is unavailable") from error
         if device.returncode != 0:
-            return False, ""
+            raise OSError("Wi-Fi state is unavailable")
 
         values = device.stdout.splitlines()
-        if not values or values[0].partition(" ")[0] != "100":
+        if not values or not values[0].partition(" ")[0].isdigit():
+            raise OSError("Wi-Fi state response is invalid")
+        if values[0].partition(" ")[0] != "100":
             return False, ""
 
         connection_uuid = values[1].strip() if len(values) > 1 else ""
         connection_name = values[2].strip() if len(values) > 2 else ""
         if not connection_uuid:
+            self._record_validity(("wifiSsid",), "unavailable", "Wi-Fi SSID is unavailable; showing profile name")
             return True, connection_name
 
         try:
@@ -161,18 +181,30 @@ class StatusCollector:
                 env=environment,
             )
         except (OSError, subprocess.SubprocessError):
+            self._record_validity(("wifiSsid",), "unavailable", "Wi-Fi SSID query failed; showing profile name")
             return True, connection_name
 
         ssid = connection.stdout.rstrip("\r\n") if connection.returncode == 0 else ""
+        if not ssid:
+            self._record_validity(("wifiSsid",), "unavailable", "Wi-Fi SSID is unavailable; showing profile name")
         return True, ssid or connection_name
 
     def collect(self) -> Dict[str, object]:
-        ram_used, ram_total = self.ram_megabytes()
-        storage_percent, storage_used, storage_total, storage_available = (
-            self.storage_usage()
+        self._metric_validity = {}
+        cpu_percent = self._measure(("cpuPercent",), self.cpu_percent, 0)
+        gpu_percent = self._measure(("gpuPercent",), self.gpu_percent, 0)
+        temperature = self._measure(("temperatureC",), self.temperature_c, 0.0)
+        ram_used, ram_total = self._measure(("ramUsedMb", "ramTotalMb"), self.ram_megabytes, (0, 0))
+        storage_percent, storage_used, storage_total, storage_available = self._measure(
+            ("storagePercent", "storageUsedBytes", "storageTotalBytes", "storageAvailableBytes"),
+            self.storage_usage, (0, 0, 0, 0),
         )
         flags = {
-            name: self.service_active(self.config.service_flags.get(name, ""))
+            name: self._measure(
+                (name + "Running",),
+                lambda name=name: self.service_active(self.config.service_flags.get(name, "")),
+                False,
+            )
             for name in ("camera", "lidar", "gnss", "imu", "mms")
         }
         configured = {
@@ -189,13 +221,20 @@ class StatusCollector:
             for name, values in sensor_values.items():
                 configured[name] = configured[name] or bool(values.get("configured"))
                 flags[name] = sensors.fresh and bool(values.get("active"))
-        wifi_connected, wifi_ssid = self.wifi_status()
+                self._record_validity(
+                    (name + "Running",), "valid" if sensors.fresh else "stale",
+                    None if sensors.fresh else "Sensor heartbeat is stale",
+                    sensors.updated_at_epoch_millis,
+                )
+        wifi_connected, wifi_ssid = self._measure(("wifiConnected", "wifiSsid"), self.wifi_status, (False, ""))
         return {
-            "cpuPercent": self.cpu_percent(),
-            "gpuPercent": self.gpu_percent(),
+            "collectedAtEpochMillis": int(time.time() * 1000),
+            "metricValidity": dict(self._metric_validity),
+            "cpuPercent": cpu_percent,
+            "gpuPercent": gpu_percent,
             "ramUsedMb": ram_used,
             "ramTotalMb": ram_total,
-            "temperatureC": self.temperature_c(),
+            "temperatureC": temperature,
             "storagePercent": storage_percent,
             "storageUsedBytes": storage_used,
             "storageTotalBytes": storage_total,
@@ -243,3 +282,64 @@ class StatusCollector:
             bool(status["wifiConnected"]),
             str(status["wifiSsid"] or ""),
         )
+
+
+class StatusSnapshotService:
+    """One collector loop; HTTP reads never invoke system commands or sensor I/O."""
+
+    def __init__(self, collector: StatusCollector, interval: float = 2.0,
+                 stale_after: float = 10.0, monotonic=time.monotonic) -> None:
+        self.collector = collector
+        self.interval = interval
+        self.stale_after = stale_after
+        self._monotonic = monotonic
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._snapshot: Optional[Dict[str, object]] = None
+        self._collected_at: Optional[float] = None
+        self._error: Optional[str] = None
+
+    def refresh(self) -> None:
+        try:
+            snapshot = dict(self.collector.collect())
+            snapshot.setdefault("collectedAtEpochMillis", int(time.time() * 1000))
+        except Exception as error:
+            logging.getLogger(__name__).exception("Status collection failed")
+            with self._lock:
+                self._error = str(error) or type(error).__name__
+            return
+        with self._lock:
+            self._snapshot = snapshot
+            self._collected_at = self._monotonic()
+            self._error = None
+
+    def snapshot(self) -> Dict[str, object]:
+        with self._lock:
+            if self._snapshot is None:
+                raise LookupError("The first device status sample is not available yet")
+            result = copy.deepcopy(self._snapshot)
+            age = max(0.0, self._monotonic() - self._collected_at)
+            error = self._error
+        fresh = age <= self.stale_after and error is None
+        result.update(statusAgeSeconds=round(age, 3), statusFresh=fresh,
+                      statusCollectionError=error)
+        if not fresh:
+            for metric in result.get("metricValidity", {}).values():
+                if metric["validity"] == "valid":
+                    metric.update(validity="stale", reason=error or "Status sample is stale")
+        return result
+
+    def start(self) -> None:
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="device-status", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            self.refresh()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)

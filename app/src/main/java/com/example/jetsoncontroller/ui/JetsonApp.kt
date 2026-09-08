@@ -1,6 +1,11 @@
 package com.example.jetsoncontroller.ui
 
 import android.net.Uri
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import com.example.jetsoncontroller.ui.components.AppBanner
+import com.example.jetsoncontroller.ui.components.StatusTone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -144,15 +149,13 @@ private val routesRequiringDeviceConnection = setOf(
     Routes.SERVER_STORAGE,
     Routes.UPLOAD_CONFIRM,
     Routes.UPLOAD_PROGRESS,
-    Routes.UPLOAD_QUEUE,
     Routes.UPLOAD_SERVERS,
     Routes.PIPELINES,
     Routes.PIPELINE_EDITOR,
     Routes.PIPELINE_PICKER,
     Routes.PIPELINE_LOGS,
     Routes.PIPELINE_CONFIG,
-    Routes.CAMERA_PREVIEW,
-    Routes.SETTINGS
+    Routes.CAMERA_PREVIEW
 )
 
 
@@ -366,12 +369,6 @@ fun JetsonApp(
         connectedTransportType == TransportType.WIFI_DIRECT
 
     val onSectionSelected: (ControlSection) -> Unit = onSectionSelected@ { section ->
-        if (
-            section != ControlSection.OVERVIEW && section != ControlSection.SENSORS &&
-            !fullControlConnected
-        ) {
-            return@onSectionSelected
-        }
         val route = when (section) {
             ControlSection.OVERVIEW -> Routes.DASHBOARD
             ControlSection.DATA -> Routes.STORAGE
@@ -445,18 +442,6 @@ fun JetsonApp(
         }
     }
 
-    LaunchedEffect(transportState, currentRoute) {
-        if (
-            (transportState is TransportState.Disconnected || transportState is TransportState.Error) &&
-            currentRoute in routesRequiringDeviceConnection
-        ) {
-            navController.navigate(Routes.CONNECTION_HUB) {
-                popUpTo(Routes.CONNECTION_HUB) { inclusive = false }
-                launchSingleTop = true
-            }
-        }
-    }
-
     LaunchedEffect(deviceState.connectionState) {
         if (
             deviceState.connectionState
@@ -476,7 +461,21 @@ fun JetsonApp(
     }
 
 
+    Column(Modifier.fillMaxSize()) {
+        if (!fullControlConnected && currentRoute in routesRequiringDeviceConnection) {
+            AppBanner(
+                message = if (connectedTransportType == TransportType.BLE) {
+                    "기본 연결 상태입니다. 전체 제어 연결이 필요하며 작성한 내용은 유지됩니다."
+                } else {
+                    "장비 연결을 기다리고 있습니다. 작성한 내용과 선택은 유지됩니다."
+                },
+                tone = StatusTone.INFO,
+                actionLabel = "연결 문제 해결",
+                onAction = { navController.navigate(Routes.CONNECTION_HUB) { launchSingleTop = true } }
+            )
+        }
     NavHost(
+        modifier = Modifier.weight(1f),
         navController =
             navController,
         startDestination =
@@ -488,6 +487,12 @@ fun JetsonApp(
         ) {
             ConnectionHubScreen(
                 onAddDevice = { navController.navigate(Routes.ONBOARDING) },
+                onDirectConnect = { device ->
+                    repository.prepareManualWifiDirect(device.deviceId)
+                    navController.navigate(Routes.WIFI_DIRECT)
+                },
+                onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                onUploadHistoryClick = { navController.navigate(Routes.UPLOAD_QUEUE) },
                 onOpenDashboard = { navController.navigate(Routes.DASHBOARD) },
                 unreadAlertCount = alertCenterState.unreadCount,
                 onAlertsClick = { navController.navigate(Routes.ALERTS) },
@@ -652,7 +657,11 @@ fun JetsonApp(
                     pendingDashboardTransport = TransportType.WIFI_DIRECT
                     wifiDirectViewModel.connect(it)
                 },
-                onRetryApi = { wifiDirectViewModel.retryApi() }
+                onRetryApi = { wifiDirectViewModel.retryApi() },
+                onCancel = {
+                    pendingDashboardTransport = null
+                    repository.cancelWifiDirectConnection()
+                }
             )
         }
 
@@ -940,12 +949,16 @@ fun JetsonApp(
                     navController.navigate(Routes.UPLOAD_PROGRESS)
                 },
                 onDeleteJob = uploadViewModel::deleteJobFromQueue,
+                mutationEnabled = fullControlConnected,
+                deviceId = uploadState.deviceId,
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(Routes.UPLOAD_SERVERS) {
             UploadTargetSettingsScreen(
+                controlAvailable = fullControlConnected,
+                deviceId = uploadState.deviceId,
                 targets = uploadState.targets,
                 isLoading = uploadState.isLoading || uploadState.isSavingTarget,
                 message = uploadState.message,
@@ -1057,7 +1070,8 @@ fun JetsonApp(
                 state = pipelineState,
                 onBack = { navController.popBackStack() },
                 onValueChange = pipelineViewModel::setConfigValue,
-                onSave = pipelineViewModel::saveConfig
+                onSave = pipelineViewModel::saveConfig,
+                onReload = pipelineViewModel::reloadConfig
             )
         }
 
@@ -1132,6 +1146,8 @@ fun JetsonApp(
             )
         }
     }
+}
+
 }
 
 @Composable

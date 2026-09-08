@@ -10,6 +10,8 @@ import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
+import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
@@ -17,6 +19,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 
 data class DeviceStorageUiState(
+    val deviceId: String? = null,
+    val controlAvailable: Boolean = false,
     val roots: List<RemoteRoot> = emptyList(),
     val currentRoot: RemoteRoot? = null,
     val currentPath: String = "",
@@ -36,27 +40,38 @@ class DeviceStorageViewModel(
     val uiState = _uiState.asStateFlow()
     private var loadJob: Job? = null
     private var deleteJob: Job? = null
+    private val workspace = DeviceWorkspace { DeviceStorageUiState() }
     private var connectionGeneration = 0L
 
     init {
         viewModelScope.launch {
-            repository.transportState.collectLatest { transport ->
+            combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
+                deviceId to transport
+            }.collectLatest { (deviceId, transport) ->
+                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId)
                 connectionGeneration += 1
                 loadJob?.cancel()
                 deleteJob?.cancel()
                 if (
                     transport is TransportState.Connected &&
-                    transport.type != TransportType.BLE
+                    transport.type != TransportType.BLE &&
+                    transport.deviceId.equals(deviceId, ignoreCase = true)
                 ) {
-                    loadRoots(connectionGeneration)
+                    _uiState.value = _uiState.value.copy(controlAvailable = true, isLoading = false, isDeleting = false)
+                    refresh()
                 } else {
-                    _uiState.value = DeviceStorageUiState()
+                    val deletionPending = _uiState.value.isDeleting
+                    _uiState.value = _uiState.value.copy(
+                        controlAvailable = false, isLoading = false, isDeleting = false,
+                        message = if (deletionPending) "삭제 결과를 확인하지 못했습니다. 재연결 후 목록에서 확인해 주세요." else _uiState.value.message
+                    )
                 }
             }
         }
     }
 
     fun refresh() {
+        if (!_uiState.value.controlAvailable) return
         if (_uiState.value.currentRoot == null) {
             loadRoots(connectionGeneration)
         } else {
@@ -66,10 +81,11 @@ class DeviceStorageViewModel(
     }
 
     fun openCollection() {
-        loadRoots(connectionGeneration)
+        refresh()
     }
 
     private fun loadRoots(generation: Long) {
+        if (!_uiState.value.controlAvailable) return
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -103,17 +119,20 @@ class DeviceStorageViewModel(
     }
 
     fun selectRoot(root: RemoteRoot) {
+        if (!_uiState.value.controlAvailable) return
         _uiState.value = _uiState.value.copy(currentRoot = root, currentPath = "")
         loadDirectory(root.id, "", connectionGeneration)
     }
 
     fun selectDirectory(entry: RemoteFileEntry) {
+        if (!_uiState.value.controlAvailable) return
         val root = _uiState.value.currentRoot ?: return
         _uiState.value = _uiState.value.copy(currentPath = entry.relativePath)
         loadDirectory(root.id, entry.relativePath, connectionGeneration)
     }
 
     fun openLocation(rootId: String, path: String) {
+        if (!_uiState.value.controlAvailable) return
         val generation = connectionGeneration
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
@@ -143,6 +162,7 @@ class DeviceStorageViewModel(
     }
 
     fun openFile(entry: RemoteFileEntry) {
+        if (!_uiState.value.controlAvailable) return
         val root = _uiState.value.currentRoot ?: return
         if (entry.type != com.example.jetsoncontroller.model.RemoteEntryType.FILE) return
         val generation = connectionGeneration
@@ -170,6 +190,7 @@ class DeviceStorageViewModel(
     }
 
     fun deleteEntry(entry: RemoteFileEntry) {
+        if (!_uiState.value.controlAvailable) return
         val root = _uiState.value.currentRoot ?: return
         val generation = connectionGeneration
         deleteJob?.cancel()
@@ -237,6 +258,7 @@ class DeviceStorageViewModel(
     }
 
     private fun loadDirectory(rootId: String, path: String, generation: Long) {
+        if (!_uiState.value.controlAvailable) return
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)

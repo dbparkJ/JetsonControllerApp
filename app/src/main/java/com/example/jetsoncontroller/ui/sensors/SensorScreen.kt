@@ -52,7 +52,7 @@ fun SensorScreen(
                 enabledSections = if (fullControlAvailable) {
                     ControlSection.entries.toSet()
                 } else {
-                    setOf(ControlSection.OVERVIEW, ControlSection.SENSORS)
+                    ControlSection.entries.toSet()
                 }
             )
         }

@@ -85,7 +85,7 @@ fun DeviceStorageScreen(
     onSectionSelected: (ControlSection) -> Unit,
     onServerDataClick: () -> Unit = {}
 ) {
-    var pendingDeletion by remember { mutableStateOf<RemoteFileEntry?>(null) }
+    var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<RemoteFileEntry?>(null) }
     pendingDeletion?.let { entry ->
         AlertDialog(
             onDismissRequest = { pendingDeletion = null },
@@ -99,7 +99,7 @@ fun DeviceStorageScreen(
                 Text("$target 장치에서 영구 삭제합니다.")
             },
             confirmButton = {
-                Button(onClick = {
+                Button(enabled = state.controlAvailable, onClick = {
                     pendingDeletion = null
                     onDeleteClick(entry)
                 }) { Text("삭제") }
@@ -136,7 +136,7 @@ fun DeviceStorageScreen(
                     if (state.preview == null) {
                         IconButton(
                             onClick = onRefresh,
-                            enabled = !state.isLoading && !state.isDeleting
+                            enabled = state.controlAvailable && !state.isLoading && !state.isDeleting
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = "새로고침")
                         }
@@ -296,7 +296,7 @@ private fun DirectoryList(
                         }
                         IconButton(
                             onClick = { onDeleteClick(entry) },
-                            enabled = !state.isLoading && !state.isDeleting
+                            enabled = state.controlAvailable && !state.isLoading && !state.isDeleting
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = "장치 데이터 삭제")
                         }

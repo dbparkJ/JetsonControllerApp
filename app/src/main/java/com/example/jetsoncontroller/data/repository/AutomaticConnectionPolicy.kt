@@ -47,10 +47,13 @@ internal fun shouldDisconnectAutomaticDirect(
     explicitlyRequested: Boolean
 ): Boolean = infrastructureWifiConnected && !explicitlyRequested
 
-internal fun allowsAutomaticLanUpgrade(transportState: TransportState): Boolean =
+internal fun allowsAutomaticLanUpgrade(
+    transportState: TransportState,
+    explicitlyRequestedDirect: Boolean = false
+): Boolean = !explicitlyRequestedDirect && (
     allowsAutomaticDirectFallback(transportState) ||
         (transportState is TransportState.Connected &&
-            transportState.type == TransportType.WIFI_DIRECT)
+            transportState.type == TransportType.WIFI_DIRECT))
 
 /**
  * A normal LAN connection always takes precedence over the Wi-Fi Direct fallback.

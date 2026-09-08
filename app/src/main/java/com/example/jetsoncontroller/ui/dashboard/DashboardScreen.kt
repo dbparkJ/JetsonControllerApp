@@ -215,11 +215,7 @@ fun DashboardScreen(
             ControlNavigationBar(
                 selected = ControlSection.OVERVIEW,
                 onSelect = onSectionSelected,
-                enabledSections = if (state.fullControlAvailable) {
-                    ControlSection.entries.toSet()
-                } else {
-                    setOf(ControlSection.OVERVIEW, ControlSection.SENSORS)
-                }
+                enabledSections = ControlSection.entries.toSet()
             )
         }
     ) { paddingValues ->
@@ -352,14 +348,13 @@ fun DashboardScreen(
                 DashboardDivider()
                 DashboardAction(
                     icon = Icons.Default.CloudUpload,
-                    title = "업로드 확인",
+                    title = "업로드 기록",
                     description = if (activeUploads.isNotEmpty()) {
                         "${activeUploads.size}개 업로드 진행 중"
                     } else {
-                        "업로드 중이 아닙니다"
+                        "완료 및 실패한 업로드 기록 확인"
                     },
-                    enabled = state.isOnline && state.fullControlAvailable &&
-                        state.capabilities.uploads && activeUploads.isNotEmpty(),
+                    enabled = true,
                     onClick = onUploadQueueClick
                 )
                 DashboardDivider()
@@ -492,7 +487,7 @@ private fun FanControlCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(onClick = onRefresh, enabled = !state.fanLoading) {
+                IconButton(onClick = onRefresh, enabled = state.isOnline && !state.fanLoading) {
                     Icon(Icons.Default.Refresh, contentDescription = "FAN 상태 새로고침")
                 }
             }
@@ -505,7 +500,7 @@ private fun FanControlCard(
                     },
                     valueRange = minimum.toFloat()..100f,
                     steps = ((100 - minimum) / 10 - 1).coerceAtLeast(0),
-                    enabled = !state.fanLoading
+                    enabled = state.isOnline && !state.fanLoading
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -514,12 +509,12 @@ private fun FanControlCard(
                     OutlinedButton(
                         onClick = onSetAuto,
                         modifier = Modifier.weight(1f),
-                        enabled = fan.autoAvailable && !state.fanLoading
+                        enabled = state.isOnline && fan.autoAvailable && !state.fanLoading
                     ) { Text("자동") }
                     Button(
                         onClick = { onSetManual(manualPercent.roundToInt()) },
                         modifier = Modifier.weight(1f),
-                        enabled = !state.fanLoading
+                        enabled = state.isOnline && !state.fanLoading
                     ) { Text("수동 ${manualPercent.roundToInt()}% 적용") }
                 }
             }
@@ -633,7 +628,8 @@ private fun ConnectionModeSummary(
         ) {
             Icon(
                 when (stage) {
-                    UserConnectionStage.PHONE_CONNECTED -> Icons.Default.PhoneAndroid
+                    UserConnectionStage.PHONE_CONNECTED,
+                    UserConnectionStage.BASIC_CONNECTED -> Icons.Default.PhoneAndroid
                     UserConnectionStage.WIFI_CONNECTED -> Icons.Default.Wifi
                     UserConnectionStage.OFFLINE -> Icons.Default.LinkOff
                 },
@@ -750,16 +746,16 @@ private fun MetricsGrid(state: DashboardUiState) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
     ) {
-        MetricCard("CPU", "${state.status.cpuPercent}%", Modifier.weight(1f))
-        MetricCard("GPU", "${state.status.gpuPercent}%", Modifier.weight(1f))
+        MetricCard("CPU", state.status.metricDisplay("cpuPercent", "${state.status.cpuPercent}%"), Modifier.weight(1f))
+        MetricCard("GPU", state.status.metricDisplay("gpuPercent", "${state.status.gpuPercent}%"), Modifier.weight(1f))
     }
     Spacer(Modifier.height(AppSpacing.small))
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
     ) {
-        MetricCard("온도", "${state.status.temperatureC} C", Modifier.weight(1f))
-        MetricCard("저장 공간", "${state.status.storagePercent}%", Modifier.weight(1f))
+        MetricCard("온도", state.status.metricDisplay("temperatureC", "${state.status.temperatureC} C"), Modifier.weight(1f))
+        MetricCard("저장 공간", state.status.metricDisplay("storagePercent", "${state.status.storagePercent}%"), Modifier.weight(1f))
     }
     Spacer(Modifier.height(AppSpacing.small))
     Surface(
@@ -774,7 +770,7 @@ private fun MetricsGrid(state: DashboardUiState) {
             ) {
                 Text("메모리", style = MaterialTheme.typography.labelMedium)
                 Text(
-                    "${formatMemory(state.status.ramUsedMb)} / ${formatMemory(state.status.ramTotalMb)}",
+                    state.status.metricDisplay("ramUsedMb", "${formatMemory(state.status.ramUsedMb)} / ${formatMemory(state.status.ramTotalMb)}"),
                     style = MaterialTheme.typography.labelMedium
                 )
             }
@@ -784,10 +780,12 @@ private fun MetricsGrid(state: DashboardUiState) {
             } else {
                 0f
             }
-            LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (state.status.metricIsValid("ramUsedMb") && state.status.metricIsValid("ramTotalMb")) {
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }

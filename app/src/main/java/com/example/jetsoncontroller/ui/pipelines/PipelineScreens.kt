@@ -104,7 +104,7 @@ fun PipelineListScreen(
     onSectionSelected: (ControlSection) -> Unit,
     onClearMessage: () -> Unit
 ) {
-    var pendingRemoval by remember { mutableStateOf<ManagedPipeline?>(null) }
+    var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
     pendingRemoval?.let { pipeline ->
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
@@ -112,7 +112,7 @@ fun PipelineListScreen(
             title = { Text("${pipeline.label} 등록을 해제할까요?") },
             text = { Text("실행 서비스는 중지되며 저장된 실행 스냅샷은 시스템 보관 영역에 남습니다.") },
             confirmButton = {
-                Button(onClick = {
+                Button(enabled = state.controlAvailable, onClick = {
                     pendingRemoval = null
                     onRemove(pipeline)
                 }) { Text("등록 해제") }
@@ -205,7 +205,7 @@ fun PipelineListScreen(
                     PipelineItem(
                         pipeline = pipeline,
                         busy = state.busyPipelineId == pipeline.id,
-                        controlsEnabled = state.busyPipelineId == null,
+                        controlsEnabled = state.controlAvailable && state.busyPipelineId == null,
                         onControl = { action -> onControl(pipeline, action) },
                         onRemove = { pendingRemoval = pipeline },
                         onLogs = { onLogs(pipeline) },
@@ -425,7 +425,7 @@ fun PipelineEditorScreen(
             item {
                 Button(
                     onClick = onRegister,
-                    enabled = draft.canSubmit && state.discoveredFolder != null &&
+                    enabled = state.controlAvailable && draft.canSubmit && state.discoveredFolder != null &&
                         !state.isLoading && !state.isDiscoveringFolder,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -795,8 +795,19 @@ fun PipelineConfigScreen(
     state: PipelineUiState,
     onBack: () -> Unit,
     onValueChange: (String, String) -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onReload: () -> Unit = {}
 ) {
+    var confirmReload by remember(state.deviceId, state.controlAvailable) { mutableStateOf(false) }
+    if (confirmReload) {
+        AlertDialog(
+            onDismissRequest = { confirmReload = false },
+            title = { Text("장비 설정을 다시 불러올까요?") },
+            text = { Text("작성 중인 설정 초안을 장비의 현재 설정으로 바꿉니다.") },
+            confirmButton = { Button(onClick = { confirmReload = false; onReload() }) { Text("다시 불러오기") } },
+            dismissButton = { TextButton(onClick = { confirmReload = false }) { Text("초안 유지") } }
+        )
+    }
     BackHandler(onBack = onBack)
     Scaffold(
         topBar = {
@@ -823,7 +834,8 @@ fun PipelineConfigScreen(
                 actions = {
                     IconButton(
                         onClick = onSave,
-                        enabled = !state.detailLoading && !state.configSaving &&
+                        enabled = state.controlAvailable && !state.configNeedsReview &&
+                            !state.detailLoading && !state.configSaving &&
                             state.configHasChanges && state.configValuesValid
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "설정 저장")
@@ -843,6 +855,13 @@ fun PipelineConfigScreen(
                 }
                 state.message?.let { message ->
                     item { InlineMessage(message, isError = false) }
+                }
+                if (state.configNeedsReview) {
+                    item {
+                        OutlinedButton(onClick = { confirmReload = true }, enabled = state.controlAvailable) {
+                            Text("장비 설정 다시 불러오기")
+                        }
+                    }
                 }
                 if (state.configFields.isEmpty() && !state.detailLoading && state.error == null) {
                     item {
