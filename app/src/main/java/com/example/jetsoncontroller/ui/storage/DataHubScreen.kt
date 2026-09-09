@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.storage
 
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.ui.components.*
 import com.example.jetsoncontroller.ui.upload.UploadUiState
+import com.example.jetsoncontroller.ui.theme.LocalCobaltColors
 
 internal fun folderSelectionKey(rootId: String, path: String): String = "$rootId\u0000$path"
 
@@ -55,7 +59,7 @@ fun DataHubScreen(
                 }
             }
             item {
-                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
+                Surface(shape = MaterialTheme.shapes.medium, color = LocalCobaltColors.current.sectionSoft, contentColor = LocalCobaltColors.current.ink) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("전송 대상 서버", style = MaterialTheme.typography.titleMedium)
                         Text(if (uploads.targets.isEmpty()) "설정된 대상 없음 또는 목록 미확인" else uploads.targets.joinToString { it.label })
@@ -65,7 +69,7 @@ fun DataHubScreen(
                 }
             }
             if (!uploadEnabled) item { InlineMessage(unavailableReason, false) }
-            item { OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("폴더 검색") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+            item { OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(), value = query, onValueChange = { query = it }, label = { Text("폴더 검색") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
             item {
                 SectionHeader("전송할 폴더", trailing = { TextButton(onClick = { selected = null }, enabled = selected != null) { Text("선택 해제") } })
             }
@@ -74,20 +78,22 @@ fun DataHubScreen(
             items(visible, key = { folderSelectionKey(it.outputRootId!!, it.outputPath!!) }) { folder ->
                 val key = folderSelectionKey(folder.outputRootId!!, folder.outputPath!!)
                 Surface(shape = MaterialTheme.shapes.medium,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (selected == key) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)) {
+                    color = if (selected == key) LocalCobaltColors.current.accent else LocalCobaltColors.current.sectionBase,
+                    contentColor = if (selected == key) LocalCobaltColors.current.onAccent else LocalCobaltColors.current.ink,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (selected == key) LocalCobaltColors.current.focusRing else LocalCobaltColors.current.sectionBorder)) {
                     Row(Modifier.fillMaxWidth().selectable(selected == key, role = Role.RadioButton,
                         onClick = { selected = key }).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         RadioButton(selected = selected == key, onClick = null)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(folder.label, style = MaterialTheme.typography.titleMedium)
                             Text("${folder.outputRootId} / ${folder.outputPath}", style = MaterialTheme.typography.bodyMedium)
-                            Text("폴더 전체 · 용량 미확인", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("폴더 전체 · 용량 미확인", style = MaterialTheme.typography.bodyMedium, color = if (selected == key) LocalCobaltColors.current.onAccent else LocalCobaltColors.current.muted)
                         }
                     }
                 }
             }
             item { Text("한 번에 폴더 하나를 전송합니다. 새 폴더는 자동 선택하지 않으며 원본을 유지합니다.", style = MaterialTheme.typography.bodyMedium) }
-            item { OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onHistory, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("전송 진행·검증·이력 ${uploads.queue.size}개") } }
+            item { SectionSurface(LocalCobaltColors.current.sectionRaised) { OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onHistory, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("전송 진행·검증·이력 ${uploads.queue.size}개") } } }
         }
     }
 }

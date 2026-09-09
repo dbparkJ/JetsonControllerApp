@@ -1,25 +1,43 @@
-# Jetson Controller · Cobalt Field V5
+# Jetson Controller · Slate Harmony V7
 
-최신 기준은 `jetson_cobalt_v5/COBALT_FIELD_STYLE_GUIDE.md`, `design/tokens.json`,
-`screens/`의 로컬 시안이다. 제공 PNG는 Chromium 시안이며 Figma export나 앱 캡처가 아니다.
-제품 구현은 Kotlin / Jetpack Compose다. 시안 PNG·HTML을 제품에 포함하지 않는다.
+최신 색상 기준은 [V7 토큰](../jetson_slate_harmony_v7/design/tokens.json)과
+[V7 스타일 가이드](../jetson_slate_harmony_v7/SLATE_HARMONY_STYLE_GUIDE.md)다.
+V5 문서는 이전 정보 구조의 이력이며 활성 색상 기준이 아니다.
+제품 구현은 기존 Kotlin / Jetpack Compose이고 PNG·HTML을 화면으로 붙이지 않는다.
+연구는 설계 참고이며 이 HEX의 최적성·피로 감소·사용자 선호를 입증하지 않는다.
 
 ## 색과 크기
 
 | 역할 | Light | Dark |
 |---|---|---|
-| 배경 | #F7F5F2 | #101827 |
-| 표면 | #FFFFFF | #182338 |
-| 주 행동 | #2456D8 / #FFFFFF | #9CBBFF / #10265A |
-| 선택 | #DCE7FF / #173B82 | #DCE7FF / #173B82 |
-| 현재 작업 | #172B4D / #F6F8FF | #203553 / #F6F8FF |
-| 확인된 성공 | #384B92 / #EEF0FF | #C2CBFF / #303954 |
-| 주의 | #8A4E19 / #FFF0DD | #FFD39A / #473620 |
-| 위험 | #AE382C / #FCECE8 | #FFB8AC / #4A2B2A |
+| 바탕 | #F4F5F7 | #1C1E22 |
+| 기본 표면·확인창 | #FBFCFD | #25282D |
+| 준비·장비·목적지 | #EBEEF1 | #303339 |
+| 결과·최근 이력·앱 설정 | #E1E5EA | #393D44 |
+| 현재 작업 / 본문 | #E0E7F1 / #272C32 | #333B48 / #E4E6EA |
+| 주요 버튼 / 전경 | #526584 / #FFFFFF | #9EACC1 / #1B222E |
+| 선택 / 전경 | #D3DEF1 / #38465B | #3E4859 / #DDE2E9 |
+| 입력·아웃라인 경계 | #717884 | #868D97 |
+| 포커스 | #556887 | #AAB8D0 |
+| 성공 / 배경 | #525862 / #EBEEF1 | #B5BBC5 / #303339 |
+| 주의 / 배경 | #7A5729 / #F5EDDF | #D6B88A / #3A3126 |
+| 위험 / 배경 | #9B4B46 / #F8ECEA | #E0AAA4 / #3C2C2D |
 
-모든 의미 색은 `ui/theme/Color.kt`의 CobaltLight/CobaltDark에 모은다.
-Material 3의 container, on-container, surfaceContainer, error 역할도 명시한다.
-성공·실행·로그·영상에 초록/청록/라임을 사용하지 않는다. 상태는 문구를 함께 표시한다.
+정확한 66개 역할은 V7 JSON과 `ui/theme/Color.kt`에 있다. 기존 CobaltLight/CobaltDark,
+LocalCobaltColors 이름을 유지해 공급자를 중복하지 않았다. 앱 테마 preference와 상태 소유자는 유지한다.
+일반 tertiary는 중립 raised 역할이고 실제 경고는 warning/warningBg를 직접 사용한다.
+기본 모달의 surfaceContainerHigh는 sectionBase에 매핑한다. 명시적 섹션 색을 유지하도록
+Material3 tonal elevation을 끄며 동적 색상은 사용하지 않는다.
+
+`Controls.kt`는 기존 Material 버튼의 callback·semantics·enabled를 전달하고 색상과 내부 포커스
+표시만 적용한다. 불투명 disabled/onDisabled를 사용한다. 입력은 surface 바탕과 controlBorder,
+focusRing을 쓴다. 선택 배경에서는 onAccent를 사용한다. 대비 검사는
+`scripts/check_slate_harmony.py`로 수행하되 실제 화면 검증으로 간주하지 않는다.
+
+카메라/QR 영상의 검정·흰색 오버레이는 영상 위 가독성 때문에 유지한다. 지도 J/M 마커는
+고정된 V7 Light primary/warning과 흰 테두리·문자 쌍을 사용한다. 외부 지도 픽셀 대비는
+이번 토큰 검사에 포함되지 않으며 위치 추적·RTK 동작은 변경하지 않는다.
+짧은 그룹에 SectionSurface를 사용하고 기존 LazyColumn 항목·키·장비별 저장 상태를 유지한다.
 
 화면 제목 26/36sp, 핵심 제목 24/34sp, 그룹 제목 20/28sp, 본문 16/24sp,
 보조 본문 14/21sp. 시스템 SansSerif를 사용하며 폰트를 추가 번들하지 않는다.

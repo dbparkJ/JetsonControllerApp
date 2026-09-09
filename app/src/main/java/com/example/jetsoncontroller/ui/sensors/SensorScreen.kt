@@ -177,7 +177,8 @@ private fun SensorStatusRow(
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer
+        color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft,
+        contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.ink
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -199,8 +200,8 @@ private fun SensorStatusRow(
                 )
             }
             Surface(
-                color = if (active) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
+                color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.successBg,
+                contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success,
                 shape = MaterialTheme.shapes.small
             ) {
                 Text(

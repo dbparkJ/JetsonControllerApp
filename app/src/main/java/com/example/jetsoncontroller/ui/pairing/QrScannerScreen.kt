@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.pairing
 
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.FilledTonalButton
+import com.example.jetsoncontroller.ui.theme.Button
 import android.annotation.SuppressLint
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -26,8 +29,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,7 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -108,7 +108,7 @@ fun QrScannerScreen(
                         "QR을 읽기 어렵다면 QR 아래의 전체 등록 코드를 입력하세요.",
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    OutlinedTextField(
+                    OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                         value = manualValue,
                         onValueChange = { manualValue = it.take(4096) },
                         label = { Text("등록 코드") },

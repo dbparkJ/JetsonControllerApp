@@ -36,7 +36,7 @@ class CobaltFieldScreenTest {
                 }
             }
         }
-        val folder = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null), "cobalt-captures").apply { mkdirs() }
+        val folder = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null), InstrumentationRegistry.getArguments().getString("captureFolder") ?: "cobalt-captures").apply { mkdirs() }
         for (theme in listOf(false, true)) for (font in listOf(1f, 2f)) {
             for (page in listOf("home", "tasks", "data", "settings", "offline", "detail")) {
                 compose.runOnIdle { screen = page; dark = theme; scale = font }

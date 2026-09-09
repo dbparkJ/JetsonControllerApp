@@ -30,6 +30,8 @@ jobs:
           log-accepted-android-sdk-licenses: false
           packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
       - uses: gradle/actions/setup-gradle@v6
+      - name: Slate Harmony source tokens and contrast
+        run: python3 scripts/check_slate_harmony.py
       - name: Build, lint, and focused regression tests
         run: >-
           ./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest

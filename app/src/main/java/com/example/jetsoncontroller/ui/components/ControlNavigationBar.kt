@@ -38,8 +38,8 @@ fun ControlNavigationBar(
         items.forEach { (section, icon, label) ->
             NavigationBarItem(
                 colors = NavigationBarItemDefaults.colors(
-                    indicatorColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.accent,
-                    selectedIconColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.onAccent,
+                    indicatorColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.navSelected,
+                    selectedIconColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.onNavSelected,
                     selectedTextColor = MaterialTheme.colorScheme.onSurface),
                 selected = selected == section,
                 onClick = { onSelect(section) },

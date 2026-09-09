@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.upload
 
+import com.example.jetsoncontroller.ui.theme.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -301,7 +301,7 @@ private fun UploadTargetEditorDialog(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
-                OutlinedTextField(
+                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                     value = targetId,
                     onValueChange = { value ->
                         targetId = value.lowercase().filter {
@@ -315,7 +315,7 @@ private fun UploadTargetEditorDialog(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                     value = label,
                     onValueChange = { label = it.take(64) },
                     label = { Text("표시 이름") },
@@ -324,7 +324,7 @@ private fun UploadTargetEditorDialog(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                     value = baseUrl,
                     onValueChange = { baseUrl = it.take(2048) },
                     label = { Text("HTTPS 주소") },
@@ -338,7 +338,7 @@ private fun UploadTargetEditorDialog(
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                     value = token,
                     onValueChange = { token = it.replace("\n", "").take(4096) },
                     label = { Text(if (isNew) "접근 토큰" else "새 접근 토큰") },

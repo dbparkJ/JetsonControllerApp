@@ -1,0 +1,15 @@
+{
+  "scope": "MOCK_ONLY_NOT_REAL_FIGMA",
+  "syntax": "PASS",
+  "importControlFlow": "PASS",
+  "screenCount": 32,
+  "componentVariants": 28,
+  "mockNodeCount": 3594,
+  "variables": 171,
+  "textStyles": 38,
+  "duplicateGuard": "PASS",
+  "exportDispatch": "PASS",
+  "warnings": [],
+  "realFigmaExecution": "NOT_RUN",
+  "realFigmaPngExport": "NOT_RUN"
+}

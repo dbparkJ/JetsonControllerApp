@@ -1,0 +1,2460 @@
+{
+  "scope": "LOCAL_HTML_ONLY; not Figma, Android, user comfort, or full WCAG conformance",
+  "runtimeErrors": [],
+  "networkRequests": [],
+  "layoutCases": [
+    {
+      "screen": "01-home-light",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "02-tasks",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "03-data",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "04-settings",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "05-home-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "06-home-offline",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "07-task-detail",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "08-sensors",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "09-preflight",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "10-onboarding",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "11-connection",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "12-home-large-type",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "13-reboot-confirm",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "14-transfer-confirm",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "15-settings-danger",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "16-data-files",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "17-device-picker",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "18-tasks-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "19-data-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "20-settings-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "21-settings-danger-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "22-reboot-confirm-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "23-home-offline-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "24-task-detail-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "25-sensors-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "26-preflight-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "27-onboarding-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "28-connection-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "29-home-large-type-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "30-transfer-confirm-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "31-data-files-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "32-device-picker-dark",
+      "width": 412,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "01-home-light",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "02-tasks",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "03-data",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "04-settings",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "05-home-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "06-home-offline",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "07-task-detail",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "08-sensors",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "09-preflight",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "10-onboarding",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "11-connection",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "12-home-large-type",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "13-reboot-confirm",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "14-transfer-confirm",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "15-settings-danger",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "16-data-files",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "17-device-picker",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "18-tasks-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "19-data-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "20-settings-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "21-settings-danger-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "22-reboot-confirm-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "23-home-offline-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "24-task-detail-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "25-sensors-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "26-preflight-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "27-onboarding-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "28-connection-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "29-home-large-type-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "30-transfer-confirm-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "31-data-files-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "32-device-picker-dark",
+      "width": 360,
+      "linearFontScale": 1.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "01-home-light",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "02-tasks",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "03-data",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "04-settings",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "05-home-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "06-home-offline",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "07-task-detail",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "08-sensors",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "09-preflight",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "10-onboarding",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "11-connection",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "12-home-large-type",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "13-reboot-confirm",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "14-transfer-confirm",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "15-settings-danger",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "16-data-files",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "17-device-picker",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "18-tasks-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "19-data-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "20-settings-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "21-settings-danger-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "22-reboot-confirm-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "23-home-offline-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "24-task-detail-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "25-sensors-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "26-preflight-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "27-onboarding-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "28-connection-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "29-home-large-type-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "30-transfer-confirm-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "31-data-files-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "32-device-picker-dark",
+      "width": 360,
+      "linearFontScale": 1.3,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "01-home-light",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "02-tasks",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "03-data",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "04-settings",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "05-home-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "06-home-offline",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "07-task-detail",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "08-sensors",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "09-preflight",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "10-onboarding",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "11-connection",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "12-home-large-type",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "13-reboot-confirm",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "14-transfer-confirm",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "15-settings-danger",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "16-data-files",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "17-device-picker",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "18-tasks-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "19-data-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "20-settings-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "21-settings-danger-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "22-reboot-confirm-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "23-home-offline-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "24-task-detail-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "25-sensors-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "26-preflight-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "27-onboarding-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "28-connection-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "29-home-large-type-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "30-transfer-confirm-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "31-data-files-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    },
+    {
+      "screen": "32-device-picker-dark",
+      "width": 360,
+      "linearFontScale": 2.0,
+      "horizontalOverflow": []
+    }
+  ],
+  "interactionTests": [
+    {
+      "test": "nav tasks",
+      "passed": true
+    },
+    {
+      "test": "nav data",
+      "passed": true
+    },
+    {
+      "test": "nav settings",
+      "passed": true
+    },
+    {
+      "test": "nav home",
+      "passed": true
+    },
+    {
+      "test": "empty selection blocks confirmation",
+      "passed": true
+    },
+    {
+      "test": "one selected folder uses correct bytes",
+      "passed": true
+    },
+    {
+      "test": "Escape cancels confirmation",
+      "passed": true
+    },
+    {
+      "test": "stop needs confirmation",
+      "passed": true
+    },
+    {
+      "test": "stop cancel returns home",
+      "passed": true
+    },
+    {
+      "test": "recovery reachable",
+      "passed": true
+    },
+    {
+      "test": "dark preserved across root navigation",
+      "passed": true
+    },
+    {
+      "test": "dark transfer modal has correct theme",
+      "passed": true
+    }
+  ],
+  "textPairs": [
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#F4F5F7",
+      "examples": [
+        "01-home-light / 현장 컨트롤 / 현장 컨트롤",
+        "01-home-light / 데모 / 데모",
+        "02-tasks / JETSON-01 · 선택 장비 / JETSON-01 · 선택 장비"
+      ],
+      "count": 35,
+      "ratio": 6.567893327043468,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#272C32",
+      "bg": "#F4F5F7",
+      "examples": [
+        "01-home-light / JETSON-01 / JETSON-01",
+        "02-tasks / 작업 / 작업",
+        "03-data / 데이터 / 데이터"
+      ],
+      "count": 20,
+      "ratio": 12.897422219407868,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#F4F5F7",
+      "examples": [
+        "01-home-light / 제어 가능 · LAN / 제어 가능 · LAN",
+        "02-tasks / 제어 가능 · LAN / 제어 가능 · LAN",
+        "03-data / 제어 가능 · LAN / 제어 가능 · LAN"
+      ],
+      "count": 11,
+      "ratio": 5.417489844220206,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#E0E7F1",
+      "examples": [
+        "01-home-light / 현재 작업 / 현재 작업",
+        "01-home-light / 실행 시간 / 실행 시간",
+        "01-home-light / 저장된 파일 · 02:14 / 저장된 파일 · 02:14"
+      ],
+      "count": 11,
+      "ratio": 5.755664452701621,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#38465B",
+      "bg": "#D3DEF1",
+      "examples": [
+        "01-home-light / label / 실행 중",
+        "02-tasks / label / 실행 중 · 42분",
+        "07-task-detail / label / 실행 중"
+      ],
+      "count": 4,
+      "ratio": 7.055345756321904,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#272C32",
+      "bg": "#E0E7F1",
+      "examples": [
+        "01-home-light / 야간 라인 검사 / 야간 라인 검사",
+        "01-home-light / 42분 / 42분",
+        "01-home-light / 128개 / 128개"
+      ],
+      "count": 15,
+      "ratio": 11.30244218402158,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#FFFFFF",
+      "bg": "#526584",
+      "examples": [
+        "01-home-light / label / 상태 보기  →",
+        "02-tasks / label / 상태 보기",
+        "03-data / label / 선택한 폴더 전송"
+      ],
+      "count": 11,
+      "ratio": 5.909785529709394,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#272C32",
+      "bg": "#EBEEF1",
+      "examples": [
+        "01-home-light / 준비 상태 / 준비 상태",
+        "01-home-light / 카메라 확인 / 카메라 확인",
+        "01-home-light / GNSS 위치 / GNSS 위치"
+      ],
+      "count": 33,
+      "ratio": 12.08123444208394,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#EBEEF1",
+      "examples": [
+        "01-home-light / 전체 보기 / 전체 보기",
+        "03-data / 변경 / 변경",
+        "12-home-large-type / 전체 보기 / 전체 보기"
+      ],
+      "count": 4,
+      "ratio": 5.074654747453711,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#FBFCFD",
+      "examples": [
+        "01-home-light / 센서 / 센서",
+        "01-home-light / 카메라 · GNSS · IMU / 카메라 · GNSS · IMU",
+        "01-home-light / 저장공간 / 저장공간"
+      ],
+      "count": 49,
+      "ratio": 6.975161931781295,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#272C32",
+      "bg": "#FBFCFD",
+      "examples": [
+        "01-home-light / 3개 수신 / 3개 수신",
+        "01-home-light / 153 GB / 153 GB",
+        "01-home-light / 홈 / 홈"
+      ],
+      "count": 42,
+      "ratio": 13.697178684754938,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#272C32",
+      "bg": "#E1E5EA",
+      "examples": [
+        "01-home-light / 전송 대기 · 폴더 2개 / 전송 대기 · 폴더 2개",
+        "03-data / 최근 전송 / 최근 전송",
+        "03-data / 전송 완료 · 폴더 1개 / 전송 완료 · 폴더 1개"
+      ],
+      "count": 16,
+      "ratio": 11.119766367992822,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#E1E5EA",
+      "examples": [
+        "01-home-light / 대상 서버와 전송 내용을 확인하세요 / 대상 서버와 전송 내용을 확인하세요",
+        "03-data / 어제 22:04 · 서버 검증 완료 / 어제 22:04 · 서버 검증 완료",
+        "04-settings / 문제가 생기면 필요한 정보만 / 문제가 생기면 필요한 정보만"
+      ],
+      "count": 9,
+      "ratio": 5.662638477999324,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#EBEEF1",
+      "examples": [
+        "02-tasks / label / 전체 3",
+        "03-data / 장비 파일 / 장비 파일",
+        "03-data / / 현장조사 / JETSON-01 / / 현장조사 / JETSON-01"
+      ],
+      "count": 39,
+      "ratio": 6.152257228208644,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#E6EBF4",
+      "examples": [
+        "02-tasks / label / 실행 중 1",
+        "02-tasks / label / 시작 요청 중",
+        "09-preflight / 시작 요청과 실행 확인은 다릅니다. / 시작 요청과 실행 확인은 다릅니다."
+      ],
+      "count": 4,
+      "ratio": 4.940091568321612,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#7A5729",
+      "bg": "#F5EDDF",
+      "examples": [
+        "02-tasks / label / 확인 필요 1",
+        "06-home-offline / 장비 연결을 확인해 주세요 / 장비 연결을 확인해 주세요",
+        "06-home-offline / 화면과 선택은 그대로 보관했습니다. / 화면과 선택은 그대로 보관했습니다."
+      ],
+      "count": 5,
+      "ratio": 5.604333172236333,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#62666D",
+      "bg": "#E1E5EA",
+      "examples": [
+        "02-tasks / label / 시작 요청 중…"
+      ],
+      "count": 1,
+      "ratio": 4.558821522074172,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#9B4B46",
+      "bg": "#F8ECEA",
+      "examples": [
+        "02-tasks / label / 실패"
+      ],
+      "count": 1,
+      "ratio": 5.2105905400050165,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#FBFCFD",
+      "examples": [
+        "03-data / 선택 해제 / 선택 해제",
+        "03-data / 파일 128개 · 42.8 MB / 파일 128개 · 42.8 MB",
+        "03-data / 파일 24개 · 11.6 MB / 파일 24개 · 11.6 MB"
+      ],
+      "count": 8,
+      "ratio": 5.75342306057622,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#E1E5EA",
+      "examples": [
+        "03-data / 전체 이력 / 전체 이력",
+        "16-data-files / 전체 이력 / 전체 이력"
+      ],
+      "count": 2,
+      "ratio": 4.670795477103351,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#9B4B46",
+      "bg": "#EBEEF1",
+      "examples": [
+        "04-settings / 장비 재부팅 / 장비 재부팅",
+        "04-settings / 전원 종료 / 전원 종료",
+        "04-settings / 이 장비 등록 삭제 / 이 장비 등록 삭제"
+      ],
+      "count": 6,
+      "ratio": 5.168982556409685,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#1C1E22",
+      "examples": [
+        "05-home-dark / 현장 컨트롤 / 현장 컨트롤",
+        "05-home-dark / 데모 / 데모",
+        "18-tasks-dark / JETSON-01 · 선택 장비 / JETSON-01 · 선택 장비"
+      ],
+      "count": 35,
+      "ratio": 7.6503154758177985,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E4E6EA",
+      "bg": "#1C1E22",
+      "examples": [
+        "05-home-dark / JETSON-01 / JETSON-01",
+        "18-tasks-dark / 작업 / 작업",
+        "19-data-dark / 데이터 / 데이터"
+      ],
+      "count": 20,
+      "ratio": 13.357056685643423,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#1C1E22",
+      "examples": [
+        "05-home-dark / 제어 가능 · LAN / 제어 가능 · LAN",
+        "18-tasks-dark / 제어 가능 · LAN / 제어 가능 · LAN",
+        "19-data-dark / 제어 가능 · LAN / 제어 가능 · LAN"
+      ],
+      "count": 11,
+      "ratio": 7.252426150613947,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#333B48",
+      "examples": [
+        "05-home-dark / 현재 작업 / 현재 작업",
+        "05-home-dark / 실행 시간 / 실행 시간",
+        "05-home-dark / 저장된 파일 · 02:14 / 저장된 파일 · 02:14"
+      ],
+      "count": 11,
+      "ratio": 5.175212745593512,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#DDE2E9",
+      "bg": "#3E4859",
+      "examples": [
+        "05-home-dark / label / 실행 중",
+        "18-tasks-dark / label / 실행 중 · 42분",
+        "24-task-detail-dark / label / 실행 중"
+      ],
+      "count": 4,
+      "ratio": 7.086742128429301,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E4E6EA",
+      "bg": "#333B48",
+      "examples": [
+        "05-home-dark / 야간 라인 검사 / 야간 라인 검사",
+        "05-home-dark / 42분 / 42분",
+        "05-home-dark / 128개 / 128개"
+      ],
+      "count": 15,
+      "ratio": 9.035654833014261,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#1B222E",
+      "bg": "#9EACC1",
+      "examples": [
+        "05-home-dark / label / 상태 보기  →",
+        "18-tasks-dark / label / 상태 보기",
+        "19-data-dark / label / 선택한 폴더 전송"
+      ],
+      "count": 11,
+      "ratio": 6.939787059933671,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E4E6EA",
+      "bg": "#303339",
+      "examples": [
+        "05-home-dark / 준비 상태 / 준비 상태",
+        "05-home-dark / 카메라 확인 / 카메라 확인",
+        "05-home-dark / GNSS 위치 / GNSS 위치"
+      ],
+      "count": 33,
+      "ratio": 10.134323238815321,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#303339",
+      "examples": [
+        "05-home-dark / 전체 보기 / 전체 보기",
+        "19-data-dark / 변경 / 변경",
+        "29-home-large-type-dark / 전체 보기 / 전체 보기"
+      ],
+      "count": 4,
+      "ratio": 5.5025918213671465,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#25282D",
+      "examples": [
+        "05-home-dark / 센서 / 센서",
+        "05-home-dark / 카메라 · GNSS · IMU / 카메라 · GNSS · IMU",
+        "05-home-dark / 저장공간 / 저장공간"
+      ],
+      "count": 49,
+      "ratio": 6.77817644188295,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E4E6EA",
+      "bg": "#25282D",
+      "examples": [
+        "05-home-dark / 3개 수신 / 3개 수신",
+        "05-home-dark / 153 GB / 153 GB",
+        "05-home-dark / 홈 / 홈"
+      ],
+      "count": 42,
+      "ratio": 11.834346863956652,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E4E6EA",
+      "bg": "#393D44",
+      "examples": [
+        "05-home-dark / 전송 대기 · 폴더 2개 / 전송 대기 · 폴더 2개",
+        "19-data-dark / 최근 전송 / 최근 전송",
+        "19-data-dark / 전송 완료 · 폴더 1개 / 전송 완료 · 폴더 1개"
+      ],
+      "count": 16,
+      "ratio": 8.730467297672124,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#393D44",
+      "examples": [
+        "05-home-dark / 대상 서버와 전송 내용을 확인하세요 / 대상 서버와 전송 내용을 확인하세요",
+        "19-data-dark / 어제 22:04 · 서버 검증 완료 / 어제 22:04 · 서버 검증 완료",
+        "20-settings-dark / 문제가 생기면 필요한 정보만 / 문제가 생기면 필요한 정보만"
+      ],
+      "count": 9,
+      "ratio": 5.0004151850527885,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#7A5729",
+      "bg": "#F4F5F7",
+      "examples": [
+        "06-home-offline / 연결 끊김 · 마지막 확인 38초 전 / 연결 끊김 · 마지막 확인 38초 전",
+        "11-connection / 연결 끊김 · 마지막 확인 38초 전 / 연결 끊김 · 마지막 확인 38초 전"
+      ],
+      "count": 2,
+      "ratio": 5.973250027280261,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#FFFFFF",
+      "bg": "#9B4B46",
+      "examples": [
+        "13-reboot-confirm / label / 재부팅"
+      ],
+      "count": 1,
+      "ratio": 6.01963677046561,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#303339",
+      "examples": [
+        "18-tasks-dark / label / 전체 3",
+        "19-data-dark / 장비 파일 / 장비 파일",
+        "19-data-dark / / 현장조사 / JETSON-01 / / 현장조사 / JETSON-01"
+      ],
+      "count": 38,
+      "ratio": 5.804480113809899,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#AAB8D0",
+      "bg": "#333B48",
+      "examples": [
+        "18-tasks-dark / label / 실행 중 1",
+        "18-tasks-dark / label / 시작 요청 중",
+        "26-preflight-dark / 시작 요청과 실행 확인은 다릅니다. / 시작 요청과 실행 확인은 다릅니다."
+      ],
+      "count": 4,
+      "ratio": 5.632608099779942,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#D6B88A",
+      "bg": "#3A3126",
+      "examples": [
+        "18-tasks-dark / label / 확인 필요 1",
+        "23-home-offline-dark / 장비 연결을 확인해 주세요 / 장비 연결을 확인해 주세요",
+        "23-home-offline-dark / 화면과 선택은 그대로 보관했습니다. / 화면과 선택은 그대로 보관했습니다."
+      ],
+      "count": 5,
+      "ratio": 6.7279481602810485,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#A5A9AF",
+      "bg": "#393D44",
+      "examples": [
+        "18-tasks-dark / label / 시작 요청 중…"
+      ],
+      "count": 1,
+      "ratio": 4.62044693429111,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E0AAA4",
+      "bg": "#3C2C2D",
+      "examples": [
+        "18-tasks-dark / label / 실패"
+      ],
+      "count": 1,
+      "ratio": 6.574505701196368,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#25282D",
+      "examples": [
+        "19-data-dark / 선택 해제 / 선택 해제",
+        "19-data-dark / 파일 128개 · 42.8 MB / 파일 128개 · 42.8 MB",
+        "19-data-dark / 파일 24개 · 11.6 MB / 파일 24개 · 11.6 MB"
+      ],
+      "count": 8,
+      "ratio": 6.425646659405561,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#393D44",
+      "examples": [
+        "19-data-dark / 전체 이력 / 전체 이력",
+        "31-data-files-dark / 전체 이력 / 전체 이력"
+      ],
+      "count": 2,
+      "ratio": 4.740345933005759,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E0AAA4",
+      "bg": "#303339",
+      "examples": [
+        "20-settings-dark / 장비 재부팅 / 장비 재부팅",
+        "20-settings-dark / 전원 종료 / 전원 종료",
+        "20-settings-dark / 이 장비 등록 삭제 / 이 장비 등록 삭제"
+      ],
+      "count": 6,
+      "ratio": 6.304946683191236,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#302322",
+      "bg": "#E0AAA4",
+      "examples": [
+        "22-reboot-confirm-dark / label / 재부팅"
+      ],
+      "count": 1,
+      "ratio": 7.526284073977322,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#D6B88A",
+      "bg": "#1C1E22",
+      "examples": [
+        "23-home-offline-dark / 연결 끊김 · 마지막 확인 38초 전 / 연결 끊김 · 마지막 확인 38초 전",
+        "28-connection-dark / 연결 끊김 · 마지막 확인 38초 전 / 연결 끊김 · 마지막 확인 38초 전"
+      ],
+      "count": 2,
+      "ratio": 8.808271919089677,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#B5BBC5",
+      "bg": "#303339",
+      "examples": [
+        "24-task-detail-dark / label / 요약"
+      ],
+      "count": 1,
+      "ratio": 6.56045626238202,
+      "threshold": 4.5,
+      "passes": true
+    }
+  ],
+  "iconPairs": [
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#F4F5F7",
+      "examples": [
+        "01-home-light / Icon/down",
+        "04-settings / Icon/lock",
+        "06-home-offline / Icon/down"
+      ],
+      "count": 6,
+      "ratio": 6.567893327043468,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#272C32",
+      "bg": "#FBFCFD",
+      "examples": [
+        "01-home-light / Icon/bell",
+        "02-tasks / Icon/plus",
+        "02-tasks / Icon/bell"
+      ],
+      "count": 23,
+      "ratio": 13.697178684754938,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#F4F5F7",
+      "examples": [
+        "01-home-light / Icon/network",
+        "02-tasks / Icon/network",
+        "03-data / Icon/network"
+      ],
+      "count": 11,
+      "ratio": 5.417489844220206,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#FBFCFD",
+      "examples": [
+        "01-home-light / Icon/sensor",
+        "01-home-light / Icon/storage",
+        "03-data / Icon/checked"
+      ],
+      "count": 8,
+      "ratio": 5.75342306057622,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#EBEEF1",
+      "examples": [
+        "01-home-light / Icon/camera",
+        "01-home-light / Icon/gnss",
+        "03-data / Icon/cloud"
+      ],
+      "count": 46,
+      "ratio": 5.074654747453711,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#526584",
+      "bg": "#E1E5EA",
+      "examples": [
+        "01-home-light / Icon/cloud",
+        "12-home-large-type / Icon/cloud"
+      ],
+      "count": 2,
+      "ratio": 4.670795477103351,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#E1E5EA",
+      "examples": [
+        "01-home-light / Icon/chevron",
+        "03-data / Icon/chevron",
+        "04-settings / Icon/chevron"
+      ],
+      "count": 8,
+      "ratio": 5.662638477999324,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#38465B",
+      "bg": "#D3DEF1",
+      "examples": [
+        "01-home-light / Icon/home",
+        "02-tasks / Icon/play",
+        "03-data / Icon/folder"
+      ],
+      "count": 8,
+      "ratio": 7.055345756321904,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#FBFCFD",
+      "examples": [
+        "01-home-light / Icon/play",
+        "01-home-light / Icon/folder",
+        "01-home-light / Icon/settings"
+      ],
+      "count": 31,
+      "ratio": 6.975161931781295,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#272C32",
+      "bg": "#E0E7F1",
+      "examples": [
+        "02-tasks / Icon/more",
+        "04-settings / Icon/sensor",
+        "04-settings / Icon/down"
+      ],
+      "count": 3,
+      "ratio": 11.30244218402158,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#525862",
+      "bg": "#EBEEF1",
+      "examples": [
+        "04-settings / Icon/chevron",
+        "04-settings / Icon/chevron",
+        "04-settings / Icon/chevron"
+      ],
+      "count": 24,
+      "ratio": 6.152257228208644,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#1C1E22",
+      "examples": [
+        "05-home-dark / Icon/down",
+        "20-settings-dark / Icon/lock",
+        "21-settings-danger-dark / Icon/lock"
+      ],
+      "count": 6,
+      "ratio": 7.6503154758177985,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E4E6EA",
+      "bg": "#25282D",
+      "examples": [
+        "05-home-dark / Icon/bell",
+        "18-tasks-dark / Icon/plus",
+        "18-tasks-dark / Icon/bell"
+      ],
+      "count": 23,
+      "ratio": 11.834346863956652,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#1C1E22",
+      "examples": [
+        "05-home-dark / Icon/network",
+        "18-tasks-dark / Icon/network",
+        "19-data-dark / Icon/network"
+      ],
+      "count": 11,
+      "ratio": 7.252426150613947,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#25282D",
+      "examples": [
+        "05-home-dark / Icon/sensor",
+        "05-home-dark / Icon/storage",
+        "19-data-dark / Icon/checked"
+      ],
+      "count": 8,
+      "ratio": 6.425646659405561,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#303339",
+      "examples": [
+        "05-home-dark / Icon/camera",
+        "05-home-dark / Icon/gnss",
+        "19-data-dark / Icon/cloud"
+      ],
+      "count": 45,
+      "ratio": 5.5025918213671465,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#9EACC1",
+      "bg": "#393D44",
+      "examples": [
+        "05-home-dark / Icon/cloud",
+        "29-home-large-type-dark / Icon/cloud"
+      ],
+      "count": 2,
+      "ratio": 4.740345933005759,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#393D44",
+      "examples": [
+        "05-home-dark / Icon/chevron",
+        "19-data-dark / Icon/chevron",
+        "20-settings-dark / Icon/chevron"
+      ],
+      "count": 8,
+      "ratio": 5.0004151850527885,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#DDE2E9",
+      "bg": "#3E4859",
+      "examples": [
+        "05-home-dark / Icon/home",
+        "18-tasks-dark / Icon/play",
+        "19-data-dark / Icon/folder"
+      ],
+      "count": 8,
+      "ratio": 7.086742128429301,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#25282D",
+      "examples": [
+        "05-home-dark / Icon/play",
+        "05-home-dark / Icon/folder",
+        "05-home-dark / Icon/settings"
+      ],
+      "count": 31,
+      "ratio": 6.77817644188295,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#7A5729",
+      "bg": "#F4F5F7",
+      "examples": [
+        "06-home-offline / Icon/linkoff",
+        "11-connection / Icon/linkoff"
+      ],
+      "count": 2,
+      "ratio": 5.973250027280261,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#7A5729",
+      "bg": "#F5EDDF",
+      "examples": [
+        "06-home-offline / Icon/linkoff"
+      ],
+      "count": 1,
+      "ratio": 5.604333172236333,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "fg": "#9B4B46",
+      "bg": "#F8ECEA",
+      "examples": [
+        "13-reboot-confirm / Icon/refresh"
+      ],
+      "count": 1,
+      "ratio": 5.2105905400050165,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E4E6EA",
+      "bg": "#333B48",
+      "examples": [
+        "18-tasks-dark / Icon/more",
+        "20-settings-dark / Icon/sensor",
+        "20-settings-dark / Icon/down"
+      ],
+      "count": 3,
+      "ratio": 9.035654833014261,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#ABB0B7",
+      "bg": "#303339",
+      "examples": [
+        "20-settings-dark / Icon/chevron",
+        "20-settings-dark / Icon/chevron",
+        "20-settings-dark / Icon/chevron"
+      ],
+      "count": 21,
+      "ratio": 5.804480113809899,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#E0AAA4",
+      "bg": "#3C2C2D",
+      "examples": [
+        "22-reboot-confirm-dark / Icon/refresh"
+      ],
+      "count": 1,
+      "ratio": 6.574505701196368,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#D6B88A",
+      "bg": "#1C1E22",
+      "examples": [
+        "23-home-offline-dark / Icon/linkoff",
+        "28-connection-dark / Icon/linkoff"
+      ],
+      "count": 2,
+      "ratio": 8.808271919089677,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#D6B88A",
+      "bg": "#3A3126",
+      "examples": [
+        "23-home-offline-dark / Icon/linkoff"
+      ],
+      "count": 1,
+      "ratio": 6.7279481602810485,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#B5BBC5",
+      "bg": "#303339",
+      "examples": [
+        "26-preflight-dark / Icon/check",
+        "26-preflight-dark / Icon/check",
+        "26-preflight-dark / Icon/check"
+      ],
+      "count": 3,
+      "ratio": 6.56045626238202,
+      "threshold": 3.0,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "fg": "#AAB8D0",
+      "bg": "#303339",
+      "examples": [
+        "26-preflight-dark / Icon/info"
+      ],
+      "count": 1,
+      "ratio": 6.317491340214986,
+      "threshold": 3.0,
+      "passes": true
+    }
+  ],
+  "tokenPairs": [
+    {
+      "theme": "light",
+      "pair": "ink/canvas",
+      "fg": "#272C32",
+      "bg": "#F4F5F7",
+      "ratio": 12.897422219407868,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "ink/surface",
+      "fg": "#272C32",
+      "bg": "#FBFCFD",
+      "ratio": 13.697178684754938,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "ink/sectionSoft",
+      "fg": "#272C32",
+      "bg": "#EBEEF1",
+      "ratio": 12.08123444208394,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "ink/sectionRaised",
+      "fg": "#272C32",
+      "bg": "#E1E5EA",
+      "ratio": 11.119766367992822,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "ink/hero",
+      "fg": "#272C32",
+      "bg": "#E0E7F1",
+      "ratio": 11.30244218402158,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "muted/canvas",
+      "fg": "#525862",
+      "bg": "#F4F5F7",
+      "ratio": 6.567893327043468,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "muted/surface",
+      "fg": "#525862",
+      "bg": "#FBFCFD",
+      "ratio": 6.975161931781295,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "muted/sectionSoft",
+      "fg": "#525862",
+      "bg": "#EBEEF1",
+      "ratio": 6.152257228208644,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "muted/sectionRaised",
+      "fg": "#525862",
+      "bg": "#E1E5EA",
+      "ratio": 5.662638477999324,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "muted/hero",
+      "fg": "#525862",
+      "bg": "#E0E7F1",
+      "ratio": 5.755664452701621,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "onPrimary/primary",
+      "fg": "#FFFFFF",
+      "bg": "#526584",
+      "ratio": 5.909785529709394,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "onAccent/accent",
+      "fg": "#38465B",
+      "bg": "#D3DEF1",
+      "ratio": 7.055345756321904,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "success/successBg",
+      "fg": "#525862",
+      "bg": "#EBEEF1",
+      "ratio": 6.152257228208644,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "warning/warningBg",
+      "fg": "#7A5729",
+      "bg": "#F5EDDF",
+      "ratio": 5.604333172236333,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "danger/dangerBg",
+      "fg": "#9B4B46",
+      "bg": "#F8ECEA",
+      "ratio": 5.2105905400050165,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "info/infoBg",
+      "fg": "#526584",
+      "bg": "#E6EBF4",
+      "ratio": 4.940091568321612,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "onDanger/danger",
+      "fg": "#FFFFFF",
+      "bg": "#9B4B46",
+      "ratio": 6.01963677046561,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "onNavSelected/navSelected",
+      "fg": "#38465B",
+      "bg": "#D3DEF1",
+      "ratio": 7.055345756321904,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "primary/surface",
+      "fg": "#526584",
+      "bg": "#FBFCFD",
+      "ratio": 5.75342306057622,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "primary/hero",
+      "fg": "#526584",
+      "bg": "#E0E7F1",
+      "ratio": 4.747527428751116,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "primary/sectionRaised",
+      "fg": "#526584",
+      "bg": "#E1E5EA",
+      "ratio": 4.670795477103351,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "controlBorder/canvas",
+      "fg": "#717884",
+      "bg": "#F4F5F7",
+      "ratio": 4.076872625779009,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "controlBorder/surface",
+      "fg": "#717884",
+      "bg": "#FBFCFD",
+      "ratio": 4.329675487110235,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "controlBorder/sectionSoft",
+      "fg": "#717884",
+      "bg": "#EBEEF1",
+      "ratio": 3.8188758299650223,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "controlBorder/sectionRaised",
+      "fg": "#717884",
+      "bg": "#E1E5EA",
+      "ratio": 3.5149559609291696,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "controlBorder/hero",
+      "fg": "#717884",
+      "bg": "#E0E7F1",
+      "ratio": 3.5726997504314464,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "focusRing/canvas",
+      "fg": "#556887",
+      "bg": "#F4F5F7",
+      "ratio": 5.18014690872662,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "focusRing/surface",
+      "fg": "#556887",
+      "bg": "#FBFCFD",
+      "ratio": 5.501362723113749,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "focusRing/sectionSoft",
+      "fg": "#556887",
+      "bg": "#EBEEF1",
+      "ratio": 4.852331588756494,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "focusRing/sectionRaised",
+      "fg": "#556887",
+      "bg": "#E1E5EA",
+      "ratio": 4.466165594721827,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "light",
+      "pair": "focusRing/hero",
+      "fg": "#556887",
+      "bg": "#E0E7F1",
+      "ratio": 4.539535881249046,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "ink/canvas",
+      "fg": "#E4E6EA",
+      "bg": "#1C1E22",
+      "ratio": 13.357056685643423,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "ink/surface",
+      "fg": "#E4E6EA",
+      "bg": "#25282D",
+      "ratio": 11.834346863956652,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "ink/sectionSoft",
+      "fg": "#E4E6EA",
+      "bg": "#303339",
+      "ratio": 10.134323238815321,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "ink/sectionRaised",
+      "fg": "#E4E6EA",
+      "bg": "#393D44",
+      "ratio": 8.730467297672124,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "ink/hero",
+      "fg": "#E4E6EA",
+      "bg": "#333B48",
+      "ratio": 9.035654833014261,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "muted/canvas",
+      "fg": "#ABB0B7",
+      "bg": "#1C1E22",
+      "ratio": 7.6503154758177985,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "muted/surface",
+      "fg": "#ABB0B7",
+      "bg": "#25282D",
+      "ratio": 6.77817644188295,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "muted/sectionSoft",
+      "fg": "#ABB0B7",
+      "bg": "#303339",
+      "ratio": 5.804480113809899,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "muted/sectionRaised",
+      "fg": "#ABB0B7",
+      "bg": "#393D44",
+      "ratio": 5.0004151850527885,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "muted/hero",
+      "fg": "#ABB0B7",
+      "bg": "#333B48",
+      "ratio": 5.175212745593512,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "onPrimary/primary",
+      "fg": "#1B222E",
+      "bg": "#9EACC1",
+      "ratio": 6.939787059933671,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "onAccent/accent",
+      "fg": "#DDE2E9",
+      "bg": "#3E4859",
+      "ratio": 7.086742128429301,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "success/successBg",
+      "fg": "#B5BBC5",
+      "bg": "#303339",
+      "ratio": 6.56045626238202,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "warning/warningBg",
+      "fg": "#D6B88A",
+      "bg": "#3A3126",
+      "ratio": 6.7279481602810485,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "danger/dangerBg",
+      "fg": "#E0AAA4",
+      "bg": "#3C2C2D",
+      "ratio": 6.574505701196368,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "info/infoBg",
+      "fg": "#AAB8D0",
+      "bg": "#333B48",
+      "ratio": 5.632608099779942,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "onDanger/danger",
+      "fg": "#302322",
+      "bg": "#E0AAA4",
+      "ratio": 7.526284073977322,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "onNavSelected/navSelected",
+      "fg": "#DDE2E9",
+      "bg": "#3E4859",
+      "ratio": 7.086742128429301,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "primary/surface",
+      "fg": "#9EACC1",
+      "bg": "#25282D",
+      "ratio": 6.425646659405561,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "primary/hero",
+      "fg": "#9EACC1",
+      "bg": "#333B48",
+      "ratio": 4.906052354281616,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "primary/sectionRaised",
+      "fg": "#9EACC1",
+      "bg": "#393D44",
+      "ratio": 4.740345933005759,
+      "threshold": 4.5,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "controlBorder/canvas",
+      "fg": "#868D97",
+      "bg": "#1C1E22",
+      "ratio": 4.9837655882766905,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "controlBorder/surface",
+      "fg": "#868D97",
+      "bg": "#25282D",
+      "ratio": 4.415614311475554,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "controlBorder/sectionSoft",
+      "fg": "#868D97",
+      "bg": "#303339",
+      "ratio": 3.781303965892962,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "controlBorder/sectionRaised",
+      "fg": "#868D97",
+      "bg": "#393D44",
+      "ratio": 3.257499276354787,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "controlBorder/hero",
+      "fg": "#868D97",
+      "bg": "#333B48",
+      "ratio": 3.3713704062305716,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "focusRing/canvas",
+      "fg": "#AAB8D0",
+      "bg": "#1C1E22",
+      "ratio": 8.326465216652908,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "focusRing/surface",
+      "fg": "#AAB8D0",
+      "bg": "#25282D",
+      "ratio": 7.377244840957549,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "focusRing/sectionSoft",
+      "fg": "#AAB8D0",
+      "bg": "#303339",
+      "ratio": 6.317491340214986,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "focusRing/sectionRaised",
+      "fg": "#AAB8D0",
+      "bg": "#393D44",
+      "ratio": 5.442361591332192,
+      "threshold": 3,
+      "passes": true
+    },
+    {
+      "theme": "dark",
+      "pair": "focusRing/hero",
+      "fg": "#AAB8D0",
+      "bg": "#333B48",
+      "ratio": 5.632608099779942,
+      "threshold": 3,
+      "passes": true
+    }
+  ],
+  "summary": {
+    "layoutCases": 128,
+    "horizontalOverflowCases": 0,
+    "interactionTests": 12,
+    "interactionPasses": 12,
+    "textNodesInspectedAtDefaultWidth": 658,
+    "uniqueRenderedTextPairs": 47,
+    "renderedTextPairPasses": 47,
+    "iconNodesInspectedAtDefaultWidth": 348,
+    "uniqueRenderedIconPairs": 30,
+    "renderedIconPairPasses": 30,
+    "tokenPairs": 62,
+    "tokenPairPasses": 62,
+    "runtimeErrors": 0,
+    "externalRequests": 0
+  },
+  "limitations": [
+    "Checks local CSS/DOM, not Android font scaling or physical luminance.",
+    "Horizontal bounds check does not prove vertical content visibility or all interactions.",
+    "Normal-sized text uses the 4.5 target even where a larger-text exception exists.",
+    "Icon contrast inspection includes decorative icons; decorative section borders intentionally excluded from the 3:1 requirement.",
+    "No user study, eye tracking, medical benefit test, actual device/API call, real Figma render, or native build performed.",
+    "Hidden behind a modal content is excluded from text color checks.",
+    "No color-vision deficiency simulation or complete TalkBack audit performed."
+  ]
+}

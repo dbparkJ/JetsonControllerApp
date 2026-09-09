@@ -1,0 +1,57 @@
+{
+  "gradle_exit_code": 0,
+  "gradle_log": "after/build-verified.txt",
+  "unit_tests": {
+    "tests": 196,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Warning": 73
+  },
+  "backend": {
+    "tests": 234,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "scope": "mocked host tests; no hardware deployment"
+  },
+  "native_instrumentation": {
+    "status": "NOT_RUN",
+    "tests_executed": 0,
+    "reason": "No approved ADB target available"
+  },
+  "native_screenshots": {
+    "before": 0,
+    "after": 0,
+    "status": "NOT_CAPTURED"
+  },
+  "local_contrast": {
+    "tokens": 66,
+    "pairs": 94,
+    "failures": 0
+  },
+  "real_figma": "NOT_RUN",
+  "user_study": "NOT_RUN",
+  "artifacts": {
+    "before": {
+      "local_path": "/home/jm/ControllerApp/JetsonControllerApp/.artifacts/slate-v7-start/before.apk",
+      "bytes": 149128664,
+      "sha256": "2cc3cb53d9b5fe015c577168c47e6887349539a07959334e7a1f6a8134ac0cda"
+    },
+    "after": {
+      "local_path": "/home/jm/ControllerApp/JetsonControllerApp/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 148965312,
+      "sha256": "472748e59ff920cad95e14157b1da3c1b2ceb413c2f1c95f9d5f687daa9522a2"
+    },
+    "instrumentation": {
+      "local_path": "/home/jm/ControllerApp/JetsonControllerApp/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "bytes": 2597645,
+      "sha256": "ee689ea36085ff2a0b3918ed169d8c40c7775f5f754869f473998e8c763cf955"
+    }
+  },
+  "instruction_retained": true,
+  "complete": false
+}

@@ -1,0 +1,586 @@
+{
+  "scope": "unchanged since initial dirty workspace, not unchanged since HEAD",
+  "status": "PASS",
+  "files": {
+    "app/src/main/java/com/example/jetsoncontroller/ui/theme/ThemePreference.kt": {
+      "before": "405cfe378889fee56cac4bbe051ce46a15d4b42262c55d7aca272999a28a5509",
+      "after": "405cfe378889fee56cac4bbe051ce46a15d4b42262c55d7aca272999a28a5509"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/MainActivity.kt": {
+      "before": "2c40a8836900472b872e32e316a3ce9415ebea7d2dbb07c1b24b2a8e6f336c5e",
+      "after": "2c40a8836900472b872e32e316a3ce9415ebea7d2dbb07c1b24b2a8e6f336c5e"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/alerts/AlertHistoryStore.kt": {
+      "before": "973783b0f821dfaab9cd897e42ea3141f9e6842e3ab83d40a9e37b9a6552f02b",
+      "after": "973783b0f821dfaab9cd897e42ea3141f9e6842e3ab83d40a9e37b9a6552f02b"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/alerts/AlertPreferencesStore.kt": {
+      "before": "fb2ccf3b9afb551866dc6eb45d3835701cbcdd549bd04977b263a37cb326652f",
+      "after": "fb2ccf3b9afb551866dc6eb45d3835701cbcdd549bd04977b263a37cb326652f"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/alerts/AlertThresholdEvaluator.kt": {
+      "before": "73fcf4cfff297a969f6e3b8960dcae5ce3455cd5a186e74e38d6da427a4d6206",
+      "after": "73fcf4cfff297a969f6e3b8960dcae5ce3455cd5a186e74e38d6da427a4d6206"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/alerts/DeviceAlertMonitor.kt": {
+      "before": "78f8f613bc3b6cefc142086609af016ba8a43d42f9c2d07e700e223a181dbc7c",
+      "after": "78f8f613bc3b6cefc142086609af016ba8a43d42f9c2d07e700e223a181dbc7c"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/alerts/PipelineAlertEvaluator.kt": {
+      "before": "6c71a8234590b8c623d5d340920861b54fdca251071393cf0c2fff1193fc6f62",
+      "after": "6c71a8234590b8c623d5d340920861b54fdca251071393cf0c2fff1193fc6f62"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/alerts/UploadAlertEvaluator.kt": {
+      "before": "b1748e8808050a9c89c7cb62c727015b0361e37ea4f935fa8461c044e76da38f",
+      "after": "b1748e8808050a9c89c7cb62c727015b0361e37ea4f935fa8461c044e76da38f"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/bluetooth/BleGattClient.kt": {
+      "before": "bc46304699e8bee6458b9aeeaf3f4efb1fffd10ee0d16019b7d2febec49bad42",
+      "after": "bc46304699e8bee6458b9aeeaf3f4efb1fffd10ee0d16019b7d2febec49bad42"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/bluetooth/BleScanner.kt": {
+      "before": "4e9fed6a599ffab4c2eb2b22cd2c9aa7c55f4489042c4d936719a36cf4556df4",
+      "after": "4e9fed6a599ffab4c2eb2b22cd2c9aa7c55f4489042c4d936719a36cf4556df4"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/bluetooth/JetsonGattSpec.kt": {
+      "before": "68c3f7f91fd529f835109e10c93e8a0e7c592c6e9abcd8dda3d183188448be77",
+      "after": "68c3f7f91fd529f835109e10c93e8a0e7c592c6e9abcd8dda3d183188448be77"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/credentials/DeviceCredentialStore.kt": {
+      "before": "a0a5e79f5e553b9f30083b3d20a4ebe3e2dcb96c53c32a25d08618270bccef92",
+      "after": "a0a5e79f5e553b9f30083b3d20a4ebe3e2dcb96c53c32a25d08618270bccef92"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/diagnostics/ConnectionDiagnostics.kt": {
+      "before": "936df2419a20c8130b6475d536d00b7f251cbca06a3ad4f621bfb9d9f0434ad4",
+      "after": "936df2419a20c8130b6475d536d00b7f251cbca06a3ad4f621bfb9d9f0434ad4"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/diagnostics/DiagnosticFileStore.kt": {
+      "before": "b205fe3cf57baf58a9335513764afccb628138ee2e746faaaae24fabf8ee4f7d",
+      "after": "b205fe3cf57baf58a9335513764afccb628138ee2e746faaaae24fabf8ee4f7d"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/diagnostics/DiagnosticPrivacy.kt": {
+      "before": "1b66535a464c2d9c118417bc5dd9d57385d8f0e1cda5dda40eab9aa4aee056c3",
+      "after": "1b66535a464c2d9c118417bc5dd9d57385d8f0e1cda5dda40eab9aa4aee056c3"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/location/MobileLocationTracker.kt": {
+      "before": "b0919d293eeea4e60a9f530471cf7b9b67803597bce1e2859cbbd2e56465900f",
+      "after": "b0919d293eeea4e60a9f530471cf7b9b67803597bce1e2859cbbd2e56465900f"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/ApiDiagnostics.kt": {
+      "before": "5c2f3bfb7a5f5ae081ce06899e5336c09292bbff1b1e011409a885dc62b2cb16",
+      "after": "5c2f3bfb7a5f5ae081ce06899e5336c09292bbff1b1e011409a885dc62b2cb16"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/HttpAuthInterceptor.kt": {
+      "before": "f17eceeb01db87ca06a17e6fb9f741069a5bf558858a4cb4f9057af1279b28fe",
+      "after": "f17eceeb01db87ca06a17e6fb9f741069a5bf558858a4cb4f9057af1279b28fe"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/HttpAuthSigner.kt": {
+      "before": "6b73f05a08d1d0843275187f63ac53f315402883e7358b9bd85a9e7da8d27edf",
+      "after": "6b73f05a08d1d0843275187f63ac53f315402883e7358b9bd85a9e7da8d27edf"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/LanAddressSelection.kt": {
+      "before": "34e43d3fae7f400c30afd6d937d6bdc2ccc34797ec181f6ac1e0b5e49c705f8d",
+      "after": "34e43d3fae7f400c30afd6d937d6bdc2ccc34797ec181f6ac1e0b5e49c705f8d"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/LanDiscoveryManager.kt": {
+      "before": "e76b49c682bcf4d27591e16b9009320d2ed09a2e57a92fb3ed8885ca157c8cb7",
+      "after": "e76b49c682bcf4d27591e16b9009320d2ed09a2e57a92fb3ed8885ca157c8cb7"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/LocalApiClient.kt": {
+      "before": "c3787cd01676233d2b214b7431d6135e50349c1d22f0aaa6405612f094f1397a",
+      "after": "c3787cd01676233d2b214b7431d6135e50349c1d22f0aaa6405612f094f1397a"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/LocalControlApi.kt": {
+      "before": "416c17f4883eaf749e14d65d0e2947dd13b60f7923397455bbda297f69f72c52",
+      "after": "416c17f4883eaf749e14d65d0e2947dd13b60f7923397455bbda297f69f72c52"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/TlsTrust.kt": {
+      "before": "17e1b9229e12e3c2f54e82e89e10fbdcc5533b28f5c3d083e6e5d88233b08622",
+      "after": "17e1b9229e12e3c2f54e82e89e10fbdcc5533b28f5c3d083e6e5d88233b08622"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/WifiAccessPointScanner.kt": {
+      "before": "0ce405ad5ca3c39cebcef0914e2dbbf5ff0d372939f0741fc7d175c9f6031ae9",
+      "after": "0ce405ad5ca3c39cebcef0914e2dbbf5ff0d372939f0741fc7d175c9f6031ae9"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/WifiDirectConnectionPolicy.kt": {
+      "before": "0417defbc9932689f14c0ff53d52366b85cdb69ceebffa4511fcb7fab232fae4",
+      "after": "0417defbc9932689f14c0ff53d52366b85cdb69ceebffa4511fcb7fab232fae4"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/network/WifiDirectManager.kt": {
+      "before": "2753f5b44728d2fb010316cdefbe54695e5b1794e6c705ee51bf860717aabe6d",
+      "after": "2753f5b44728d2fb010316cdefbe54695e5b1794e6c705ee51bf860717aabe6d"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/repository/AutomaticConnectionPolicy.kt": {
+      "before": "fb7f6e50e504d414bc3bfbf4aadd9411bd44df47fd9f92d81da67da3ab671f2d",
+      "after": "fb7f6e50e504d414bc3bfbf4aadd9411bd44df47fd9f92d81da67da3ab671f2d"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/repository/JetsonRepository.kt": {
+      "before": "dfba2ae893b6d930207142382d7290d47b599f151159014003304b7b9f0bdece",
+      "after": "dfba2ae893b6d930207142382d7290d47b599f151159014003304b7b9f0bdece"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/rtk/MobileRtkRelayManager.kt": {
+      "before": "79d505afe3c2302ad32c2e1f6c44cfb14e24220ad5a41234237ab4e5c47da3fd",
+      "after": "79d505afe3c2302ad32c2e1f6c44cfb14e24220ad5a41234237ab4e5c47da3fd"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/rtk/MobileRtkRelayService.kt": {
+      "before": "fe44bc419e220100c14dc9bbee70dd0787504320885bb40bc617564680678ab0",
+      "after": "fe44bc419e220100c14dc9bbee70dd0787504320885bb40bc617564680678ab0"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/transport/BleControlTransport.kt": {
+      "before": "de3dcd917eba7f9eaefb514778b364da23bc1f59b11a152c3705e02e86d3343b",
+      "after": "de3dcd917eba7f9eaefb514778b364da23bc1f59b11a152c3705e02e86d3343b"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/transport/ControlTransport.kt": {
+      "before": "303ddcd9ea88a8984966bd4482e18482c45b05ab7175dbf233c9cfbfad98d2df",
+      "after": "303ddcd9ea88a8984966bd4482e18482c45b05ab7175dbf233c9cfbfad98d2df"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/transport/IpControlTransport.kt": {
+      "before": "f1034e207279821dd1db428e10876d7ce4acab0ce3b14b4d19f7614b0fe3eb10",
+      "after": "f1034e207279821dd1db428e10876d7ce4acab0ce3b14b4d19f7614b0fe3eb10"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/transport/TransportCoordinator.kt": {
+      "before": "3b043b1ba1e74171701bb29a23924f8dbebb0d0f8dd1d4ef65e3c65296d27323",
+      "after": "3b043b1ba1e74171701bb29a23924f8dbebb0d0f8dd1d4ef65e3c65296d27323"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/transport/TransportPolicy.kt": {
+      "before": "c308c446c4a6fae3e901b2c66aa9641733e0586fb649fc5d93ecbeca4d4e1d30",
+      "after": "c308c446c4a6fae3e901b2c66aa9641733e0586fb649fc5d93ecbeca4d4e1d30"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/data/transport/TransportState.kt": {
+      "before": "0834e47b7202b3fdeaed64771e00eaf1839f55bbc5ccca26541e392cd1f148bb",
+      "after": "0834e47b7202b3fdeaed64771e00eaf1839f55bbc5ccca26541e392cd1f148bb"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/BlePairingState.kt": {
+      "before": "185dae3b2e5a072b2aed78392e80a4e65847460ee3a4c16f7161daa88c84aecc",
+      "after": "185dae3b2e5a072b2aed78392e80a4e65847460ee3a4c16f7161daa88c84aecc"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/CameraPreviewFrame.kt": {
+      "before": "b0b20e32d4ebec8768a0d0d60b103c5c3ee7eb651e20a5de2dabe7bf2013269e",
+      "after": "b0b20e32d4ebec8768a0d0d60b103c5c3ee7eb651e20a5de2dabe7bf2013269e"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/ConnectionState.kt": {
+      "before": "acb44667c7489d7d8b10d4512bfe974e60f3d48b7d4f1acb730a869eb2f09237",
+      "after": "acb44667c7489d7d8b10d4512bfe974e60f3d48b7d4f1acb730a869eb2f09237"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/ControlCapabilities.kt": {
+      "before": "e38f9eebab0b76acb5c8f284699738e4ef6a58d59a7b09660270095eed9b5e7f",
+      "after": "e38f9eebab0b76acb5c8f284699738e4ef6a58d59a7b09660270095eed9b5e7f"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/DeviceEndpoint.kt": {
+      "before": "10d9d6f7ae8cc91f8f0647462c9aa82bcab11d31b301b82083b8c7baf0b8d235",
+      "after": "10d9d6f7ae8cc91f8f0647462c9aa82bcab11d31b301b82083b8c7baf0b8d235"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/JetsonDevice.kt": {
+      "before": "8b812297d704a3639ab955ba449f64aeecfbca9ff28d56c3ee3ba1a79abef9fc",
+      "after": "8b812297d704a3639ab955ba449f64aeecfbca9ff28d56c3ee3ba1a79abef9fc"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/JetsonStatus.kt": {
+      "before": "562cd566fbfad8cdc1fd4214f5be4b145d8f4c4e5c52d9442643bc8f6d30e37c",
+      "after": "562cd566fbfad8cdc1fd4214f5be4b145d8f4c4e5c52d9442643bc8f6d30e37c"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/ManagedPipeline.kt": {
+      "before": "22d314964fe03b94cded7b027db1632a72be7864e0c47f32c518e77811aa3193",
+      "after": "22d314964fe03b94cded7b027db1632a72be7864e0c47f32c518e77811aa3193"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/MobileRtkRelay.kt": {
+      "before": "486a3fa7991024a25f11756b40353fd321e125675c1ccacfb040e533cf566590",
+      "after": "486a3fa7991024a25f11756b40353fd321e125675c1ccacfb040e533cf566590"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/PairingInfo.kt": {
+      "before": "c5ab8199fa326d92d58908a9f543bca1e74b34b7f7ec5d1534fa31829819c093",
+      "after": "c5ab8199fa326d92d58908a9f543bca1e74b34b7f7ec5d1534fa31829819c093"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/RegisteredDevice.kt": {
+      "before": "f841bfc08039b88521be653965a769840df6485681e5db685350bbacaa036a2f",
+      "after": "f841bfc08039b88521be653965a769840df6485681e5db685350bbacaa036a2f"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/RemoteFileContent.kt": {
+      "before": "ece3101ccadf4c95b77e9defa6d7c45c2c5e332c61a158b4f02912597a9f4358",
+      "after": "ece3101ccadf4c95b77e9defa6d7c45c2c5e332c61a158b4f02912597a9f4358"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/RemoteFileEntry.kt": {
+      "before": "70e45ee26ca01cf66b96ae0601d906cb1ff21519f15c95baa9e232d59d3a4a1d",
+      "after": "70e45ee26ca01cf66b96ae0601d906cb1ff21519f15c95baa9e232d59d3a4a1d"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/RemoteRoot.kt": {
+      "before": "7778e8fa7537aa9a6da522dcdeb53332e45e62d30e7ba0fa276df03529a50731",
+      "after": "7778e8fa7537aa9a6da522dcdeb53332e45e62d30e7ba0fa276df03529a50731"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/SystemControlModels.kt": {
+      "before": "1e3f38c026f2f7f927e976efa4e61d20b09251f2f7a3e6c92664bf61748c4e2d",
+      "after": "1e3f38c026f2f7f927e976efa4e61d20b09251f2f7a3e6c92664bf61748c4e2d"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/UploadJob.kt": {
+      "before": "1e044918cc8bdf5d8581490ce1ab43f5d4878b87b92440f6f0a3c3bd8109f4f1",
+      "after": "1e044918cc8bdf5d8581490ce1ab43f5d4878b87b92440f6f0a3c3bd8109f4f1"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/UploadLibrary.kt": {
+      "before": "e91c6a5fe07a4a7324244c0252fa0487e13b0806727428ec88859f52203d0f0c",
+      "after": "e91c6a5fe07a4a7324244c0252fa0487e13b0806727428ec88859f52203d0f0c"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/UploadTarget.kt": {
+      "before": "4f2ae339851934f61831d04f7f71dd18cac139a424a4cabce0a30d1edca814f2",
+      "after": "4f2ae339851934f61831d04f7f71dd18cac139a424a4cabce0a30d1edca814f2"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/model/WifiProvisionRequest.kt": {
+      "before": "2085f23d220317df5d99845ac1d40331745426c4eedf8b550d7eceb0ebacde14",
+      "after": "2085f23d220317df5d99845ac1d40331745426c4eedf8b550d7eceb0ebacde14"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/JetsonApp.kt": {
+      "before": "3fb7b494aaaaf8315ef22258a4dc15972d5501c5063fa864517f098ff2c800d0",
+      "after": "3fb7b494aaaaf8315ef22258a4dc15972d5501c5063fa864517f098ff2c800d0"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/alerts/AlertCenterViewModel.kt": {
+      "before": "db93481bc6500c4d6239cd64fc43c121c23c9fd23dfa2a9b532edd9e7674d6b2",
+      "after": "db93481bc6500c4d6239cd64fc43c121c23c9fd23dfa2a9b532edd9e7674d6b2"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/dashboard/DashboardViewModel.kt": {
+      "before": "da334ae5c50b1ca01cff3c205bb0576572bd37b89f3cbfa63f109f2b3c1fffc0",
+      "after": "da334ae5c50b1ca01cff3c205bb0576572bd37b89f3cbfa63f109f2b3c1fffc0"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/devices/DeviceListViewModel.kt": {
+      "before": "c5b2ff9b25905a468dd518a419f32ba03b6b56c9d7aead9706eb1debf38d3734",
+      "after": "c5b2ff9b25905a468dd518a419f32ba03b6b56c9d7aead9706eb1debf38d3734"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/network/NetworkSettingsViewModel.kt": {
+      "before": "abcf80eb0d785f8b8831c96726c8dc87b412fdd81acb890b5d093b3f7c4e1beb",
+      "after": "abcf80eb0d785f8b8831c96726c8dc87b412fdd81acb890b5d093b3f7c4e1beb"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/pairing/PairingViewModel.kt": {
+      "before": "6736c0b9cb062fb364222da385b3a5de6de25b01d2e5f7fa8ded8b29b469ce27",
+      "after": "6736c0b9cb062fb364222da385b3a5de6de25b01d2e5f7fa8ded8b29b469ce27"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/pipelines/PipelineViewModel.kt": {
+      "before": "40adb6ce14c68eec135e4e5ac2735916c1a7d737b376191826f5020a6947a4a3",
+      "after": "40adb6ce14c68eec135e4e5ac2735916c1a7d737b376191826f5020a6947a4a3"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/sensors/CameraPreviewViewModel.kt": {
+      "before": "3210b72f189f54ab918ea43b17f33973b5a9da597017cfeed82a550b0eeaa6b9",
+      "after": "3210b72f189f54ab918ea43b17f33973b5a9da597017cfeed82a550b0eeaa6b9"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/sensors/MobileLocationViewModel.kt": {
+      "before": "b3d5da761a262f70bf0b45020e42da8d5a1bd8c1198acc3911ba1e524741bbc0",
+      "after": "b3d5da761a262f70bf0b45020e42da8d5a1bd8c1198acc3911ba1e524741bbc0"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/settings/AlertSettingsViewModel.kt": {
+      "before": "2cc6e174094424d4923b053282728f35e4efdc87106aa150586599a77c75973d",
+      "after": "2cc6e174094424d4923b053282728f35e4efdc87106aa150586599a77c75973d"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/storage/DeviceStorageViewModel.kt": {
+      "before": "71cde6e013042092cf3530c8bda74272807c66dd2e02505d743aa9217d429f83",
+      "after": "71cde6e013042092cf3530c8bda74272807c66dd2e02505d743aa9217d429f83"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/storage/ServerStorageViewModel.kt": {
+      "before": "cb58d75d44269781265d6d3ca41d29162acab0a06ffdd59417a99fed3d3f8da5",
+      "after": "cb58d75d44269781265d6d3ca41d29162acab0a06ffdd59417a99fed3d3f8da5"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/upload/UploadViewModel.kt": {
+      "before": "d2dd1470b7f89f3f50f3f709ef2e985b9ffa8f3099df4925b9f3ef13fae7ef30",
+      "after": "d2dd1470b7f89f3f50f3f709ef2e985b9ffa8f3099df4925b9f3ef13fae7ef30"
+    },
+    "app/src/main/java/com/example/jetsoncontroller/ui/wifi/WifiDirectViewModel.kt": {
+      "before": "764c8e6e5f22f986f7210fed9a3f9f117d5048e7268526be247322d935048bbf",
+      "after": "764c8e6e5f22f986f7210fed9a3f9f117d5048e7268526be247322d935048bbf"
+    },
+    "backend/config/storage_roots.example.json": {
+      "before": "59a62ac97384db02c08b729db195d092eaf9476b74f23476760900c49c40346c",
+      "after": "59a62ac97384db02c08b729db195d092eaf9476b74f23476760900c49c40346c"
+    },
+    "backend/config/upload_targets.example.json": {
+      "before": "ac23bbfd5452b28c0b9b39138aeb001048b1dfa35f52fd3e7c03e9b302f8231e",
+      "after": "ac23bbfd5452b28c0b9b39138aeb001048b1dfa35f52fd3e7c03e9b302f8231e"
+    },
+    "backend/jetson_control/__init__.py": {
+      "before": "0555b166ef09e50c93178873d7b8ad51c6169bea7ae64939e479191af20933eb",
+      "after": "0555b166ef09e50c93178873d7b8ad51c6169bea7ae64939e479191af20933eb"
+    },
+    "backend/jetson_control/api.py": {
+      "before": "862a814b2a882c99b123b51750b9aeb4e47bdfd557120259900f475b113434cf",
+      "after": "862a814b2a882c99b123b51750b9aeb4e47bdfd557120259900f475b113434cf"
+    },
+    "backend/jetson_control/asgi.py": {
+      "before": "35252fa18eedb77eb627bf803d31b0bbd8034019c452caa1643eab04bd50be01",
+      "after": "35252fa18eedb77eb627bf803d31b0bbd8034019c452caa1643eab04bd50be01"
+    },
+    "backend/jetson_control/auth.py": {
+      "before": "c1ee9c0fcec0abacb3d7d5d6052fe5369a0898b996e3e5098f5cbc36ee65b34a",
+      "after": "c1ee9c0fcec0abacb3d7d5d6052fe5369a0898b996e3e5098f5cbc36ee65b34a"
+    },
+    "backend/jetson_control/ble.py": {
+      "before": "29093efcb29d3939bc262b6a9be62f4e3c04ad9b64bbcb97924f4f566dbe726f",
+      "after": "29093efcb29d3939bc262b6a9be62f4e3c04ad9b64bbcb97924f4f566dbe726f"
+    },
+    "backend/jetson_control/ble_crypto.py": {
+      "before": "35c29231d4671cd13d8b5c4629c500c10c2885b5891f975d5d9ebb875e51af57",
+      "after": "35c29231d4671cd13d8b5c4629c500c10c2885b5891f975d5d9ebb875e51af57"
+    },
+    "backend/jetson_control/commands.py": {
+      "before": "92926f4748831637fa2371db7e1e4124eb0a8874775a44123bc102995dbeea67",
+      "after": "92926f4748831637fa2371db7e1e4124eb0a8874775a44123bc102995dbeea67"
+    },
+    "backend/jetson_control/config.py": {
+      "before": "c70b0ce25c12195f64708c9e6db4552b0831104346d6b2a234ba2dbbe385bc1b",
+      "after": "c70b0ce25c12195f64708c9e6db4552b0831104346d6b2a234ba2dbbe385bc1b"
+    },
+    "backend/jetson_control/diagnostics.py": {
+      "before": "ad0a674f0b4800610685f598a3da050d792743271a4b761dcc9a0e8592e7f4e1",
+      "after": "ad0a674f0b4800610685f598a3da050d792743271a4b761dcc9a0e8592e7f4e1"
+    },
+    "backend/jetson_control/filesystem.py": {
+      "before": "3d39aedea600887a9e0d5cec7ea53632990d49a24a7f06fd94ca90ceb74562d1",
+      "after": "3d39aedea600887a9e0d5cec7ea53632990d49a24a7f06fd94ca90ceb74562d1"
+    },
+    "backend/jetson_control/mobile_rtk.py": {
+      "before": "d179faa11a0c8cf8b14032a1614fad0a61073ed5cd27a439dc742f4dd9e7880d",
+      "after": "d179faa11a0c8cf8b14032a1614fad0a61073ed5cd27a439dc742f4dd9e7880d"
+    },
+    "backend/jetson_control/network.py": {
+      "before": "5d87dcf3108e2ad3a9c56df13dc8e8cfc008f49caa896721c3cdb61d9c44e2b9",
+      "after": "5d87dcf3108e2ad3a9c56df13dc8e8cfc008f49caa896721c3cdb61d9c44e2b9"
+    },
+    "backend/jetson_control/pipeline_layout.py": {
+      "before": "dca0a0e8cb05f60f3ddc67fd391537f3db1faf4d73b46a3f7dd9a12fa69135c3",
+      "after": "dca0a0e8cb05f60f3ddc67fd391537f3db1faf4d73b46a3f7dd9a12fa69135c3"
+    },
+    "backend/jetson_control/pipelines.py": {
+      "before": "6336dabea40d0a9976ca27eabc6689038bda8ed4efaadd630cbebed6470dc923",
+      "after": "6336dabea40d0a9976ca27eabc6689038bda8ed4efaadd630cbebed6470dc923"
+    },
+    "backend/jetson_control/sensor_handoff.py": {
+      "before": "064f3708300b689749ce20b82db22f94b935602f01402170f9b3d4eb212c5738",
+      "after": "064f3708300b689749ce20b82db22f94b935602f01402170f9b3d4eb212c5738"
+    },
+    "backend/jetson_control/sensor_monitor.py": {
+      "before": "a18ae5fafdb6fb335ea317ff408496a64dc79339d1d4f0e4b7032db6c395079b",
+      "after": "a18ae5fafdb6fb335ea317ff408496a64dc79339d1d4f0e4b7032db6c395079b"
+    },
+    "backend/jetson_control/sensors.py": {
+      "before": "b3d24159c7fe30da0d2aef0ead102030d77395aee9c1fefc47998997bba6a671",
+      "after": "b3d24159c7fe30da0d2aef0ead102030d77395aee9c1fefc47998997bba6a671"
+    },
+    "backend/jetson_control/status.py": {
+      "before": "eabe267a0a5fbdc599518cc2dcd4cfee7ce229c68a0e1596bfba475a2259ceca",
+      "after": "eabe267a0a5fbdc599518cc2dcd4cfee7ce229c68a0e1596bfba475a2259ceca"
+    },
+    "backend/jetson_control/system_control.py": {
+      "before": "70d41f2839a9bf4da1d70d515b02993d438e82a66f8c35770c5476c872b29f1b",
+      "after": "70d41f2839a9bf4da1d70d515b02993d438e82a66f8c35770c5476c872b29f1b"
+    },
+    "backend/jetson_control/tls.py": {
+      "before": "7062a159355d2009fe430ecb0a08c4e416144f590c648d049cdc8709ea769522",
+      "after": "7062a159355d2009fe430ecb0a08c4e416144f590c648d049cdc8709ea769522"
+    },
+    "backend/jetson_control/uploads.py": {
+      "before": "3e9603bbe38d2c120933e2514584c720bafa93776782da33ff6ab628b0a2c957",
+      "after": "3e9603bbe38d2c120933e2514584c720bafa93776782da33ff6ab628b0a2c957"
+    },
+    "backend/jetson_control/wifi_direct.py": {
+      "before": "3e59eedc410d70f670543385f0eb893cebbb754aa4224735f28321f812ff3bd0",
+      "after": "3e59eedc410d70f670543385f0eb893cebbb754aa4224735f28321f812ff3bd0"
+    },
+    "backend/requirements-dev.txt": {
+      "before": "934fbb549ab3209320a68f549631f92ffa7dcd1372d15620c148eb5f55bd7735",
+      "after": "934fbb549ab3209320a68f549631f92ffa7dcd1372d15620c148eb5f55bd7735"
+    },
+    "backend/requirements.txt": {
+      "before": "a55e988120e983de9313ab39d8885f07b1920865f7706c969e6859cb64ca3681",
+      "after": "a55e988120e983de9313ab39d8885f07b1920865f7706c969e6859cb64ca3681"
+    },
+    "backend/scripts/bootstrap-jetson.sh": {
+      "before": "7043c3252f63e88dfb41d51bf69793e254a17f6a0eb094ac911bf5d8a8299292",
+      "after": "7043c3252f63e88dfb41d51bf69793e254a17f6a0eb094ac911bf5d8a8299292"
+    },
+    "backend/scripts/configure-api-storage-access.py": {
+      "before": "9af2937093ed6927ab202d1c90f9e2ae21b8d490c06dcf9a3a6ecff730ce1962",
+      "after": "9af2937093ed6927ab202d1c90f9e2ae21b8d490c06dcf9a3a6ecff730ce1962"
+    },
+    "backend/scripts/configure-bluez-advertising.sh": {
+      "before": "23b92d2a01a1238dded1061b06783ad3dd76ecdd886b2e16f9b7490d02b6c0fb",
+      "after": "23b92d2a01a1238dded1061b06783ad3dd76ecdd886b2e16f9b7490d02b6c0fb"
+    },
+    "backend/scripts/configure-realtek-bluetooth-driver.sh": {
+      "before": "baf0f791a29972401ae37ee4a9034301a4933f8c5f53fe9d7d2647e170f5616f",
+      "after": "baf0f791a29972401ae37ee4a9034301a4933f8c5f53fe9d7d2647e170f5616f"
+    },
+    "backend/scripts/configure-upload-target.sh": {
+      "before": "68081831cc51b5ae67df7c39b816d791588b3cb9ae36452c1a2b890f3703e462",
+      "after": "68081831cc51b5ae67df7c39b816d791588b3cb9ae36452c1a2b890f3703e462"
+    },
+    "backend/scripts/doctor.sh": {
+      "before": "39f606fb9ae1133c2e63385d5599c8eafd120b66d5d57bdcf9bab70b7f44d65f",
+      "after": "39f606fb9ae1133c2e63385d5599c8eafd120b66d5d57bdcf9bab70b7f44d65f"
+    },
+    "backend/scripts/install-bluez-5.55.sh": {
+      "before": "702179131f30756a2516c8c8b702ee0e68ec2a67af86d0674bbaf182f05734c4",
+      "after": "702179131f30756a2516c8c8b702ee0e68ec2a67af86d0674bbaf182f05734c4"
+    },
+    "backend/scripts/install-depthai-pipeline.sh": {
+      "before": "d216238fb44e3bc3cf40bd75d020d61f387f24433a3db20ab195ca90cb07afba",
+      "after": "d216238fb44e3bc3cf40bd75d020d61f387f24433a3db20ab195ca90cb07afba"
+    },
+    "backend/scripts/install.sh": {
+      "before": "580909a63615eb7abdabfc9fa35d7b6f1d4a6d9967827af3f998071cb84d34e9",
+      "after": "580909a63615eb7abdabfc9fa35d7b6f1d4a6d9967827af3f998071cb84d34e9"
+    },
+    "backend/scripts/provision-device.sh": {
+      "before": "5265a8b02b0b6eefaf1547435fe1a1a1b31ee579be21f2142a8d8da80980dccf",
+      "after": "5265a8b02b0b6eefaf1547435fe1a1a1b31ee579be21f2142a8d8da80980dccf"
+    },
+    "backend/scripts/register-pipeline.py": {
+      "before": "10d11be6c767217876f17028324cf6f1787fea1f6350a32ac03c232da13b0b48",
+      "after": "10d11be6c767217876f17028324cf6f1787fea1f6350a32ac03c232da13b0b48"
+    },
+    "backend/scripts/register-pipeline.sh": {
+      "before": "49d7709f15bb53cc16c97579470acaa80e34a447080f6996e49b1bcb2ac3559c",
+      "after": "49d7709f15bb53cc16c97579470acaa80e34a447080f6996e49b1bcb2ac3559c"
+    },
+    "backend/scripts/resolve-depthai-pipeline-id.py": {
+      "before": "b0ce9875349564d047e2659d730bc6eb0ea951e49d895c152abe4107bd37f204",
+      "after": "b0ce9875349564d047e2659d730bc6eb0ea951e49d895c152abe4107bd37f204"
+    },
+    "backend/scripts/run-pipeline.py": {
+      "before": "f63553a52a8358e7b3aef94234318a189bf7997a66a183cb0e5a1c95d3c81088",
+      "after": "f63553a52a8358e7b3aef94234318a189bf7997a66a183cb0e5a1c95d3c81088"
+    },
+    "backend/systemd/jetson-control-api.service": {
+      "before": "4f68466426c2e35043f7d98948e3ba861282bef8bf42a0036a6b8b494fd89185",
+      "after": "4f68466426c2e35043f7d98948e3ba861282bef8bf42a0036a6b8b494fd89185"
+    },
+    "backend/systemd/jetson-control.service": {
+      "before": "3c941ebbce1fc19404dba036ea8ff42bbf288c001955b068240ed23f80a025ce",
+      "after": "3c941ebbce1fc19404dba036ea8ff42bbf288c001955b068240ed23f80a025ce"
+    },
+    "backend/systemd/jetson-pipeline@.service": {
+      "before": "781c7c1f5ab2ae7703c4f305cbb83a99c5d08f098f675e9bfaee52d8623f1ab0",
+      "after": "781c7c1f5ab2ae7703c4f305cbb83a99c5d08f098f675e9bfaee52d8623f1ab0"
+    },
+    "backend/systemd/jetson-sensor-monitor.service": {
+      "before": "435fbafd37487fd63c8bbab42e28dc949c4e892310cae4ec3d907d8b9b230425",
+      "after": "435fbafd37487fd63c8bbab42e28dc949c4e892310cae4ec3d907d8b9b230425"
+    },
+    "backend/systemd/jetson-wifi-direct.service": {
+      "before": "b229d181c8e14abf34b8480a2980c4b044842ad23d6a5419b3300707f8775de6",
+      "after": "b229d181c8e14abf34b8480a2980c4b044842ad23d6a5419b3300707f8775de6"
+    },
+    "backend/tests/__init__.py": {
+      "before": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "backend/tests/test_api.py": {
+      "before": "405b5a4e67bb12377d02125640eca5bdcaf5c2018152c889b71800bc8ab5499a",
+      "after": "405b5a4e67bb12377d02125640eca5bdcaf5c2018152c889b71800bc8ab5499a"
+    },
+    "backend/tests/test_auth.py": {
+      "before": "25db9a18ceb0642c58a6d5e05b99b9a1416415e32019e16ffafa02613e070a56",
+      "after": "25db9a18ceb0642c58a6d5e05b99b9a1416415e32019e16ffafa02613e070a56"
+    },
+    "backend/tests/test_ble_advertising.py": {
+      "before": "6f3d7afa9406a5dcbf396f53169bd775d699d006d3174a9d72c92c5f05e431dc",
+      "after": "6f3d7afa9406a5dcbf396f53169bd775d699d006d3174a9d72c92c5f05e431dc"
+    },
+    "backend/tests/test_ble_crypto.py": {
+      "before": "20f68bbf1de8dc842620652ea282dea55641fd80a6cc52dc69d44bdc467e4981",
+      "after": "20f68bbf1de8dc842620652ea282dea55641fd80a6cc52dc69d44bdc467e4981"
+    },
+    "backend/tests/test_ble_status.py": {
+      "before": "4886161ea8512050e20e9c8f2c9052589b80cc32f531ebb0366a0f54a311d971",
+      "after": "4886161ea8512050e20e9c8f2c9052589b80cc32f531ebb0366a0f54a311d971"
+    },
+    "backend/tests/test_commands.py": {
+      "before": "4cc1b3d428441528af4ee4a5ec81a042aebd9c0359511ad6e7dc4196e0a01147",
+      "after": "4cc1b3d428441528af4ee4a5ec81a042aebd9c0359511ad6e7dc4196e0a01147"
+    },
+    "backend/tests/test_config.py": {
+      "before": "8fde84d1ac15ca479150b6431c4a901f617a29ce7aaebb64e0f8caf763e1204d",
+      "after": "8fde84d1ac15ca479150b6431c4a901f617a29ce7aaebb64e0f8caf763e1204d"
+    },
+    "backend/tests/test_configure_api_storage_access.py": {
+      "before": "8c460a0fd8a1fd86379373d081533ea154188d2f17217fb01ad2323bef67dd9a",
+      "after": "8c460a0fd8a1fd86379373d081533ea154188d2f17217fb01ad2323bef67dd9a"
+    },
+    "backend/tests/test_configure_bluez_advertising.py": {
+      "before": "b8fc5c832afae928e9acbbac04f946bf91eef15e986a611399e8361334d29dd7",
+      "after": "b8fc5c832afae928e9acbbac04f946bf91eef15e986a611399e8361334d29dd7"
+    },
+    "backend/tests/test_configure_realtek_bluetooth_driver.py": {
+      "before": "bf66dd8a2202783be8d41cd4d026f5c23b85dee89a5470c316a320bc8534fdb0",
+      "after": "bf66dd8a2202783be8d41cd4d026f5c23b85dee89a5470c316a320bc8534fdb0"
+    },
+    "backend/tests/test_deploy_connection_evidence.py": {
+      "before": "152e72179e2abdf85c0ce6fbfda4fbc3d1e6f20ce963682858742f9315d7d230",
+      "after": "152e72179e2abdf85c0ce6fbfda4fbc3d1e6f20ce963682858742f9315d7d230"
+    },
+    "backend/tests/test_depthai_pipeline_resolver.py": {
+      "before": "f58a3676c7403bd2cce0c3c969f36c2eb7b544cfb5b6539884da0686b7b5f3d6",
+      "after": "f58a3676c7403bd2cce0c3c969f36c2eb7b544cfb5b6539884da0686b7b5f3d6"
+    },
+    "backend/tests/test_diagnostics.py": {
+      "before": "0322cd4a53fff3370426100b18935c1329c0dc7e9b85b3dd857f6dbf0291f60a",
+      "after": "0322cd4a53fff3370426100b18935c1329c0dc7e9b85b3dd857f6dbf0291f60a"
+    },
+    "backend/tests/test_filesystem_uploads.py": {
+      "before": "11c15fe5bdf7bf93d47e98482938fb3c3d514f386f6bf180989a40cc41474222",
+      "after": "11c15fe5bdf7bf93d47e98482938fb3c3d514f386f6bf180989a40cc41474222"
+    },
+    "backend/tests/test_install_depthai_pipeline.py": {
+      "before": "1fca7df2ecc41f6b285d075dd2e45567fb7ea5b8ada36a3cd9178a03c3fd6365",
+      "after": "1fca7df2ecc41f6b285d075dd2e45567fb7ea5b8ada36a3cd9178a03c3fd6365"
+    },
+    "backend/tests/test_mobile_rtk.py": {
+      "before": "3ef0a8b67bf6f1b472b0320b36da954309698fceb112860ef79edb182e06c0d1",
+      "after": "3ef0a8b67bf6f1b472b0320b36da954309698fceb112860ef79edb182e06c0d1"
+    },
+    "backend/tests/test_network.py": {
+      "before": "8f1fb410ee18b63a9c8f383e8990f33efa4691a834d722a995e32aa4f26e9e27",
+      "after": "8f1fb410ee18b63a9c8f383e8990f33efa4691a834d722a995e32aa4f26e9e27"
+    },
+    "backend/tests/test_pipeline_layout.py": {
+      "before": "651577c07f7c8a974dcc62c8c6fad1689532f636b03fc1b1d05c8acb81909a70",
+      "after": "651577c07f7c8a974dcc62c8c6fad1689532f636b03fc1b1d05c8acb81909a70"
+    },
+    "backend/tests/test_pipeline_registrar.py": {
+      "before": "223ca37afea0ef56fe7ac8d114ec36f9138e17468f86843e7cbe9258b5ccb118",
+      "after": "223ca37afea0ef56fe7ac8d114ec36f9138e17468f86843e7cbe9258b5ccb118"
+    },
+    "backend/tests/test_pipeline_runner.py": {
+      "before": "e42ad7a9fb27f46243e9179c4e6604360626ac8abd605f6cceded857665243cf",
+      "after": "e42ad7a9fb27f46243e9179c4e6604360626ac8abd605f6cceded857665243cf"
+    },
+    "backend/tests/test_pipelines.py": {
+      "before": "38b589fbedf3341e5ddd901f50eb4737ba0e8e564db6709f9ca00e2fa7bb8ea6",
+      "after": "38b589fbedf3341e5ddd901f50eb4737ba0e8e564db6709f9ca00e2fa7bb8ea6"
+    },
+    "backend/tests/test_sensor_handoff.py": {
+      "before": "83f986369848954170ef6e7623838ec6c62399731a60e2c505a1c80b60282c50",
+      "after": "83f986369848954170ef6e7623838ec6c62399731a60e2c505a1c80b60282c50"
+    },
+    "backend/tests/test_sensor_monitor.py": {
+      "before": "4c2e35f4f967f2fea659202928b3b62f233295505405735ff38e6e41b09941f9",
+      "after": "4c2e35f4f967f2fea659202928b3b62f233295505405735ff38e6e41b09941f9"
+    },
+    "backend/tests/test_sensors.py": {
+      "before": "021cbc1d918a3d430e96ed7de079598a83ad758140c60eb38f2994828592b77a",
+      "after": "021cbc1d918a3d430e96ed7de079598a83ad758140c60eb38f2994828592b77a"
+    },
+    "backend/tests/test_status.py": {
+      "before": "5ad0c7dc041504c5912dc68fc8001acca98cce2c4975504942c923cb78e04577",
+      "after": "5ad0c7dc041504c5912dc68fc8001acca98cce2c4975504942c923cb78e04577"
+    },
+    "backend/tests/test_system_control.py": {
+      "before": "8f9cdf110b1a3cbf8483be6d1d73d7bcfe52b3fed29dc8819198b615595db0b5",
+      "after": "8f9cdf110b1a3cbf8483be6d1d73d7bcfe52b3fed29dc8819198b615595db0b5"
+    },
+    "backend/tests/test_systemd_runtime.py": {
+      "before": "1a121f53e89c2d541ceca4baea70dca69dfc5b6798221f916887ec80154901a8",
+      "after": "1a121f53e89c2d541ceca4baea70dca69dfc5b6798221f916887ec80154901a8"
+    },
+    "backend/tests/test_wifi_direct.py": {
+      "before": "3a7f0c8e95a374a334510e3bedb226d0bccdfa95a45939f8c5fb75bc45b49edd",
+      "after": "3a7f0c8e95a374a334510e3bedb226d0bccdfa95a45939f8c5fb75bc45b49edd"
+    },
+    "backend/udev/99-jetson-controller-sensors.rules": {
+      "before": "6cc68251362224e50b6068b8ee586537182e7f3e16ba9a2bc95bec90ca286284",
+      "after": "6cc68251362224e50b6068b8ee586537182e7f3e16ba9a2bc95bec90ca286284"
+    }
+  }
+}

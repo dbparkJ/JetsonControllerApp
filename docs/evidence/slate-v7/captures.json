@@ -1,0 +1,13 @@
+{
+  "currentSessionNativeBefore": [],
+  "currentSessionNativeAfter": [],
+  "status": "NOT_CAPTURED_NO_APPROVED_ADB_TARGET",
+  "historicalOnly": "../cobalt-v5/after-*.png and ../cobalt-v5/native-fixtures (2026-09-08)",
+  "localDesignOnly": "../../../jetson_slate_harmony_v7/screens",
+  "nativeFixtureTestCompiledButNotRun": [
+    "CobaltFieldScreenTest",
+    "SlateHarmonyScreenTest"
+  ],
+  "physicalDisplayConditions": "NOT_OBSERVED",
+  "figmaExport": "NOT_RUN"
+}

@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.pipelines
 
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,7 +41,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,13 +51,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -196,7 +196,9 @@ private fun TaskStateCard(
                     pipeline.state == PipelineState.RUNNING && pendingAction == null -> com.example.jetsoncontroller.ui.components.StatusTone.SUCCESS
                     else -> com.example.jetsoncontroller.ui.components.StatusTone.INFO
                 })
-            if (pipeline.result != "unknown") Text("최근 실행 결과: ${pipeline.result} · 종료 코드 ${pipeline.lastExitCode}", style = MaterialTheme.typography.bodyMedium)
+            if (pipeline.result != "unknown") com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
+                Text("최근 실행 결과: ${pipeline.result} · 종료 코드 ${pipeline.lastExitCode}", style = MaterialTheme.typography.bodyMedium)
+            }
             if (!expanded) {
                 Button(shape = MaterialTheme.shapes.small, onClick = onDetails, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = if (active) androidx.compose.material3.ButtonDefaults.buttonColors(c.accent, c.onAccent) else androidx.compose.material3.ButtonDefaults.buttonColors()) { Text("상태 보기") }
@@ -265,7 +267,7 @@ fun PipelineEditorScreen(
                 SectionHeader("작업 정보")
             }
             item {
-                OutlinedTextField(
+                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                     value = draft.label,
                     onValueChange = onLabelChange,
                     label = { Text("표시 이름") },
@@ -342,7 +344,7 @@ private fun SelectorRow(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val alpha = if (enabled) 1f else 0.45f
+    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -352,13 +354,13 @@ private fun SelectorRow(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha))
+            Icon(icon, contentDescription = null, tint = if (enabled) c.primary else c.onDisabled)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+                Text(title, color = if (enabled) c.ink else c.onDisabled)
                 Text(
                     value,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    color = if (enabled) c.muted else c.onDisabled,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -366,7 +368,7 @@ private fun SelectorRow(
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+                tint = if (enabled) c.muted else c.onDisabled
             )
         }
     }
@@ -593,7 +595,7 @@ private fun PipelineLogToolbar(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = files.firstOrNull { it.id == selectedLogId }
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
+    Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -818,7 +820,7 @@ private fun PipelineConfigFieldEditor(
         else -> KeyboardType.Text
     }
     val valid = configFieldValueValid(field.type, field.value)
-    OutlinedTextField(
+    OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
         value = field.value,
         onValueChange = { onValueChange(it.take(4096)) },
         modifier = Modifier.fillMaxWidth(),

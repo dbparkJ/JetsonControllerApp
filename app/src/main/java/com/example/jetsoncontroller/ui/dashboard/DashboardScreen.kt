@@ -1,5 +1,9 @@
 package com.example.jetsoncontroller.ui.dashboard
 
+import androidx.compose.ui.graphics.Color
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -32,7 +36,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,14 +44,12 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -151,7 +152,7 @@ fun DashboardScreen(
                         taskObservedAt?.let { Text("작업 상태 확인 · " + java.text.DateFormat.getTimeInstance().format(java.util.Date(it)),
                             style = MaterialTheme.typography.bodySmall, color = c.heroMuted) }
                         Button(shape = MaterialTheme.shapes.small, onClick = onPipelinesClick, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = c.onAccent)) {
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = c.primary, contentColor = c.onPrimary)) {
                             Text(if (active.size > 1) "작업 ${active.size}개 상태 보기 →" else "상태 보기 →")
                         }
                     }
@@ -192,14 +193,15 @@ fun DashboardScreen(
                     }
                 }
             }
-            item { ReadinessTile("데이터 · 전송", "전송 내역 ${uploads.size}개", "원본·대상 서버·검증 결과 확인", onUploadQueueClick) }
+            item { ReadinessTile("데이터 · 전송", "전송 내역 ${uploads.size}개", "원본·대상 서버·검증 결과 확인", onUploadQueueClick, color = c.sectionRaised) }
         }
     }
 }
 
 @Composable
-private fun ReadinessTile(title: String, value: String, detail: String, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+private fun ReadinessTile(title: String, value: String, detail: String, onClick: () -> Unit,
+    color: Color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
+    Surface(onClick = onClick, color = color, contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.ink, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.titleLarge)
@@ -348,14 +350,14 @@ private fun HealthOverview(
         DashboardHealthLevel.UNKNOWN -> Icons.AutoMirrored.Filled.HelpOutline
     }
     val container = when (tone) {
-        StatusTone.SUCCESS -> MaterialTheme.colorScheme.primaryContainer
-        StatusTone.WARNING -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.secondaryContainer
+        StatusTone.SUCCESS -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.successBg
+        StatusTone.WARNING -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warningBg
+        else -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.infoBg
     }
     val content = when (tone) {
-        StatusTone.SUCCESS -> MaterialTheme.colorScheme.onPrimaryContainer
-        StatusTone.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
-        else -> MaterialTheme.colorScheme.onSecondaryContainer
+        StatusTone.SUCCESS -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success
+        StatusTone.WARNING -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warning
+        else -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.info
     }
 
     Surface(

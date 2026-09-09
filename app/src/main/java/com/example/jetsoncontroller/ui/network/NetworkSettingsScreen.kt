@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.network
 
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -39,7 +41,6 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -49,7 +50,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -448,7 +448,7 @@ private fun WifiAccessPointRow(
 
     Surface(
         color = if (selected || connected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+            MaterialTheme.colorScheme.primaryContainer
         } else {
             MaterialTheme.colorScheme.surface
         }
@@ -492,7 +492,7 @@ private fun WifiAccessPointRow(
                         Text(
                             signalLabel(accessPoint.rssi),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (selected || connected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.size(8.dp))
                         Icon(
@@ -508,7 +508,10 @@ private fun WifiAccessPointRow(
                         )
                     }
                 },
-                colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                colors = ListItemDefaults.colors(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    supportingColor = if (selected || connected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
                 modifier = Modifier
                     .testTag("wifi-access-point-${accessPoint.ssid}")
                     .clickable(enabled = !connected, onClick = onSelect)
@@ -532,7 +535,7 @@ private fun WifiAccessPointRow(
                             isError = false
                         )
                     } else if (accessPoint.requiresPassword) {
-                        OutlinedTextField(
+                        OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                             value = password,
                             onValueChange = onPasswordChange,
                             modifier = Modifier
@@ -581,7 +584,7 @@ private fun WifiAccessPointRow(
                         Text(
                             text = "비밀번호가 필요 없는 네트워크입니다.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (selected || connected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -632,7 +635,7 @@ private fun ManualNetworkForm(
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        OutlinedTextField(
+        OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
             value = state.ssid,
             onValueChange = onSsidChange,
             modifier = Modifier.fillMaxWidth(),
@@ -640,7 +643,7 @@ private fun ManualNetworkForm(
             singleLine = true,
             enabled = !state.sending
         )
-        OutlinedTextField(
+        OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
             value = state.password,
             onValueChange = onPasswordChange,
             modifier = Modifier.fillMaxWidth(),

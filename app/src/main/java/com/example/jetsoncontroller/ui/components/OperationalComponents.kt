@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components
 
+import com.example.jetsoncontroller.ui.theme.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -202,16 +202,16 @@ private data class StatusColors(
 @Composable
 private fun statusColors(tone: StatusTone): StatusColors = when (tone) {
     StatusTone.INFO -> StatusColors(
-        MaterialTheme.colorScheme.secondaryContainer,
-        MaterialTheme.colorScheme.onSecondaryContainer
+        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.infoBg,
+        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.info
     )
     StatusTone.SUCCESS -> StatusColors(
         LocalCobaltColors.current.successBg,
         LocalCobaltColors.current.success
     )
     StatusTone.WARNING -> StatusColors(
-        MaterialTheme.colorScheme.tertiaryContainer,
-        MaterialTheme.colorScheme.onTertiaryContainer
+        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warningBg,
+        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warning
     )
     StatusTone.ERROR -> StatusColors(
         MaterialTheme.colorScheme.errorContainer,

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.upload
 
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -23,7 +24,6 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -137,7 +137,7 @@ fun UploadConfirmScreen(
         ) {
             Text("대상 장비: $deviceName\n${deviceId.orEmpty()}\n폴더 전체를 전송하며 원본은 유지합니다. 대상 서버 접근과 인증은 전송 시 확인합니다.",
                 modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.bodyMedium)
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
+            Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                     Text(
                         text = "업로드할 위치",
