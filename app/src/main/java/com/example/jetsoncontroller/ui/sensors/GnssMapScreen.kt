@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.sensors
 
+import androidx.compose.ui.graphics.toArgb
+import com.example.jetsoncontroller.ui.theme.TextButton
 import android.Manifest
 import android.content.Intent
 import android.graphics.Bitmap
@@ -32,7 +34,6 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -77,10 +78,10 @@ private enum class VWorldLayer(val title: String, val path: String, val extensio
     SATELLITE("위성", "Satellite", "jpeg")
 }
 
-private val JetsonMarkerColor = Color(0xFF1565C0)
-private val MobileMarkerColor = Color(0xFFD84315)
-private val JetsonMarkerArgb = 0xFF1565C0.toInt()
-private val MobileMarkerArgb = 0xFFD84315.toInt()
+private val JetsonMarkerColor = com.example.jetsoncontroller.ui.theme.CobaltLight.primary
+private val MobileMarkerColor = com.example.jetsoncontroller.ui.theme.CobaltLight.warning
+private val JetsonMarkerArgb = JetsonMarkerColor.toArgb()
+private val MobileMarkerArgb = MobileMarkerColor.toArgb()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -174,7 +175,7 @@ fun GnssMapScreen(
 
             Surface(
                 modifier = Modifier.align(Alignment.TopCenter).padding(12.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                color = MaterialTheme.colorScheme.surface,
                 shape = MaterialTheme.shapes.small,
                 tonalElevation = 2.dp
             ) {
@@ -250,7 +251,7 @@ private fun GnssStatusBand(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp
     ) {
         Column(
@@ -270,12 +271,12 @@ private fun GnssStatusBand(
                         gnssReceptionState(gnssAvailable, gnss.fixType, gnss.rtkStatus)
                     ) {
                         GnssReceptionState.RTK_FIXED -> MaterialTheme.colorScheme.primary
-                        GnssReceptionState.RTK_FLOAT -> MaterialTheme.colorScheme.tertiary
+                        GnssReceptionState.RTK_FLOAT -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warning
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                 )
                 Text(
-                    if (gnssActive) "1 Hz · 실시간" else "데이터 대기",
+                    if (gnssActive) "장비 위치 최근 수신" else "데이터 대기",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.pipelines
 
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -37,7 +41,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,13 +51,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -102,233 +103,128 @@ fun PipelineListScreen(
     onConfig: (ManagedPipeline) -> Unit,
     onOutput: (ManagedPipeline) -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
-    onClearMessage: () -> Unit
+    onClearMessage: () -> Unit,
+    deviceName: String = state.deviceId ?: "선택된 장비 없음",
+    unreadCount: Int = 0,
+    onAlerts: () -> Unit = {},
+    onDetails: (ManagedPipeline) -> Unit = onLogs,
+    detailId: String? = null,
+    startCapability: Boolean = false,
+    nowMillis: Long = System.currentTimeMillis()
 ) {
     var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
-    pendingRemoval?.let { pipeline ->
-        AlertDialog(
-            onDismissRequest = { pendingRemoval = null },
-            icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
-            title = { Text("${pipeline.label} 등록을 해제할까요?") },
-            text = { Text("실행 서비스는 중지되며 저장된 실행 스냅샷은 시스템 보관 영역에 남습니다.") },
-            confirmButton = {
-                Button(enabled = state.controlAvailable, onClick = {
-                    pendingRemoval = null
-                    onRemove(pipeline)
-                }) { Text("등록 해제") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRemoval = null }) { Text("취소") }
-            }
-        )
+    var pendingStart by remember(state.deviceId, state.controlAvailable) { mutableStateOf<Pair<ManagedPipeline, String>?>(null) }
+    val fresh = tasksAreFresh(state.controlAvailable, state.observedAtMillis, nowMillis)
+    pendingStart?.let { (pipeline, action) ->
+        AlertDialog(onDismissRequest = { pendingStart = null }, title = { Text("시작 전 확인") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("대상 장비: $deviceName\n작업: ${pipeline.label}")
+                Text(if (startCapability) "장비 작업 제어와 시간 동기화 지원 확인" else "작업 제어 또는 시간 동기화 지원 여부 미확인")
+                Text("실행 직전 휴대전화 시간으로 동기화합니다. 작업 기동 후 활성화되는 센서는 시작 차단 조건이 아닙니다.")
+                Text("요청 접수 후 실제 실행 상태를 다시 확인합니다.")
+            } },
+            confirmButton = { Button(shape = MaterialTheme.shapes.small, enabled = fresh && startCapability && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
+                onClick = { pendingStart = null; onControl(pipeline, action) }, modifier = Modifier.heightIn(min = 52.dp)) { Text("작업 시작 요청") } },
+            dismissButton = { TextButton(onClick = { pendingStart = null }) { Text("취소") } })
     }
-
+    pendingRemoval?.let { pipeline ->
+        AlertDialog(onDismissRequest = { pendingRemoval = null },
+            title = { Text("${pipeline.label} 등록을 해제할까요?") },
+            text = { Text("대상: $deviceName\n실행 서비스는 중지되며 저장된 실행 스냅샷과 측정 파일은 유지됩니다.") },
+            confirmButton = { Button(shape = MaterialTheme.shapes.small, enabled = state.controlAvailable && state.busyPipelineId == null, onClick = {
+                pendingRemoval = null; onRemove(pipeline)
+            }) { Text("작업 등록 해제") } },
+            dismissButton = { TextButton(onClick = { pendingRemoval = null }) { Text("취소") } })
+    }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("자동 실행 작업") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
+            com.example.jetsoncontroller.ui.components.DeviceContextHeader(
+                if (detailId == null) "작업" else "작업 상세", deviceName,
+                if (fresh) "작업 상태 확인됨" else "현재 상태 미확인", onBack, unreadCount, onAlerts,
                 actions = {
-                    IconButton(onClick = onRefresh, enabled = !state.isLoading) {
-                        Icon(Icons.Default.Refresh, contentDescription = "새로고침")
-                    }
-                }
-            )
+                    if (detailId == null) IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "작업 추가") }
+                    IconButton(onClick = onRefresh, enabled = !state.isLoading && state.busyPipelineId == null) { Icon(Icons.Default.Refresh, "상태 새로고침") }
+                })
         },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onAdd,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("작업 추가") }
-            )
-        },
-        bottomBar = {
-            ControlNavigationBar(ControlSection.PIPELINES, onSectionSelected)
-        }
-    ) { paddingValues ->
-        Box(Modifier.fillMaxSize().padding(paddingValues)) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                state.error?.let { error ->
-                    item {
-                        InlineMessage(
-                            message = error,
-                            isError = true,
-                            modifier = Modifier.clickable(onClick = onClearMessage)
-                        )
-                    }
-                }
-                state.message?.let { message ->
-                    item {
-                        InlineMessage(
-                            message = message,
-                            isError = false,
-                            modifier = Modifier.clickable(onClick = onClearMessage)
-                        )
-                    }
-                }
-                if (state.mobileRtkRelay.active || state.mobileRtkRelay.error != null) {
-                    item {
-                        val relay = state.mobileRtkRelay
-                        val transferred = relay.bytesFromCaster
-                        InlineMessage(
-                            message = relay.error ?: buildString {
-                                append(relay.message ?: "모바일 데이터 RTK 중계 중")
-                                if (transferred > 0) {
-                                    append(" · RTCM ")
-                                    append(transferred)
-                                    append(" bytes")
-                                }
-                            },
-                            isError = relay.error != null
-                        )
-                    }
-                }
-                if (state.pipelines.isEmpty() && !state.isLoading && state.error == null) {
-                    item {
-                        EmptyState(
-                            title = "등록된 작업이 없습니다",
-                            message = "장비에 등록된 Python 작업이 아직 없습니다.",
-                            actionLabel = "작업 추가",
-                            onAction = onAdd
-                        )
-                    }
-                }
-                items(state.pipelines, key = { it.id }) { pipeline ->
-                    PipelineItem(
-                        pipeline = pipeline,
-                        busy = state.busyPipelineId == pipeline.id,
-                        controlsEnabled = state.controlAvailable && state.busyPipelineId == null,
-                        onControl = { action -> onControl(pipeline, action) },
-                        onRemove = { pendingRemoval = pipeline },
-                        onLogs = { onLogs(pipeline) },
-                        onConfig = { onConfig(pipeline) },
-                        onOutput = { onOutput(pipeline) }
-                    )
-                }
+        bottomBar = { ControlNavigationBar(ControlSection.PIPELINES, onSectionSelected) }
+    ) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item { Text("전체 ${state.pipelines.size} · 실행 확인 ${if (fresh) state.pipelines.count { it.state == PipelineState.RUNNING && it.id !in state.pendingActions } else 0}",
+                style = MaterialTheme.typography.bodyMedium) }
+            state.error?.let { item { InlineMessage(it, true) } }
+            state.message?.let { item { InlineMessage(it, false) } }
+            if (state.mobileRtkRelay.active || state.mobileRtkRelay.error != null) {
+                item { InlineMessage(state.mobileRtkRelay.error ?: "모바일 RTK 중계 · RTCM ${state.mobileRtkRelay.bytesFromCaster} bytes · 파일 업로드와 별개", state.mobileRtkRelay.error != null) }
             }
-            if (state.isLoading) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            if (state.pipelines.isEmpty() && !state.isLoading) item {
+                EmptyState(if (fresh) "등록된 작업이 없습니다" else "작업 상태 확인 필요",
+                    if (fresh) "장비에 등록된 Python 작업이 아직 없습니다." else "연결 후 목록을 다시 확인하세요.",
+                    actionLabel = "작업 추가", onAction = onAdd)
+            }
+            items(state.pipelines.filter { detailId == null || it.id == detailId }, key = { it.id }) { pipeline ->
+                TaskStateCard(pipeline, fresh, state.pendingActions[pipeline.id], state.busyPipelineId == pipeline.id,
+                    controlsEnabled = fresh && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
+                    expanded = detailId != null,
+                    onDetails = { onDetails(pipeline) },
+                    onControl = { action -> if (action in setOf("start", "restart")) pendingStart = pipeline to action else onControl(pipeline, action) },
+                    onRemove = { pendingRemoval = pipeline }, onLogs = { onLogs(pipeline) },
+                    onConfig = { onConfig(pipeline) }, onOutput = { onOutput(pipeline) })
             }
         }
     }
 }
 
 @Composable
-private fun PipelineItem(
-    pipeline: ManagedPipeline,
-    busy: Boolean,
-    controlsEnabled: Boolean,
-    onControl: (String) -> Unit,
-    onRemove: () -> Unit,
-    onLogs: () -> Unit,
-    onConfig: () -> Unit,
-    onOutput: () -> Unit
+private fun TaskStateCard(
+    pipeline: ManagedPipeline, fresh: Boolean, pendingAction: String?, busy: Boolean,
+    controlsEnabled: Boolean, expanded: Boolean, onDetails: () -> Unit,
+    onControl: (String) -> Unit, onRemove: () -> Unit, onLogs: () -> Unit,
+    onConfig: () -> Unit, onOutput: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        pipeline.label,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            color = pipelineStateColor(pipeline.state),
-                            contentColor = Color.White,
-                            shape = MaterialTheme.shapes.small
-                        ) {
-                            Text(
-                                pipelineStateLabel(pipeline.state),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                }
-                IconButton(onClick = onRemove, enabled = controlsEnabled && !busy) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "작업 등록 해제")
-                }
+    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
+    val active = pipeline.state in setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING, PipelineState.STOPPING)
+    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
+        color = if (active) c.hero else c.surface, contentColor = if (active) c.heroText else c.ink) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(pipeline.label, style = MaterialTheme.typography.titleLarge)
+            com.example.jetsoncontroller.ui.components.StatusBadge(taskStateLabel(pipeline.state, fresh, pendingAction),
+                when {
+                    !fresh -> com.example.jetsoncontroller.ui.components.StatusTone.WARNING
+                    pipeline.state == PipelineState.FAILED -> com.example.jetsoncontroller.ui.components.StatusTone.ERROR
+                    pipeline.state == PipelineState.RUNNING && pendingAction == null -> com.example.jetsoncontroller.ui.components.StatusTone.SUCCESS
+                    else -> com.example.jetsoncontroller.ui.components.StatusTone.INFO
+                })
+            if (pipeline.result != "unknown") com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
+                Text("최근 실행 결과: ${pipeline.result} · 종료 코드 ${pipeline.lastExitCode}", style = MaterialTheme.typography.bodyMedium)
             }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                TextButton(onClick = onLogs, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Terminal, contentDescription = null)
-                    Text("로그", modifier = Modifier.padding(start = 4.dp))
+            if (!expanded) {
+                Button(shape = MaterialTheme.shapes.small, onClick = onDetails, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    colors = if (active) androidx.compose.material3.ButtonDefaults.buttonColors(c.accent, c.onAccent) else androidx.compose.material3.ButtonDefaults.buttonColors()) { Text("상태 보기") }
+            } else {
+                Text(pipeline.description.ifBlank { "장비의 실제 실행 상태와 결과를 확인합니다." }, style = MaterialTheme.typography.bodyLarge)
+                Text("실행 파일: ${pipeline.entrypoint}", style = MaterialTheme.typography.bodyMedium)
+                Button(shape = MaterialTheme.shapes.small, onClick = onLogs, modifier = Modifier.fillMaxWidth()) { Text("실행 로그") }
+                Button(shape = MaterialTheme.shapes.small, onClick = onConfig, modifier = Modifier.fillMaxWidth()) { Text("작업 설정") }
+                Button(shape = MaterialTheme.shapes.small, onClick = onOutput, enabled = pipeline.outputRootId != null && pipeline.outputPath != null, modifier = Modifier.fillMaxWidth()) { Text("저장 결과") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("부팅 시 실행", modifier = Modifier.weight(1f))
+                    Switch(checked = pipeline.enabled, onCheckedChange = { onControl(if (it) "enable" else "disable") }, enabled = controlsEnabled)
                 }
-                TextButton(onClick = onConfig, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Description, contentDescription = null)
-                    Text("설정", modifier = Modifier.padding(start = 4.dp))
-                }
-                TextButton(
-                    onClick = onOutput,
-                    enabled = pipeline.outputRootId != null && pipeline.outputPath != null,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = null)
-                    Text("결과", modifier = Modifier.padding(start = 4.dp))
-                }
+                OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onRemove, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("작업 등록 해제") }
             }
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider()
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("부팅 시 실행", style = MaterialTheme.typography.bodyMedium)
-                Switch(
-                    checked = pipeline.enabled,
-                    onCheckedChange = { onControl(if (it) "enable" else "disable") },
-                    enabled = controlsEnabled && !busy,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
-                Spacer(Modifier.weight(1f))
-                if (pipeline.state == PipelineState.RUNNING ||
-                    pipeline.state == PipelineState.STARTING ||
-                    pipeline.state == PipelineState.RETRYING
-                ) {
-                    IconButton(
-                        onClick = { onControl("stop") },
-                        enabled = controlsEnabled && !busy
-                    ) {
-                        Icon(Icons.Default.Stop, contentDescription = "중지")
-                    }
-                    IconButton(
-                        onClick = { onControl("restart") },
-                        enabled = controlsEnabled && !busy
-                    ) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = "다시 시작")
-                    }
-                } else {
-                    IconButton(
-                        onClick = { onControl("start") },
-                        enabled = controlsEnabled && !busy
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "시작")
-                    }
-                }
+            if (active) {
+                OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { onControl("stop") }, enabled = controlsEnabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = if (active) c.heroText else c.primary)) { Text("중지 요청") }
+                if (expanded) Button(shape = MaterialTheme.shapes.small, onClick = { onControl("restart") }, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("다시 시작") }
+            } else {
+                Button(shape = MaterialTheme.shapes.small, onClick = { onControl("start") }, enabled = controlsEnabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(if (pendingAction != null) "요청 확인 중…" else "시작 전 확인") }
             }
-            if (busy) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (!controlsEnabled) Text("연결·최근 상태·진행 중 요청을 확인한 뒤 제어할 수 있습니다.", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -371,7 +267,7 @@ fun PipelineEditorScreen(
                 SectionHeader("작업 정보")
             }
             item {
-                OutlinedTextField(
+                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
                     value = draft.label,
                     onValueChange = onLabelChange,
                     label = { Text("표시 이름") },
@@ -423,7 +319,7 @@ fun PipelineEditorScreen(
                 }
             }
             item {
-                Button(
+                Button(shape = MaterialTheme.shapes.small,
                     onClick = onRegister,
                     enabled = state.controlAvailable && draft.canSubmit && state.discoveredFolder != null &&
                         !state.isLoading && !state.isDiscoveringFolder,
@@ -448,7 +344,7 @@ private fun SelectorRow(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val alpha = if (enabled) 1f else 0.45f
+    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -458,13 +354,13 @@ private fun SelectorRow(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha))
+            Icon(icon, contentDescription = null, tint = if (enabled) c.primary else c.onDisabled)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+                Text(title, color = if (enabled) c.ink else c.onDisabled)
                 Text(
                     value,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    color = if (enabled) c.muted else c.onDisabled,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -472,7 +368,7 @@ private fun SelectorRow(
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+                tint = if (enabled) c.muted else c.onDisabled
             )
         }
     }
@@ -527,7 +423,7 @@ fun PipelinePickerScreen(
         bottomBar = {
             if (directoryTarget && state.root != null) {
                 Surface(shadowElevation = 4.dp) {
-                    Button(
+                    Button(shape = MaterialTheme.shapes.small,
                         onClick = onSelectCurrentDirectory,
                         enabled = !state.isLoading,
                         modifier = Modifier.fillMaxWidth().padding(16.dp)
@@ -699,14 +595,14 @@ private fun PipelineLogToolbar(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = files.firstOrNull { it.id == selectedLogId }
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
+    Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(Modifier.weight(1f)) {
-                OutlinedButton(
+                OutlinedButton(shape = MaterialTheme.shapes.small,
                     onClick = { expanded = true },
                     enabled = files.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth()
@@ -765,7 +661,7 @@ private fun PipelineLogToolbar(
                         Icons.Default.Circle,
                         contentDescription = null,
                         modifier = Modifier.size(8.dp),
-                        tint = if (live) Color(0xFF237A45)
+                        tint = if (live) com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success
                         else MaterialTheme.colorScheme.outline
                     )
                     Text(
@@ -804,7 +700,7 @@ fun PipelineConfigScreen(
             onDismissRequest = { confirmReload = false },
             title = { Text("장비 설정을 다시 불러올까요?") },
             text = { Text("작성 중인 설정 초안을 장비의 현재 설정으로 바꿉니다.") },
-            confirmButton = { Button(onClick = { confirmReload = false; onReload() }) { Text("다시 불러오기") } },
+            confirmButton = { Button(shape = MaterialTheme.shapes.small, onClick = { confirmReload = false; onReload() }) { Text("다시 불러오기") } },
             dismissButton = { TextButton(onClick = { confirmReload = false }) { Text("초안 유지") } }
         )
     }
@@ -858,7 +754,7 @@ fun PipelineConfigScreen(
                 }
                 if (state.configNeedsReview) {
                     item {
-                        OutlinedButton(onClick = { confirmReload = true }, enabled = state.controlAvailable) {
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { confirmReload = true }, enabled = state.controlAvailable) {
                             Text("장비 설정 다시 불러오기")
                         }
                     }
@@ -924,7 +820,7 @@ private fun PipelineConfigFieldEditor(
         else -> KeyboardType.Text
     }
     val valid = configFieldValueValid(field.type, field.value)
-    OutlinedTextField(
+    OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
         value = field.value,
         onValueChange = { onValueChange(it.take(4096)) },
         modifier = Modifier.fillMaxWidth(),
@@ -967,20 +863,8 @@ private fun fileMatches(entry: RemoteFileEntry, target: PipelinePickerTarget?): 
     else -> false
 }
 
-private fun pipelineStateLabel(state: PipelineState): String = when (state) {
-    PipelineState.RUNNING -> "실행 중"
-    PipelineState.STARTING -> "시작 중"
-    PipelineState.STOPPING -> "중지 중"
-    PipelineState.STOPPED -> "중지됨"
-    PipelineState.FAILED -> "오류"
-    PipelineState.RETRYING -> "재시도 대기"
-    PipelineState.WAITING_FOR_TIME_SYNC -> "모바일 시간 동기화 대기"
-    PipelineState.UNKNOWN -> "확인 필요"
-}
 
-private val pipelineLogTimeFormatter: DateTimeFormatter = DateTimeFormatter
-    .ofPattern("yyyy-MM-dd HH:mm:ss")
-    .withZone(ZoneId.systemDefault())
+private val pipelineLogTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
 
 private fun pipelineLogStartedLabel(file: PipelineLogFile): String = try {
     pipelineLogTimeFormatter.format(Instant.parse(file.startedAt))
@@ -995,16 +879,4 @@ private fun formatPipelineLogSize(bytes: Long): String = when {
     bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
     bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
     else -> "$bytes B"
-}
-
-@Composable
-private fun pipelineStateColor(state: PipelineState): Color = when (state) {
-    PipelineState.RUNNING -> Color(0xFF237A45)
-    PipelineState.STARTING,
-    PipelineState.RETRYING,
-    PipelineState.WAITING_FOR_TIME_SYNC,
-    PipelineState.STOPPING -> MaterialTheme.colorScheme.tertiary
-    PipelineState.FAILED -> MaterialTheme.colorScheme.error
-    PipelineState.STOPPED -> MaterialTheme.colorScheme.outline
-    PipelineState.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
 }

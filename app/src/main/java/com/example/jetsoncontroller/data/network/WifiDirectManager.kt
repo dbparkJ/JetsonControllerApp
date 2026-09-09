@@ -17,6 +17,7 @@ import android.net.wifi.WpsInfo
 import android.os.Build
 import android.os.Handler
 import androidx.core.content.ContextCompat
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -87,11 +88,65 @@ class WifiDirectManager(
     private var channel: WifiP2pManager.Channel? = createChannel()
     private var registered = false
 
+    private enum class DiagnosticOutcome {
+        CHANNEL_LOST, WIFI_ENABLED, WIFI_DISABLED, ATTEMPT_STARTED,
+        CONNECT_REQUESTED, CONNECT_OS_ACCEPTED, CONNECT_OS_FAILED, CONNECT_TIMEOUT,
+        INFO_GROUP_FORMED_WITH_OWNER, INFO_GROUP_FORMED_WITHOUT_OWNER, INFO_NO_GROUP,
+        GROUP_OBSERVED, TARGET_ACCEPTED, STALE_CALLBACK, SESSION_RESET_REQUESTED,
+        CLEANUP_REQUESTED, CANCEL_REQUESTED, CANCEL_OS_ACCEPTED, CANCEL_OS_FAILED,
+        REMOVE_REQUESTED, REMOVE_OS_ACCEPTED, REMOVE_OS_FAILED,
+        CONFIRMED_ABSENT, TIMED_OUT, UNCONFIRMED, CHANNEL_UNAVAILABLE,
+        PERMISSION_DENIED, OTHER_GROUP_PRESERVED
+    }
+
+    private enum class DiagnosticReason { OS_ERROR, OS_BUSY, OS_UNSUPPORTED, OS_OTHER }
+
+    // These are Android callback observations, not claims about physical link liveness.
+    // Keep payload construction inside the best-effort boundary as well as record().
+    private fun recordDiagnostic(
+        event: String,
+        outcome: DiagnosticOutcome,
+        attemptId: Long? = null,
+        querySequence: Long? = null,
+        groupPresent: Boolean? = null,
+        cleanupConfirmed: Boolean? = null,
+        stale: Boolean? = null,
+        androidReason: Int? = null,
+        incident: Boolean = false
+    ) {
+        try {
+            ConnectionDiagnostics.record(
+                event,
+                mapOf(
+                    "outcome" to outcome,
+                    "state" to connectionSession.phase,
+                    "generation" to connectionSession.generation,
+                    "attemptId" to attemptId,
+                    "requestSequence" to querySequence,
+                    "groupPresent" to groupPresent,
+                    "cleanupConfirmed" to cleanupConfirmed,
+                    "stale" to stale,
+                    "reasonCode" to when (androidReason) {
+                        null -> null
+                        WifiP2pManager.ERROR -> DiagnosticReason.OS_ERROR
+                        WifiP2pManager.BUSY -> DiagnosticReason.OS_BUSY
+                        WifiP2pManager.P2P_UNSUPPORTED -> DiagnosticReason.OS_UNSUPPORTED
+                        else -> DiagnosticReason.OS_OTHER
+                    }
+                ),
+                incident
+            )
+        } catch (_: Exception) {
+            // Diagnostics must not change Android callbacks or connection cleanup.
+        }
+    }
+
     private fun createChannel(): WifiP2pManager.Channel? {
         return manager?.initialize(
             appContext,
             appContext.mainLooper
         ) {
+            recordDiagnostic("p2p_channel", DiagnosticOutcome.CHANNEL_LOST, incident = true)
             resetDisconnectedState(
                 "Wi-Fi Direct 연결 채널이 끊어졌습니다. 다시 시도해 주세요."
             )
@@ -121,6 +176,10 @@ class WifiDirectManager(
                     val enabled =
                         wifiP2pState == WifiP2pManager.WIFI_P2P_STATE_ENABLED
 
+                    recordDiagnostic(
+                        "p2p_connection",
+                        if (enabled) DiagnosticOutcome.WIFI_ENABLED else DiagnosticOutcome.WIFI_DISABLED
+                    )
                     if (!enabled) {
                         resetDisconnectedState(
                             "Wi-Fi가 꺼져 있습니다. Wi-Fi를 켠 뒤 다시 검색해 주세요."
@@ -328,6 +387,7 @@ class WifiDirectManager(
 
         if (!register()) return
         val attemptGeneration = connectionSession.begin(peer.deviceAddress) ?: return
+        recordDiagnostic("p2p_connection", DiagnosticOutcome.ATTEMPT_STARTED, attemptGeneration)
         _state.value = _state.value.copy(
             discovering = false,
             connectingPeerAddress = peer.deviceAddress,
@@ -338,6 +398,10 @@ class WifiDirectManager(
         try {
             readyManager.requestGroupInfo(readyChannel) groupInfo@{ group ->
                 if (!connectionSession.isConnecting(attemptGeneration)) return@groupInfo
+                recordDiagnostic(
+                    "p2p_group", DiagnosticOutcome.GROUP_OBSERVED,
+                    attemptGeneration, groupPresent = group != null
+                )
                 if (group != null) {
                     if (wifiDirectGroupBelongsToPeer(
                             peer.deviceAddress,
@@ -354,16 +418,26 @@ class WifiDirectManager(
                     return@groupInfo
                 }
                 try {
+                    recordDiagnostic("p2p_connection", DiagnosticOutcome.CONNECT_REQUESTED, attemptGeneration)
                     readyManager.connect(
                         readyChannel,
                         config,
                         object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
                                 // Connection details arrive through the connection broadcast.
+                                recordDiagnostic(
+                                    "p2p_connection", DiagnosticOutcome.CONNECT_OS_ACCEPTED,
+                                    attemptGeneration,
+                                    stale = !connectionSession.isConnecting(attemptGeneration)
+                                )
                             }
 
                             override fun onFailure(reason: Int) {
                                 if (!connectionSession.isConnecting(attemptGeneration)) return
+                                recordDiagnostic(
+                                    "p2p_connection", DiagnosticOutcome.CONNECT_OS_FAILED,
+                                    attemptGeneration, androidReason = reason
+                                )
                                 beginConnectionCleanup(actionFailure("장비 연결", reason))
                             }
                         }
@@ -396,13 +470,32 @@ class WifiDirectManager(
                 if (!connectionSession.isCurrent(queryGeneration) ||
                     infoQueryGeneration != connectionInfoQueryGeneration
                 ) {
+                    recordDiagnostic(
+                        "p2p_group", DiagnosticOutcome.STALE_CALLBACK,
+                        queryGeneration, infoQueryGeneration, stale = true
+                    )
                     return@requestConnectionInfo
                 }
+                recordDiagnostic(
+                    "p2p_group",
+                    when {
+                        !info.groupFormed -> DiagnosticOutcome.INFO_NO_GROUP
+                        info.groupOwnerAddress == null -> DiagnosticOutcome.INFO_GROUP_FORMED_WITHOUT_OWNER
+                        else -> DiagnosticOutcome.INFO_GROUP_FORMED_WITH_OWNER
+                    },
+                    queryGeneration, infoQueryGeneration, groupPresent = info.groupFormed
+                )
                 if (info.groupFormed && info.groupOwnerAddress != null) {
                     // A broadcast has no attempt identifier. Verify the actual peer before
                     // accepting a group, including a late group from an earlier attempt.
                     try {
                         readyManager.requestGroupInfo(readyChannel) groupInfo@{ group ->
+                            recordDiagnostic(
+                                "p2p_group", DiagnosticOutcome.GROUP_OBSERVED,
+                                queryGeneration, infoQueryGeneration, groupPresent = group != null,
+                                stale = infoQueryGeneration != connectionInfoQueryGeneration ||
+                                    !connectionSession.isCurrent(queryGeneration)
+                            )
                             if (infoQueryGeneration != connectionInfoQueryGeneration ||
                                 group == null ||
                                 !connectionSession.acceptGroup(
@@ -411,6 +504,10 @@ class WifiDirectManager(
                                     group.clientList.map { it.deviceAddress }
                                 )
                             ) return@groupInfo
+                            recordDiagnostic(
+                                "p2p_group", DiagnosticOutcome.TARGET_ACCEPTED,
+                                queryGeneration, infoQueryGeneration, groupPresent = true
+                            )
                             val sameLink = _state.value.connected &&
                                 _state.value.groupOwnerAddress == info.groupOwnerAddress.hostAddress
                             _state.value = _state.value.copy(
@@ -486,6 +583,7 @@ class WifiDirectManager(
             if (connectionSession.phase == WifiDirectConnectionSession.Phase.IDLE) stopDiscovery()
             return
         }
+        recordDiagnostic("p2p_cleanup", DiagnosticOutcome.CLEANUP_REQUESTED, cleanupGeneration)
 
         _state.value = _state.value.copy(
             connectingPeerAddress = null,
@@ -504,8 +602,18 @@ class WifiDirectManager(
         var inspectionStarted = false
         var negotiationStopped = !wasNegotiating
 
-        fun finish(timedOut: Boolean = false) {
+        fun finish(
+            timedOut: Boolean = false,
+            outcome: DiagnosticOutcome = DiagnosticOutcome.UNCONFIRMED
+        ) {
             if (!connectionSession.finishCleanup(cleanupGeneration)) return
+            recordDiagnostic(
+                "p2p_cleanup",
+                if (timedOut) DiagnosticOutcome.TIMED_OUT else outcome,
+                cleanupGeneration,
+                cleanupConfirmed = !timedOut && outcome == DiagnosticOutcome.CONFIRMED_ABSENT,
+                incident = timedOut
+            )
             val messages = listOfNotNull(
                 error,
                 cleanupError,
@@ -523,7 +631,7 @@ class WifiDirectManager(
         )
         if (readyManager == null || readyChannel == null) {
             cleanupError = "Wi-Fi Direct 정리 채널이 없습니다. Wi-Fi를 껐다 켜 주세요."
-            finish()
+            finish(outcome = DiagnosticOutcome.CHANNEL_UNAVAILABLE)
             return
         }
 
@@ -534,9 +642,13 @@ class WifiDirectManager(
             try {
                 readyManager.requestGroupInfo(readyChannel) groupInfo@{ group ->
                     if (!connectionSession.isCleaningUp(cleanupGeneration)) return@groupInfo
+                    recordDiagnostic(
+                        "p2p_group", DiagnosticOutcome.GROUP_OBSERVED,
+                        cleanupGeneration, groupPresent = group != null
+                    )
                     if (group == null) {
                         if (previouslyAbsent && negotiationStopped) {
-                            finish()
+                            finish(outcome = DiagnosticOutcome.CONFIRMED_ABSENT)
                         } else {
                             mainHandler.postDelayed(
                                 { inspectGroup(previouslyAbsent = true) },
@@ -552,16 +664,18 @@ class WifiDirectManager(
                         )
                     ) {
                         cleanupError = "다른 장비의 Wi-Fi Direct 그룹이 있어 유지했습니다. Android Wi-Fi 설정에서 연결 상태를 확인해 주세요."
-                        finish()
+                        finish(outcome = DiagnosticOutcome.OTHER_GROUP_PRESERVED)
                         return@groupInfo
                     }
 
                     try {
+                        recordDiagnostic("p2p_cleanup", DiagnosticOutcome.REMOVE_REQUESTED, cleanupGeneration)
                         readyManager.removeGroup(
                             readyChannel,
                             object : WifiP2pManager.ActionListener {
                                 override fun onSuccess() {
                                     if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                                    recordDiagnostic("p2p_cleanup", DiagnosticOutcome.REMOVE_OS_ACCEPTED, cleanupGeneration)
                                     negotiationStopped = true
                                     mainHandler.postDelayed(
                                         { inspectGroup() },
@@ -571,6 +685,10 @@ class WifiDirectManager(
 
                                 override fun onFailure(reason: Int) {
                                     if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                                    recordDiagnostic(
+                                        "p2p_cleanup", DiagnosticOutcome.REMOVE_OS_FAILED,
+                                        cleanupGeneration, androidReason = reason
+                                    )
                                     cleanupError = actionFailure("연결 해제", reason)
                                     mainHandler.postDelayed(
                                         { inspectGroup() },
@@ -581,12 +699,12 @@ class WifiDirectManager(
                         )
                     } catch (_: SecurityException) {
                         cleanupError = "Wi-Fi Direct 연결을 해제할 권한이 없습니다. Android Wi-Fi 설정에서 연결을 해제해 주세요."
-                        finish()
+                        finish(outcome = DiagnosticOutcome.PERMISSION_DENIED)
                     }
                 }
             } catch (_: SecurityException) {
                 cleanupError = "Wi-Fi Direct 그룹을 확인할 권한이 없습니다. Android Wi-Fi 설정에서 연결을 해제해 주세요."
-                finish()
+                finish(outcome = DiagnosticOutcome.PERMISSION_DENIED)
             }
         }
 
@@ -604,17 +722,23 @@ class WifiDirectManager(
                 WIFI_DIRECT_CANCEL_CALLBACK_TIMEOUT_MILLIS
             )
             try {
+                recordDiagnostic("p2p_cleanup", DiagnosticOutcome.CANCEL_REQUESTED, cleanupGeneration)
                 readyManager.cancelConnect(
                     readyChannel,
                     object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
                             if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                            recordDiagnostic("p2p_cleanup", DiagnosticOutcome.CANCEL_OS_ACCEPTED, cleanupGeneration)
                             negotiationStopped = true
                             startInspection()
                         }
 
                         override fun onFailure(reason: Int) {
                             if (!connectionSession.isCleaningUp(cleanupGeneration)) return
+                            recordDiagnostic(
+                                "p2p_cleanup", DiagnosticOutcome.CANCEL_OS_FAILED,
+                                cleanupGeneration, androidReason = reason
+                            )
                             cleanupError = actionFailure("연결 취소", reason)
                             startInspection()
                         }
@@ -622,7 +746,7 @@ class WifiDirectManager(
                 )
             } catch (_: SecurityException) {
                 cleanupError = "Wi-Fi Direct 연결을 취소할 권한이 없습니다. Android Wi-Fi 설정에서 연결을 해제해 주세요."
-                finish()
+                finish(outcome = DiagnosticOutcome.PERMISSION_DENIED)
             }
         } else {
             startInspection()
@@ -630,6 +754,7 @@ class WifiDirectManager(
     }
 
     private fun resetDisconnectedState(error: String? = null) {
+        recordDiagnostic("p2p_connection", DiagnosticOutcome.SESSION_RESET_REQUESTED)
         connectionSession.reset()
         _state.value = _state.value.copy(
             discovering = false,
@@ -781,6 +906,10 @@ class WifiDirectManager(
         mainHandler.postDelayed(
             {
                 if (connectionSession.isConnecting(attemptGeneration)) {
+                    recordDiagnostic(
+                        "p2p_connection", DiagnosticOutcome.CONNECT_TIMEOUT,
+                        attemptGeneration, incident = true
+                    )
                     beginConnectionCleanup(
                         "Wi-Fi Direct 연결 시간이 초과되었습니다. 다시 시도해 주세요."
                     )

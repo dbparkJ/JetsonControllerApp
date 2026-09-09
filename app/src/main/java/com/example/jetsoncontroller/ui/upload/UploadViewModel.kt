@@ -277,7 +277,8 @@ class UploadViewModel(
     }
 
     fun startUpload(rootId: String, path: String, targetId: String) {
-        if (!_uiState.value.controlAvailable) return
+        if (!_uiState.value.controlAvailable ||
+            !_uiState.value.deviceId.equals(repository.selectedDeviceId.value, true)) return
         if (!_uiState.value.sourceSummary.matchesUploadSource(rootId, path)) {
             _uiState.value = _uiState.value.copy(
                 message = null,
@@ -290,6 +291,8 @@ class UploadViewModel(
     }
 
     private fun startNewUpload(rootId: String, path: String, targetId: String) {
+        if (actionJob?.isActive == true || _uiState.value.isLoading) return
+        _uiState.value = _uiState.value.copy(isLoading = true)
         val generation = connectionGeneration
         currentPollingJob?.cancel()
         rememberCurrentJobId(null)

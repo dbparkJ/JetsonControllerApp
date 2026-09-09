@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.example.jetsoncontroller.ui.JetsonApp
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 
 internal object BluetoothPermissionPolicy {
@@ -204,7 +205,12 @@ class MainActivity :
             }
 
 
-            JetsonControllerTheme {
+            val (themeMode, _) = com.example.jetsoncontroller.ui.theme.rememberThemePreference()
+            JetsonControllerTheme(darkTheme = when (themeMode) {
+                com.example.jetsoncontroller.ui.theme.ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+                com.example.jetsoncontroller.ui.theme.ThemeMode.LIGHT -> false
+                com.example.jetsoncontroller.ui.theme.ThemeMode.DARK -> true
+            }) {
 
                 JetsonApp(
                     repository =
@@ -267,6 +273,14 @@ class MainActivity :
 
     override fun onResume() {
         super.onResume()
+        ConnectionDiagnostics.record("app_foreground", mapOf("foreground" to true))
+        ConnectionDiagnostics.recordPowerState(this)
         refreshPermissionState()
+    }
+
+    override fun onStop() {
+        ConnectionDiagnostics.record("app_background", mapOf("foreground" to false))
+        ConnectionDiagnostics.recordPowerState(this)
+        super.onStop()
     }
 }

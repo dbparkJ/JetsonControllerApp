@@ -1,0 +1,45 @@
+.................................EssE...............................Connection diagnostics storage unavailable; evidence may be missing
+...................................................................................................Sensor monitor pipeline is temporarily unavailable; retrying: snapshot is being replaced
+............................Wi-Fi Direct connection failed: Command timed out: /usr/sbin/wpa_cli -p /run/wpa_supplicant -s /tmp/tmp1e0b8lyz/wpa-cli -i wlan0 p2p_connect AA:BB:CC:DD:EE:FF pbc go_intent=15 freq=2412
+.Wi-Fi Direct connection failed: Wi-Fi Direct connection attempt timed out
+.............................Wi-Fi Direct connection failed: Command failed: /usr/sbin/wpa_cli -p /run/wpa_supplicant -s /tmp/tmpfbi553pw/wpa-cli -i wlan0 p2p_connect AA:BB:CC:DD:EE:FF pbc go_intent=15 freq=2412 (FAIL)
+.....
+======================================================================
+ERROR: test_ble_advertising (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_ble_advertising
+Traceback (most recent call last):
+  File "/usr/lib/python3.8/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/usr/lib/python3.8/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/jm/ControllerApp/JetsonControllerApp/backend/tests/test_ble_advertising.py", line 3, in <module>
+    from jetson_control.ble import (
+  File "/home/jm/ControllerApp/JetsonControllerApp/backend/jetson_control/ble.py", line 13, in <module>
+    import dbus
+ModuleNotFoundError: No module named 'dbus'
+
+
+======================================================================
+ERROR: test_ble_status (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_ble_status
+Traceback (most recent call last):
+  File "/usr/lib/python3.8/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/usr/lib/python3.8/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/jm/ControllerApp/JetsonControllerApp/backend/tests/test_ble_status.py", line 4, in <module>
+    from jetson_control.ble import (
+  File "/home/jm/ControllerApp/JetsonControllerApp/backend/jetson_control/ble.py", line 13, in <module>
+    import dbus
+ModuleNotFoundError: No module named 'dbus'
+
+
+----------------------------------------------------------------------
+Ran 230 tests in 13.643s
+
+FAILED (errors=2, skipped=2)
+{"status": "DEPLOYED", "backup": "/tmp/tmp9y6862od/install/backups/connection-evidence-20260908T235706Z-ac6cbe58", "files": ["api.py", "diagnostics.py", "mobile_rtk.py", "pipelines.py", "status.py", "wifi_direct.py"], "units": ["jetson-control-api.service", "jetson-wifi-direct.service"], "publicHello": "TLS_VERIFIED_200", "newProcessStartEvidence": true, "authenticatedPhoneSession": "NOT_TESTED_BY_THIS_SCRIPT"}
+{"status": "FAILED_ROLLED_BACK", "backup": "/tmp/tmpv35iovt6/install/backups/connection-evidence-20260908T235706Z-858606b4"}
+{"status": "DEPLOYED", "backup": "/tmp/tmpbxr1jecw/install/backups/connection-evidence-20260908T235706Z-d371a670", "files": ["api.py", "diagnostics.py", "mobile_rtk.py", "pipelines.py", "status.py", "wifi_direct.py"], "units": ["jetson-control-api.service", "jetson-wifi-direct.service"], "publicHello": "TLS_VERIFIED_200", "newProcessStartEvidence": true, "authenticatedPhoneSession": "NOT_TESTED_BY_THIS_SCRIPT"}

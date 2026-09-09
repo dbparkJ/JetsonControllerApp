@@ -1,5 +1,9 @@
 package com.example.jetsoncontroller.ui.dashboard
 
+import androidx.compose.ui.graphics.Color
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -10,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,7 +36,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,14 +44,12 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -105,286 +107,105 @@ fun DashboardScreen(
     onBack: () -> Unit,
     healthDeviceId: String = state.deviceName,
     dismissedHealthKeys: Set<String> = emptySet(),
-    onHealthDismissalsChange: (Set<String>) -> Unit = {}
+    onHealthDismissalsChange: (Set<String>) -> Unit = {},
+    onSensorsClick: () -> Unit = {},
+    onCameraClick: () -> Unit = {},
+    onGnssClick: () -> Unit = {},
+    tasksConfirmed: Boolean = false,
+    taskObservedAt: Long? = null,
+    pendingTaskActions: Map<String, String> = emptyMap()
 ) {
-    var pendingPowerAction by remember { mutableStateOf<PowerAction?>(null) }
-    var optimisticDismissedHealthKeys by rememberSaveable(healthDeviceId) {
-        mutableStateOf<List<String>>(emptyList())
-    }
-    var healthyCardDismissed by rememberSaveable(healthDeviceId) {
-        mutableStateOf(false)
-    }
-    val health = assessDashboardHealth(
-        status = state.status,
-        freshness = state.statusFreshness,
-        pipelines = pipelines,
-        uploads = uploads
-    )
-    val currentDismissalKeys = dashboardHealthDismissalKeys(healthDeviceId, health)
-    val effectiveDismissals = dismissedHealthKeys + optimisticDismissedHealthKeys
-    val healthDismissed = currentDismissalKeys.isNotEmpty() &&
-        effectiveDismissals.containsAll(currentDismissalKeys)
-    val connectionStage = userConnectionStage(state.isOnline, state.transportType)
-    val activeUploads = uploads.filter { it.state.isActiveUploadState() }
-
-    pendingPowerAction?.let { action ->
-        val rebooting = action == PowerAction.REBOOT
-        AlertDialog(
-            onDismissRequest = { pendingPowerAction = null },
-            icon = {
-                Icon(
-                    if (rebooting) Icons.Default.RestartAlt else Icons.Default.PowerSettingsNew,
-                    contentDescription = null
-                )
-            },
-            title = { Text(if (rebooting) "Jetson을 재부팅할까요?" else "Jetson을 종료할까요?") },
-            text = {
-                Text(
-                    if (rebooting) {
-                        "실행 중인 수집 작업이 중단되고 연결이 잠시 끊어집니다."
-                    } else {
-                        "실행 중인 작업이 중단됩니다. 다시 사용하려면 Jetson 전원을 직접 켜야 합니다."
-                    }
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    pendingPowerAction = null
-                    if (rebooting) onReboot() else onShutdown()
-                }) {
-                    Text(if (rebooting) "재부팅" else "종료")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingPowerAction = null }) { Text("취소") }
-            }
-        )
-    }
-
+    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
+    val health = assessDashboardHealth(state.status,
+        if (state.status == com.example.jetsoncontroller.model.JetsonStatus()) StatusFreshness.UNKNOWN else state.statusFreshness,
+        pipelines, uploads)
+    val healthKeys = dashboardHealthDismissalKeys(healthDeviceId, health)
+    var hiddenHealth by rememberSaveable(healthDeviceId) { mutableStateOf(false) }
+    val active = pipelines.filter { it.state in setOf(PipelineState.RUNNING, PipelineState.STARTING,
+        PipelineState.STOPPING, PipelineState.RETRYING) }
+    val task = active.firstOrNull()
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(state.deviceName, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            connectionStage.label,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "내 장비로 이동")
-                    }
-                },
-                actions = {
-                    AlertIconButton(unreadAlertCount, onAlertsClick)
-                    IconButton(onClick = onDisconnect, enabled = state.isOnline) {
-                        Icon(Icons.Default.LinkOff, contentDescription = "연결 해제")
-                    }
-                }
-            )
+            com.example.jetsoncontroller.ui.components.DeviceContextHeader(
+                title = "현장 컨트롤", deviceName = state.deviceName,
+                connectionLabel = userConnectionStage(state.isOnline, state.transportType).label,
+                onDevices = onBack, unreadCount = unreadAlertCount, onAlerts = onAlertsClick)
         },
-        bottomBar = {
-            ControlNavigationBar(
-                selected = ControlSection.OVERVIEW,
-                onSelect = onSectionSelected,
-                enabledSections = ControlSection.entries.toSet()
-            )
-        }
-    ) { paddingValues ->
+        bottomBar = { ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected) }
+    ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(bottom = AppSpacing.section)
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(AppSpacing.screen),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (state.operationInProgress) {
-                item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+            item {
+                Surface(color = c.hero, contentColor = c.heroText,
+                    shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("현재 작업", style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
+                        Text(task?.label ?: if (tasksConfirmed) "진행 중인 작업 없음" else "작업 상태 확인 필요",
+                            style = MaterialTheme.typography.headlineSmall)
+                        Text(task?.let { com.example.jetsoncontroller.ui.pipelines.taskStateLabel(
+                            it.state, tasksConfirmed, pendingTaskActions[it.id]) }
+                            ?: if (tasksConfirmed) "등록된 작업을 확인하고 시작하세요." else "마지막 상태를 보관합니다. 연결 후 다시 확인하세요.",
+                            style = MaterialTheme.typography.bodyLarge)
+                        taskObservedAt?.let { Text("작업 상태 확인 · " + java.text.DateFormat.getTimeInstance().format(java.util.Date(it)),
+                            style = MaterialTheme.typography.bodySmall, color = c.heroMuted) }
+                        Button(shape = MaterialTheme.shapes.small, onClick = onPipelinesClick, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = c.primary, contentColor = c.onPrimary)) {
+                            Text(if (active.size > 1) "작업 ${active.size}개 상태 보기 →" else "상태 보기 →")
+                        }
+                    }
+                }
             }
-
-            state.operationMessage?.let { message ->
+            item { SectionHeader("준비 상태", trailing = { TextButton(onClick = onSensorsClick) { Text("전체 보기") } }) }
+            if (state.isOnline && !hiddenHealth &&
+                !(healthKeys.isNotEmpty() && dismissedHealthKeys.containsAll(healthKeys))) {
                 item {
-                    AppBanner(
-                        message = message,
-                        tone = if (state.operationIsError) StatusTone.ERROR else StatusTone.SUCCESS,
-                        onDismiss = onDismissOperationMessage,
-                        modifier = Modifier.padding(
-                            horizontal = AppSpacing.screen,
-                            vertical = AppSpacing.medium
-                        )
-                    )
+                    SwipeDismissibleHealthOverview(state, health, onDismiss = {
+                        hiddenHealth = true
+                        onHealthDismissalsChange(dismissDashboardHealth(dismissedHealthKeys, healthDeviceId, health))
+                    }, showCloseButton = true)
                 }
             }
-
             item {
-                Column(modifier = Modifier.padding(horizontal = AppSpacing.screen)) {
-                    Spacer(Modifier.height(AppSpacing.medium))
-                    ConnectionModeSummary(state)
-                    Spacer(Modifier.height(AppSpacing.medium))
-                    if (!state.isOnline) {
-                        AppBanner(
-                            message = "기기가 오프라인입니다.",
-                            tone = StatusTone.WARNING
-                        )
-                    } else if (
-                        !healthDismissed &&
-                        !(health.level == DashboardHealthLevel.HEALTHY && healthyCardDismissed)
-                    ) {
-                        val dismissHealth = {
-                            if (health.level == DashboardHealthLevel.HEALTHY) {
-                                healthyCardDismissed = true
-                            } else if (health.level == DashboardHealthLevel.ATTENTION) {
-                                    optimisticDismissedHealthKeys =
-                                        (optimisticDismissedHealthKeys + currentDismissalKeys).distinct()
-                                    onHealthDismissalsChange(
-                                        dismissDashboardHealth(
-                                            effectiveDismissals,
-                                            healthDeviceId,
-                                            health
-                                        )
-                                    )
-                            }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val compact = androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.3f
+                    val sensorValue = if (!state.isOnline || !state.status.sensorTelemetryAvailable) "수신 상태 미확인"
+                        else if (!state.status.sensorTelemetryFresh) "마지막 수신 · 지연"
+                        else "${listOf(state.status.cameraSensor.active, state.status.gnssSensor.active, state.status.imuSensor.active).count { it }}개 수신"
+                    val storageValue = if (state.isOnline && state.statusFreshness == StatusFreshness.CURRENT)
+                        state.status.metricDisplay("storagePercent", "${state.status.storagePercent}% 사용") else "현재 용량 미확인"
+                    if (compact) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.weight(1f)) { ReadinessTile("센서", sensorValue, "카메라 · GNSS · IMU", onSensorsClick) }
+                            Box(Modifier.weight(1f)) { ReadinessTile("저장 공간", storageValue, "파일과 폴더", onStorageClick) }
                         }
-                        if (health.level == DashboardHealthLevel.UNKNOWN) {
-                            HealthOverview(
-                                state = state,
-                                health = health,
-                                onDismiss = null
-                            )
-                        } else {
-                            SwipeDismissibleHealthOverview(
-                                state = state,
-                                health = health,
-                                onDismiss = dismissHealth,
-                                showCloseButton =
-                                    health.level == DashboardHealthLevel.ATTENTION
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onCameraClick, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text("카메라 확인") }
+                            OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onGnssClick, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text("GNSS 위치") }
                         }
-                    }
-                    if (state.isOnline && state.statusFreshness == StatusFreshness.STALE) {
-                        Spacer(Modifier.height(AppSpacing.medium))
-                        AppBanner(
-                            message = "마지막 상태 응답 이후 ${state.statusAgeSeconds ?: 0}초가 지났습니다. 표시된 수치는 최신 값이 아닐 수 있습니다.",
-                            tone = StatusTone.WARNING
-                        )
-                    }
-                    if (state.isOnline) {
-                        Spacer(Modifier.height(AppSpacing.section))
-                        SectionHeader("진행 중인 작업")
-                        Spacer(Modifier.height(AppSpacing.small))
-                        ActiveWork(
-                            pipelines = pipelines,
-                            uploads = uploads,
-                            onPipelinesClick = onPipelinesClick,
-                            onUploadQueueClick = onUploadQueueClick
-                        )
-                        Spacer(Modifier.height(AppSpacing.section))
-                        SectionHeader(
-                            title = if (state.statusFreshness == StatusFreshness.STALE) {
-                                "마지막 시스템 지표"
-                            } else {
-                                "시스템 지표"
-                            },
-                            trailing = {
-                                Text(
-                                    statusAgeLabel(state),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        )
-                        Spacer(Modifier.height(AppSpacing.small))
-                        MetricsGrid(state)
-                    }
-                    Spacer(Modifier.height(AppSpacing.section))
-                    SectionHeader("빠른 작업")
-                }
-            }
-
-            item {
-                DashboardAction(
-                    icon = Icons.Default.Wifi,
-                    title = "Wi-Fi 설정",
-                    description = "사용할 공유기에 연결",
-                    enabled = state.isOnline && state.capabilities.wifiProvisioning,
-                    onClick = onNetworkSettingsClick
-                )
-                DashboardDivider()
-                DashboardAction(
-                    icon = Icons.Default.FolderOpen,
-                    title = "저장 데이터 확인",
-                    description = "수집 파일과 폴더 확인",
-                    enabled = state.isOnline && state.fullControlAvailable &&
-                        state.capabilities.fileBrowsing,
-                    onClick = onStorageClick
-                )
-                DashboardDivider()
-                DashboardAction(
-                    icon = Icons.Default.CloudUpload,
-                    title = "업로드 기록",
-                    description = if (activeUploads.isNotEmpty()) {
-                        "${activeUploads.size}개 업로드 진행 중"
                     } else {
-                        "완료 및 실패한 업로드 기록 확인"
-                    },
-                    enabled = true,
-                    onClick = onUploadQueueClick
-                )
-                DashboardDivider()
-                DashboardAction(
-                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                    title = "사용 가능한 작업목록",
-                    description = null,
-                    enabled = state.isOnline && state.fullControlAvailable &&
-                        state.capabilities.pipelines,
-                    onClick = onPipelinesClick
-                )
-            }
-
-            item {
-                Column(modifier = Modifier.padding(horizontal = AppSpacing.screen)) {
-                    Spacer(Modifier.height(AppSpacing.section))
-                    SectionHeader("장치 제어")
-                    Spacer(Modifier.height(AppSpacing.medium))
-                    if (state.capabilities.fanControl) {
-                        FanControlCard(
-                            state = state,
-                            onRefresh = onRefreshFan,
-                            onSetAuto = onSetFanAuto,
-                            onSetManual = onSetFanManual
-                        )
-                        Spacer(Modifier.height(AppSpacing.medium))
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
-                    ) {
-                        OutlinedButton(
-                            onClick = { pendingPowerAction = PowerAction.REBOOT },
-                            modifier = Modifier.weight(1f),
-                            enabled = state.isOnline && state.capabilities.powerCommandsEnabled &&
-                                !state.operationInProgress
-                        ) {
-                            Icon(Icons.Default.RestartAlt, contentDescription = null)
-                            Text("재부팅", modifier = Modifier.padding(start = AppSpacing.small))
-                        }
-                        OutlinedButton(
-                            onClick = { pendingPowerAction = PowerAction.SHUTDOWN },
-                            modifier = Modifier.weight(1f),
-                            enabled = state.isOnline && state.capabilities.powerCommandsEnabled &&
-                                !state.operationInProgress
-                        ) {
-                            Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
-                            Text("종료", modifier = Modifier.padding(start = AppSpacing.small))
-                        }
+                        ReadinessTile("센서", sensorValue, "카메라 · GNSS · IMU", onSensorsClick)
+                        ReadinessTile("저장 공간", storageValue, "실제 파일과 폴더 확인", onStorageClick)
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onCameraClick, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("카메라 확인") }
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onGnssClick, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("GNSS 위치") }
                     }
                 }
             }
+            item { ReadinessTile("데이터 · 전송", "전송 내역 ${uploads.size}개", "원본·대상 서버·검증 결과 확인", onUploadQueueClick, color = c.sectionRaised) }
+        }
+    }
+}
+
+@Composable
+private fun ReadinessTile(title: String, value: String, detail: String, onClick: () -> Unit,
+    color: Color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
+    Surface(onClick = onClick, color = color, contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.ink, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleLarge)
+            Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -430,7 +251,7 @@ private fun SwipeDismissibleHealthOverview(
 }
 
 @Composable
-private fun FanControlCard(
+internal fun FanControlCard(
     state: DashboardUiState,
     onRefresh: () -> Unit,
     onSetAuto: () -> Unit,
@@ -484,12 +305,12 @@ private fun FanControlCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
                 ) {
-                    OutlinedButton(
+                    OutlinedButton(shape = MaterialTheme.shapes.small,
                         onClick = onSetAuto,
                         modifier = Modifier.weight(1f),
                         enabled = state.isOnline && fan.autoAvailable && !state.fanLoading
                     ) { Text("자동") }
-                    Button(
+                    Button(shape = MaterialTheme.shapes.small,
                         onClick = { onSetManual(manualPercent.roundToInt()) },
                         modifier = Modifier.weight(1f),
                         enabled = state.isOnline && !state.fanLoading
@@ -529,14 +350,14 @@ private fun HealthOverview(
         DashboardHealthLevel.UNKNOWN -> Icons.AutoMirrored.Filled.HelpOutline
     }
     val container = when (tone) {
-        StatusTone.SUCCESS -> MaterialTheme.colorScheme.primaryContainer
-        StatusTone.WARNING -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.secondaryContainer
+        StatusTone.SUCCESS -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.successBg
+        StatusTone.WARNING -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warningBg
+        else -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.infoBg
     }
     val content = when (tone) {
-        StatusTone.SUCCESS -> MaterialTheme.colorScheme.onPrimaryContainer
-        StatusTone.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
-        else -> MaterialTheme.colorScheme.onSecondaryContainer
+        StatusTone.SUCCESS -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success
+        StatusTone.WARNING -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warning
+        else -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.info
     }
 
     Surface(
@@ -583,143 +404,11 @@ private fun HealthOverview(
 }
 
 @Composable
-private fun ConnectionModeSummary(
-    state: DashboardUiState
-) {
-    val stage = userConnectionStage(state.isOnline, state.transportType)
-    val connected = stage != UserConnectionStage.OFFLINE
-    val tone = if (connected) StatusTone.SUCCESS else StatusTone.WARNING
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = if (connected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainer
-        },
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Row(
-            modifier = Modifier.padding(AppSpacing.large),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
-        ) {
-            Icon(
-                when (stage) {
-                    UserConnectionStage.PHONE_CONNECTED,
-                    UserConnectionStage.BASIC_CONNECTED -> Icons.Default.PhoneAndroid
-                    UserConnectionStage.WIFI_CONNECTED -> Icons.Default.Wifi
-                    UserConnectionStage.OFFLINE -> Icons.Default.LinkOff
-                },
-                contentDescription = null,
-                modifier = Modifier.size(28.dp)
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    stage.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    stage.detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            StatusBadge(stage.label, tone)
-        }
+internal fun MetricsGrid(state: DashboardUiState) {
+    if (state.statusFreshness == StatusFreshness.UNKNOWN || state.status == com.example.jetsoncontroller.model.JetsonStatus()) {
+        Text("장비 지표 미확인", style = MaterialTheme.typography.bodyLarge)
+        return
     }
-}
-
-@Composable
-private fun ActiveWork(
-    pipelines: List<ManagedPipeline>,
-    uploads: List<UploadJob>,
-    onPipelinesClick: () -> Unit,
-    onUploadQueueClick: () -> Unit
-) {
-    val activePipelines = pipelines.filter {
-        it.state in setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING)
-    }
-    val activeUploads = uploads.filter {
-        it.state in setOf(UploadJobState.QUEUED, UploadJobState.SCANNING, UploadJobState.UPLOADING)
-    }
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column {
-            if (activePipelines.isEmpty() && activeUploads.isEmpty()) {
-                Text(
-                    "현재 진행 중인 작업이 없습니다.",
-                    modifier = Modifier.padding(AppSpacing.large),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (activePipelines.isNotEmpty()) {
-                WorkRow(
-                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                    title = activePipelines.first().label,
-                    description = if (activePipelines.size == 1) {
-                        "파이프라인 실행 중"
-                    } else {
-                        "파이프라인 ${activePipelines.size}개 실행 중"
-                    },
-                    onClick = onPipelinesClick
-                )
-            }
-            if (activePipelines.isNotEmpty() && activeUploads.isNotEmpty()) {
-                HorizontalDivider(modifier = Modifier.padding(start = 60.dp))
-            }
-            if (activeUploads.isNotEmpty()) {
-                WorkRow(
-                    icon = Icons.Default.CloudUpload,
-                    title = activeUploads.first().currentFile ?: activeUploads.first().relativePath,
-                    description = if (activeUploads.size == 1) {
-                        "서버 업로드 ${uploadProgress(activeUploads.first())}"
-                    } else {
-                        "전송 대기열 ${activeUploads.size}개"
-                    },
-                    onClick = onUploadQueueClick
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun WorkRow(
-    icon: ImageVector,
-    title: String,
-    description: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(AppSpacing.large),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Icon(Icons.Default.ChevronRight, contentDescription = null)
-    }
-}
-
-@Composable
-private fun MetricsGrid(state: DashboardUiState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
@@ -766,64 +455,6 @@ private fun MetricsGrid(state: DashboardUiState) {
             }
         }
     }
-}
-
-@Composable
-private fun DashboardAction(
-    icon: ImageVector,
-    title: String,
-    description: String?,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    val alpha = if (enabled) 1f else 0.45f
-    ListItem(
-        headlineContent = { Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)) },
-        supportingContent = description?.let {
-            {
-                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
-            }
-        },
-        leadingContent = {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-        },
-        trailingContent = {
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
-            )
-        },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-        modifier = Modifier.clickable(enabled = enabled, onClick = onClick)
-    )
-}
-
-@Composable
-private fun DashboardDivider() {
-    HorizontalDivider(modifier = Modifier.padding(start = 72.dp, end = AppSpacing.screen))
-}
-
-private fun statusAgeLabel(state: DashboardUiState): String = when (state.statusFreshness) {
-    StatusFreshness.UNKNOWN -> "응답 대기 중"
-    StatusFreshness.STALE -> "${state.statusAgeSeconds ?: 0}초 전"
-    StatusFreshness.CURRENT -> when (val age = state.statusAgeSeconds ?: 0) {
-        0L -> "방금 갱신"
-        else -> "${age}초 전"
-    }
-}
-
-private fun UploadJobState.isActiveUploadState(): Boolean = this in setOf(
-    UploadJobState.QUEUED,
-    UploadJobState.SCANNING,
-    UploadJobState.UPLOADING
-)
-
-private fun uploadProgress(job: UploadJob): String {
-    val total = job.bytesTotal ?: return "진행 중"
-    val transferred = job.bytesTransferred ?: 0L
-    if (total <= 0L) return "진행 중"
-    return "${(transferred * 100L / total).coerceIn(0L, 100L)}%"
 }
 
 private fun formatMemory(megabytes: Int): String = when {

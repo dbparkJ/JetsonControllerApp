@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.settings
 
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,7 +22,6 @@ import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -62,7 +62,8 @@ fun AlertSettingsScreen(
     onPipelineFailedEnabledChange: (Boolean) -> Unit,
     onUploadStartedEnabledChange: (Boolean) -> Unit,
     onUploadEndedEnabledChange: (Boolean) -> Unit,
-    onSectionSelected: (ControlSection) -> Unit
+    onSectionSelected: (ControlSection) -> Unit,
+    onOpenDiagnostics: () -> Unit = {}
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -77,6 +78,9 @@ fun AlertSettingsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text("연결 진단 기록")
+            }
             if (!notificationPermissionGranted) {
                 NotificationPermissionBanner(onRequestNotificationPermission)
             }

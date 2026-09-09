@@ -953,5 +953,44 @@ class ApiContractTest(unittest.TestCase):
         self.pipelines.register.assert_not_called()
 
 
+    def test_invalid_direct_diagnostic_metadata_does_not_block_public_api(self):
+        from dataclasses import replace
+        state = self.client.app.state
+        dependencies = {name: getattr(state, name) for name in (
+            "authenticator", "status_collector", "command_runner", "storage", "workspace_storage",
+            "upload_manager", "wifi_provisioner", "pipeline_manager", "mobile_rtk_registry",
+            "time_synchronizer", "fan_controller",
+        )}
+        app = create_app(paths=self.paths, config=replace(self.config, wifi_direct_address="invalid fixture"),
+                         tls_fingerprint=self.tls_fingerprint, **dependencies)
+        with TestClient(app) as client:
+            self.assertEqual(client.get("/v1/hello").status_code, 200)
+
+    def test_diagnostics_distinguishes_rejected_and_verified_signed_response(self):
+        from jetson_control.diagnostics import request_ref
+        rejected = self.client.get("/v1/status", headers={"X-Request-Nonce": "rejected-fixture"})
+        self.assertEqual(rejected.status_code, 401)
+        accepted = self.signed_request("GET", "/v1/status")
+        self.assertEqual(accepted.status_code, 200)
+        # Existing HMAC covers the exact returned bytes, unchanged by observer.
+        expected = sign_response(self.config.bootstrap_secret, self.config.device_id,
+                                 self.auth.boot_nonce, "request-0001", self.request_timestamp,
+                                 accepted.status_code, accepted.content)
+        self.assertEqual(accepted.headers["X-Response-Signature"], expected)
+        store = self.client.app.state.connection_diagnostics
+        self.assertTrue(store.flush())
+        replies = [json.loads(line) for path in store.directory.glob("events-*.jsonl")
+                   for line in path.read_text().splitlines()
+                   if json.loads(line)["event"] == "api_reply_sent"]
+        by_ref = {row.get("requestRef"): row for row in replies}
+        bad = by_ref[request_ref("rejected-fixture")]
+        self.assertEqual(bad["auth"], "rejected")
+        self.assertFalse(bad["responseSigned"])
+        good = by_ref[request_ref("request-0001")]
+        self.assertEqual(good["auth"], "verified")
+        self.assertTrue(good["responseSigned"])
+        self.assertNotIn(self.config.device_id, json.dumps(replies))
+
+
 if __name__ == "__main__":
     unittest.main()

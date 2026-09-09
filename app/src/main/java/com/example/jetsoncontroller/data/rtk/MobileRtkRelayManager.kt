@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.data.rtk
 
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
+import com.example.jetsoncontroller.data.network.diagnosticFailure
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -184,6 +186,11 @@ class MobileRtkRelayManager(
                     .onFailure { error ->
                         val current = _state.value
                         if (current.active && current.pipelineId == pipelineId) {
+                            ConnectionDiagnostics.record("rtk_heartbeat", mapOf(
+                                "success" to false, "active" to true,
+                                "bytesFromCaster" to current.bytesFromCaster,
+                                "exceptionClass" to diagnosticFailure(error)
+                            ), incident = true)
                             _state.value = current.copy(
                                 error = error.message ?: "RTK 중계 등록을 갱신하지 못했습니다."
                             )
@@ -192,6 +199,9 @@ class MobileRtkRelayManager(
                     .onSuccess {
                         val current = _state.value
                         if (current.active && current.pipelineId == pipelineId) {
+                            ConnectionDiagnostics.record("rtk_heartbeat", mapOf(
+                                "success" to true, "active" to true, "bytesFromCaster" to current.bytesFromCaster
+                            ))
                             _state.value = current.copy(error = null)
                         }
                     }

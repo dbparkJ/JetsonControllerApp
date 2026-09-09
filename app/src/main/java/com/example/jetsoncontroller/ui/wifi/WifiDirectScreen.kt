@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.wifi
 
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.Button
 import android.net.wifi.p2p.WifiP2pDevice
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,8 +22,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.WifiTethering
-import androidx.compose.material3.Button
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider

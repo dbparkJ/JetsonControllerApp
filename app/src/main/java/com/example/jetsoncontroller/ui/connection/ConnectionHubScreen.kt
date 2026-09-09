@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.connection
 
+import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,9 +24,7 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
-import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,7 +38,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -230,7 +230,7 @@ fun ConnectionHubScreen(
                     description = "QR로 장비 인증 정보 저장",
                     onClick = onAddDevice
                 )
-                ConnectionMethod(Icons.Default.Settings, "앱 알림 설정", "장비 연결 없이 알림 설정 변경", onSettingsClick)
+                ConnectionMethod(Icons.Default.Settings, "설정", "장비·서버·알림·화면 설정", onSettingsClick)
                 ConnectionMethod(Icons.Default.History, "업로드 기록", "마지막으로 확인한 전송 기록 보기", onUploadHistoryClick)
             }
         }

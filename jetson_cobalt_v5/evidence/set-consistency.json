@@ -1,0 +1,172 @@
+{
+  "scope": "LOCAL_PACKAGE_ONLY",
+  "status": "PASS",
+  "screen_count": 17,
+  "overview_boards": 2,
+  "color_roles_per_mode": {
+    "light": 23,
+    "dark": 23
+  },
+  "palette_sync": [
+    "tokens",
+    "scene",
+    "figma-import-data",
+    "embedded HTML",
+    "embedded plugin DATA",
+    "both MD tables"
+  ],
+  "green_palette_roles": [],
+  "prompt_embedded_identical": true,
+  "original_8_screenshot_hashes": "PASS",
+  "no_font_binaries": true,
+  "artifacts": [
+    {
+      "file": "screens/01-home-light.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "9b443d304985bd5bae446088ceab8e38d04b23c5540e6e9495c7f8e08e4e5d9c"
+    },
+    {
+      "file": "screens/02-tasks.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "5ad7aa72adc75e73311a2992f5a5c2fc1b3df5328730574da1adc1c199d9523e"
+    },
+    {
+      "file": "screens/03-data.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "b0db6af7dc04f250720337c50180c1807065fcd0cb82b9b11df0affcd0a7ba75"
+    },
+    {
+      "file": "screens/04-settings.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "545c1f27ae3450f1e831b4019c03629ee1192634dae31a8613ff41dd4bccecfe"
+    },
+    {
+      "file": "screens/05-home-dark.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "6e7dc02a0f0d43fa60e3df5600435b8e049039806d9c62c0c15c57efa6695fb6"
+    },
+    {
+      "file": "screens/06-home-offline.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "21e2c29b6ff1963f831d8092ea12beb2efcf602471312935dcc1deda3ab7c51b"
+    },
+    {
+      "file": "screens/07-task-detail.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "5da2771ad34ea59a3a309c52d263fd3a7c252c6f74400f82724d9a38b4150e98"
+    },
+    {
+      "file": "screens/08-sensors.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "22ba1dee6802cbeb749312cd8a0a75cf47d212d584f108094c7144f1358880ab"
+    },
+    {
+      "file": "screens/09-preflight.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "357ebbc2990d2080a5363bb6d8d96b85da19feb8aca004dd0e1a32827f193c28"
+    },
+    {
+      "file": "screens/10-onboarding.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "ba72a6f37bcb724c7c9e1e5997710965a70d783cfe133b5f80d4a4c7283067ba"
+    },
+    {
+      "file": "screens/11-connection.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "ef649986652eac375a457ad3e67258ac9133ab659ad29f33e2b1dfe98f951b1e"
+    },
+    {
+      "file": "screens/12-home-large-type.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "9f9f4ebf010587077a449cc97594c65c8793dafd8c9a5da0773ae36165d015d1"
+    },
+    {
+      "file": "screens/13-reboot-confirm.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "0df24d217bb7af4040ef1d4e7407fa85b9ef851317ac7874f3a7df220bc1df7c"
+    },
+    {
+      "file": "screens/14-transfer-confirm.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "7193edc7eb2e2769e35d3d6f99a6739d3e9866cb782881f9f531b87671c4fed9"
+    },
+    {
+      "file": "screens/15-settings-danger.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "fa152c0e82c7c105fc516dc1c2fb7b5126044fb15d7ec5a8ae84aa5d18fd7468"
+    },
+    {
+      "file": "screens/16-data-files.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "68603a2228f5a4497543ba9facc6f841dbe8c38f48e6372d02d680c336f78b9d"
+    },
+    {
+      "file": "screens/17-device-picker.png",
+      "size": [
+        824,
+        1784
+      ],
+      "sha256": "0c2dbd917ab16914028fad708a24a5df32e292899b167b6aa416dc64940227e0"
+    },
+    {
+      "reference_comparison": "01-home-light.png",
+      "identical_pixels": true,
+      "mean_absolute_channel_difference": 0.0
+    },
+    {
+      "reference_comparison": "00-overview.png",
+      "identical_pixels": false,
+      "mean_absolute_channel_difference": 0.0007082790798611111
+    }
+  ],
+  "real_figma_export": "NOT_RUN",
+  "native_app_or_real_device_test": "NOT_RUN"
+}

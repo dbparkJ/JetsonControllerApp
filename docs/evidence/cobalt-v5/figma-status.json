@@ -1,0 +1,14 @@
+{
+  "tool": "figma_get_metadata",
+  "fileKey": "DhyCybqq65CPBwomkElI9r",
+  "nodeId": "0:1",
+  "result": "Starter MCP tool call limit",
+  "actual_file_read": false,
+  "figma_export": false,
+  "fallback": [
+    "local PNG",
+    "tokens.json",
+    "figma-plugin/README.md",
+    "figma-plugin/code.template.js"
+  ]
+}

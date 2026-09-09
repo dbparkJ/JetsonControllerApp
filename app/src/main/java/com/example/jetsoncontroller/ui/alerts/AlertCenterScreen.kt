@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.alerts
 
+import com.example.jetsoncontroller.ui.theme.TextButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,7 +31,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -216,8 +216,8 @@ private fun alertIcon(destination: AlertDestination): ImageVector = when (destin
 @Composable
 private fun alertColor(severity: AlertSeverity): Color = when (severity) {
     AlertSeverity.INFO -> MaterialTheme.colorScheme.secondary
-    AlertSeverity.SUCCESS -> MaterialTheme.colorScheme.primary
-    AlertSeverity.WARNING -> MaterialTheme.colorScheme.tertiary
+    AlertSeverity.SUCCESS -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success
+    AlertSeverity.WARNING -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warning
     AlertSeverity.ERROR -> MaterialTheme.colorScheme.error
 }
 

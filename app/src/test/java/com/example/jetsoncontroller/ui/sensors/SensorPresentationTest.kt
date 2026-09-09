@@ -39,27 +39,27 @@ class SensorPresentationTest {
     @Test
     fun exposesOnlyTheFourRequestedGnssLabels() {
         assertEquals(
-            "GNSS 장치가 꺼져있습니다",
+            "GNSS 수신 상태 미확인",
             gnssReceptionLabel(false, "rtk_fixed", "fixed")
         )
-        assertEquals("RTK가 꺼져있습니다", gnssReceptionLabel(true, "gps"))
-        assertEquals("RTK가 꺼져있습니다", gnssReceptionLabel(true, "dgps"))
-        assertEquals("RTK 신호가 약합니다", gnssReceptionLabel(true, "rtk_float"))
-        assertEquals("RTK 수신중", gnssReceptionLabel(true, "rtk_fixed"))
+        assertEquals("RTK FIX 미확인", gnssReceptionLabel(true, "gps"))
+        assertEquals("RTK FIX 미확인", gnssReceptionLabel(true, "dgps"))
+        assertEquals("RTK FLOAT", gnssReceptionLabel(true, "rtk_float"))
+        assertEquals("RTK FIX 확인", gnssReceptionLabel(true, "rtk_fixed"))
     }
 
     @Test
     fun fallsBackToExplicitRtkStatusWhenFixTypeIsGeneric() {
-        assertEquals("RTK 신호가 약합니다", gnssReceptionLabel(true, "gps", "float"))
-        assertEquals("RTK 수신중", gnssReceptionLabel(true, "dgps", "fixed"))
-        assertEquals("RTK 수신중", gnssReceptionLabel(true, "rtk_fix"))
+        assertEquals("RTK FLOAT", gnssReceptionLabel(true, "gps", "float"))
+        assertEquals("RTK FIX 확인", gnssReceptionLabel(true, "dgps", "fixed"))
+        assertEquals("RTK FIX 확인", gnssReceptionLabel(true, "rtk_fix"))
     }
 
     @Test
     fun explicitRtkStatusOverridesConflictingFixType() {
-        assertEquals("RTK가 꺼져있습니다", gnssReceptionLabel(true, "rtk_fixed", "off"))
-        assertEquals("RTK 신호가 약합니다", gnssReceptionLabel(true, "rtk_fixed", "float"))
-        assertEquals("RTK 수신중", gnssReceptionLabel(true, "rtk_float", "fixed"))
+        assertEquals("RTK FIX 미확인", gnssReceptionLabel(true, "rtk_fixed", "off"))
+        assertEquals("RTK FLOAT", gnssReceptionLabel(true, "rtk_fixed", "float"))
+        assertEquals("RTK FIX 확인", gnssReceptionLabel(true, "rtk_float", "fixed"))
     }
 
     @Test

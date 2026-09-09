@@ -1,0 +1,173 @@
+{
+  "semantic_tokens_match": 46,
+  "pairs": [
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "canvas",
+      "contrast": 13.47,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "surface",
+      "contrast": 14.66,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "surface",
+      "contrast": 5.64,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onPrimary",
+      "background": "primary",
+      "contrast": 6.18,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onAccent",
+      "background": "accent",
+      "contrast": 8.53,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "heroText",
+      "background": "hero",
+      "contrast": 13.29,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "heroMuted",
+      "background": "hero",
+      "contrast": 8.9,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "success",
+      "background": "successBg",
+      "contrast": 7.16,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "warning",
+      "background": "warningBg",
+      "contrast": 5.89,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "danger",
+      "background": "dangerBg",
+      "contrast": 5.38,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "info",
+      "background": "infoBg",
+      "contrast": 5.89,
+      "pass_4_5": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onDisabled",
+      "background": "disabled",
+      "contrast": 4.1,
+      "pass_4_5": false
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "canvas",
+      "contrast": 15.83,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "surface",
+      "contrast": 14.0,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "surface",
+      "contrast": 8.93,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onPrimary",
+      "background": "primary",
+      "contrast": 7.58,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onAccent",
+      "background": "accent",
+      "contrast": 8.53,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "heroText",
+      "background": "hero",
+      "contrast": 11.67,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "heroMuted",
+      "background": "hero",
+      "contrast": 7.81,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "success",
+      "background": "successBg",
+      "contrast": 7.22,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "warning",
+      "background": "warningBg",
+      "contrast": 8.28,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "danger",
+      "background": "dangerBg",
+      "contrast": 7.61,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "info",
+      "background": "infoBg",
+      "contrast": 7.7,
+      "pass_4_5": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onDisabled",
+      "background": "disabled",
+      "contrast": 5.95,
+      "pass_4_5": true
+    }
+  ]
+}

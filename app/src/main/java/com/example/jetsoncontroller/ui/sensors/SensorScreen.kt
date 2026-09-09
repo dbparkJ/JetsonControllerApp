@@ -37,17 +37,23 @@ import com.example.jetsoncontroller.ui.components.SectionHeader
 @Composable
 fun SensorScreen(
     status: JetsonStatus,
-    deviceOnline: Boolean = true,
-    fullControlAvailable: Boolean = true,
+    deviceOnline: Boolean = false,
+    fullControlAvailable: Boolean = false,
     onCameraClick: () -> Unit,
     onGnssClick: () -> Unit,
-    onSectionSelected: (ControlSection) -> Unit
+    onSectionSelected: (ControlSection) -> Unit,
+    deviceName: String = "선택된 장비 없음",
+    onDevices: () -> Unit = {},
+    onAlerts: () -> Unit = {},
+    unreadCount: Int = 0
 ) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text("센서 상태") }) },
+        topBar = { com.example.jetsoncontroller.ui.components.DeviceContextHeader(
+            "센서 상태", deviceName, if (deviceOnline) "장비 응답 기준" else "현재 상태 미확인",
+            onDevices, unreadCount, onAlerts) },
         bottomBar = {
             ControlNavigationBar(
-                selected = ControlSection.SENSORS,
+                selected = ControlSection.OVERVIEW,
                 onSelect = onSectionSelected,
                 enabledSections = if (fullControlAvailable) {
                     ControlSection.entries.toSet()
@@ -171,7 +177,8 @@ private fun SensorStatusRow(
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer
+        color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft,
+        contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.ink
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -193,8 +200,8 @@ private fun SensorStatusRow(
                 )
             }
             Surface(
-                color = if (active) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
+                color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.successBg,
+                contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success,
                 shape = MaterialTheme.shapes.small
             ) {
                 Text(

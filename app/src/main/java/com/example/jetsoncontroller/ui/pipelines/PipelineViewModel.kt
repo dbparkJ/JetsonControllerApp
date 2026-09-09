@@ -76,6 +76,8 @@ data class PipelineUiState(
     val picker: PipelinePickerState = PipelinePickerState(),
     val isLoading: Boolean = false,
     val busyPipelineId: String? = null,
+    val pendingActions: Map<String, String> = emptyMap(),
+    val observedAtMillis: Long? = null,
     val registrationComplete: Boolean = false,
     val detailPipelineId: String? = null,
     val logFiles: List<PipelineLogFile> = emptyList(),
@@ -138,7 +140,7 @@ class PipelineViewModel(
                     transport.deviceId.equals(deviceId, ignoreCase = true)) {
                     _uiState.value = _uiState.value.copy(
                         controlAvailable = true, configSaving = false, busyPipelineId = null,
-                        detailLoading = false, isDiscoveringFolder = false,
+                        observedAtMillis = null, detailLoading = false, isDiscoveringFolder = false,
                         picker = _uiState.value.picker.copy(isLoading = false)
                     )
                     refresh(connectionGeneration)
@@ -167,7 +169,7 @@ class PipelineViewModel(
         }
     }
 
-    fun refresh() = refresh(connectionGeneration)
+    fun refresh() { if (_uiState.value.busyPipelineId == null) refresh(connectionGeneration) }
 
     private fun refresh(generation: Long) {
         if (!_uiState.value.controlAvailable) return
@@ -188,6 +190,9 @@ class PipelineViewModel(
             }
             _uiState.value = _uiState.value.copy(
                 pipelines = pipelines.getOrThrow(),
+                observedAtMillis = System.currentTimeMillis(),
+                pendingActions = reconcileTaskRequests(_uiState.value.pendingActions,
+                    pipelines.getOrThrow().associate { it.id to it.state }),
                 roots = roots.getOrThrow(),
                 isLoading = false,
                 error = null
@@ -202,7 +207,11 @@ class PipelineViewModel(
                 delay(5_000)
                 repository.getPipelines().onSuccess { pipelines ->
                     if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(pipelines = pipelines)
+                        _uiState.value = _uiState.value.copy(pipelines = pipelines,
+                            observedAtMillis = System.currentTimeMillis(),
+                            pendingActions = if (_uiState.value.busyPipelineId == null)
+                                reconcileTaskRequests(_uiState.value.pendingActions, pipelines.associate { it.id to it.state })
+                                else _uiState.value.pendingActions)
                     }
                 }
             }
@@ -210,6 +219,7 @@ class PipelineViewModel(
     }
 
     fun beginCreate() {
+        if (_uiState.value.draft != PipelineDraft()) return
         _uiState.value = _uiState.value.copy(
             draft = PipelineDraft(),
             discoveredFolder = null,
@@ -472,6 +482,7 @@ class PipelineViewModel(
                         pipelines = (others + registered).sortedBy { it.label.lowercase() },
                         isLoading = false,
                         registrationComplete = true,
+                        draft = PipelineDraft(), discoveredFolder = null,
                         message = "${registered.label} 작업을 등록했습니다."
                     )
                 }
@@ -487,22 +498,22 @@ class PipelineViewModel(
     }
 
     fun control(pipeline: ManagedPipeline, action: String) {
-        if (!_uiState.value.controlAvailable) return
-        if (_uiState.value.busyPipelineId != null) return
+        if (!_uiState.value.controlAvailable ||
+            !_uiState.value.deviceId.equals(repository.selectedDeviceId.value, true)) return
+        if (_uiState.value.busyPipelineId != null || pipeline.id in _uiState.value.pendingActions) return
+        if (_uiState.value.pipelines.none { it.id == pipeline.id }) return
         val generation = connectionGeneration
         operationJob?.cancel()
+        _uiState.value = _uiState.value.copy(busyPipelineId = pipeline.id,
+            pendingActions = _uiState.value.pendingActions + (pipeline.id to action), message = null, error = null)
         operationJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                busyPipelineId = pipeline.id,
-                message = null,
-                error = null
-            )
             if (action in setOf("start", "restart")) {
                 val timeSync = repository.synchronizeSystemTime(System.currentTimeMillis())
                 if (generation != connectionGeneration) return@launch
                 if (timeSync.isFailure) {
                     _uiState.value = _uiState.value.copy(
                         busyPipelineId = null,
+                        pendingActions = _uiState.value.pendingActions - pipeline.id,
                         error = "모바일 시간 동기화 실패: " +
                             (timeSync.exceptionOrNull()?.message ?: "알 수 없는 오류")
                     )
@@ -523,7 +534,8 @@ class PipelineViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             busyPipelineId = null,
-                            error = error.message ?: "작업 제어에 실패했습니다."
+                            pendingActions = _uiState.value.pendingActions + (pipeline.id to "unknown"),
+                            error = "요청 결과 확인 필요. 상태를 다시 조회합니다. " + (error.message ?: "응답 없음")
                         )
                     }
                 }
@@ -532,7 +544,8 @@ class PipelineViewModel(
 
     fun remove(pipeline: ManagedPipeline) {
         if (!_uiState.value.controlAvailable) return
-        if (_uiState.value.busyPipelineId != null) return
+        if (_uiState.value.busyPipelineId != null || pipeline.id in _uiState.value.pendingActions) return
+        if (_uiState.value.pipelines.none { it.id == pipeline.id }) return
         val generation = connectionGeneration
         operationJob?.cancel()
         operationJob = viewModelScope.launch {
@@ -895,9 +908,9 @@ class PipelineViewModel(
         if (parent.isEmpty()) child else "$parent/$child"
 
     private fun actionMessage(label: String, action: String): String = when (action) {
-        "start" -> "$label 작업을 시작했습니다."
-        "stop" -> "$label 작업을 중지했습니다."
-        "restart" -> "$label 작업을 다시 시작했습니다."
+        "start" -> "$label 시작 요청을 접수했습니다. 실제 실행 확인을 기다립니다."
+        "stop" -> "$label 중지 요청을 접수했습니다. 실제 종료 확인을 기다립니다."
+        "restart" -> "$label 재시작 요청을 접수했습니다. 실제 실행 확인을 기다립니다."
         "enable" -> "$label 작업이 부팅 시 자동으로 시작됩니다."
         "disable" -> "$label 작업의 자동 시작을 해제했습니다."
         else -> "$label 작업을 변경했습니다."

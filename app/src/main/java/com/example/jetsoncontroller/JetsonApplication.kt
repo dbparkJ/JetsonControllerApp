@@ -6,6 +6,7 @@ import com.example.jetsoncontroller.data.alerts.AlertHistoryStore
 import com.example.jetsoncontroller.data.alerts.DeviceAlertMonitor
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,6 +33,8 @@ class JetsonApplication :
     override fun onCreate() {
 
         super.onCreate()
+
+        ConnectionDiagnostics.initialize(this)
 
         credentialStore =
             DeviceCredentialStore(this)

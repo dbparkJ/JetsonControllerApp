@@ -1,0 +1,94 @@
+package com.example.jetsoncontroller.ui
+
+import android.graphics.Bitmap
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
+import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineState
+import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
+import com.example.jetsoncontroller.ui.pipelines.PipelineUiState
+import com.example.jetsoncontroller.ui.storage.DataHubScreen
+import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
+import com.example.jetsoncontroller.ui.upload.UploadUiState
+import org.junit.Assert.assertEquals
+import org.junit.Rule
+import org.junit.Test
+import java.io.File
+
+/** Native UI fixtures only: no Repository, radios, or device commands. */
+class SlateHarmonyScreenTest {
+    @get:Rule val compose = createComposeRule()
+
+    @Test fun themeChangePreservesSearchSelectionScrollAndInputFocus() {
+        var dark by mutableStateOf(false)
+        var transfers = 0
+        val folders = (0..15).map {
+            ManagedPipeline("task$it", "검사 폴더 $it", entrypoint = "collect.py", config = "config.yaml",
+                virtualenv = "venv", outputRootId = "recordings", outputPath = "inspection$it")
+        }
+        compose.setContent {
+            JetsonControllerTheme(darkTheme = dark) {
+                Box(Modifier.width(360.dp).fillMaxHeight()) {
+                    DataHubScreen("테스트 장비", folders, UploadUiState(deviceId = "A"), true, "", 0,
+                        {}, {}, {}, {}, {}, { _, _ -> transfers++ }, {})
+                }
+            }
+        }
+        val list = compose.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasText("검사 폴더 15"))
+        compose.onNodeWithText("검사 폴더 15").performClick()
+        compose.onNodeWithText("선택한 폴더 전송 확인").assertIsEnabled()
+        val before = compose.onNodeWithText("검사 폴더 15").fetchSemanticsNode().boundsInRoot
+        compose.runOnIdle { dark = true }
+        compose.onNodeWithText("검사 폴더 15").assertIsDisplayed()
+        assertEquals(before, compose.onNodeWithText("검사 폴더 15").fetchSemanticsNode().boundsInRoot)
+        list.performScrollToIndex(0)
+        compose.onNodeWithText("폴더 검색").performScrollTo().performTextInput("검사")
+        compose.onNodeWithText("폴더 검색").assertIsFocused()
+        capture("selection-focus-dark")
+        compose.runOnIdle { dark = false }
+        compose.onNodeWithText("폴더 검색").assertIsFocused().assertTextContains("검사")
+        compose.onNodeWithText("선택한 폴더 전송 확인").assertIsEnabled()
+        capture("selection-focus-light")
+        compose.runOnIdle { assertEquals(0, transfers) }
+    }
+
+    @Test fun confirmationSurvivesThemeChangeAndCancelSendsNoCommand() {
+        var dark by mutableStateOf(false)
+        var calls = 0
+        val task = ManagedPipeline("task", "검사 작업", state = PipelineState.STOPPED,
+            entrypoint = "collect.py", config = "config.yaml", virtualenv = "venv")
+        compose.setContent {
+            JetsonControllerTheme(darkTheme = dark) {
+                PipelineListScreen(PipelineUiState(deviceId = "A", controlAvailable = true,
+                    pipelines = listOf(task), observedAtMillis = 1000), {}, {}, {},
+                    { _, _ -> calls++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001)
+            }
+        }
+        compose.onNodeWithText("시작 전 확인").performScrollTo().performClick()
+        compose.onNodeWithText("작업 시작 요청").assertIsEnabled()
+        capture("confirmation-light", dialog = true)
+        compose.runOnIdle { dark = true }
+        compose.onNodeWithText("작업 시작 요청").assertIsEnabled()
+        capture("confirmation-dark", dialog = true)
+        compose.onNodeWithText("취소").performClick()
+        compose.onAllNodesWithText("작업 시작 요청").assertCountEquals(0)
+        compose.runOnIdle { assertEquals(0, calls) }
+    }
+
+    private fun capture(name: String, dialog: Boolean = false) {
+        val folder = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null),
+            "slate-v7-captures").apply { mkdirs() }
+        val node = if (dialog) compose.onNode(isDialog()) else compose.onRoot()
+        node.captureToImage().asAndroidBitmap().let { bitmap ->
+            File(folder, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+    }
+}

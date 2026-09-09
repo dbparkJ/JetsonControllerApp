@@ -1,22 +1,117 @@
 package com.example.jetsoncontroller.ui.theme
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-val TealPrimary = Color(0xFF006B5F)
-val TealPrimaryDark = Color(0xFF89D5C6)
-val BlueSecondary = Color(0xFF405F8C)
-val BlueSecondaryDark = Color(0xFFA9C7F5)
-val AmberTertiary = Color(0xFF815500)
-val AmberTertiaryDark = Color(0xFFFFBA46)
+/** Slate Harmony V7 roles; retain the existing provider to preserve theme consumers. */
+@Immutable
+data class CobaltColors(
+    val canvas: Color,
+    val surface: Color,
+    val subtle: Color,
+    val ink: Color,
+    val muted: Color,
+    val border: Color,
+    val controlBorder: Color,
+    val focusRing: Color,
+    val primary: Color,
+    val onPrimary: Color,
+    val accent: Color,
+    val onAccent: Color,
+    val hero: Color,
+    val heroText: Color,
+    val heroMuted: Color,
+    val success: Color,
+    val successBg: Color,
+    val warning: Color,
+    val warningBg: Color,
+    val danger: Color,
+    val dangerBg: Color,
+    val info: Color,
+    val infoBg: Color,
+    val disabled: Color,
+    val onDisabled: Color,
+    val onDanger: Color,
+    val sectionBase: Color,
+    val sectionSoft: Color,
+    val sectionRaised: Color,
+    val sectionDanger: Color,
+    val sectionBorder: Color,
+    val navSelected: Color,
+    val onNavSelected: Color
+)
 
-val LightBackground = Color(0xFFF7F9F8)
-val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceVariant = Color(0xFFE4E9E7)
-val LightOutline = Color(0xFF727875)
-val LightText = Color(0xFF181C1B)
+val CobaltLight = CobaltColors(
+    canvas = Color(0xFFF4F5F7),
+    surface = Color(0xFFFBFCFD),
+    subtle = Color(0xFFEBEEF1),
+    ink = Color(0xFF272C32),
+    muted = Color(0xFF525862),
+    border = Color(0xFFD0D3D9),
+    controlBorder = Color(0xFF717884),
+    focusRing = Color(0xFF556887),
+    primary = Color(0xFF526584),
+    onPrimary = Color(0xFFFFFFFF),
+    accent = Color(0xFFD3DEF1),
+    onAccent = Color(0xFF38465B),
+    hero = Color(0xFFE0E7F1),
+    heroText = Color(0xFF272C32),
+    heroMuted = Color(0xFF525862),
+    success = Color(0xFF525862),
+    successBg = Color(0xFFEBEEF1),
+    warning = Color(0xFF7A5729),
+    warningBg = Color(0xFFF5EDDF),
+    danger = Color(0xFF9B4B46),
+    dangerBg = Color(0xFFF8ECEA),
+    info = Color(0xFF526584),
+    infoBg = Color(0xFFE6EBF4),
+    disabled = Color(0xFFE1E5EA),
+    onDisabled = Color(0xFF62666D),
+    onDanger = Color(0xFFFFFFFF),
+    sectionBase = Color(0xFFFBFCFD),
+    sectionSoft = Color(0xFFEBEEF1),
+    sectionRaised = Color(0xFFE1E5EA),
+    sectionDanger = Color(0xFFEBEEF1),
+    sectionBorder = Color(0xFFD0D3D9),
+    navSelected = Color(0xFFD3DEF1),
+    onNavSelected = Color(0xFF38465B)
+)
 
-val DarkBackground = Color(0xFF101413)
-val DarkSurface = Color(0xFF171C1B)
-val DarkSurfaceVariant = Color(0xFF3F4946)
-val DarkOutline = Color(0xFF89938F)
-val DarkText = Color(0xFFE0E4E2)
+val CobaltDark = CobaltColors(
+    canvas = Color(0xFF1C1E22),
+    surface = Color(0xFF25282D),
+    subtle = Color(0xFF303339),
+    ink = Color(0xFFE4E6EA),
+    muted = Color(0xFFABB0B7),
+    border = Color(0xFF464B53),
+    controlBorder = Color(0xFF868D97),
+    focusRing = Color(0xFFAAB8D0),
+    primary = Color(0xFF9EACC1),
+    onPrimary = Color(0xFF1B222E),
+    accent = Color(0xFF3E4859),
+    onAccent = Color(0xFFDDE2E9),
+    hero = Color(0xFF333B48),
+    heroText = Color(0xFFE4E6EA),
+    heroMuted = Color(0xFFABB0B7),
+    success = Color(0xFFB5BBC5),
+    successBg = Color(0xFF303339),
+    warning = Color(0xFFD6B88A),
+    warningBg = Color(0xFF3A3126),
+    danger = Color(0xFFE0AAA4),
+    dangerBg = Color(0xFF3C2C2D),
+    info = Color(0xFFAAB8D0),
+    infoBg = Color(0xFF333B48),
+    disabled = Color(0xFF393D44),
+    onDisabled = Color(0xFFA5A9AF),
+    onDanger = Color(0xFF302322),
+    sectionBase = Color(0xFF25282D),
+    sectionSoft = Color(0xFF303339),
+    sectionRaised = Color(0xFF393D44),
+    sectionDanger = Color(0xFF303339),
+    sectionBorder = Color(0xFF464B53),
+    navSelected = Color(0xFF3E4859),
+    onNavSelected = Color(0xFFDDE2E9)
+)
+
+val LocalCobaltColors = staticCompositionLocalOf { CobaltLight }

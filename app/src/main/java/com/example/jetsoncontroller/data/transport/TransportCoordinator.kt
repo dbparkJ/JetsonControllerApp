@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.data.transport
 
+import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,6 +64,7 @@ class TransportCoordinator {
         deviceId: String? = null,
         deviceName: String? = null
     ) {
+        val previousState = diagnosticState()
         sessionId += 1
         appliedRequests.clear()
         activeTransport = transport
@@ -72,21 +74,44 @@ class TransportCoordinator {
             deviceId = deviceId,
             deviceName = deviceName
         )
+        ConnectionDiagnostics.record("transport_state", mapOf(
+            "oldState" to previousState, "newState" to "CONNECTED", "sessionId" to sessionId,
+            "actualTransport" to transport.type, "attemptId" to connectionAttemptId,
+            "deviceRef" to ConnectionDiagnostics.privateRef(deviceId),
+            "endpointRef" to ConnectionDiagnostics.privateRef(endpoint)
+        ))
     }
 
     @Synchronized
     fun disconnect() {
+        val previousState = diagnosticState()
         sessionId += 1
         appliedRequests.clear()
         activeTransport = null
         _state.value = TransportState.Disconnected
+        ConnectionDiagnostics.record("transport_state", mapOf(
+            "oldState" to previousState, "newState" to "DISCONNECTED", "sessionId" to sessionId,
+            "attemptId" to connectionAttemptId
+        ))
     }
 
     @Synchronized
     fun setError(type: TransportType?, message: String) {
+        val previousState = diagnosticState()
         sessionId += 1
         appliedRequests.clear()
         activeTransport = null
         _state.value = TransportState.Error(type, message)
+        ConnectionDiagnostics.record("transport_state", mapOf(
+            "oldState" to previousState, "newState" to "ERROR", "sessionId" to sessionId,
+            "actualTransport" to type, "attemptId" to connectionAttemptId
+        ), incident = true)
+    }
+
+    private fun diagnosticState(): String = when (_state.value) {
+        is TransportState.Connecting -> "CONNECTING"
+        is TransportState.Connected -> "CONNECTED"
+        is TransportState.Error -> "ERROR"
+        TransportState.Disconnected -> "DISCONNECTED"
     }
 }

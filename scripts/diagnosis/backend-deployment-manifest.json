@@ -1,0 +1,59 @@
+{
+  "files": {
+    "api.py": {
+      "beforeSha256": "55fd1d9cffef7bbbdcec7e35e612df2e411b7c6b20e26a5a88c462e4edb07ae2",
+      "afterSha256": "862a814b2a882c99b123b51750b9aeb4e47bdfd557120259900f475b113434cf"
+    },
+    "diagnostics.py": {
+      "beforeSha256": null,
+      "afterSha256": "2e6cd5c37dbebad5dffb48cb403dee5f6c875ac73a44cec529ac795be3163ca2"
+    },
+    "mobile_rtk.py": {
+      "beforeSha256": "d76e1c868183fb90508943fe5301ee5d69f86f71887d1ee4611f5f9d05954f6e",
+      "afterSha256": "d179faa11a0c8cf8b14032a1614fad0a61073ed5cd27a439dc742f4dd9e7880d"
+    },
+    "pipelines.py": {
+      "beforeSha256": "15224bdcbf5db2807e5fa9d4b09b4ac12a05371b40e54cb5399774ac74ae94d3",
+      "afterSha256": "6336dabea40d0a9976ca27eabc6689038bda8ed4efaadd630cbebed6470dc923"
+    },
+    "status.py": {
+      "beforeSha256": "6ae67bf31f1830178d43e204a958fb1983a779468c3c4b16fc88856d1b368c0e",
+      "afterSha256": "eabe267a0a5fbdc599518cc2dcd4cfee7ce229c68a0e1596bfba475a2259ceca"
+    },
+    "wifi_direct.py": {
+      "beforeSha256": "5bd55e486310a469b0c1363bc801f0eded6fa8d50e9a35c986d69ca5845c9708",
+      "afterSha256": "c8c3cee68f196b53950e71f934c7cf111dfdfa1fb2c359f54765423f89901630"
+    }
+  },
+  "untouchedModules": {
+    "__init__.py": "0555b166ef09e50c93178873d7b8ad51c6169bea7ae64939e479191af20933eb",
+    "asgi.py": "35252fa18eedb77eb627bf803d31b0bbd8034019c452caa1643eab04bd50be01",
+    "auth.py": "c1ee9c0fcec0abacb3d7d5d6052fe5369a0898b996e3e5098f5cbc36ee65b34a",
+    "ble.py": "29093efcb29d3939bc262b6a9be62f4e3c04ad9b64bbcb97924f4f566dbe726f",
+    "ble_crypto.py": "35c29231d4671cd13d8b5c4629c500c10c2885b5891f975d5d9ebb875e51af57",
+    "commands.py": "92926f4748831637fa2371db7e1e4124eb0a8874775a44123bc102995dbeea67",
+    "config.py": "c70b0ce25c12195f64708c9e6db4552b0831104346d6b2a234ba2dbbe385bc1b",
+    "filesystem.py": "3d39aedea600887a9e0d5cec7ea53632990d49a24a7f06fd94ca90ceb74562d1",
+    "network.py": "5d87dcf3108e2ad3a9c56df13dc8e8cfc008f49caa896721c3cdb61d9c44e2b9",
+    "pipeline_layout.py": "dca0a0e8cb05f60f3ddc67fd391537f3db1faf4d73b46a3f7dd9a12fa69135c3",
+    "sensor_handoff.py": "064f3708300b689749ce20b82db22f94b935602f01402170f9b3d4eb212c5738",
+    "sensor_monitor.py": "a18ae5fafdb6fb335ea317ff408496a64dc79339d1d4f0e4b7032db6c395079b",
+    "sensors.py": "b3d24159c7fe30da0d2aef0ead102030d77395aee9c1fefc47998997bba6a671",
+    "system_control.py": "70d41f2839a9bf4da1d70d515b02993d438e82a66f8c35770c5476c872b29f1b",
+    "tls.py": "7062a159355d2009fe430ecb0a08c4e416144f590c648d049cdc8709ea769522",
+    "uploads.py": "3e9603bbe38d2c120933e2514584c720bafa93776782da33ff6ab628b0a2c957"
+  },
+  "unitSha256": {
+    "jetson-control-api.service": "4f68466426c2e35043f7d98948e3ba861282bef8bf42a0036a6b8b494fd89185",
+    "jetson-wifi-direct.service": "b229d181c8e14abf34b8480a2980c4b044842ad23d6a5419b3300707f8775de6"
+  },
+  "requirementsSha256": "a55e988120e983de9313ab39d8885f07b1920865f7706c969e6859cb64ca3681",
+  "rollbackScope": "exact6sourcefiles-only; preserve configuration/keys/units/dependencies/data",
+  "runtimeBuildId": "c0e5282bba2a6c7dbede29ba6c4d0ba561634bff8c4531238e62a718abfa1fad",
+  "unitDropIns": {
+    "jetson-control-api.service": {
+      "/etc/systemd/system/jetson-control-api.service.d/storage-roots.conf": "24e1fb2a70120564a1216326b420d7d8e8d127cbf5644a1245fc37a3227efdd2"
+    },
+    "jetson-wifi-direct.service": {}
+  }
+}

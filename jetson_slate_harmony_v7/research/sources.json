@@ -1,0 +1,69 @@
+{
+  "checked": "2026-09-09",
+  "reviewType": "targeted narrative review, not systematic review",
+  "sources": [
+    {
+      "id": "R1",
+      "authors": "Schloss & Palmer",
+      "year": 2011,
+      "title": "Aesthetic response to color combinations: preference, harmony, and similarity",
+      "doi": "10.3758/s13414-010-0027-0",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3037488/",
+      "accessScope": "public full text"
+    },
+    {
+      "id": "R2",
+      "authors": "Ou & Luo",
+      "year": 2006,
+      "title": "A colour harmony model for two-colour combinations",
+      "doi": "10.1002/col.20208",
+      "url": "https://onlinelibrary.wiley.com/doi/10.1002/col.20208",
+      "accessScope": "publisher abstract only"
+    },
+    {
+      "id": "R3",
+      "authors": "Palmer & Schloss",
+      "year": 2010,
+      "title": "An ecological valence theory of human color preference",
+      "doi": "10.1073/pnas.0906172107",
+      "url": "https://doi.org/10.1073/pnas.0906172107",
+      "accessScope": "publisher text via indexed retrieval"
+    },
+    {
+      "id": "R4",
+      "authors": "Buchner & Baumgartner",
+      "year": 2007,
+      "title": "Text-background polarity affects performance irrespective of ambient illumination and colour contrast",
+      "doi": "10.1080/00140130701306413",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/17510822/",
+      "accessScope": "research abstract"
+    },
+    {
+      "id": "R5",
+      "authors": "Piepenbrock, Mayr, Mund & Buchner",
+      "year": 2013,
+      "title": "Positive display polarity is advantageous for both younger and older adults",
+      "doi": "10.1080/00140139.2013.790485",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/23654206/",
+      "accessScope": "research abstract"
+    },
+    {
+      "id": "R6",
+      "authors": "Ettling et al.",
+      "year": 2025,
+      "title": "An Eye Tracking Study on the Effects of Dark and Light Themes on User Performance and Workload",
+      "doi": "10.1145/3715669.3725879",
+      "url": "https://doi.org/10.1145/3715669.3725879",
+      "accessScope": "publisher methods/results/discussion via indexed retrieval"
+    },
+    {
+      "id": "R7",
+      "authors": "Sengsoon & Intaruk",
+      "year": 2025,
+      "title": "Immediate Effects of Light Mode and Dark Mode Features on Visual Fatigue in Tablet Users",
+      "doi": "10.3390/ijerph22040609",
+      "url": "https://www.mdpi.com/1660-4601/22/4/609",
+      "accessScope": "publisher abstract only"
+    }
+  ]
+}
