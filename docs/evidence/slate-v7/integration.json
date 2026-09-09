@@ -1,0 +1,17 @@
+{
+  "feature_branch": "codex/connection-stability-v3-20260908",
+  "backend_preservation_commit": "30367c4",
+  "prior_workspace_commit": "b5f5267",
+  "v7_commit": "863d982528731d47d3b4f40ae1ff0321fa18c28c",
+  "main_merge_commit": "42f9d3756bf5a184f5bf9a05b0f452d79e9bc5b2",
+  "remote_refs_verified": [
+    "863d982528731d47d3b4f40ae1ff0321fa18c28c\trefs/heads/codex/connection-stability-v3-20260908",
+    "42f9d3756bf5a184f5bf9a05b0f452d79e9bc5b2\trefs/heads/main"
+  ],
+  "merge_tree_equals_tested_feature_tree": true,
+  "tested_native_source_hashes_match": true,
+  "force_push": false,
+  "production_deployment": false,
+  "mandatory_device_validation": "NOT_RUN_NO_APPROVED_TARGET",
+  "instruction_retained": true
+}
