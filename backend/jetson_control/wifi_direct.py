@@ -102,6 +102,22 @@ def parse_p2p_group_interfaces(iw_output: str) -> List[str]:
     ]
 
 
+def parse_iw_frequency(iw_output: str, interface: str) -> Optional[int]:
+    """Read the observed channel of one named interface, never a preference."""
+    selected = False
+    for raw_line in iw_output.splitlines():
+        line = raw_line.strip()
+        if line.startswith("Interface "):
+            selected = line.split(None, 1)[1] == interface
+        elif line.startswith("Unnamed/non-netdev interface"):
+            selected = False
+        elif selected:
+            match = re.match(r"channel\s+\d+\s+\((\d+) MHz\)", line)
+            if match:
+                return int(match.group(1))
+    return None
+
+
 def parse_ipv4_address(ip_output: str) -> Optional[str]:
     try:
         values = json.loads(ip_output)
@@ -301,6 +317,7 @@ class WifiDirectController:
         self.dnsmasq_pid_path = status_path.parent / "wifi-direct-dnsmasq.pid"
         self.management_interface: Optional[str] = None
         self.group_interface: Optional[str] = None
+        self._group_frequencies: Dict[str, Optional[int]] = {}
         self.active_profile: Optional[str] = None
         self.active_peer: Optional[str] = None
         self._suspended_wifi_profile: Optional[str] = None
@@ -874,6 +891,8 @@ class WifiDirectController:
                 )
 
     def _first_group_interface(self) -> Optional[str]:
+        # A failed query must not leave an old channel looking freshly observed.
+        self._group_frequencies = {}
         try:
             result = self._run(["/usr/sbin/iw", "dev"])
         except WifiDirectError:
@@ -881,6 +900,9 @@ class WifiDirectController:
                                     incident=True, episode="p2p")
             raise
         groups = parse_p2p_group_interfaces(result.stdout)
+        self._group_frequencies = {
+            group: parse_iw_frequency(result.stdout, group) for group in groups
+        }
         self.diagnostics.record("p2p_observation", group="present" if groups else "absent",
                                 attempt=self._attempt_id,
                                 incident=not groups and self.group_interface is not None, episode="p2p")
@@ -1293,6 +1315,9 @@ class WifiDirectController:
             "ownerMode": "manual" if self._manual_owner_mode else "networkmanager",
             "dhcpActive": self._dnsmasq_is_running(),
             "frequencyMhz": self.settings.frequency,
+            # Keep the legacy preference field for API compatibility. NM may
+            # negotiate a different channel, including the managed Wi-Fi channel.
+            "groupFrequencyMhz": self._group_frequencies.get(self.group_interface),
             "updatedAtEpochSeconds": int(time.time()),
             "attemptId": self._attempt_id,
             "lastError": self._last_error,
@@ -1301,6 +1326,7 @@ class WifiDirectController:
                                 attempt=self._attempt_id, groupPresent=self.group_interface is not None,
                                 dhcpActive=payload["dhcpActive"], ownerMode=payload["ownerMode"],
                                 frequencyMhz=self.settings.frequency,
+                                groupFrequencyMhz=payload["groupFrequencyMhz"],
                                 incident=state == "ERROR" or (previous_state == "READY" and state == "DISCOVERABLE"),
                                 recovered=state == "READY", episode="p2p")
         with self._status_lock:

@@ -102,7 +102,7 @@ ENUM_FIELDS = {
     "reason": {"failure", "recovered", "manual", "window_elapsed", "process_stop", "size_limit"},
     "socketPath": {"direct", "other_ip", "loopback", "unknown"},
 }
-INT_FIELDS = {"status", "durationMillis", "attempt", "pid", "droppedEvents", "storageFailures", "queueDepth", "incidentCount", "frequencyMhz"}
+INT_FIELDS = {"status", "durationMillis", "attempt", "pid", "droppedEvents", "storageFailures", "queueDepth", "incidentCount", "frequencyMhz", "groupFrequencyMhz"}
 BOOL_FIELDS = {"responseSigned", "groupPresent", "dhcpActive", "workerAlive", "osAccepted", "confirmed", "complete"}
 HEX_FIELDS = {"requestRef": 16, "buildId": 64, "incidentId": 32}
 

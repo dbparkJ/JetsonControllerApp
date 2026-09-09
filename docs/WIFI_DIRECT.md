@@ -72,13 +72,20 @@ sudo backend/scripts/install.sh \
 ```
 
 - P2P device name은 `device_name`을 UTF-8 32 bytes 이내로 줄여 사용한다.
-- 기본 channel은 2.4 GHz channel 1인 `2412` MHz다.
+- 기본 선호 channel은 2.4 GHz channel 1인 `2412` MHz다. NetworkManager가 협상한 실제 그룹 channel은 다를 수 있으며, `iw dev`로 확인한다.
 - Android 앱은 주소를 고정 추측하지 않고 `WifiP2pInfo.groupOwnerAddress`를 사용한다.
 - profile은 연결 중에만 존재하며 디스크에 영구 저장하지 않는다.
 
 ## 상태 의미
 
 상태 파일은 `/run/jetson-control/wifi-direct.json`이다.
+
+`frequencyMhz`는 기존 API와의 호환성을 유지한 **설정상 선호 주파수**다.
+`groupFrequencyMhz`는 마지막 성공한 `iw dev` 그룹 조회에서 관측한 실제 주파수이며,
+그룹이 없거나 조회에 실패하거나 channel 정보가 없으면 `null`이다.
+상태 파일의 갱신 시각과 함께 해석한다. `dhcpActive`는 서비스가 직접 실행한
+수동 모드 dnsmasq 프로세스만 나타내므로, NetworkManager 모드의 `false`를
+DHCP 부재로 해석하지 않는다. 해당 모드의 DHCP 할당은 NetworkManager journal에서 확인한다.
 
 | 상태 | 의미 |
 |---|---|
@@ -173,7 +180,9 @@ journalctl -u NetworkManager.service -n 150 --no-pager
 
 ## 보안 경계
 
-- P2P profile은 인터넷 forwarding이나 NAT를 제공하지 않는다.
+- NetworkManager 모드의 `ipv4.method=shared`는 DHCP·DNS forwarding·NAT를 구성한다.
+  `ipv4.never-default=yes`는 P2P를 Jetson의 기본 경로로 지정하지 않는 설정이며,
+  NAT나 Android로 제공되는 DHCP를 끄는 설정이 아니다.
 - P2P 연결은 기존 LAN/모바일 인터넷 기본 경로를 대체하지 않는다.
 - Local API는 pinned TLS proof와 양방향 HMAC 없이는 사용할 수 없다.
 - 저장소 경로, upload token, pipeline 명령은 인증되지 않은 endpoint에 노출하지 않는다.
