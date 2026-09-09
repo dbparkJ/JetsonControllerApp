@@ -1,0 +1,9 @@
+{
+  "package": "Cobalt Field V5",
+  "remote_figma_access_this_step": "NOT_ATTEMPTED",
+  "remote_figma_writes_this_step": "NONE",
+  "remote_file_completion": "NOT_VERIFIED",
+  "actual_figma_export": "NOT_RUN",
+  "local_plugin": "UPDATED_TO_COBALT; syntax and mock checks only",
+  "previous_context": "V4 reported an MCP limitation; no current entitlement or rate-limit claim is made here."
+}

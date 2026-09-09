@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.theme.AppSpacing
+import com.example.jetsoncontroller.ui.theme.LocalCobaltColors
 
 enum class StatusTone {
     INFO,
@@ -119,8 +120,6 @@ fun StatusBadge(
             text = label,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -207,8 +206,8 @@ private fun statusColors(tone: StatusTone): StatusColors = when (tone) {
         MaterialTheme.colorScheme.onSecondaryContainer
     )
     StatusTone.SUCCESS -> StatusColors(
-        MaterialTheme.colorScheme.primaryContainer,
-        MaterialTheme.colorScheme.onPrimaryContainer
+        LocalCobaltColors.current.successBg,
+        LocalCobaltColors.current.success
     )
     StatusTone.WARNING -> StatusColors(
         MaterialTheme.colorScheme.tertiaryContainer,

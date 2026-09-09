@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
@@ -165,7 +166,8 @@ class CoreWorkflowScreenTest {
                     state = DashboardUiState(
                         statusFreshness = StatusFreshness.CURRENT,
                         isOnline = true,
-                        fullControlAvailable = true
+                        fullControlAvailable = true,
+                        status = JetsonStatus(temperatureC = 45f, storagePercent = 40)
                     ),
                     pipelines = emptyList(),
                     uploads = emptyList(),
@@ -188,9 +190,9 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("정상 작동 중").assertIsDisplayed()
-        composeRule.onNodeWithText("진행 중인 작업").assertIsDisplayed()
-        composeRule.onNodeWithText("현재 진행 중인 작업이 없습니다.").assertIsDisplayed()
+        composeRule.onNodeWithText("정상 작동 중").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("현재 작업").assertIsDisplayed()
+        composeRule.onNodeWithText("작업 상태 확인 필요").assertIsDisplayed()
     }
 
     @Test
@@ -201,7 +203,8 @@ class CoreWorkflowScreenTest {
                     state = DashboardUiState(
                         statusFreshness = StatusFreshness.CURRENT,
                         isOnline = true,
-                        fullControlAvailable = true
+                        fullControlAvailable = true,
+                        status = JetsonStatus(temperatureC = 45f, storagePercent = 40)
                     ),
                     pipelines = emptyList(),
                     uploads = emptyList(),
@@ -225,6 +228,7 @@ class CoreWorkflowScreenTest {
         }
 
         composeRule.onNodeWithTag("dashboard-health-card")
+            .performScrollTo()
             .performTouchInput { swipeLeft() }
         composeRule.onAllNodesWithText("정상 작동 중").assertCountEquals(0)
     }
@@ -261,7 +265,7 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("확인이 필요합니다").assertIsDisplayed()
+        composeRule.onNodeWithText("확인이 필요합니다").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithContentDescription("상태 알림 닫기").performClick()
         composeRule.onAllNodesWithText("확인이 필요합니다").assertCountEquals(0)
     }

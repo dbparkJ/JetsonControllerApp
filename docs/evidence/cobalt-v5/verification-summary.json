@@ -1,0 +1,53 @@
+{
+  "gradle_exit_code": 0,
+  "gradle_log": "completion-build.log",
+  "unit_tests": {
+    "tests": 196,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Error": 0,
+    "Warning": 73,
+    "Information": 0
+  },
+  "artifacts": {
+    "before_apk": {
+      "path": "/tmp/jetson-cobalt-v5-before.apk",
+      "bytes": 148592188,
+      "sha256": "d73554b5cea0894d8b4b56db2237c072729c9f68dcb4a4983b8172ae3a422dda"
+    },
+    "debug_apk": {
+      "path": "/home/jm/ControllerApp/JetsonControllerApp/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 149128696,
+      "sha256": "96d13186fc0c36efbfd8e2d295b4c348be1810d7420ca7ee817bd9f0301ac24f"
+    },
+    "android_test_apk": {
+      "path": "/home/jm/ControllerApp/JetsonControllerApp/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "bytes": 2555781,
+      "sha256": "6af56501efc711308c94c0d56d82ea6cb8d596a51070601a1d1776c327a2802f"
+    }
+  },
+  "device": "SM-S908N Android 16",
+  "native_ui_tests": {
+    "tests": 14,
+    "failures": 0,
+    "skipped": 0,
+    "seconds": 24.543,
+    "log": "native-verified.log",
+    "scope": "Compose UI only; no Jetson hardware calls"
+  },
+  "jetson_tests": "EXCLUDED_BY_USER_SCOPE_CHANGE",
+  "figma": "BLOCKED: Starter MCP call limit",
+  "native_fixture_captures": 24,
+  "android_test_build_log": "ui-test-build.log",
+  "product_after_captures": [
+    "after-devices.png",
+    "after-home.png",
+    "after-tasks.png",
+    "after-data.png",
+    "after-settings.png"
+  ],
+  "credentials_unchanged": true
+}

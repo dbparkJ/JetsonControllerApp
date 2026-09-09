@@ -24,6 +24,7 @@ data class CameraPreviewUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val error: String? = null,
+    val checkedAtEpochMillis: Long = 0L,
     val updatedAtEpochMillis: Long? = null
 )
 
@@ -33,14 +34,18 @@ class CameraPreviewViewModel(
     private val visible = MutableStateFlow(false)
     private val sensorActive = MutableStateFlow(false)
     private val loadMutex = Mutex()
+    private var streamGeneration = 0L
     private val _uiState = MutableStateFlow(CameraPreviewUiState())
     val uiState: StateFlow<CameraPreviewUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
-            kotlinx.coroutines.flow.combine(visible, sensorActive) { isVisible, isActive ->
-                isVisible && isActive
-            }.collectLatest { shouldStream ->
+            kotlinx.coroutines.flow.combine(visible, sensorActive, repository.selectedDeviceId, repository.transportState) { isVisible, isActive, deviceId, transport ->
+                Triple(isVisible && isActive && transport is com.example.jetsoncontroller.data.transport.TransportState.Connected &&
+                    transport.deviceId.equals(deviceId, true), deviceId, transport)
+            }.collectLatest { (shouldStream, _, _) ->
+                streamGeneration += 1
+                _uiState.value = CameraPreviewUiState()
                 if (!shouldStream) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -76,6 +81,7 @@ class CameraPreviewViewModel(
     private suspend fun loadFrame(
         forceRefresh: Boolean = false
     ): FrameLoadResult = loadMutex.withLock {
+        val generation = streamGeneration
         val current = _uiState.value
         _uiState.value = current.copy(
             isLoading = current.frame == null,
@@ -84,10 +90,12 @@ class CameraPreviewViewModel(
         )
         try {
             val preview = repository.getCameraPreviewFrame(current.frameRevision).getOrThrow()
+            if (generation != streamGeneration || !visible.value) return@withLock FrameLoadResult.FAILURE
             if (preview.revision != null && preview.revision == current.frameRevision) {
                 _uiState.value = current.copy(
                     isLoading = false,
                     isRefreshing = false,
+                    checkedAtEpochMillis = System.currentTimeMillis(),
                     error = null
                 )
                 FrameLoadResult.REALTIME
@@ -96,7 +104,9 @@ class CameraPreviewViewModel(
                     BitmapFactory.decodeByteArray(preview.bytes, 0, preview.bytes.size)
                         ?: error("카메라 프레임 형식을 읽을 수 없습니다.")
                 }
+                if (generation != streamGeneration || !visible.value) return@withLock FrameLoadResult.FAILURE
                 _uiState.value = CameraPreviewUiState(
+                    checkedAtEpochMillis = System.currentTimeMillis(),
                     frame = bitmap,
                     frameRevision = preview.revision,
                     updatedAtEpochMillis = System.currentTimeMillis()
@@ -110,9 +120,11 @@ class CameraPreviewViewModel(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
+            if (generation != streamGeneration) return@withLock FrameLoadResult.FAILURE
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 isRefreshing = false,
+                checkedAtEpochMillis = System.currentTimeMillis(),
                 error = error.message ?: "카메라 프리뷰를 불러오지 못했습니다."
             )
             FrameLoadResult.FAILURE

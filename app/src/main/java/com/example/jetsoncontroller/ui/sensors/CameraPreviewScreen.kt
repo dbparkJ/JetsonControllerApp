@@ -40,6 +40,8 @@ fun CameraPreviewScreen(
     onRefresh: () -> Unit
 ) {
     val active = telemetryFresh && camera.active
+    val live = cameraFrameIsLive(active, state.frame != null, state.updatedAtEpochMillis,
+        state.checkedAtEpochMillis, state.error != null)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -66,7 +68,7 @@ fun CameraPreviewScreen(
             state.frame?.let { frame ->
                 Image(
                     bitmap = frame.asImageBitmap(),
-                    contentDescription = "Jetson 카메라 실시간 영상",
+                    contentDescription = if (live) "Jetson 카메라 최근 수신 영상" else "Jetson 카메라 마지막 수신 영상",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
                 )
@@ -76,7 +78,7 @@ fun CameraPreviewScreen(
             }
             val message = when {
                 !active -> "카메라 센서 데이터 대기 중"
-                state.error != null && state.frame == null -> state.error
+                state.error != null -> state.error
                 else -> null
             }
             message?.let {
@@ -98,9 +100,9 @@ fun CameraPreviewScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        if (active) "LIVE" else "OFFLINE",
+                        if (live) "LIVE" else if (state.frame != null) "지연 · 마지막 수신" else "프레임 대기",
                         fontWeight = FontWeight.Bold,
-                        color = if (active) Color(0xFF61D095) else Color(0xFFFF8A80)
+                        color = if (live) com.example.jetsoncontroller.ui.theme.CobaltDark.success else com.example.jetsoncontroller.ui.theme.CobaltDark.warning
                     )
                     Text(
                         if (camera.frameWidth != null && camera.frameHeight != null) {

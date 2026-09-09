@@ -275,7 +275,7 @@ private fun GnssStatusBand(
                     }
                 )
                 Text(
-                    if (gnssActive) "1 Hz · 실시간" else "데이터 대기",
+                    if (gnssActive) "장비 위치 최근 수신" else "데이터 대기",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

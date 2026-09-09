@@ -1,0 +1,6 @@
+{
+  "backend/jetson_control/diagnostics.py": true,
+  "backend/jetson_control/wifi_direct.py": true,
+  "backend/tests/test_wifi_direct.py": true,
+  "docs/WIFI_DIRECT.md": true
+}

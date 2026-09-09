@@ -136,6 +136,9 @@ private object Routes {
     const val GNSS_MAP = "gnss_map"
 
     const val SETTINGS = "settings"
+    const val ALERT_SETTINGS = "alert_settings"
+    const val DATA = "data_hub"
+    const val PIPELINE_DETAIL = "pipeline_detail/{pipelineId}"
 
     const val DIAGNOSTICS = "connection_diagnostics"
 
@@ -318,12 +321,12 @@ fun JetsonApp(
             .uiState
             .collectAsStateWithLifecycle()
             
-    val uploadState by
+    val rawUploadState by
         uploadViewModel
             .uiState
             .collectAsStateWithLifecycle()
 
-    val pipelineState by
+    val rawPipelineState by
         pipelineViewModel
             .uiState
             .collectAsStateWithLifecycle()
@@ -367,17 +370,30 @@ fun JetsonApp(
     val fullControlConnected = connectedTransportType == TransportType.LAN ||
         connectedTransportType == TransportType.WIFI_DIRECT
 
+    val selectedDeviceId by repository.selectedDeviceId.collectAsStateWithLifecycle()
+    // Do not briefly label A's retained state as B while ViewModel collectors switch workspaces.
+    val pipelineState = rawPipelineState.takeIf { it.deviceId.equals(selectedDeviceId, true) }
+        ?: com.example.jetsoncontroller.ui.pipelines.PipelineUiState(deviceId = selectedDeviceId)
+    val uploadState = rawUploadState.takeIf { it.deviceId.equals(selectedDeviceId, true) }
+        ?: com.example.jetsoncontroller.ui.upload.UploadUiState(deviceId = selectedDeviceId)
+    val selectedDeviceName = deviceState.registeredDevices.firstOrNull {
+        it.deviceId.equals(selectedDeviceId, ignoreCase = true)
+    }?.deviceName ?: if (selectedDeviceId == null) "선택된 장비 없음" else selectedDeviceId.orEmpty()
+    val deviceDashboardState = dashboardState.copy(deviceName = selectedDeviceName)
+    val deviceUiState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+
     val onSectionSelected: (ControlSection) -> Unit = onSectionSelected@ { section ->
         val route = when (section) {
             ControlSection.OVERVIEW -> Routes.DASHBOARD
-            ControlSection.DATA -> Routes.STORAGE
+            ControlSection.DATA -> Routes.DATA
             ControlSection.PIPELINES -> Routes.PIPELINES
             ControlSection.SENSORS -> Routes.SENSORS
             ControlSection.SETTINGS -> Routes.SETTINGS
         }
         navController.navigate(route) {
-            popUpTo(Routes.DASHBOARD) { inclusive = false }
+            popUpTo(Routes.DASHBOARD) { inclusive = false; saveState = true }
             launchSingleTop = true
+            restoreState = true
         }
     }
 
@@ -461,7 +477,7 @@ fun JetsonApp(
 
 
     ConnectionRecoveryLayout(
-        message = if (!fullControlConnected && currentRoute in routesRequiringDeviceConnection) {
+        message = if (!fullControlConnected && (currentRoute in routesRequiringDeviceConnection || currentRoute in setOf(Routes.DASHBOARD, Routes.DATA, Routes.SETTINGS, Routes.PIPELINE_DETAIL, Routes.SENSORS))) {
             if (connectedTransportType == TransportType.BLE) {
                 "전체 제어 연결이 필요합니다. 작성한 내용은 유지됩니다."
             } else {
@@ -673,7 +689,7 @@ fun JetsonApp(
 
             DashboardScreen(
                 state =
-                    dashboardState,
+                    deviceDashboardState,
 
                 pipelines = pipelineState.pipelines,
 
@@ -691,6 +707,13 @@ fun JetsonApp(
                     alertSettingsViewModel::replaceDashboardHealthDismissals,
 
                 onAlertsClick = { navController.navigate(Routes.ALERTS) },
+                onSensorsClick = { navController.navigate(Routes.SENSORS) },
+                onCameraClick = { navController.navigate(Routes.CAMERA_PREVIEW) },
+                onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
+                tasksConfirmed = com.example.jetsoncontroller.ui.pipelines.tasksAreFresh(
+                    pipelineState.controlAvailable, pipelineState.observedAtMillis, System.currentTimeMillis()),
+                taskObservedAt = pipelineState.observedAtMillis,
+                pendingTaskActions = pipelineState.pendingActions,
 
                 onDisconnect = {
 
@@ -888,16 +911,22 @@ fun JetsonApp(
         ) { backStackEntry ->
             val rootId = backStackEntry.arguments?.getString("rootId").orEmpty()
             val path = backStackEntry.arguments?.getString("path").orEmpty()
-            LaunchedEffect(rootId, path) {
+            val confirmationDevice = androidx.compose.runtime.saveable.rememberSaveable { selectedDeviceId.orEmpty() }
+            LaunchedEffect(selectedDeviceId) {
+                if (confirmationDevice != selectedDeviceId.orEmpty()) navController.popBackStack()
+            }
+            LaunchedEffect(rootId, path, selectedDeviceId) {
                 uploadViewModel.loadSourceSummary(rootId, path)
             }
             UploadConfirmScreen(
+                deviceId = selectedDeviceId,
+                deviceName = selectedDeviceName,
                 rootId = rootId,
                 path = path,
                 targets = uploadState.targets,
                 sourceSummary = uploadState.sourceSummary,
                 isCalculatingSource = uploadState.isCalculatingSource,
-                serverUploadEnabled = serverUploadEnabled,
+                serverUploadEnabled = serverUploadEnabled && dashboardState.capabilities.uploads && confirmationDevice == selectedDeviceId.orEmpty(),
                 serverUploadDisabledReason = serverUploadDisabledReason,
                 isLoading = uploadState.isLoading,
                 error = uploadState.error,
@@ -977,7 +1006,8 @@ fun JetsonApp(
             )
         }
 
-        composable(Routes.PIPELINES) {
+        listOf(Routes.PIPELINES, Routes.PIPELINE_DETAIL).forEach { taskRoute ->
+        composable(taskRoute) { taskEntry ->
             StatusPollingLifecycleEffect(dashboardViewModel)
             PipelineListScreen(
                 state = pipelineState,
@@ -1003,8 +1033,15 @@ fun JetsonApp(
                     )
                 },
                 onSectionSelected = onSectionSelected,
-                onClearMessage = pipelineViewModel::clearMessage
+                onClearMessage = pipelineViewModel::clearMessage,
+                deviceName = selectedDeviceName,
+                unreadCount = alertCenterState.unreadCount,
+                onAlerts = { navController.navigate(Routes.ALERTS) },
+                onDetails = { navController.navigate("pipeline_detail/${Uri.encode(it.id)}") },
+                detailId = taskEntry.arguments?.getString("pipelineId"),
+                startCapability = dashboardState.capabilities.pipelines && dashboardState.capabilities.mobileTimeSync
             )
+        }
         }
 
         composable(Routes.PIPELINE_EDITOR) {
@@ -1081,6 +1118,10 @@ fun JetsonApp(
         composable(Routes.SENSORS) {
             StatusPollingLifecycleEffect(dashboardViewModel)
             SensorScreen(
+                deviceName = selectedDeviceName,
+                onDevices = { navController.navigate(Routes.CONNECTION_HUB) },
+                onAlerts = { navController.navigate(Routes.ALERTS) },
+                unreadCount = alertCenterState.unreadCount,
                 status = dashboardState.status,
                 deviceOnline = transportState is TransportState.Connected,
                 fullControlAvailable = fullControlConnected,
@@ -1132,7 +1173,43 @@ fun JetsonApp(
             )
         }
 
+        composable(Routes.DATA) {
+            deviceUiState.SaveableStateProvider("data-${selectedDeviceId}") {
+                com.example.jetsoncontroller.ui.storage.DataHubScreen(
+                    selectedDeviceName, pipelineState.pipelines, uploadState,
+                    serverUploadEnabled && dashboardState.capabilities.uploads,
+                    if (!serverUploadEnabled) serverUploadDisabledReason else "장비 업로드 지원 여부 미확인",
+                    alertCenterState.unreadCount,
+                    onDevices = { navController.navigate(Routes.CONNECTION_HUB) },
+                    onAlerts = { navController.navigate(Routes.ALERTS) },
+                    onFiles = { navController.navigate(Routes.STORAGE) },
+                    onHistory = { navController.navigate(Routes.UPLOAD_QUEUE) },
+                    onTargets = { navController.navigate(Routes.UPLOAD_SERVERS) },
+                    onTransfer = { root, path -> navController.navigate("upload_confirm/${Uri.encode(root)}?path=${Uri.encode(path)}") },
+                    onSection = onSectionSelected)
+            }
+        }
         composable(Routes.SETTINGS) {
+            StatusPollingLifecycleEffect(dashboardViewModel)
+            deviceUiState.SaveableStateProvider("settings-${selectedDeviceId}") {
+                com.example.jetsoncontroller.ui.settings.SettingsHubScreen(
+                    deviceDashboardState, selectedDeviceId, alertCenterState.unreadCount,
+                    onDevices = { navController.navigate(Routes.CONNECTION_HUB) },
+                    onAlerts = { navController.navigate(Routes.ALERTS) },
+                    onNetwork = { navController.navigate(Routes.NETWORK_SETTINGS) },
+                    onSensors = { navController.navigate(Routes.SENSORS) },
+                    onTargets = { navController.navigate(Routes.UPLOAD_SERVERS) },
+                    onDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                    onAlertSettings = { navController.navigate(Routes.ALERT_SETTINGS) },
+                    onServerStorage = { navController.navigate(Routes.SERVER_STORAGE) },
+                    onRefreshFan = dashboardViewModel::refreshFan, onFanAuto = dashboardViewModel::setFanAuto,
+                    onFanManual = dashboardViewModel::setFanManual, onReboot = dashboardViewModel::reboot,
+                    onShutdown = dashboardViewModel::shutdown, onDismissMessage = dashboardViewModel::clearOperationMessage,
+                    onSection = onSectionSelected)
+            }
+        }
+
+        composable(Routes.ALERT_SETTINGS) {
             AlertSettingsScreen(
                 settings = alertSettings,
                 notificationPermissionGranted = notificationPermissionGranted,

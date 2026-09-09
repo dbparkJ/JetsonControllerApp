@@ -205,7 +205,12 @@ class MainActivity :
             }
 
 
-            JetsonControllerTheme {
+            val (themeMode, _) = com.example.jetsoncontroller.ui.theme.rememberThemePreference()
+            JetsonControllerTheme(darkTheme = when (themeMode) {
+                com.example.jetsoncontroller.ui.theme.ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+                com.example.jetsoncontroller.ui.theme.ThemeMode.LIGHT -> false
+                com.example.jetsoncontroller.ui.theme.ThemeMode.DARK -> true
+            }) {
 
                 JetsonApp(
                     repository =

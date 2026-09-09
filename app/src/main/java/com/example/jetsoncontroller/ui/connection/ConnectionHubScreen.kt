@@ -230,7 +230,7 @@ fun ConnectionHubScreen(
                     description = "QR로 장비 인증 정보 저장",
                     onClick = onAddDevice
                 )
-                ConnectionMethod(Icons.Default.Settings, "앱 알림 설정", "장비 연결 없이 알림 설정 변경", onSettingsClick)
+                ConnectionMethod(Icons.Default.Settings, "설정", "장비·서버·알림·화면 설정", onSettingsClick)
                 ConnectionMethod(Icons.Default.History, "업로드 기록", "마지막으로 확인한 전송 기록 보기", onUploadHistoryClick)
             }
         }

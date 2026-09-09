@@ -1,0 +1,13 @@
+{
+  "instruction_path": "/home/jm/ControllerApp/JetsonControllerApp/jetson_cobalt_v5/JETSONCONTROLLER_COBALT_FIELD_V5.md",
+  "branch": "codex/connection-stability-v3-20260908",
+  "head": "f2113afd1300a1f8b1f5a00eabee7a569c2d727c",
+  "status": " M backend/jetson_control/diagnostics.py\n M backend/jetson_control/wifi_direct.py\n M backend/tests/test_wifi_direct.py\n M docs/WIFI_DIRECT.md\n?? docs/JETSONCONTROLLER_DESIGN_REBUILD_AI_AGENT.md\n?? docs/WLAN_INTERNET_INVESTIGATION_20260908.md\n?? jetson_cobalt_v5/\n",
+  "existing_modified_sha256": {
+    "backend/jetson_control/diagnostics.py": "ad0a674f0b4800610685f598a3da050d792743271a4b761dcc9a0e8592e7f4e1",
+    "backend/jetson_control/wifi_direct.py": "3e59eedc410d70f670543385f0eb893cebbb754aa4224735f28321f812ff3bd0",
+    "backend/tests/test_wifi_direct.py": "3a7f0c8e95a374a334510e3bedb226d0bccdfa95a45939f8c5fb75bc45b49edd",
+    "docs/WIFI_DIRECT.md": "3b29d1436c081a293d781b69727411d670d441501eec86215915239c841a0412"
+  },
+  "agents": "No AGENTS.md found in repo or ancestor directories"
+}

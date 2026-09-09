@@ -42,6 +42,9 @@ android {
         buildConfigField("String", "DIAGNOSTICS_BUILD_ID", "\"$diagnosticsBuildId\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Optional isolated test package preserves a device's existing test installation.
+        testApplicationId = providers.gradleProperty("testApplicationId")
+            .getOrElse("com.example.jetsoncontroller.test")
     }
 
     buildTypes {

@@ -1,6 +1,11 @@
 package com.example.jetsoncontroller.ui.upload
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,9 +67,11 @@ fun UploadConfirmScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onManageTargets: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String) -> Unit,
+    deviceId: String? = null,
+    deviceName: String = "선택된 장비 없음"
 ) {
-    var selectedTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedTargetId by rememberSaveable(deviceId, rootId, path) { mutableStateOf<String?>(null) }
     val matchingSourceSummary = sourceSummary?.takeIf {
         it.matchesUploadSource(rootId, path)
     }
@@ -77,7 +84,7 @@ fun UploadConfirmScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("업로드 설정") },
+                title = { Text("전송 확인 · $deviceName") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -95,12 +102,12 @@ fun UploadConfirmScreen(
         },
         bottomBar = {
             Surface(shadowElevation = 8.dp) {
-                Button(
+                Button(shape = MaterialTheme.shapes.small,
                     onClick = { selectedTargetId?.let(onConfirm) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(16.dp),
+                        .padding(16.dp).heightIn(min = 52.dp),
                     enabled = serverUploadEnabled && selectedTargetId != null &&
                         matchingSourceSummary != null && !isLoading && !isCalculatingSource
                 ) {
@@ -118,7 +125,7 @@ fun UploadConfirmScreen(
                         when {
                             isCalculatingSource -> "용량 계산 중"
                             isLoading -> "준비 중"
-                            else -> "업로드 시작"
+                            else -> "선택한 폴더 1개 전송"
                         }
                     )
                 }
@@ -126,8 +133,10 @@ fun UploadConfirmScreen(
         }
     ) { paddingValues ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(paddingValues)
+            modifier = Modifier.fillMaxSize().padding(paddingValues).verticalScroll(rememberScrollState())
         ) {
+            Text("대상 장비: $deviceName\n${deviceId.orEmpty()}\n폴더 전체를 전송하며 원본은 유지합니다. 대상 서버 접근과 인증은 전송 시 확인합니다.",
+                modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.bodyMedium)
             Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                     Text(
@@ -150,7 +159,7 @@ fun UploadConfirmScreen(
                             matchingSourceSummary != null ->
                                 "${matchingSourceSummary.filesTotal}개 파일 · " +
                                     formatSize(matchingSourceSummary.bytesTotal)
-                            else -> "저장소 $rootId"
+                            else -> "저장소 $rootId · 용량 미확인"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -204,13 +213,11 @@ fun UploadConfirmScreen(
                         trailingContent = {
                             RadioButton(
                                 selected = selectedTargetId == target.id,
-                                onClick = { selectedTargetId = target.id },
+                                onClick = null,
                                 enabled = serverUploadEnabled
                             )
                         },
-                        modifier = Modifier.clickable(enabled = serverUploadEnabled) {
-                            selectedTargetId = target.id
-                        }
+                        modifier = Modifier.selectable(selected = selectedTargetId == target.id, enabled = serverUploadEnabled, role = Role.RadioButton, onClick = { selectedTargetId = target.id })
                     )
                     HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                 }

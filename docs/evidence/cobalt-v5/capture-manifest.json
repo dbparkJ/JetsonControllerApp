@@ -1,0 +1,157 @@
+[
+  {
+    "file": "after-data.png",
+    "sha256": "5fc90df3be6c55e0edcf020b609f43fcd33e899269f138e1428320f91c257bd8",
+    "provenance": "Android product screenshot; no Jetson connected"
+  },
+  {
+    "file": "after-devices.png",
+    "sha256": "4367131a0fbde32640a3cce0f2b75fbde2955931daa44e5c4209264cc11c9844",
+    "provenance": "Android product screenshot; no Jetson connected"
+  },
+  {
+    "file": "after-home.png",
+    "sha256": "f8f278bdbbd5e880a2e2860bbbad95d4dfcb7d583c2c39c67e12c0c3044e27d2",
+    "provenance": "Android product screenshot; no Jetson connected"
+  },
+  {
+    "file": "after-settings.png",
+    "sha256": "ec932a8d057c7aaa037a7500a0bdb620974f6298e49d40fe916659186c950320",
+    "provenance": "Android product screenshot; no Jetson connected"
+  },
+  {
+    "file": "after-tasks.png",
+    "sha256": "b588e2d2395df44026d1a8bff083fa2a041f4df5714d5026f5afd1467bf3c785",
+    "provenance": "Android product screenshot; no Jetson connected"
+  },
+  {
+    "file": "before-devices.png",
+    "sha256": "d67a171f87a0d04536bb846feeca23eca2adb9258036b89c39fa40d23250b55a",
+    "provenance": "Android product screenshot; no Jetson connected"
+  },
+  {
+    "file": "before-home.png",
+    "sha256": "f8f4e5b18f95394e393010a02a32dd5f632e9d9e5d4e6112461502a5965ab715",
+    "provenance": "Android product screenshot; no Jetson connected"
+  },
+  {
+    "file": "native-fixtures/data-dark-1.0.png",
+    "sha256": "00918746f2ce692c95fa2038048a50fcbc99b7f36d0bfd2d0929b77aad7fae8b",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/data-dark-2.0.png",
+    "sha256": "f892b8a42e989712c9ca567ff20a63c3b373f362c52ec08f3bb100f40b9d396a",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/data-light-1.0.png",
+    "sha256": "7f042bab464587e4937981005720d736b2ea395dfe02ea96d17cb1fe50593f0d",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/data-light-2.0.png",
+    "sha256": "cac0dafd02f66244fc74827786b250b58274ea3d39ebe3d62d6fee8270aa37e0",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/detail-dark-1.0.png",
+    "sha256": "4e1f485655fb39d274008b10102a1247f7456ca6f4d347b0c52f4b7b88861661",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/detail-dark-2.0.png",
+    "sha256": "d25742cb71beef1888dcc48442927986c7aa144c5c89593f1bda5f607a6aed38",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/detail-light-1.0.png",
+    "sha256": "c69dcf0cafad5464610349b3155658ab6e958ab35f3ad022112e4b98435be57a",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/detail-light-2.0.png",
+    "sha256": "0dd3afe63dc4eeae7bef2714fa3f0f45c39f387510cfadb6b086f41739f8008e",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/home-dark-1.0.png",
+    "sha256": "4f48f71eb2c7cf32fae4f830402e499f25ffd4fd7c73ad13d39fb03885f3e272",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/home-dark-2.0.png",
+    "sha256": "c03c3a1ed6887002fec562f54d5676445130c0130eb0f1308c6bba46db633c44",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/home-light-1.0.png",
+    "sha256": "f49161e282980223af56d058ee95aa2c8d47365b504c4f8254f8b624dfa2daee",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/home-light-2.0.png",
+    "sha256": "afb4226bb201beccaba9699aea9b51ea11b396b8a02ffd2427b49416e839c955",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/offline-dark-1.0.png",
+    "sha256": "d96620441f713e98e457753d001ea954f3343ba1ab71ee38d63c1ab1841ea165",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/offline-dark-2.0.png",
+    "sha256": "148294afb424a8ed1175952cd868f5b961721a958ca94907f8e38840efd811ce",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/offline-light-1.0.png",
+    "sha256": "b407c253f46532b54eb088af78df37c553c8e73c228068cb1347589758f08c8c",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/offline-light-2.0.png",
+    "sha256": "fd177655c4c2323d665cf2fd7f58945c465f01aaf8d17e9574d9fb8441591147",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/settings-dark-1.0.png",
+    "sha256": "bffdd49966aac9111780cfd4a4200bfe3ad77b481181d84872a6f41ab2ee4a40",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/settings-dark-2.0.png",
+    "sha256": "be010123bbec6f5a50385120d8d44e195160898b37e6cef394ef8b22147950e3",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/settings-light-1.0.png",
+    "sha256": "46f5e4461a07843b26a02e5fd995dbf690a87220b19ce6254b0e20ee76cd5d93",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/settings-light-2.0.png",
+    "sha256": "d879c5b55985e58757f30fdf91e551d72d76209ee4954f2efac220360ce26086",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/tasks-dark-1.0.png",
+    "sha256": "8c3104c1061c338a800d3f689d04b909afd583d793a27f045dd6945c6ca3bd8d",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/tasks-dark-2.0.png",
+    "sha256": "d37f1d52ee0f02ca0c4caf63646e22d7bae81599668d8f3c2d2cf3554e62f372",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/tasks-light-1.0.png",
+    "sha256": "0c393578af7053c1e5e80e0e2cfb653a819f450cc0d4a3723cada53a052f1f49",
+    "provenance": "Android Compose debug fixture"
+  },
+  {
+    "file": "native-fixtures/tasks-light-2.0.png",
+    "sha256": "af1aaed1d5e75ad27e15b3aff251b92dd9eb61d21a631a9c591e3b3bf76c36d9",
+    "provenance": "Android Compose debug fixture"
+  }
+]

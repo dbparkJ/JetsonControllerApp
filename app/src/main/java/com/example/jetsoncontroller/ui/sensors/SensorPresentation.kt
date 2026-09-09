@@ -110,10 +110,10 @@ fun gnssReceptionLabel(
     fixType: String,
     rtkStatus: String = "unknown"
 ): String = when (gnssReceptionState(gnssAvailable, fixType, rtkStatus)) {
-    GnssReceptionState.GNSS_OFF -> "GNSS 장치가 꺼져있습니다"
-    GnssReceptionState.RTK_OFF -> "RTK가 꺼져있습니다"
-    GnssReceptionState.RTK_FLOAT -> "RTK 신호가 약합니다"
-    GnssReceptionState.RTK_FIXED -> "RTK 수신중"
+    GnssReceptionState.GNSS_OFF -> "GNSS 수신 상태 미확인"
+    GnssReceptionState.RTK_OFF -> "RTK FIX 미확인"
+    GnssReceptionState.RTK_FLOAT -> "RTK FLOAT"
+    GnssReceptionState.RTK_FIXED -> "RTK FIX 확인"
 }
 
 fun effectiveGnssAvailability(
@@ -146,7 +146,7 @@ fun deviceLocationAvailabilityLabel(availability: DeviceLocationAvailability): S
     when (availability) {
         DeviceLocationAvailability.OFFLINE -> "장치가 오프라인입니다"
         DeviceLocationAvailability.STALE -> "장치 위치 데이터가 지연되고 있습니다"
-        DeviceLocationAvailability.OFF -> "GNSS 장치가 꺼져있습니다"
+        DeviceLocationAvailability.OFF -> "GNSS 수신 상태 미확인"
         DeviceLocationAvailability.NO_FIX -> "장치 위치 수신 대기 중"
         DeviceLocationAvailability.ACTIVE -> "장치 위치 수신 중"
     }
@@ -199,3 +199,7 @@ private fun String.isExplicitRtkOff(): Boolean =
 
 internal const val MOBILE_LOCATION_STALE_AFTER_MS = 5_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
+
+/** Existing long-poll deadline is 2s; allow two deadlines for a received preview frame. */
+fun cameraFrameIsLive(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now: Long, hasError: Boolean): Boolean =
+    active && hasFrame && !hasError && receivedAt != null && now >= receivedAt && now - receivedAt <= 4_000L
