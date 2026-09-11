@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-11",
+  "scope": "Install Android app and verify screen navigation only; Jetson hardware tests excluded by user",
+  "device": {
+    "adb": "100.94.106.23:43725",
+    "model": "SM-S908N",
+    "android": "16",
+    "size": "1440x3088",
+    "density": 560,
+    "font_scale": 1.1
+  },
+  "source_commit": "46f16160eb2d9cb9d99c8d37b49ec694c025bd19",
+  "installed_apk_sha256": "472748e59ff920cad95e14157b1da3c1b2ceb413c2f1c95f9d5f687daa9522a2",
+  "installed_matches_built_apk": true,
+  "install_mode": "adb install -r; no app data clear",
+  "credentials_unchanged_after_install": true,
+  "native_ui_tests": {
+    "tests": 16,
+    "failures": 0,
+    "skipped": 0,
+    "seconds": 30.091,
+    "scope": "Compose fixtures on actual Android; no hardware commands",
+    "classes": [
+      "com.example.jetsoncontroller.ui.CobaltFieldScreenTest",
+      "com.example.jetsoncontroller.ui.CoreWorkflowScreenTest",
+      "com.example.jetsoncontroller.ui.SlateHarmonyScreenTest",
+      "com.example.jetsoncontroller.ui.network.NetworkSettingsScreenTest"
+    ]
+  },
+  "hardware_tests": "EXCLUDED_BY_USER",
+  "system_font_or_network_settings_changed": false,
+  "real_figma": "NOT_RUN",
+  "original_full_v7_acceptance": "INCOMPLETE (full OS font/lighting/device acceptance not claimed)",
+  "instruction_retained": true
+}

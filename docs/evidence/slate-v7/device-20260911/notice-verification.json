@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-12",
+  "base_commit": "46f16160eb2d9cb9d99c8d37b49ec694c025bd19",
+  "branch": "codex/transient-connection-notice-20260911",
+  "scope": "Transient connection notice and fixed bottom navigation; hardware excluded by user",
+  "native_ui_tests": {
+    "tests": 18,
+    "failures": 0,
+    "skipped": 0,
+    "seconds": 35.955,
+    "scope": "Native Compose fixtures on approved SM-S908N Android 16; no Jetson commands",
+    "log": "native-ui-tests-notice.txt"
+  },
+  "build": "notice-build-verification.json",
+  "installed_artifact": "notice-install-verification.json",
+  "actual_product_navigation": "notice-final/navigation.json",
+  "runtime": "notice-runtime.json",
+  "capture_manifest": "capture-manifest.json",
+  "final_app_theme": "LIGHT (restored)",
+  "final_app_route": "HOME",
+  "source_colors": "notice-source-colors.json",
+  "hardware_tests": "EXCLUDED_BY_USER",
+  "real_figma": "NOT_RUN",
+  "os_max_font": "NOT_RUN; native fixture linear font scale 2.0 is separate",
+  "original_full_v7_acceptance": "INCOMPLETE",
+  "instruction_retained": true
+}

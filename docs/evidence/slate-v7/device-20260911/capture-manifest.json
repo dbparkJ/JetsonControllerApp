@@ -1,0 +1,394 @@
+[
+  {
+    "path": "after/alert-settings-light.png",
+    "sha256": "85f696bd6cb788f5b21002ea9a733cf3a348b779934215a7ed196ba0982b1218",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/before-notice-fix.png",
+    "sha256": "35c29996dded40ec4453bfc29de4030cf665717c3f779ae60b223c850d53eb83",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/data-dark.png",
+    "sha256": "64daea3cab6f1cfd158eca89f526f370c21682a8684e9a930f54b9e265a54191",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/data-light.png",
+    "sha256": "314ad9c0ac4979154ae2a287c385be5ede0add0bae014c0b80c182c6b34cbaad",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/device-files-light.png",
+    "sha256": "d2d2ce288437d7e8b2727dabaea1b04162e662950a77121a4296e858510f21e2",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/diagnostics-light.png",
+    "sha256": "e6822ebe1aa31f16dd66f99a846852b5099730a51697cd0101b7d3b8bad464fd",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/home-dark.png",
+    "sha256": "8e1607ea550d790664d7356dafb787ddb6226776cf026a56e534326608de0f1f",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/home-light.png",
+    "sha256": "65812167142e45beae1e0c7b55a84998f1d3ada021c9f17e9b52dc60ae813340",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/network-light.png",
+    "sha256": "a3a2d18b51d4802398bfc6d70147a739584a3afcd642f9b58902611ba2478e17",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/sensors-light.png",
+    "sha256": "b510fc9fe27d37f137d859698cb7f23d8babc701eea04162ce466ecbc93affa3",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/server-targets-light.png",
+    "sha256": "50c391e41593ceaa7a598f084b001af20f1aed8478eb1d3d2dad010b10a9b60c",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/settings-dark.png",
+    "sha256": "359a2138be75dbf8af34ce59ba363319b9b79570376ba2c4127e2f6884ee447b",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/settings-light.png",
+    "sha256": "5f169facd7f275438294e53c63ddb7aeda6f2f2bf83b1611c4526f931b943234",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/settings-theme-dark.png",
+    "sha256": "036a4c76a24dfc37a9137969fea45851c6867c3fbc809e3460d913bc54e9beab",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/tasks-dark.png",
+    "sha256": "f96c1edd5a943f85fdbc4337cc1cbe8a3c2ec1741a7e74cf8e1547e28018474b",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "after/tasks-light.png",
+    "sha256": "9b60b612569a402e262ed1760deadda0b2554068d3271c2b08ac5b325e34b634",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "before/app-devices.png",
+    "sha256": "d97e1388f98465618c88f525b55451e6617cf4e4817201cb975d8438a395d499",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "before/data-light.png",
+    "sha256": "1a175603d2eb1e192a1bb39ac2fa0478d830280efe442999fd2ac70c68f7c503",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "before/home-light.png",
+    "sha256": "a53bbc0797aa09d996a0047a98861a7fb3edf1fc2a5347f9f849cd38ebfe3f23",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "before/settings-light.png",
+    "sha256": "4ae9f2a8f7effa2177be9565fd54f832235db39b8879526a72e22d23c681b9a3",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "before/tasks-light.png",
+    "sha256": "46be97b430df1c91d4444cc2d795237856ce8679b3f3dde1a0af70c77a1c26b0",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/data-dark-1.0.png",
+    "sha256": "fbd7b71bb8a8dea89bbda893f570a6c816cbdb364a72b33f2ae7e57dc28e5804",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/data-dark-2.0.png",
+    "sha256": "8a188718c0f3b10b6303af1096194ff18890cea116d778477bdbe39f92c1f0c7",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/data-light-1.0.png",
+    "sha256": "9637feae67f273c1e035ec7385580c79ad704a9dbb4f7b979074750bd30835b9",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/data-light-2.0.png",
+    "sha256": "3395d0b08c145bf0a473d213a34fe7016180c3a77f8da517801678bbe4424843",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/detail-dark-1.0.png",
+    "sha256": "0c12be20265e03101579108dd6b7dbdf9155479c3b5407de179376172a5eb85e",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/detail-dark-2.0.png",
+    "sha256": "ef26498612ccce6ee3cba17b82042b2a8d8e41a4bb1da8c016f76a78b2ad432c",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/detail-light-1.0.png",
+    "sha256": "2e27754602f5728c322a7d4024c8daa9bedda15f040ce3903fa6aead1a48cb3a",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/detail-light-2.0.png",
+    "sha256": "0ff30c02d80f89bb88be571befd1c6353c7bd088ce9395ea6c26c917a344074b",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/home-dark-1.0.png",
+    "sha256": "b55550531432af081693f40cc04775abf5d54690c28c210867da1648f00ab104",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/home-dark-2.0.png",
+    "sha256": "a10c0c76dab07fb06a5365edc62e7ab38efd872cde35ca3ae63e625e6c23a678",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/home-light-1.0.png",
+    "sha256": "60dfbb46aadca5903ed1941a8bd9a3a7d49f809876b11d9e9350dc8b1fbc4096",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/home-light-2.0.png",
+    "sha256": "11c45862d85f0a26847ac1b02bec12e284ab330121012f400b6d5ac297e32a98",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/offline-dark-1.0.png",
+    "sha256": "71f33782bfdc890ab4f004a9fae87c181766264976bf58da3820992acc9c8940",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/offline-dark-2.0.png",
+    "sha256": "4f95b2186e24910e17857fe26cdbe0c010c2f8243f026fc4eb948b1e41dd92f8",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/offline-light-1.0.png",
+    "sha256": "f4a2d24ca34dc3bc25e37b0f18170e083904dc218147873942100dd5f379ed8f",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/offline-light-2.0.png",
+    "sha256": "2955ada2eaa21963de08b5855d0f31743999e6207206a99bddbd5095eccd9b35",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/settings-dark-1.0.png",
+    "sha256": "87bac0eb593aecf3e361737d31d49080deda380debc5226f40fedd76874489bf",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/settings-dark-2.0.png",
+    "sha256": "0c49ef7a929995d40d1e69466951fa0d76c3ab8f1fe817b4c3f342fb699d388f",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/settings-light-1.0.png",
+    "sha256": "e0a1569719f789b5e58ea237eb4bd440fb575dcf591d002af3a58db693934cb4",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/settings-light-2.0.png",
+    "sha256": "5f79fe6a0108768409ce40c55951bc7fe60858382153b7c7319becd05c551712",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/tasks-dark-1.0.png",
+    "sha256": "d99fa432410fbbddecf3ac9a0ead9d84fe149910df1499b7ff2624e6faf4ca44",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/tasks-dark-2.0.png",
+    "sha256": "4e882c4849713ba7a7c4195005c56f5579b23488f0b1a2cbc3d3072065308afc",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/tasks-light-1.0.png",
+    "sha256": "0b7bbdd10a1c1483c51ae7904649ae45354d9cf483b07b0c761d9d62eaf5b2ba",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-fixtures/tasks-light-2.0.png",
+    "sha256": "f663a32e92256565fa5641bb806a9d77dd6ce7a74002705f19717336a27bb66c",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-focus-dialogs/confirmation-dark.png",
+    "sha256": "d8f69426d29b4dd15de532e8737601a936e59c001d3e1d6fdf4fffc30fb301d7",
+    "width": 1120,
+    "height": 1395,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-focus-dialogs/confirmation-light.png",
+    "sha256": "1f391087506d0e0ebccfd80040d4b802015512ebd8b10cf7e024f42f41c9cbe1",
+    "width": 1120,
+    "height": 1395,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-focus-dialogs/selection-focus-dark.png",
+    "sha256": "3bf9716c4a365d68eb5f1eb47e823f10b43c4e4a0d2d36ec70549c28c9757d7f",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-focus-dialogs/selection-focus-light.png",
+    "sha256": "44a8bf0f6e837c1dd9247a71fa3c464782b4d254278e2d3d005769d6b58a5c2f",
+    "width": 1260,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-notice/notice-expired.png",
+    "sha256": "b6ef899aef80b73bdedf99bb4a095a0d621b57bde46de316465db4dd9280d57f",
+    "width": 1440,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "native-notice/notice-visible.png",
+    "sha256": "0b5394b5afbf21760c6f1d5335f6280ccae0088c833119f1a893387a4bca6dc1",
+    "width": 1440,
+    "height": 3088,
+    "scope": "NATIVE_COMPOSE_FIXTURE_ON_PHONE"
+  },
+  {
+    "path": "notice-final/data-light.png",
+    "sha256": "b25a3b9bab487c845e542702bd7360ecb218a6e24fed54b8d1e68a37879c4bb6",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "notice-final/first-notice.png",
+    "sha256": "678cf994a0b602940b69c77cf6dcf549233783534626fb1fa0ed77798e70aee3",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "notice-final/home-light.png",
+    "sha256": "b57029e1d15df36d8b6299a52d22079545fdfcc93a8fc8853dbb79787ce8bf82",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "notice-final/settings-light.png",
+    "sha256": "9a25e5056647d4a1f0e5623fb6c9e0e767fe162e6dc740c028b566717338619b",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  },
+  {
+    "path": "notice-final/tasks-light.png",
+    "sha256": "f31d1ddeedec638db148654296427e9fdb7fdfa623b244b1522673a104e33400",
+    "width": 1440,
+    "height": 3088,
+    "scope": "ACTUAL_PRODUCT_ON_PHONE"
+  }
+]

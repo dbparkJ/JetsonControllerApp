@@ -1,0 +1,19 @@
+{
+  "gradle_exit_code": 0,
+  "unit_tests": {
+    "tests": 196,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Warning": 73
+  },
+  "source_sha256": {
+    "app/src/main/java/com/example/jetsoncontroller/ui/components/ConnectionRecoveryLayout.kt": "00efb1c01465a1447b404300c6af6ccfeb3682b4725df13187dd0d1225462d49",
+    "app/src/main/java/com/example/jetsoncontroller/ui/JetsonApp.kt": "6e41546dd20c799aadd406ac3865ad66fc8a505ca4505d711a33b1d1e19f593c",
+    "app/src/androidTest/java/com/example/jetsoncontroller/ui/ConnectionNoticeScreenTest.kt": "d0d6c1228ec2162fc61767676c4d1bf08017dd4d655343a9e1019d65d7699c0d"
+  },
+  "apk_sha256": "351bb9e47e8cb053b543fb96cb2cacad4028ee0bfaf91b60ed2268e0cde18954",
+  "instrumentation_sha256": "32eb98cbaf9e6ae7b32d35336c05fe71db2eab67a71c95089b0168a1189ac7f6"
+}
