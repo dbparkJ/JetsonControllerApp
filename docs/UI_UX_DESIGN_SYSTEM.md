@@ -85,3 +85,14 @@ focusRing을 쓴다. 선택 배경에서는 onAccent를 사용한다. 대비 검
 화면: home, tasks, detail, data, settings, offline. dark / fontScale 인자로 검수한다.
 `src/androidTest/.../CobaltFieldScreenTest.kt`의 캡처는 실제 Android Compose 렌더링이지만
 그 안의 정상 상태·장비명·수치는 테스트 fixture다. 실제 Jetson 관측값과 구분한다.
+
+
+## 연결 대기 안내와 하단 탭
+
+2026-09-12 사용자 요청 반영: 연결 대기는 상단의 짧은 Snackbar로 표시하며,
+장비별 같은 끊김 구간에서는 탭 이동·화면 복원으로 반복하지 않는다.
+접근성 권장 표시 시간과 닫기·연결 문제 해결 행동을 유지한다.
+안내는 본문과 하단 탭의 높이를 차지하지 않는다. 홈·작업·데이터·설정 탭은
+각 화면의 기존 system inset을 따르며 앱 하단에 유지한다.
+기존 오프라인 헤더와 기능별 제어 제한은 그대로다.
+[구현·실기 증거](CONNECTION_NOTICE_SCREEN_REPORT.md).

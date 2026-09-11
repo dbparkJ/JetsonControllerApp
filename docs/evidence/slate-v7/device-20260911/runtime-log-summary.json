@@ -1,0 +1,10 @@
+{
+  "pid": "24093",
+  "log_lines": 303,
+  "fatal_exception": 0,
+  "crash_buffer_fatal_exception": 0,
+  "error_tags": [
+    "ashmem  ",
+    "etsoncontroller"
+  ]
+}

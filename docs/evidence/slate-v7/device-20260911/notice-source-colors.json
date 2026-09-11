@@ -1,0 +1,763 @@
+{
+  "scope": "NATIVE_SOURCE_TOKENS_AND_DECLARED_OPAQUE_PAIRS_ONLY",
+  "tokens": 66,
+  "pairs": [
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "canvas",
+      "ratio": 12.897422219407868,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "surface",
+      "ratio": 13.697178684754938,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "sectionBase",
+      "ratio": 13.697178684754938,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "sectionSoft",
+      "ratio": 12.08123444208394,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "sectionRaised",
+      "ratio": 11.119766367992822,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "sectionDanger",
+      "ratio": 12.08123444208394,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "hero",
+      "ratio": 11.30244218402158,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "canvas",
+      "ratio": 6.567893327043468,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "surface",
+      "ratio": 6.975161931781295,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "sectionBase",
+      "ratio": 6.975161931781295,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "sectionSoft",
+      "ratio": 6.152257228208644,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "sectionRaised",
+      "ratio": 5.662638477999324,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "sectionDanger",
+      "ratio": 6.152257228208644,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "hero",
+      "ratio": 5.755664452701621,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onPrimary",
+      "background": "primary",
+      "ratio": 5.909785529709394,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onAccent",
+      "background": "accent",
+      "ratio": 7.055345756321904,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "heroText",
+      "background": "hero",
+      "ratio": 11.30244218402158,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "heroMuted",
+      "background": "hero",
+      "ratio": 5.755664452701621,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "success",
+      "background": "successBg",
+      "ratio": 6.152257228208644,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "warning",
+      "background": "warningBg",
+      "ratio": 5.604333172236333,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "danger",
+      "background": "dangerBg",
+      "ratio": 5.2105905400050165,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onDanger",
+      "background": "danger",
+      "ratio": 6.01963677046561,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "info",
+      "background": "infoBg",
+      "ratio": 4.940091568321612,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onDisabled",
+      "background": "disabled",
+      "ratio": 4.558821522074172,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "onNavSelected",
+      "background": "navSelected",
+      "ratio": 7.055345756321904,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "controlBorder",
+      "background": "canvas",
+      "ratio": 4.076872625779009,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "controlBorder",
+      "background": "surface",
+      "ratio": 4.329675487110235,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "controlBorder",
+      "background": "sectionBase",
+      "ratio": 4.329675487110235,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "controlBorder",
+      "background": "sectionSoft",
+      "ratio": 3.8188758299650223,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "controlBorder",
+      "background": "sectionRaised",
+      "ratio": 3.5149559609291696,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "controlBorder",
+      "background": "sectionDanger",
+      "ratio": 3.8188758299650223,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "controlBorder",
+      "background": "hero",
+      "ratio": 3.5726997504314464,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "canvas",
+      "ratio": 5.18014690872662,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "surface",
+      "ratio": 5.501362723113749,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "sectionBase",
+      "ratio": 5.501362723113749,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "sectionSoft",
+      "ratio": 4.852331588756494,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "sectionRaised",
+      "ratio": 4.466165594721827,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "sectionDanger",
+      "ratio": 4.852331588756494,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "hero",
+      "ratio": 4.539535881249046,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "primary",
+      "background": "canvas",
+      "ratio": 5.417489844220206,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "primary",
+      "background": "surface",
+      "ratio": 5.75342306057622,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "primary",
+      "background": "sectionBase",
+      "ratio": 5.75342306057622,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "primary",
+      "background": "sectionSoft",
+      "ratio": 5.074654747453711,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "primary",
+      "background": "sectionRaised",
+      "ratio": 4.670795477103351,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "primary",
+      "background": "sectionDanger",
+      "ratio": 5.074654747453711,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "primary",
+      "background": "hero",
+      "ratio": 4.747527428751116,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "foreground": "focusRing",
+      "background": "accent",
+      "ratio": 4.167779066975978,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "canvas",
+      "ratio": 13.357056685643423,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "surface",
+      "ratio": 11.834346863956652,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "sectionBase",
+      "ratio": 11.834346863956652,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "sectionSoft",
+      "ratio": 10.134323238815321,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "sectionRaised",
+      "ratio": 8.730467297672124,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "sectionDanger",
+      "ratio": 10.134323238815321,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "hero",
+      "ratio": 9.035654833014261,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "canvas",
+      "ratio": 7.6503154758177985,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "surface",
+      "ratio": 6.77817644188295,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "sectionBase",
+      "ratio": 6.77817644188295,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "sectionSoft",
+      "ratio": 5.804480113809899,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "sectionRaised",
+      "ratio": 5.0004151850527885,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "sectionDanger",
+      "ratio": 5.804480113809899,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "hero",
+      "ratio": 5.175212745593512,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onPrimary",
+      "background": "primary",
+      "ratio": 6.939787059933671,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onAccent",
+      "background": "accent",
+      "ratio": 7.086742128429301,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "heroText",
+      "background": "hero",
+      "ratio": 9.035654833014261,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "heroMuted",
+      "background": "hero",
+      "ratio": 5.175212745593512,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "success",
+      "background": "successBg",
+      "ratio": 6.56045626238202,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "warning",
+      "background": "warningBg",
+      "ratio": 6.7279481602810485,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "danger",
+      "background": "dangerBg",
+      "ratio": 6.574505701196368,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onDanger",
+      "background": "danger",
+      "ratio": 7.526284073977322,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "info",
+      "background": "infoBg",
+      "ratio": 5.632608099779942,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onDisabled",
+      "background": "disabled",
+      "ratio": 4.62044693429111,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "onNavSelected",
+      "background": "navSelected",
+      "ratio": 7.086742128429301,
+      "target": 4.5,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "controlBorder",
+      "background": "canvas",
+      "ratio": 4.9837655882766905,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "controlBorder",
+      "background": "surface",
+      "ratio": 4.415614311475554,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "controlBorder",
+      "background": "sectionBase",
+      "ratio": 4.415614311475554,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "controlBorder",
+      "background": "sectionSoft",
+      "ratio": 3.781303965892962,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "controlBorder",
+      "background": "sectionRaised",
+      "ratio": 3.257499276354787,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "controlBorder",
+      "background": "sectionDanger",
+      "ratio": 3.781303965892962,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "controlBorder",
+      "background": "hero",
+      "ratio": 3.3713704062305716,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "canvas",
+      "ratio": 8.326465216652908,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "surface",
+      "ratio": 7.377244840957549,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "sectionBase",
+      "ratio": 7.377244840957549,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "sectionSoft",
+      "ratio": 6.317491340214986,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "sectionRaised",
+      "ratio": 5.442361591332192,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "sectionDanger",
+      "ratio": 6.317491340214986,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "hero",
+      "ratio": 5.632608099779942,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "primary",
+      "background": "canvas",
+      "ratio": 7.252426150613947,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "primary",
+      "background": "surface",
+      "ratio": 6.425646659405561,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "primary",
+      "background": "sectionBase",
+      "ratio": 6.425646659405561,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "primary",
+      "background": "sectionSoft",
+      "ratio": 5.5025918213671465,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "primary",
+      "background": "sectionRaised",
+      "ratio": 4.740345933005759,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "primary",
+      "background": "sectionDanger",
+      "ratio": 5.5025918213671465,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "primary",
+      "background": "hero",
+      "ratio": 4.906052354281616,
+      "target": 3.0,
+      "passed": true
+    },
+    {
+      "theme": "dark",
+      "foreground": "focusRing",
+      "background": "accent",
+      "ratio": 4.602854889571374,
+      "target": 3.0,
+      "passed": true
+    }
+  ],
+  "failures": [],
+  "status": "PASS",
+  "renderedNativePixels": "NOT_CHECKED",
+  "physicalDevice": "NOT_CHECKED",
+  "realFigma": "NOT_CHECKED"
+}

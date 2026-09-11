@@ -477,6 +477,8 @@ fun JetsonApp(
 
 
     ConnectionRecoveryLayout(
+        deviceId = selectedDeviceId,
+        connectionAvailable = fullControlConnected,
         message = if (!fullControlConnected && (currentRoute in routesRequiringDeviceConnection || currentRoute in setOf(Routes.DASHBOARD, Routes.DATA, Routes.SETTINGS, Routes.PIPELINE_DETAIL, Routes.SENSORS))) {
             if (connectedTransportType == TransportType.BLE) {
                 "전체 제어 연결이 필요합니다. 작성한 내용은 유지됩니다."

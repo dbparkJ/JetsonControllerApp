@@ -1,0 +1,75 @@
+SM-S908N
+16
+Physical size: 1440x3088
+Physical density: 600
+Override density: 560
+1.1
+93
+1
+null
+0
+Activity Resolver Table:
+  Non-Data Actions:
+      android.intent.action.MAIN:
+        e6740e9 com.example.jetsoncontroller/.MainActivity filter 4f3d16e
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.LAUNCHER"
+
+Receiver Resolver Table:
+  Non-Data Actions:
+      androidx.profileinstaller.action.SAVE_PROFILE:
+        eb3e00f com.example.jetsoncontroller/androidx.profileinstaller.ProfileInstallReceiver filter c0f967a
+          Action: "androidx.profileinstaller.action.SAVE_PROFILE"
+      androidx.profileinstaller.action.INSTALL_PROFILE:
+        eb3e00f com.example.jetsoncontroller/androidx.profileinstaller.ProfileInstallReceiver filter b75289c
+          Action: "androidx.profileinstaller.action.INSTALL_PROFILE"
+      androidx.profileinstaller.action.SKIP_FILE:
+        eb3e00f com.example.jetsoncontroller/androidx.profileinstaller.ProfileInstallReceiver filter 7ea02a5
+          Action: "androidx.profileinstaller.action.SKIP_FILE"
+      androidx.profileinstaller.action.BENCHMARK_OPERATION:
+        eb3e00f com.example.jetsoncontroller/androidx.profileinstaller.ProfileInstallReceiver filter ed86e2b
+          Action: "androidx.profileinstaller.action.BENCHMARK_OPERATION"
+
+Domain verification status:
+
+Permissions:
+  Permission [com.example.jetsoncontroller.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION] (69e991e):
+    sourcePackage=com.example.jetsoncontroller
+    uid=10633 gids=[] type=0 prot=signature
+    perm=PermissionInfo{f6285ff com.example.jetsoncontroller.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION}
+    flags=0x0
+
+Registered ContentProviders:
+  com.example.jetsoncontroller/androidx.startup.InitializationProvider:
+    Provider{400efcc com.example.jetsoncontroller/androidx.startup.InitializationProvider}
+  com.example.jetsoncontroller/com.google.mlkit.common.internal.MlKitInitProvider:
+    Provider{13e7215 com.example.jetsoncontroller/com.google.mlkit.common.internal.MlKitInitProvider}
+
+ContentProvider Authorities:
+  [com.example.jetsoncontroller.androidx-startup]:
+    Provider{400efcc com.example.jetsoncontroller/androidx.startup.InitializationProvider}
+      applicationInfo=ApplicationInfo{f97292a com.example.jetsoncontroller}
+  [com.example.jetsoncontroller.mlkitinitprovider]:
+    Provider{13e7215 com.example.jetsoncontroller/com.google.mlkit.common.internal.MlKitInitProvider}
+      applicationInfo=ApplicationInfo{263831b com.example.jetsoncontroller}
+
+Key Set Manager:
+  [com.example.jetsoncontroller]
+      Signing KeySets: 526
+
+Packages:
+  Package [com.example.jetsoncontroller] (fbd4f1d):
+    appId=10633
+    pkg=Package{8333cb8 com.example.jetsoncontroller}
+    codePath=/data/app/~~C36X8dNfvpfb5xfFu-B0Yw==/com.example.jetsoncontroller-P7U9_7gIM0r_osIsG93j-w==
+    resourcePath=/data/app/~~C36X8dNfvpfb5xfFu-B0Yw==/com.example.jetsoncontroller-P7U9_7gIM0r_osIsG93j-w==
+    legacyNativeLibraryDir=/data/app/~~C36X8dNfvpfb5xfFu-B0Yw==/com.example.jetsoncontroller-P7U9_7gIM0r_osIsG93j-w==/lib
+    extractNativeLibs=false
+    primaryCpuAbi=arm64-v8a
+    secondaryCpuAbi=null
+    cpuAbiOverride=null
+    versionCode=22 minSdk=31 targetSdk=37
+    minExtensionVersions=[]
+    versionName=1.15.3
+    hiddenApiEnforcementPolicy=2
+    usesNonSdkApi=false
