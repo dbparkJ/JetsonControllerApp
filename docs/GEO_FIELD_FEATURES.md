@@ -31,3 +31,11 @@ GEO& 도로관리장치 제어 1.16.0은 기존 Slate 색상·장비 인증·업
 이번 작업은 실제 장치가 없는 상태이므로 수집·시작/중지·원격 명령·실제 서버 전송·센서/GPS/카메라 저장의 장치 수용 검증을 수행하지 않는다. 자동화된 모의 API/회귀검사와 휴대전화 화면 검증은 별도로 기록한다.
 
 모바일 저장은 Android의 [공유 미디어 저장소](https://developer.android.com/training/data-storage/shared/media)의 `IS_PENDING` 게시 절차를 사용한다. 지도 경로는 기존 MapLibre 지도에 [PolylineOptions](https://maplibre.org/maplibre-native/android/api/-map-libre%20-native%20-android/org.maplibre.android.annotations/-polyline-options/index.html)를 연결한다.
+
+### 이번 버전 검증 결과
+
+2026-09-12 기준 Android APK·테스트 APK 빌드, Lint, JVM 200개, 휴대전화의 통신 없는 Compose 화면 검사 3개가 통과했다. 라이트/다크 시작 화면, 실행 상태 필터·추가 버튼, 날짜/유형 필터와 파일·폴더 전송 콜백을 확인했다. 색상 검사에서는 66개 토큰 및 94개 대비 조합이 통과했다.
+
+Python 3.11 모의검사 238개는 실패 없이 완료되었고 기존 환경 조건에 따른 2개가 건너뛰어졌다. 별도로 DBus/GLib이 필요한 기존 BLE 모듈 2개는 해당 가상환경에서 실행할 수 없어 전체 실행 목록에서 제외했다. 마지막 프리뷰 가용성·GPS 공백 보완 후 관련 API/실행기/경로 검사 47개도 통과했다. 실제 Jetson 작업·장치 캡처·서버 파일 수용시험은 사용자 요청대로 수행하지 않았다.
+
+SM-S908N 휴대전화에 `versionName=1.16.0`, `versionCode=23`을 기존 데이터 유지 방식으로 설치했다. 검증 APK SHA-256은 `805bc23e5bbeb0d068613fb74afd6c4c5df6a9b9f03e1409f090af4a4621889e`다. 휴대전화 설치가 장치 백엔드 배포를 의미하지 않는다.

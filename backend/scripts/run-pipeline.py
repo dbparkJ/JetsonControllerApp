@@ -464,7 +464,7 @@ def main() -> int:
             )
             print("Sensor devices handed off to the capture pipeline", flush=True)
         route_recorder = RouteRecorder(writer.path, Path(environment.get(
-            "JETSON_PIPELINE_SENSOR_BRIDGE_DIR", "/var/lib/jetson-sensors")))
+            "JETSON_PIPELINE_SENSOR_BRIDGE_DIR", environment.get("JETSON_CONTROL_SENSOR_BRIDGE_DIR", "/var/lib/jetson-sensors"))))
         route_recorder.start()
         try:
             child = subprocess.Popen(

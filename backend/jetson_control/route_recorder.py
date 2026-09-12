@@ -38,7 +38,7 @@ class RouteRecorder:
                                  isinstance(lat, (float, int)) and isinstance(lon, (float, int)) and
                                  math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180)
                         if valid and stamp != last_stamp:
-                            if gap:
+                            if gap or (last_stamp is not None and (stamp < last_stamp or stamp - last_stamp > 15000)):
                                 segment += 1
                             gap = False
                             last_stamp = stamp

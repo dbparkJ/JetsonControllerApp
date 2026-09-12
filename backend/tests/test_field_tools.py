@@ -62,6 +62,7 @@ class FieldToolsTest(unittest.TestCase):
                 SimpleNamespace(fresh=True, gnss=dict(active=True, latitude=37.1, longitude=127.1, lastSampleAtEpochMillis=100)),
                 SimpleNamespace(fresh=False, gnss={}),
                 SimpleNamespace(fresh=True, gnss=dict(active=True, latitude=37.2, longitude=127.2, lastSampleAtEpochMillis=200)),
+                SimpleNamespace(fresh=True, gnss=dict(active=True, latitude=37.3, longitude=127.3, lastSampleAtEpochMillis=20000)),
             ]
             recorder.bridge = SimpleNamespace(status=lambda: samples.pop(0))
             class Stop:
@@ -71,5 +72,5 @@ class FieldToolsTest(unittest.TestCase):
             recorder._record()
             import json
             points = [json.loads(line) for line in recorder.path.read_text().splitlines()]
-            self.assertEqual([p['timestamp'] for p in points], [100, 200])
-            self.assertEqual([p['segment'] for p in points], [0, 1])
+            self.assertEqual([p['timestamp'] for p in points], [100, 200, 20000])
+            self.assertEqual([p['segment'] for p in points], [0, 1, 2])

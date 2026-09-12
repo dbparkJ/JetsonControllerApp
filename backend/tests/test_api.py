@@ -254,7 +254,7 @@ class ApiContractTest(unittest.TestCase):
         self.paths.storage_roots.write_text(json.dumps({"recordings": {"label": "Records", "path": str(self.base / "source")}}))
         bridge = self.client.app.state.sensor_bridge
         content = b"\xff\xd8fixture-jpeg\xff\xd9"
-        with patch.object(bridge, "status", return_value=SimpleNamespace(fresh=True, camera={"active": True})), patch.object(bridge, "preview_frame_with_revision", return_value=(content, 17)):
+        with patch.object(bridge, "status", return_value=SimpleNamespace(fresh=True, camera={"active": True, "previewAvailable": True})), patch.object(bridge, "preview_frame_with_revision", return_value=(content, 17)):
             response = self.signed_request("POST", "/v1/camera/capture")
         self.assertEqual(response.status_code, 200)
         value = response.json()

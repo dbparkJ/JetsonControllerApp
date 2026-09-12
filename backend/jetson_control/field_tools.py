@@ -173,7 +173,7 @@ def register_field_routes(app, authenticated, paths, config, pipelines, sensor_b
     async def capture():
         def save():
             current = sensor_bridge.status()
-            if not current.fresh or not current.camera.get('active'):
+            if not current.fresh or not current.camera.get('active') or not current.camera.get('previewAvailable'):
                 raise HTTPException(409, 'Camera sensor is not active')
             content, revision = sensor_bridge.preview_frame_with_revision()
             if not content or len(content) > 16 * 1024 * 1024:
