@@ -89,6 +89,8 @@ fun GnssMapScreen(
     gnss: GnssSensorStatus,
     telemetryFresh: Boolean,
     deviceOnline: Boolean = true,
+    route: List<com.example.jetsoncontroller.model.RoutePoint> = emptyList(),
+    routeLabel: String? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -124,7 +126,10 @@ fun GnssMapScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("GNSS 위치") },
+                title = { Column {
+                    Text(routeLabel?.let { "$it · 수집 경로" } ?: "GNSS 위치")
+                    Text(if (route.isEmpty()) "경로 없음 · 유효한 GPS 수신 대기" else "기록된 GPS ${route.size}개", style = MaterialTheme.typography.bodySmall)
+                } },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -162,6 +167,7 @@ fun GnssMapScreen(
                 )
             } else {
                 VWorldRasterMap(
+                    route = route,
                     modifier = Modifier.fillMaxSize(),
                     gnss = gnss,
                     mobileFix = mobileLocation.fix,
@@ -412,6 +418,7 @@ private fun VWorldRasterMap(
     layer: VWorldLayer,
     apiKey: String,
     deviceMarkerTitle: String,
+    route: List<com.example.jetsoncontroller.model.RoutePoint>,
     modifier: Modifier = Modifier
 ) {
     val mapView = rememberMapViewWithLifecycle()
@@ -426,7 +433,8 @@ private fun VWorldRasterMap(
                 apiKey = apiKey,
                 devicePosition = gnss.toLatLngOrNull().takeIf { showDeviceMarker },
                 mobilePosition = mobileFix.toLatLngOrNull().takeIf { showMobileMarker },
-                deviceMarkerTitle = deviceMarkerTitle
+                deviceMarkerTitle = deviceMarkerTitle,
+                route = route
             )
         }
     )
@@ -476,6 +484,10 @@ private fun rememberMapViewWithLifecycle(): MapView {
 }
 
 private class VWorldMapController {
+    private var pendingRoute: List<com.example.jetsoncontroller.model.RoutePoint> = emptyList()
+    private var renderedRoute: List<com.example.jetsoncontroller.model.RoutePoint> = emptyList()
+    private val routeMarkers = mutableListOf<Marker>()
+    private val routeLines = mutableListOf<org.maplibre.android.annotations.Polyline>()
     private var deviceMarker: Marker? = null
     private var mobileMarker: Marker? = null
     private var deviceIcon: MapMarkerIcon? = null
@@ -498,8 +510,10 @@ private class VWorldMapController {
         apiKey: String,
         devicePosition: LatLng?,
         mobilePosition: LatLng?,
-        deviceMarkerTitle: String
+        deviceMarkerTitle: String,
+        route: List<com.example.jetsoncontroller.model.RoutePoint>
     ) {
+        pendingRoute = route
         pendingDevicePosition = devicePosition
         pendingMobilePosition = mobilePosition
         pendingDeviceMarkerTitle = deviceMarkerTitle
@@ -508,6 +522,11 @@ private class VWorldMapController {
             if (currentLayer != layer) {
                 deviceMarker?.let(readyMap::removeMarker)
                 mobileMarker?.let(readyMap::removeMarker)
+                routeMarkers.forEach(readyMap::removeMarker)
+                routeMarkers.clear()
+                routeLines.forEach(readyMap::removePolyline)
+                routeLines.clear()
+                renderedRoute = emptyList()
                 currentLayer = layer
                 deviceMarker = null
                 mobileMarker = null
@@ -592,7 +611,30 @@ private class VWorldMapController {
             lastMobilePosition = mobilePosition
         }
 
-        updateCamera(targetMap, devicePosition, mobilePosition, force)
+        if (force || renderedRoute != pendingRoute) {
+            val firstRoute = renderedRoute.isEmpty()
+            routeMarkers.forEach(targetMap::removeMarker)
+            routeMarkers.clear()
+            pendingRoute.firstOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("수집 시작")) }
+            if (pendingRoute.size > 1) pendingRoute.lastOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("마지막 수집 위치")) }
+            routeLines.forEach(targetMap::removePolyline)
+            routeLines.clear()
+            pendingRoute.groupBy { it.segment }.values.forEach { segment ->
+                val points = segment.map { LatLng(it.latitude, it.longitude) }
+                if (points.size >= 2) routeLines += targetMap.addPolyline(
+                    org.maplibre.android.annotations.PolylineOptions().addAll(points).color(JetsonMarkerArgb).width(5f))
+            }
+            renderedRoute = pendingRoute
+            if (firstRoute && pendingRoute.isNotEmpty()) {
+                val points = pendingRoute.map { LatLng(it.latitude, it.longitude) }.distinct()
+                if (points.size >= 2) {
+                    val bounds = LatLngBounds.Builder()
+                    points.forEach { bounds.include(it) }
+                    targetMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), MapBoundsPaddingPx))
+                } else targetMap.cameraPosition = CameraPosition.Builder().target(points.first()).zoom(DefaultMapZoom).build()
+            }
+        }
+        if (pendingRoute.isEmpty()) updateCamera(targetMap, devicePosition, mobilePosition, force)
     }
 
     private fun updateCamera(

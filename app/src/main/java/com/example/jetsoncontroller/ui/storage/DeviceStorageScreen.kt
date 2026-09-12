@@ -83,7 +83,9 @@ fun DeviceStorageScreen(
     onDeleteClick: (RemoteFileEntry) -> Unit,
     onUploadClick: (String, String) -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
-    onServerDataClick: () -> Unit = {}
+    onServerDataClick: () -> Unit = {},
+    onTransferQueue: () -> Unit = {},
+    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null
 ) {
     var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<RemoteFileEntry?>(null) }
     pendingDeletion?.let { entry ->
@@ -134,6 +136,7 @@ fun DeviceStorageScreen(
                 },
                 actions = {
                     if (state.preview == null) {
+                        IconButton(onClick = onTransferQueue) { Icon(Icons.Default.Upload, "전송 대기 · 이력") }
                         IconButton(
                             onClick = onRefresh,
                             enabled = state.controlAvailable && !state.isLoading && !state.isDeleting
@@ -160,6 +163,7 @@ fun DeviceStorageScreen(
                 when {
                     state.preview != null -> FilePreview(state.preview)
                     state.currentRoot != null -> DirectoryList(
+                        thumbnailLoader = thumbnailLoader,
                         state = state,
                         onRefresh = onRefresh,
                         onDirectoryClick = onDirectoryClick,
@@ -193,13 +197,21 @@ private fun DirectoryList(
     onDeleteClick: (RemoteFileEntry) -> Unit,
     onUploadClick: (String, String) -> Unit,
     serverUploadEnabled: Boolean,
-    serverUploadDisabledReason: String?
+    serverUploadDisabledReason: String?,
+    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null
 ) {
     val root = state.currentRoot ?: return
+    var category by androidx.compose.runtime.saveable.rememberSaveable(state.deviceId, state.currentPath) { mutableStateOf("전체") }
+    var collapsed by remember(state.deviceId, state.currentPath, category) { mutableStateOf(setOf<String>()) }
+    val groups = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
+        .sortedWith(compareBy<RemoteFileEntry> { it.type != RemoteEntryType.DIRECTORY }.thenByDescending { it.modifiedAt })
+        .groupBy { if (it.type == RemoteEntryType.DIRECTORY) "폴더" else dateGroup(it.modifiedAt) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        item { MediaFilters(category) { category = it } }
+        if (groups.isEmpty() && state.entries.isNotEmpty()) item { Text("이 폴더에 해당 유형의 파일이 없습니다.", Modifier.padding(20.dp)) }
         item {
             Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
                 Row(
@@ -260,7 +272,13 @@ private fun DirectoryList(
                 EmptyState("빈 폴더입니다", "이 위치에는 표시할 파일이 없습니다.")
             }
         }
-        items(state.entries, key = { it.relativePath }) { entry ->
+        groups.forEach { (day, entries) ->
+        item(key = "day:$day") {
+            TextButton(onClick = { collapsed = if (day in collapsed) collapsed - day else collapsed + day }, modifier = Modifier.fillMaxWidth()) {
+                Text("$day (${entries.size})", Modifier.weight(1f)); Text(if (day in collapsed) "펼치기" else "접기")
+            }
+        }
+        if (day !in collapsed) items(entries, key = { it.relativePath }) { entry ->
             val directory = entry.type == RemoteEntryType.DIRECTORY
             ListItem(
                 headlineContent = {
@@ -275,14 +293,7 @@ private fun DirectoryList(
                         ).joinToString(" · ")
                     )
                 },
-                leadingContent = {
-                    Icon(
-                        if (directory) Icons.Default.Folder else Icons.Default.Description,
-                        contentDescription = null,
-                        tint = if (directory) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
+                leadingContent = { MediaThumbnail(entry, "${state.deviceId}/${state.currentRoot?.id}", if (state.controlAvailable) thumbnailLoader else null) },
                 trailingContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!directory) {
@@ -310,6 +321,7 @@ private fun DirectoryList(
                 }
             )
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+        }
         }
     }
 }

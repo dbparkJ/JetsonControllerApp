@@ -60,6 +60,9 @@ internal object BluetoothPermissionPolicy {
 class MainActivity :
     ComponentActivity() {
 
+    private var showWelcome by mutableStateOf(true)
+    private var backgroundAt = 0L
+
     private var bluetoothPermissionGranted
         by mutableStateOf(false)
 
@@ -175,6 +178,7 @@ class MainActivity :
             savedInstanceState
         )
 
+        showWelcome = savedInstanceState == null
         refreshPermissionState()
 
         val app =
@@ -212,6 +216,7 @@ class MainActivity :
                 com.example.jetsoncontroller.ui.theme.ThemeMode.DARK -> true
             }) {
 
+                androidx.compose.foundation.layout.Box {
                 JetsonApp(
                     repository =
                         app.repository,
@@ -267,18 +272,28 @@ class MainActivity :
                         }
                     }
                 )
+                if (showWelcome) {
+                    com.example.jetsoncontroller.ui.components.GeoWelcomeScene()
+                    LaunchedEffect(showWelcome) {
+                        kotlinx.coroutines.delay(1600)
+                        showWelcome = false
+                    }
+                }
+                }
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
+        if (backgroundAt > 0 && android.os.SystemClock.elapsedRealtime() - backgroundAt >= 30 * 60 * 1000L) showWelcome = true
         ConnectionDiagnostics.record("app_foreground", mapOf("foreground" to true))
         ConnectionDiagnostics.recordPowerState(this)
         refreshPermissionState()
     }
 
     override fun onStop() {
+        backgroundAt = android.os.SystemClock.elapsedRealtime()
         ConnectionDiagnostics.record("app_background", mapOf("foreground" to false))
         ConnectionDiagnostics.recordPowerState(this)
         super.onStop()

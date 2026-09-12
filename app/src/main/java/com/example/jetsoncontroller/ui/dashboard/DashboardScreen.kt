@@ -127,7 +127,7 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             com.example.jetsoncontroller.ui.components.DeviceContextHeader(
-                title = "현장 컨트롤", deviceName = state.deviceName,
+                title = "GEO& 도로관리장치 제어", deviceName = state.deviceName,
                 connectionLabel = userConnectionStage(state.isOnline, state.transportType).label,
                 onDevices = onBack, unreadCount = unreadAlertCount, onAlerts = onAlertsClick)
         },
@@ -138,6 +138,7 @@ fun DashboardScreen(
             contentPadding = PaddingValues(AppSpacing.screen),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { com.example.jetsoncontroller.ui.components.GeoDeviceSummary(state, onBack) }
             item {
                 Surface(color = c.hero, contentColor = c.heroText,
                     shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {

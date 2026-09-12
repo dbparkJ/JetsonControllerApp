@@ -110,8 +110,21 @@ fun PipelineListScreen(
     onDetails: (ManagedPipeline) -> Unit = onLogs,
     detailId: String? = null,
     startCapability: Boolean = false,
-    nowMillis: Long = System.currentTimeMillis()
+    nowMillis: Long = System.currentTimeMillis(),
+    fieldState: com.example.jetsoncontroller.ui.field.FieldState? = null,
+    onHistoryRefresh: () -> Unit = {}, onMoreHistory: () -> Unit = {},
+    onRunLog: (com.example.jetsoncontroller.model.TaskRun) -> Unit = {},
+    onRunRoute: (com.example.jetsoncontroller.model.TaskRun) -> Unit = {},
+    onDismissRunLog: () -> Unit = {}
 ) {
+    var choosing by androidx.compose.runtime.saveable.rememberSaveable(state.deviceId) { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(choosing && detailId == null) { choosing = false }
+    if (fieldState != null && detailId == null && !choosing) {
+        com.example.jetsoncontroller.ui.field.GeoRunDashboard(fieldState, state.pipelines, deviceName,
+            unreadCount, onBack, onAlerts, onSectionSelected, { choosing = true }, onHistoryRefresh,
+            onMoreHistory, onRunLog, onRunRoute, onDismissRunLog, onDetails)
+        return
+    }
     var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
     var pendingStart by remember(state.deviceId, state.controlAvailable) { mutableStateOf<Pair<ManagedPipeline, String>?>(null) }
     val fresh = tasksAreFresh(state.controlAvailable, state.observedAtMillis, nowMillis)
@@ -139,8 +152,8 @@ fun PipelineListScreen(
     Scaffold(
         topBar = {
             com.example.jetsoncontroller.ui.components.DeviceContextHeader(
-                if (detailId == null) "작업" else "작업 상세", deviceName,
-                if (fresh) "작업 상태 확인됨" else "현재 상태 미확인", onBack, unreadCount, onAlerts,
+                if (detailId == null) "새 작업 · 실행 프로그램 선택" else "작업 상세", deviceName,
+                if (fresh) "작업 상태 확인됨" else "현재 상태 미확인", { if (choosing && detailId == null) choosing = false else onBack() }, unreadCount, onAlerts,
                 actions = {
                     if (detailId == null) IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "작업 추가") }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading && state.busyPipelineId == null) { Icon(Icons.Default.Refresh, "상태 새로고침") }

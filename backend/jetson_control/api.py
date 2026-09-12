@@ -483,6 +483,10 @@ def create_app(
             "fanControl": True,
         }
 
+    from .field_tools import register_field_routes
+    register_field_routes(app, authenticated, runtime_paths, device_config,
+                          pipelines, sensor_bridge, storage_service)
+
     @app.get("/v1/status", dependencies=authenticated)
     async def device_status() -> Dict[str, object]:
         try:

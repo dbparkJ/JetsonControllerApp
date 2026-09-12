@@ -1,7 +1,7 @@
 # Jetson Controller · Slate Harmony V7
 
-최신 색상 기준은 [V7 토큰](../jetson_slate_harmony_v7/design/tokens.json)과
-[V7 스타일 가이드](../jetson_slate_harmony_v7/SLATE_HARMONY_STYLE_GUIDE.md)다.
+최신 색상 기준은 [V7 토큰](design/colors.json)과
+[V7 스타일 가이드](design/STYLE_GUIDE.md)다.
 V5 문서는 이전 정보 구조의 이력이며 활성 색상 기준이 아니다.
 제품 구현은 기존 Kotlin / Jetpack Compose이고 PNG·HTML을 화면으로 붙이지 않는다.
 연구는 설계 참고이며 이 HEX의 최적성·피로 감소·사용자 선호를 입증하지 않는다.

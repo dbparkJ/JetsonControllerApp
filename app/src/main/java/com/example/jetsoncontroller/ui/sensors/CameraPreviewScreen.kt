@@ -20,7 +20,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,11 +43,24 @@ fun CameraPreviewScreen(
     camera: CameraSensorStatus,
     telemetryFresh: Boolean,
     onBack: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    captureBusy: Boolean = false, captureMessage: String? = null,
+    onCapture: (Boolean, Boolean) -> Unit = { _, _ -> }
 ) {
     val active = telemetryFresh && camera.active
     val live = cameraFrameIsLive(active, state.frame != null, state.updatedAtEpochMillis,
         state.checkedAtEpochMillis, state.error != null)
+    var chooseCapture by remember { mutableStateOf(false) }
+    var saveDevice by remember { mutableStateOf(true) }
+    var saveMobile by remember { mutableStateOf(true) }
+    if (chooseCapture) AlertDialog(onDismissRequest = { chooseCapture = false },
+        title = { Text("캡처 저장 위치") }, text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(saveDevice, { saveDevice = it }); Text("장치에 저장") }
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(saveMobile, { saveMobile = it }); Text("모바일 갤러리에 저장") }
+            }
+        }, confirmButton = { TextButton(onClick = { chooseCapture = false; onCapture(saveDevice, saveMobile) }, enabled = (saveDevice || saveMobile) && live && !captureBusy) { Text("캡처") } },
+        dismissButton = { TextButton(onClick = { chooseCapture = false }) { Text("취소") } })
     Scaffold(
         topBar = {
             TopAppBar(
@@ -52,6 +71,7 @@ fun CameraPreviewScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { chooseCapture = true }, enabled = live && !captureBusy) { Icon(Icons.Default.PhotoCamera, "캡처 저장") }
                     IconButton(onClick = onRefresh, enabled = active && !state.isRefreshing) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로고침")
                     }
@@ -73,6 +93,8 @@ fun CameraPreviewScreen(
                     contentScale = ContentScale.Fit
                 )
             }
+            captureMessage?.let { Text(it, Modifier.align(Alignment.TopCenter).padding(16.dp).background(Color.Black.copy(alpha = 0.8f)), color = Color.White) }
+            if (captureBusy) CircularProgressIndicator(Modifier.align(Alignment.Center))
             if (state.isLoading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }

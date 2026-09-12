@@ -250,6 +250,11 @@ fun JetsonApp(
                 )
         )
 
+    val fieldContext = androidx.compose.ui.platform.LocalContext.current
+    val fieldToolsViewModel: com.example.jetsoncontroller.ui.field.FieldToolsViewModel = viewModel(
+        factory = com.example.jetsoncontroller.ui.field.FieldToolsViewModel.Factory(repository))
+    val fieldState by fieldToolsViewModel.state.collectAsStateWithLifecycle()
+
     val serverStorageViewModel:
         ServerStorageViewModel =
         viewModel(
@@ -385,7 +390,7 @@ fun JetsonApp(
     val onSectionSelected: (ControlSection) -> Unit = onSectionSelected@ { section ->
         val route = when (section) {
             ControlSection.OVERVIEW -> Routes.DASHBOARD
-            ControlSection.DATA -> Routes.DATA
+            ControlSection.DATA -> Routes.STORAGE
             ControlSection.PIPELINES -> Routes.PIPELINES
             ControlSection.SENSORS -> Routes.SENSORS
             ControlSection.SETTINGS -> Routes.SETTINGS
@@ -847,6 +852,8 @@ fun JetsonApp(
                 }
             }
             DeviceStorageScreen(
+                onTransferQueue = { navController.navigate(Routes.DATA) },
+                thumbnailLoader = { entry -> repository.getFile(storageState.currentRoot!!.id, entry.relativePath) },
                 state = storageState,
                 serverUploadEnabled = serverUploadEnabled,
                 serverUploadDisabledReason = serverUploadDisabledReason,
@@ -878,6 +885,7 @@ fun JetsonApp(
                 serverStorageViewModel.refresh()
             }
             ServerStorageScreen(
+                thumbnailLoader = { entry -> repository.getUploadLibraryFile(serverStorageState.selectedTarget!!.id, serverStorageState.selectedSession!!.sessionId, entry.relativePath) },
                 state = serverStorageState,
                 onBack = {
                     if (!serverStorageViewModel.navigateBack()) {
@@ -1012,6 +1020,13 @@ fun JetsonApp(
         composable(taskRoute) { taskEntry ->
             StatusPollingLifecycleEffect(dashboardViewModel)
             PipelineListScreen(
+                fieldState = fieldState,
+                onHistoryRefresh = { fieldToolsViewModel.refresh() },
+                onMoreHistory = { fieldToolsViewModel.refresh(true) },
+                onRunLog = fieldToolsViewModel::openLog,
+                onDismissRunLog = fieldToolsViewModel::dismissLog,
+                onRunRoute = { fieldToolsViewModel.selectRun(it); navController.navigate(Routes.GNSS_MAP) },
+
                 state = pipelineState,
                 onBack = { navController.popBackStack() },
                 onRefresh = pipelineViewModel::refresh,
@@ -1161,13 +1176,22 @@ fun JetsonApp(
                     dashboardState.status.cameraRunning
                 },
                 onBack = { navController.popBackStack() },
+                captureBusy = fieldState.captureBusy,
+                captureMessage = fieldState.captureMessage,
+                onCapture = { device, mobile -> fieldToolsViewModel.capture(fieldContext, device, mobile) },
                 onRefresh = cameraPreviewViewModel::refresh
             )
         }
 
         composable(Routes.GNSS_MAP) {
+            DisposableEffect(selectedDeviceId) {
+                fieldToolsViewModel.selectRun(fieldState.selectedRun ?: fieldState.runs.firstOrNull { it.state == "RUNNING" } ?: fieldState.runs.firstOrNull())
+                onDispose { fieldToolsViewModel.stopRoutePolling() }
+            }
             StatusPollingLifecycleEffect(dashboardViewModel)
             GnssMapScreen(
+                route = fieldState.route,
+                routeLabel = fieldState.selectedRun?.label,
                 gnss = dashboardState.status.gnssSensor,
                 telemetryFresh = dashboardState.status.sensorTelemetryFresh,
                 deviceOnline = transportState is TransportState.Connected,
@@ -1207,8 +1231,15 @@ fun JetsonApp(
                     onRefreshFan = dashboardViewModel::refreshFan, onFanAuto = dashboardViewModel::setFanAuto,
                     onFanManual = dashboardViewModel::setFanManual, onReboot = dashboardViewModel::reboot,
                     onShutdown = dashboardViewModel::shutdown, onDismissMessage = dashboardViewModel::clearOperationMessage,
-                    onSection = onSectionSelected)
+                    onSection = onSectionSelected,
+                    onDeveloper = { navController.navigate("developer") })
             }
+        }
+        composable("developer") {
+            com.example.jetsoncontroller.ui.field.DeveloperScreen(fieldState,
+                onBack = { navController.popBackStack() }, onExecute = fieldToolsViewModel::execute,
+                onLogs = { navController.navigate(Routes.PIPELINES) },
+                onDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) })
         }
 
         composable(Routes.ALERT_SETTINGS) {

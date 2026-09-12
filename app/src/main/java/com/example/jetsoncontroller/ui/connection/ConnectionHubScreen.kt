@@ -104,7 +104,7 @@ fun ConnectionHubScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Jetson Controller")
+                        Text("GEO& 도로관리장치 제어")
                         Text(
                             "내 장비",
                             style = MaterialTheme.typography.bodySmall,
