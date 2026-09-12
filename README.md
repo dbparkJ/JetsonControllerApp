@@ -114,6 +114,7 @@ PYTHONPATH=upload_receiver upload_receiver/.venv/bin/python -m unittest discover
 |---|---|
 | [백엔드 설치·운영](docs/BACKEND.md) | 설치·설정, QR/BLE, TLS/HMAC, 로컬 API, 업로드 대상 |
 | [파이프라인 운영](docs/PIPELINES.md) | 여러 Jetson 배포, 작업 폴더·스냅샷, 센서 모니터, 시간·FAN 제어 |
+| [외부 검지 작업 연동·AI 에이전트 가이드](docs/EXTERNAL_PIPELINE_CONTRACT.md) | 외부 코드 준비, venv·진입점 예제, 앱 등록, 센서 인계, 검증 기준 |
 | [Wi-Fi Direct](docs/WIFI_DIRECT.md) | P2P 설치, 연결 상태, 점검과 장애 대응 |
 | [업로드 서버](docs/UPLOAD_SERVER.md) | 수신·재개·라이브러리 API, HDD 저장, HTTPS 배포·복구 |
 | [연결 진단](docs/DIAGNOSTICS.md) | 로그 수집·내보내기, 배포·원복 도구, 남은 검증 항목 |
