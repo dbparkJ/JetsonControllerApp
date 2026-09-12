@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.storage
 
+import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.ui.theme.TextButton
 import com.example.jetsoncontroller.ui.theme.OutlinedButton
 import com.example.jetsoncontroller.ui.theme.Button
@@ -72,7 +73,8 @@ fun ServerStorageScreen(
     onFileClick: (RemoteFileEntry) -> Unit,
     onLoadMore: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
-    deletionEnabled: Boolean = true
+    deletionEnabled: Boolean = true,
+    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null
 ) {
     var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<UploadLibrarySession?>(null) }
     pendingDeletion?.let { session ->
@@ -143,6 +145,7 @@ fun ServerStorageScreen(
                 when {
                     state.preview != null -> FilePreview(state.preview)
                     state.selectedSession != null -> ServerDirectoryList(
+                        thumbnailLoader = thumbnailLoader,
                         state = state,
                         onRefresh = onRefresh,
                         onDirectoryClick = onDirectoryClick,
@@ -176,10 +179,14 @@ private fun ServerSessionList(
     onLoadMore: () -> Unit,
     deletionEnabled: Boolean
 ) {
+    var collapsedDays by remember(state.deviceId, state.selectedTarget?.id) { mutableStateOf(setOf<String>()) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        if (!state.controlAvailable) item {
+            InlineMessage("서버 보관함은 연결된 장치의 인증을 통해 조회합니다. LAN 또는 Wi-Fi Direct로 장치를 연결한 후 다시 불러오세요.", false, Modifier.padding(20.dp))
+        }
         item {
             ServerTargetSelector(
                 targets = state.targets,
@@ -208,7 +215,7 @@ private fun ServerSessionList(
                 )
             }
         }
-        if (state.sessions.isEmpty() && !state.isLoading && state.error == null) {
+        if (state.controlAvailable && state.sessions.isEmpty() && !state.isLoading && state.error == null) {
             item {
                 EmptyState(
                     title = "서버 데이터가 없습니다",
@@ -216,7 +223,13 @@ private fun ServerSessionList(
                 )
             }
         }
-        items(state.sessions, key = { it.sessionId }) { session ->
+        state.sessions.groupBy { dateGroup(it.completedAt ?: it.createdAt) }.forEach { (day, sessions) ->
+        item(key = "session-day:$day") {
+            TextButton(onClick = { collapsedDays = if (day in collapsedDays) collapsedDays - day else collapsedDays + day }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Text("$day (${sessions.size})", Modifier.weight(1f)); Text(if (day in collapsedDays) "펼치기" else "접기")
+            }
+        }
+        if (day !in collapsedDays) items(sessions, key = { it.sessionId }) { session ->
             ListItem(
                 headlineContent = {
                     Text(
@@ -249,6 +262,7 @@ private fun ServerSessionList(
                 modifier = Modifier.clickable { onSessionClick(session) }
             )
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+        }
         }
         if (state.nextOffset != null) {
             item {
@@ -316,12 +330,20 @@ private fun ServerDirectoryList(
     state: ServerStorageUiState,
     onRefresh: () -> Unit,
     onDirectoryClick: (RemoteFileEntry) -> Unit,
-    onFileClick: (RemoteFileEntry) -> Unit
+    onFileClick: (RemoteFileEntry) -> Unit,
+    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null
 ) {
+    var category by androidx.compose.runtime.saveable.rememberSaveable(state.deviceId, state.currentPath) { mutableStateOf("전체") }
+    var collapsed by remember(state.deviceId, state.currentPath, category) { mutableStateOf(setOf<String>()) }
+    val groups = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
+        .sortedWith(compareBy<RemoteFileEntry> { it.type != RemoteEntryType.DIRECTORY }.thenByDescending { it.modifiedAt })
+        .groupBy { if (it.type == RemoteEntryType.DIRECTORY) "폴더" else dateGroup(it.modifiedAt) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        item { MediaFilters(category) { category = it } }
+        if (groups.isEmpty() && state.entries.isNotEmpty()) item { Text("이 폴더에 해당 유형의 파일이 없습니다.", Modifier.padding(20.dp)) }
         item {
             Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
                 Row(
@@ -363,7 +385,13 @@ private fun ServerDirectoryList(
         if (state.entries.isEmpty() && !state.isLoading && state.error == null) {
             item { EmptyState("빈 폴더입니다", "이 위치에는 표시할 파일이 없습니다.") }
         }
-        items(state.entries, key = { it.relativePath }) { entry ->
+        groups.forEach { (day, entries) ->
+        item(key = "day:$day") {
+            TextButton(onClick = { collapsed = if (day in collapsed) collapsed - day else collapsed + day }, modifier = Modifier.fillMaxWidth()) {
+                Text("$day (${entries.size})", Modifier.weight(1f)); Text(if (day in collapsed) "펼치기" else "접기")
+            }
+        }
+        if (day !in collapsed) items(entries, key = { it.relativePath }) { entry ->
             val directory = entry.type == RemoteEntryType.DIRECTORY
             ListItem(
                 headlineContent = {
@@ -377,12 +405,7 @@ private fun ServerDirectoryList(
                         ).joinToString(" · ")
                     )
                 },
-                leadingContent = {
-                    Icon(
-                        if (directory) Icons.Default.Folder else Icons.Default.Description,
-                        contentDescription = null
-                    )
-                },
+                leadingContent = { MediaThumbnail(entry, "${state.deviceId}/${state.selectedTarget?.id}/${state.selectedSession?.sessionId}", if (state.controlAvailable) thumbnailLoader else null) },
                 trailingContent = if (directory) {
                     { Icon(Icons.Default.ChevronRight, contentDescription = null) }
                 } else null,
@@ -391,6 +414,7 @@ private fun ServerDirectoryList(
                 }
             )
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+        }
         }
     }
 }

@@ -76,7 +76,7 @@ class ServerStorageViewModel(
                 state.currentPath,
                 connectionGeneration
             )
-            state.selectedTarget != null -> loadSessions(state.selectedTarget.id, false)
+            state.selectedTarget != null -> loadTargets(connectionGeneration)
             else -> loadTargets(connectionGeneration)
         }
     }
@@ -223,7 +223,7 @@ class ServerStorageViewModel(
             repository.getUploadTargets()
                 .onSuccess { targets ->
                     if (generation != connectionGeneration) return@onSuccess
-                    val httpTargets = targets.filter { it.type.equals("http", true) }
+                    val httpTargets = targets.filter { supportsServerLibrary(it) }
                     val selected = httpTargets.firstOrNull {
                         it.id == _uiState.value.selectedTarget?.id
                     } ?: httpTargets.firstOrNull()
@@ -322,3 +322,7 @@ class ServerStorageViewModel(
             ServerStorageViewModel(repository) as T
     }
 }
+
+internal fun supportsServerLibrary(target: UploadTarget): Boolean =
+    target.type.equals("http", true) || (target.type.isNullOrBlank() &&
+        (target.baseUrl.isNullOrBlank() || target.baseUrl.startsWith("https://") || target.baseUrl.startsWith("http://")))

@@ -38,6 +38,19 @@ import org.mockito.Mockito
 
 /** Runs the public client through Retrofit, OkHttp, TLS pinning and response HMAC. */
 class LocalApiClientReplayTest {
+    @Test fun `capture and terminal never replay after an unverifiable response`() = runBlocking {
+        for (capture in listOf(true, false)) {
+            TestBackend().use { backend ->
+                backend.damage = Damage.SIGNATURE
+                val client = backend.connectedClient()
+                val result = if (capture) client.captureFrame() else client.terminal("pwd")
+                assertTrue(result.isFailure)
+                assertEquals(1, backend.mutations.get())
+                backend.assertAuthenticatedRequests()
+            }
+        }
+    }
+
     @Test
     fun `diagnostics correlate real signed requests and never promote rejected responses`() = runBlocking {
         val events = CopyOnWriteArrayList<Pair<String, Map<String, Any?>>>()

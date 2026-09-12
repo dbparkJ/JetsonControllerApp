@@ -239,6 +239,7 @@ def prune_logs(directory: Path) -> None:
             continue
         try:
             path.unlink()
+            Path(str(path) + ".route.jsonl").unlink(missing_ok=True)
         except FileNotFoundError:
             pass
 
@@ -448,6 +449,8 @@ def main() -> int:
         f"release={release}\n"
     ).encode("utf-8")
     writer.emit(header)
+    from jetson_control.route_recorder import RouteRecorder
+    route_recorder = None
     sensor_lease: Optional[CaptureDeviceLease] = None
     try:
         monitor_settings = settings_for_pipeline(pipeline_id, SENSOR_MONITOR_CONFIG)
@@ -460,6 +463,9 @@ def main() -> int:
                 monitor_settings.bridge_dir
             )
             print("Sensor devices handed off to the capture pipeline", flush=True)
+        route_recorder = RouteRecorder(writer.path, Path(environment.get(
+            "JETSON_PIPELINE_SENSOR_BRIDGE_DIR", "/var/lib/jetson-sensors")))
+        route_recorder.start()
         try:
             child = subprocess.Popen(
                 command,
@@ -510,6 +516,8 @@ def main() -> int:
                 )
         finally:
             try:
+                if route_recorder is not None:
+                    route_recorder.close()
                 writer.close()
             finally:
                 if sensor_lease is not None:

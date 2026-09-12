@@ -1,4 +1,4 @@
-# Jetson Controller
+# GEO& 도로관리장치 제어
 
 Android에서 NVIDIA Jetson을 등록하고 연결해 센서, 데이터 수집 작업, 저장소와 업로드를 관리하는 프로젝트입니다. Kotlin·Jetpack Compose 앱, Jetson 제어 백엔드, 외부 업로드 수신 서버를 함께 관리합니다.
 
@@ -8,6 +8,7 @@ Android에서 NVIDIA Jetson을 등록하고 연결해 센서, 데이터 수집 �
 - **장비 상태**: CPU·GPU·메모리·온도·저장공간, 센서 상태, 카메라 프리뷰, GNSS 지도와 모바일 RTK 보정 중계
 - **수집 작업**: Git 소스 스냅샷 등록, Python 가상환경 실행, 시작·중지·자동 실행 설정, YAML 편집과 실행 로그 조회
 - **데이터 관리**: 장치 파일 탐색·미리보기·삭제, 외부 HTTPS 서버 업로드·재개·취소, 완료된 서버 데이터 조회
+- **현장 화면**: GEO& 시작 화면, 실행별 작업 기록·GPS 경로, 날짜별 미디어 탐색, 장치·모바일 카메라 캡처, 개발자 터미널
 - **운영 도구**: 시간 동기화, FAN 제어, 허용된 전원 명령, 알림 이력, 연결 진단 ZIP 내보내기
 
 ## 구성
@@ -120,3 +121,5 @@ PYTHONPATH=upload_receiver upload_receiver/.venv/bin/python -m unittest discover
 연결 안정성의 장시간·절전·실제 링크 장애 시험은 아직 남아 있습니다. 자동 테스트 통과와 실제 장비 배포·현장 검증 상태는 [연결 진단](docs/DIAGNOSTICS.md)에서 구분해 확인합니다.
 
 문서는 현재 사용법과 유지할 계약을 중심으로 갱신합니다. 완료된 작업 지시서·날짜별 실행 기록은 Git 이력으로 확인하고, APK·진단 ZIP·로그·캐시·로컬 설정은 커밋하지 않습니다.
+
+신규 화면·저장 경로·호환성은 [GEO& 사용 설명](docs/GEO_FIELD_FEATURES.md), 외부 실시간 검지 프로그램의 연결 계약은 [외부 파이프라인 연동](docs/EXTERNAL_PIPELINE_CONTRACT.md)에 설명되어 있습니다.

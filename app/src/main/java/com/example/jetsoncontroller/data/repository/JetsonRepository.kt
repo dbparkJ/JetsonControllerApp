@@ -1598,6 +1598,13 @@ class JetsonRepository(
         return withIpSession { client -> client.listWorkspaceFiles(rootId, relativePath) }
     }
 
+
+    suspend fun taskRuns(offset: Int = 0) = withIpSession { it.taskRuns(offset) }
+    suspend fun taskRoute(pipelineId: String, logId: String) = withIpSession { it.taskRoute(pipelineId, logId) }
+    suspend fun taskRunLog(pipelineId: String, logId: String) = withIpSession { it.taskRunLog(pipelineId, logId) }
+    suspend fun captureFrame() = withIpSession { it.captureFrame() }
+    suspend fun terminal(command: String) = withIpSession { it.terminal(command) }
+
     suspend fun getUploadTargets(): Result<List<UploadTarget>> {
         return withIpSession { client -> client.getUploadTargets() }
     }

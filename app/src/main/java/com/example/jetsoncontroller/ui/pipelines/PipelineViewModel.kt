@@ -48,7 +48,7 @@ data class PipelineDraft(
     val entrypoint: String = "",
     val config: String = "config.yaml",
     val writableDirectory: String = "image_records",
-    val autostart: Boolean = true
+    val autostart: Boolean = false
 ) {
     val canSubmit: Boolean
         get() = label.isNotBlank() && repositoryRoot != null

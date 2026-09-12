@@ -2,10 +2,10 @@ name: Reliability checks
 
 on:
   pull_request:
-    paths: ['app/**', 'backend/**', 'gradle/**', '*.gradle.kts', 'gradle.properties', '.github/workflows/reliability.yml']
+    paths: ['app/**', 'backend/**', 'gradle/**', '*.gradle.kts', 'gradle.properties', 'docs/design/**', 'scripts/check_slate_harmony.py', '.github/workflows/reliability.yml']
   push:
     branches: [main]
-    paths: ['app/**', 'backend/**', 'gradle/**', '*.gradle.kts', 'gradle.properties', '.github/workflows/reliability.yml']
+    paths: ['app/**', 'backend/**', 'gradle/**', '*.gradle.kts', 'gradle.properties', 'docs/design/**', 'scripts/check_slate_harmony.py', '.github/workflows/reliability.yml']
   workflow_dispatch:
 
 permissions:
@@ -53,6 +53,7 @@ jobs:
           --tests '*DeviceWorkspaceTest'
           --tests '*UserConnectionStageTest'
           --tests '*PipelineConfigValueTest'
+          --tests '*MediaPresentationTest'
           --max-workers=1 --console=plain
   backend:
     runs-on: ubuntu-latest
@@ -67,4 +68,4 @@ jobs:
       - run: pip install -r backend/requirements-dev.txt
       - name: Connection, snapshot, and API regressions
         working-directory: backend
-        run: python -m unittest tests.test_wifi_direct tests.test_status tests.test_api
+        run: python -m unittest tests.test_wifi_direct tests.test_status tests.test_api tests.test_field_tools tests.test_pipeline_runner

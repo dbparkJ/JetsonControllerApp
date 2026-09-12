@@ -6,6 +6,17 @@ import retrofit2.Response
 import retrofit2.http.*
 
 interface LocalControlApi {
+    @GET("/v1/task-runs")
+    suspend fun taskRuns(@Query("offset") offset: Int): Response<com.example.jetsoncontroller.model.TaskRunsResponse>
+    @GET("/v1/task-runs/{pipelineId}/{logId}/route")
+    suspend fun taskRoute(@Path("pipelineId") pipelineId: String, @Path("logId") logId: String): Response<com.example.jetsoncontroller.model.TaskRoute>
+    @GET("/v1/task-runs/{pipelineId}/{logId}/log")
+    suspend fun taskRunLog(@Path("pipelineId") pipelineId: String, @Path("logId") logId: String): Response<com.example.jetsoncontroller.model.PipelineLogChunk>
+    @POST("/v1/camera/capture")
+    suspend fun captureFrame(): Response<com.example.jetsoncontroller.model.CaptureResult>
+    @POST("/v1/developer/terminal")
+    suspend fun terminal(@Body request: com.example.jetsoncontroller.model.TerminalRequest): Response<com.example.jetsoncontroller.model.TerminalResult>
+
 
     @GET("/v1/hello")
     suspend fun hello(): Response<HelloResponse>

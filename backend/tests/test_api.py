@@ -242,6 +242,37 @@ class ApiContractTest(unittest.TestCase):
         self.client.__exit__(None, None, None)
         self.temporary.cleanup()
 
+    def test_field_mutations_require_authentication(self):
+        for path, body in [("/v1/camera/capture", {}), ("/v1/developer/terminal", {"command": "pwd"})]:
+            response = self.client.post(path, json=body)
+            self.assertEqual(response.status_code, 401)
+
+    def test_capture_response_and_device_file_contain_the_same_frame(self):
+        import base64
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        self.paths.storage_roots.write_text(json.dumps({"recordings": {"label": "Records", "path": str(self.base / "source")}}))
+        bridge = self.client.app.state.sensor_bridge
+        content = b"\xff\xd8fixture-jpeg\xff\xd9"
+        with patch.object(bridge, "status", return_value=SimpleNamespace(fresh=True, camera={"active": True})), patch.object(bridge, "preview_frame_with_revision", return_value=(content, 17)):
+            response = self.signed_request("POST", "/v1/camera/capture")
+        self.assertEqual(response.status_code, 200)
+        value = response.json()
+        self.assertEqual(base64.b64decode(value["jpegBase64"]), content)
+        self.assertEqual((self.base / "source" / value["relativePath"]).read_bytes(), content)
+
+    def test_camera_capture_rejects_inactive_sensor(self):
+        response = self.signed_request("POST", "/v1/camera/capture")
+        self.assertEqual(response.status_code, 409)
+
+    def test_terminal_rejects_root_pipeline_user(self):
+        response = self.signed_request("POST", "/v1/developer/terminal", b'{"command":"pwd"}')
+        self.assertEqual(response.status_code, 409)
+
+    def test_run_routes_reject_invalid_ids(self):
+        response = self.signed_request("GET", "/v1/task-runs/capture/not-a-log/route")
+        self.assertEqual(response.status_code, 400)
+
     def signed_request(self, method: str, path: str, body: bytes = b""):
         self.nonce_counter += 1
         nonce = f"request-{self.nonce_counter:04d}"

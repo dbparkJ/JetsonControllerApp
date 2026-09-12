@@ -59,7 +59,7 @@ data class RegisterPipelineFolderRequest(
     val rootId: String,
     val path: String,
     val name: String,
-    val autostart: Boolean = true
+    val autostart: Boolean = false
 )
 
 data class RegisterPipelineRequest(
@@ -73,7 +73,7 @@ data class RegisterPipelineRequest(
     val config: String,
     val workingDirectory: String = ".",
     val writableDirectories: List<String> = emptyList(),
-    val autostart: Boolean = true
+    val autostart: Boolean = false
 )
 
 data class PipelineLog(

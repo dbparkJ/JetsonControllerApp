@@ -361,6 +361,13 @@ class LocalApiClient(
         )
     }
 
+
+    suspend fun taskRuns(offset: Int) = request("작업 기록 조회") { requireApi().taskRuns(offset) }
+    suspend fun taskRoute(pipelineId: String, logId: String) = request("작업 경로 조회") { requireApi().taskRoute(pipelineId, logId) }
+    suspend fun taskRunLog(pipelineId: String, logId: String) = request("저장 로그 조회") { requireApi().taskRunLog(pipelineId, logId) }
+    suspend fun captureFrame() = command("카메라 캡처", query = { getStatus() }) { requireApi().captureFrame() }
+    suspend fun terminal(command: String) = command("원격 명령 실행", query = { getStatus() }) { requireApi().terminal(com.example.jetsoncontroller.model.TerminalRequest(command)) }
+
     suspend fun getUploadTargets(): Result<List<UploadTarget>> =
         request("업로드 대상 조회") { requireApi().getUploadTargets() }
 

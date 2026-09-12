@@ -20,7 +20,7 @@ def contrast(a, b):
 
 
 def check():
-    tokens = json.loads((ROOT / 'jetson_slate_harmony_v7/design/tokens.json').read_text())['color']
+    tokens = json.loads((ROOT / 'docs/design/colors.json').read_text())['color']
     source = (ROOT / 'app/src/main/java/com/example/jetsoncontroller/ui/theme/Color.kt').read_text()
     pairs = []
     normal = ('canvas', 'surface', 'sectionBase', 'sectionSoft', 'sectionRaised', 'sectionDanger', 'hero')
