@@ -161,7 +161,9 @@ fun PipelineListScreen(
             item { OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                 Text("작업 이력")
             } }
-            item { Text("전체 ${state.pipelines.size} · 실행 확인 ${if (fresh) state.pipelines.count { it.state == PipelineState.RUNNING && it.id !in state.pendingActions } else 0}",
+            item { Text("전체 ${state.pipelines.size} · 실행 확인 ${if (fresh) state.pipelines.count {
+                it.state == PipelineState.RUNNING && !it.activeRunId.isNullOrBlank() && it.id !in state.pendingActions
+            } else 0}",
                 style = MaterialTheme.typography.bodyMedium) }
             state.error?.let { item { InlineMessage(it, true) } }
             state.message?.let { item { InlineMessage(it, false) } }
@@ -198,16 +200,21 @@ private fun TaskStateCard(
     onConfig: () -> Unit, onOutput: () -> Unit
 ) {
     val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
-    val active = pipeline.state in setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING, PipelineState.STOPPING)
+    val confirmedRunning = fresh && pipeline.state == PipelineState.RUNNING && !pipeline.activeRunId.isNullOrBlank()
+    val mayBeActive = pipeline.state in setOf(
+        PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING, PipelineState.STOPPING
+    )
     Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
-        color = if (active) c.hero else c.surface, contentColor = if (active) c.heroText else c.ink) {
+        color = if (confirmedRunning) c.hero else c.surface,
+        contentColor = if (confirmedRunning) c.heroText else c.ink) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(pipeline.label, style = MaterialTheme.typography.titleLarge)
-            com.example.jetsoncontroller.ui.components.StatusBadge(taskStateLabel(pipeline.state, fresh, pendingAction),
+            com.example.jetsoncontroller.ui.components.StatusBadge(taskStateLabel(pipeline, fresh, pendingAction),
                 when {
                     !fresh -> com.example.jetsoncontroller.ui.components.StatusTone.WARNING
                     pipeline.state == PipelineState.FAILED -> com.example.jetsoncontroller.ui.components.StatusTone.ERROR
-                    pipeline.state == PipelineState.RUNNING && pendingAction == null -> com.example.jetsoncontroller.ui.components.StatusTone.SUCCESS
+                    confirmedRunning && pendingAction == null -> com.example.jetsoncontroller.ui.components.StatusTone.SUCCESS
+                    mayBeActive -> com.example.jetsoncontroller.ui.components.StatusTone.WARNING
                     else -> com.example.jetsoncontroller.ui.components.StatusTone.INFO
                 })
             if (pipeline.result != "unknown") com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
@@ -215,10 +222,29 @@ private fun TaskStateCard(
             }
             if (!expanded) {
                 Button(shape = MaterialTheme.shapes.small, onClick = onDetails, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    colors = if (active) androidx.compose.material3.ButtonDefaults.buttonColors(c.accent, c.onAccent) else androidx.compose.material3.ButtonDefaults.buttonColors()) { Text("상태 보기") }
+                    colors = if (confirmedRunning) androidx.compose.material3.ButtonDefaults.buttonColors(c.accent, c.onAccent) else androidx.compose.material3.ButtonDefaults.buttonColors()) { Text("상태 보기") }
             } else {
                 Text(pipeline.description.ifBlank { "장비의 실제 실행 상태와 결과를 확인합니다." }, style = MaterialTheme.typography.bodyLarge)
                 Text("실행 파일: ${pipeline.entrypoint}", style = MaterialTheme.typography.bodyMedium)
+                pipeline.execution?.let { execution ->
+                    com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("실행 근거", style = MaterialTheme.typography.titleSmall)
+                            Text("Run ${execution.runId.ifBlank { "미확인" }} · Log ${execution.logId.ifBlank { "미확인" }}",
+                                style = MaterialTheme.typography.bodySmall)
+                            execution.startedAt?.let { Text("시작 ${com.example.jetsoncontroller.ui.storage.localDateTimeLabel(it)}",
+                                style = MaterialTheme.typography.bodySmall) }
+                            execution.finishedAt?.let { Text("종료 ${com.example.jetsoncontroller.ui.storage.localDateTimeLabel(it)} · 코드 ${execution.exitCode ?: "미확인"}",
+                                style = MaterialTheme.typography.bodySmall) }
+                            Text(when (execution.storagePreflight) {
+                                "passed" -> "저장 사전점검 · 통과"
+                                "failed" -> "저장 사전점검 · 실패"
+                                "not_configured" -> "저장 사전점검 · 기준 미설정"
+                                else -> "저장 사전점검 · 미확인"
+                            }, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
                 Button(shape = MaterialTheme.shapes.small, onClick = onLogs, modifier = Modifier.fillMaxWidth()) { Text("실행 로그") }
                 Button(shape = MaterialTheme.shapes.small, onClick = onConfig, modifier = Modifier.fillMaxWidth()) { Text("작업 설정") }
                 Button(shape = MaterialTheme.shapes.small, onClick = onOutput, enabled = pipeline.outputRootId != null && pipeline.outputPath != null, modifier = Modifier.fillMaxWidth()) { Text("저장 결과") }
@@ -228,10 +254,10 @@ private fun TaskStateCard(
                 }
                 OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onRemove, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("작업 등록 해제") }
             }
-            if (active) {
+            if (mayBeActive) {
                 OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { onControl("stop") }, enabled = controlsEnabled,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = if (active) c.heroText else c.primary)) { Text("중지 요청") }
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = if (confirmedRunning) c.heroText else c.primary)) { Text("중지 요청") }
                 if (expanded) Button(shape = MaterialTheme.shapes.small, onClick = { onControl("restart") }, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("다시 시작") }
             } else {
                 Button(shape = MaterialTheme.shapes.small, onClick = { onControl("start") }, enabled = controlsEnabled,
@@ -323,6 +349,9 @@ fun PipelineEditorScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text("부팅 시 자동 실행", fontWeight = FontWeight.SemiBold)
+                            Text("기본 꺼짐 · 장비 재부팅 후 상태를 확인하고 직접 시작",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(
                             checked = draft.autostart,

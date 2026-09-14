@@ -45,6 +45,10 @@ fun GeoLogo(modifier: Modifier = Modifier, backgroundColor: Color = MaterialThem
 @Composable
 fun GeoDeviceSummary(state: DashboardUiState, onClick: () -> Unit, showMetrics: Boolean = true) {
     val c = LocalCobaltColors.current
+    val connection = com.example.jetsoncontroller.ui.connection.userConnectionStage(
+        state.isOnline,
+        state.transportType
+    )
     Surface(onClick = onClick, color = c.sectionSoft, contentColor = c.ink,
         shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -53,11 +57,18 @@ fun GeoDeviceSummary(state: DashboardUiState, onClick: () -> Unit, showMetrics: 
                 Column(Modifier.weight(1f)) {
                     Text(state.deviceName, style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
-                    StatusBadge(if (state.isOnline) "온라인" else "오프라인", if (state.isOnline) StatusTone.SUCCESS else StatusTone.INFO)
+                    StatusBadge(
+                        connection.label,
+                        if (state.fullControlAvailable) StatusTone.SUCCESS
+                        else if (state.isOnline) StatusTone.WARNING else StatusTone.INFO
+                    )
                 }
             }
             Text("GEO& · 도로관리장치", style = MaterialTheme.typography.bodyMedium, color = c.muted)
-            Text(if (state.isOnline) state.endpoint ?: "온라인" else "연결 대기", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (state.isOnline) state.endpoint ?: connection.detail else connection.detail,
+                style = MaterialTheme.typography.bodyMedium
+            )
             if (showMetrics) {
             HorizontalDivider(color = c.sectionBorder)
             val fresh = state.isOnline && state.statusFreshness == StatusFreshness.CURRENT

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -56,6 +57,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.jetsoncontroller.BuildConfig
 import com.example.jetsoncontroller.data.location.MobileLocationFix
 import com.example.jetsoncontroller.model.GnssSensorStatus
+import com.example.jetsoncontroller.model.RunQuality
+import com.example.jetsoncontroller.ui.field.LocatedQualityProblem
+import com.example.jetsoncontroller.ui.field.RunQualityEvidence
+import com.example.jetsoncontroller.ui.field.locatedQualityProblems
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Icon as MapMarkerIcon
 import org.maplibre.android.annotations.IconFactory
@@ -82,6 +87,7 @@ private val JetsonMarkerColor = com.example.jetsoncontroller.ui.theme.CobaltLigh
 private val MobileMarkerColor = com.example.jetsoncontroller.ui.theme.CobaltLight.warning
 private val JetsonMarkerArgb = JetsonMarkerColor.toArgb()
 private val MobileMarkerArgb = MobileMarkerColor.toArgb()
+private const val MaxQualityMarkers = 50
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +96,7 @@ fun GnssMapScreen(
     telemetryFresh: Boolean,
     deviceOnline: Boolean = true,
     route: List<com.example.jetsoncontroller.model.RoutePoint> = emptyList(),
+    quality: RunQuality? = null,
     routeLabel: String? = null,
     onBack: () -> Unit
 ) {
@@ -122,6 +129,7 @@ fun GnssMapScreen(
         fixType = gnss.fixType,
         rtkStatus = gnss.rtkStatus
     )
+    val locatedProblems = remember(route, quality) { locatedQualityProblems(route, quality) }
 
     Scaffold(
         topBar = {
@@ -168,6 +176,7 @@ fun GnssMapScreen(
             } else {
                 VWorldRasterMap(
                     route = route,
+                    qualityProblems = locatedProblems.take(MaxQualityMarkers),
                     modifier = Modifier.fillMaxSize(),
                     gnss = gnss,
                     mobileFix = mobileLocation.fix,
@@ -179,23 +188,44 @@ fun GnssMapScreen(
                 )
             }
 
-            Surface(
-                modifier = Modifier.align(Alignment.TopCenter).padding(12.dp),
-                color = MaterialTheme.colorScheme.surface,
-                shape = MaterialTheme.shapes.small,
-                tonalElevation = 2.dp
+            Column(
+                modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).widthIn(max = 600.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SingleChoiceSegmentedButtonRow(Modifier.padding(4.dp)) {
-                    VWorldLayer.entries.forEachIndexed { index, option ->
-                        SegmentedButton(
-                            selected = layer == option,
-                            onClick = { layer = option },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = VWorldLayer.entries.size
-                            )
+                Surface(
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = MaterialTheme.shapes.small,
+                    tonalElevation = 2.dp
+                ) {
+                    SingleChoiceSegmentedButtonRow(Modifier.padding(4.dp)) {
+                        VWorldLayer.entries.forEachIndexed { index, option ->
+                            SegmentedButton(
+                                selected = layer == option,
+                                onClick = { layer = option },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = VWorldLayer.entries.size
+                                )
+                            ) {
+                                Text(option.title)
+                            }
+                        }
+                    }
+                }
+                if (routeLabel != null || quality != null) {
+                    RunQualityEvidence(quality, compact = true)
+                    if (locatedProblems.size > MaxQualityMarkers) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = MaterialTheme.shapes.small,
+                            tonalElevation = 2.dp
                         ) {
-                            Text(option.title)
+                            Text(
+                                "지도에는 위치가 확인된 관찰 ${locatedProblems.size}건 중 ${MaxQualityMarkers}건을 표시합니다. 전체 시각은 품질 관찰에서 확인하세요.",
+                                Modifier.padding(10.dp),
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                 }
@@ -419,6 +449,7 @@ private fun VWorldRasterMap(
     apiKey: String,
     deviceMarkerTitle: String,
     route: List<com.example.jetsoncontroller.model.RoutePoint>,
+    qualityProblems: List<LocatedQualityProblem>,
     modifier: Modifier = Modifier
 ) {
     val mapView = rememberMapViewWithLifecycle()
@@ -434,7 +465,8 @@ private fun VWorldRasterMap(
                 devicePosition = gnss.toLatLngOrNull().takeIf { showDeviceMarker },
                 mobilePosition = mobileFix.toLatLngOrNull().takeIf { showMobileMarker },
                 deviceMarkerTitle = deviceMarkerTitle,
-                route = route
+                route = route,
+                qualityProblems = qualityProblems
             )
         }
     )
@@ -486,7 +518,10 @@ private fun rememberMapViewWithLifecycle(): MapView {
 private class VWorldMapController {
     private var pendingRoute: List<com.example.jetsoncontroller.model.RoutePoint> = emptyList()
     private var renderedRoute: List<com.example.jetsoncontroller.model.RoutePoint> = emptyList()
+    private var pendingQualityProblems: List<LocatedQualityProblem> = emptyList()
+    private var renderedQualityProblems: List<LocatedQualityProblem> = emptyList()
     private val routeMarkers = mutableListOf<Marker>()
+    private val qualityMarkers = mutableListOf<Marker>()
     private val routeLines = mutableListOf<org.maplibre.android.annotations.Polyline>()
     private var deviceMarker: Marker? = null
     private var mobileMarker: Marker? = null
@@ -511,9 +546,11 @@ private class VWorldMapController {
         devicePosition: LatLng?,
         mobilePosition: LatLng?,
         deviceMarkerTitle: String,
-        route: List<com.example.jetsoncontroller.model.RoutePoint>
+        route: List<com.example.jetsoncontroller.model.RoutePoint>,
+        qualityProblems: List<LocatedQualityProblem>
     ) {
         pendingRoute = route
+        pendingQualityProblems = qualityProblems
         pendingDevicePosition = devicePosition
         pendingMobilePosition = mobilePosition
         pendingDeviceMarkerTitle = deviceMarkerTitle
@@ -524,9 +561,12 @@ private class VWorldMapController {
                 mobileMarker?.let(readyMap::removeMarker)
                 routeMarkers.forEach(readyMap::removeMarker)
                 routeMarkers.clear()
+                qualityMarkers.forEach(readyMap::removeMarker)
+                qualityMarkers.clear()
                 routeLines.forEach(readyMap::removePolyline)
                 routeLines.clear()
                 renderedRoute = emptyList()
+                renderedQualityProblems = emptyList()
                 currentLayer = layer
                 deviceMarker = null
                 mobileMarker = null
@@ -611,12 +651,21 @@ private class VWorldMapController {
             lastMobilePosition = mobilePosition
         }
 
-        if (force || renderedRoute != pendingRoute) {
+        if (force || renderedRoute != pendingRoute || renderedQualityProblems != pendingQualityProblems) {
             val firstRoute = renderedRoute.isEmpty()
             routeMarkers.forEach(targetMap::removeMarker)
             routeMarkers.clear()
             pendingRoute.firstOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("수집 시작")) }
             if (pendingRoute.size > 1) pendingRoute.lastOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("마지막 수집 위치")) }
+            qualityMarkers.forEach(targetMap::removeMarker)
+            qualityMarkers.clear()
+            pendingQualityProblems.forEach { problem ->
+                qualityMarkers += targetMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(problem.latitude, problem.longitude))
+                        .title(problem.title)
+                )
+            }
             routeLines.forEach(targetMap::removePolyline)
             routeLines.clear()
             pendingRoute.groupBy { it.segment }.values.forEach { segment ->
@@ -625,6 +674,7 @@ private class VWorldMapController {
                     org.maplibre.android.annotations.PolylineOptions().addAll(points).color(JetsonMarkerArgb).width(5f))
             }
             renderedRoute = pendingRoute
+            renderedQualityProblems = pendingQualityProblems
             if (firstRoute && pendingRoute.isNotEmpty()) {
                 val points = pendingRoute.map { LatLng(it.latitude, it.longitude) }.distinct()
                 if (points.size >= 2) {

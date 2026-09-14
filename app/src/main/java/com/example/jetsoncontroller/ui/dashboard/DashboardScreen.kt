@@ -7,6 +7,7 @@ import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -111,6 +112,7 @@ fun DashboardScreen(
     onSensorsClick: () -> Unit = {},
     onCameraClick: () -> Unit = {},
     onGnssClick: () -> Unit = {},
+    onConnectionClick: () -> Unit = onBack,
     tasksConfirmed: Boolean = false,
     taskObservedAt: Long? = null,
     pendingTaskActions: Map<String, String> = emptyMap()
@@ -121,9 +123,18 @@ fun DashboardScreen(
         pipelines, uploads)
     val healthKeys = dashboardHealthDismissalKeys(healthDeviceId, health)
     var hiddenHealth by rememberSaveable(healthDeviceId) { mutableStateOf(false) }
-    val active = pipelines.filter { it.state in setOf(PipelineState.RUNNING, PipelineState.STARTING,
-        PipelineState.STOPPING, PipelineState.RETRYING) }
+    val active = pipelines.filter {
+        tasksConfirmed && it.state == PipelineState.RUNNING && !it.activeRunId.isNullOrBlank()
+    }
     val task = active.firstOrNull()
+    val summary = operationalSummary(state, pipelines, uploads, tasksConfirmed)
+    val nextAction = summary.nextAction
+    val onNextAction = when (nextAction.destination) {
+        HomeActionDestination.CONNECTION -> onConnectionClick
+        HomeActionDestination.PIPELINES -> onPipelinesClick
+        HomeActionDestination.SENSORS -> onSensorsClick
+        HomeActionDestination.STORAGE -> onStorageClick
+    }
     Scaffold(
         topBar = {
             com.example.jetsoncontroller.ui.components.DeviceContextHeader(
@@ -138,28 +149,42 @@ fun DashboardScreen(
             contentPadding = PaddingValues(AppSpacing.screen),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { com.example.jetsoncontroller.ui.components.GeoDeviceSummary(state, onBack) }
             item {
-                Surface(color = c.hero, contentColor = c.heroText,
-                    shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("현재 작업", style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
-                        Text(task?.label ?: if (tasksConfirmed) "진행 중인 작업 없음" else "작업 상태 확인 필요",
-                            style = MaterialTheme.typography.headlineSmall)
-                        Text(task?.let { com.example.jetsoncontroller.ui.pipelines.taskStateLabel(
-                            it.state, tasksConfirmed, pendingTaskActions[it.id]) }
-                            ?: if (tasksConfirmed) "등록된 작업을 확인하고 시작하세요." else "마지막 상태를 보관합니다. 연결 후 다시 확인하세요.",
-                            style = MaterialTheme.typography.bodyLarge)
-                        taskObservedAt?.let { Text("작업 상태 확인 · " + java.text.DateFormat.getTimeInstance().format(java.util.Date(it)),
-                            style = MaterialTheme.typography.bodySmall, color = c.heroMuted) }
-                        Button(shape = MaterialTheme.shapes.small, onClick = onPipelinesClick, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = c.primary, contentColor = c.onPrimary)) {
-                            Text(if (active.size > 1) "작업 ${active.size}개 상태 보기 →" else "상태 보기 →")
-                        }
-                    }
-                }
+                Text(
+                    "현장 상태",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
-            item { SectionHeader("준비 상태", trailing = { TextButton(onClick = onSensorsClick) { Text("전체 보기") } }) }
+            item {
+                OperationalStatusGrid(
+                    signals = listOf(
+                        summary.connection,
+                        summary.collection,
+                        summary.internet,
+                        summary.positioning
+                    )
+                )
+            }
+            item {
+                NextActionAndCollection(
+                    nextAction = nextAction,
+                    task = task,
+                    activeCount = active.size,
+                    tasksConfirmed = tasksConfirmed,
+                    taskObservedAt = taskObservedAt,
+                    pendingAction = task?.let { pendingTaskActions[it.id] },
+                    onNextAction = onNextAction,
+                    onPipelinesClick = onPipelinesClick
+                )
+            }
+            item {
+                AppBanner(
+                    message = "프로젝트·조사 구간은 현재 앱에 연결되지 않았습니다. 실제 운영 전 배정 정보를 별도로 확인하세요.",
+                    tone = StatusTone.WARNING
+                )
+            }
+            item { SectionHeader("시작 준비", trailing = { TextButton(onClick = onSensorsClick) { Text("센서 전체 보기") } }) }
             if (state.isOnline && !hiddenHealth &&
                 !(healthKeys.isNotEmpty() && dismissedHealthKeys.containsAll(healthKeys))) {
                 item {
@@ -194,7 +219,164 @@ fun DashboardScreen(
                     }
                 }
             }
-            item { ReadinessTile("데이터 · 전송", "전송 내역 ${uploads.size}개", "원본·대상 서버·검증 결과 확인", onUploadQueueClick, color = c.sectionRaised) }
+            item { ReadinessTile("저장 · 전송 증거", "전송 내역 ${uploads.size}개", "Jetson 원본과 서버 수신 검증을 각각 확인", onUploadQueueClick, color = c.sectionRaised) }
+        }
+    }
+}
+
+@Composable
+private fun OperationalStatusGrid(signals: List<OperationalSignal>) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        when {
+            maxWidth >= 760.dp -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                signals.forEach { signal ->
+                    Box(Modifier.weight(1f)) { OperationalSignalCard(signal) }
+                }
+            }
+            maxWidth >= 480.dp -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                signals.chunked(2).forEach { rowSignals ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        rowSignals.forEach { signal ->
+                            Box(Modifier.weight(1f)) { OperationalSignalCard(signal) }
+                        }
+                    }
+                }
+            }
+            else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                signals.forEach { OperationalSignalCard(it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperationalSignalCard(signal: OperationalSignal) {
+    val colors = when (signal.tone) {
+        StatusTone.SUCCESS -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.successBg to
+            com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success
+        StatusTone.WARNING -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warningBg to
+            com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warning
+        StatusTone.ERROR -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        StatusTone.INFO -> com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.infoBg to
+            com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.info
+    }
+    Surface(
+        color = colors.first,
+        contentColor = colors.second,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 116.dp)
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(signal.title, style = MaterialTheme.typography.labelLarge)
+            Text(signal.value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(signal.detail, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun NextActionAndCollection(
+    nextAction: HomeNextAction,
+    task: ManagedPipeline?,
+    activeCount: Int,
+    tasksConfirmed: Boolean,
+    taskObservedAt: Long?,
+    pendingAction: String?,
+    onNextAction: () -> Unit,
+    onPipelinesClick: () -> Unit
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val wide = maxWidth >= 720.dp
+        if (wide) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(Modifier.weight(1f)) { NextActionCard(nextAction, onNextAction) }
+                Box(Modifier.weight(1f)) {
+                    CollectionCard(task, activeCount, tasksConfirmed, taskObservedAt, pendingAction, onPipelinesClick)
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                NextActionCard(nextAction, onNextAction)
+                CollectionCard(task, activeCount, tasksConfirmed, taskObservedAt, pendingAction, onPipelinesClick)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextActionCard(action: HomeNextAction, onClick: () -> Unit) {
+    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
+    Surface(
+        color = c.hero,
+        contentColor = c.heroText,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(action.eyebrow, style = MaterialTheme.typography.labelLarge, color = c.heroMuted)
+            Text(action.title, style = MaterialTheme.typography.headlineSmall)
+            Text(action.detail, style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
+            Button(
+                shape = MaterialTheme.shapes.small,
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = c.primary,
+                    contentColor = c.onPrimary
+                )
+            ) { Text(action.buttonLabel) }
+        }
+    }
+}
+
+@Composable
+private fun CollectionCard(
+    task: ManagedPipeline?,
+    activeCount: Int,
+    tasksConfirmed: Boolean,
+    taskObservedAt: Long?,
+    pendingAction: String?,
+    onClick: () -> Unit
+) {
+    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
+    Surface(
+        color = c.sectionRaised,
+        contentColor = c.ink,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("현재 작업", style = MaterialTheme.typography.labelLarge, color = c.muted)
+            Text(
+                task?.label ?: if (tasksConfirmed) "실행 중인 수집 없음" else "작업 상태 확인 필요",
+                style = MaterialTheme.typography.titleLarge
+            )
+            Text(
+                task?.let {
+                    com.example.jetsoncontroller.ui.pipelines.taskStateLabel(it.state, tasksConfirmed, pendingAction)
+                } ?: if (tasksConfirmed) {
+                    "새 수집은 작업 선택과 최종 점검 후 시작합니다."
+                } else {
+                    "앱 연결이 끊겨도 Jetson 수집이 계속될 수 있습니다."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = c.muted
+            )
+            if (activeCount > 1) {
+                Text("실행 ${activeCount}개 · 중복 여부 확인 필요", color = MaterialTheme.colorScheme.error)
+            }
+            taskObservedAt?.let {
+                Text(
+                    "마지막 관찰 · " + java.text.DateFormat.getTimeInstance().format(java.util.Date(it)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.muted
+                )
+            }
+            OutlinedButton(
+                shape = MaterialTheme.shapes.small,
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            ) { Text("수집 상세 보기") }
         }
     }
 }

@@ -99,7 +99,7 @@ fun DeviceStorageScreen(
                 } else {
                     "${entry.name} 파일을"
                 }
-                Text("$target 장치에서 영구 삭제합니다.")
+                Text("$target 장치에서 영구 삭제합니다. 장치 API는 휴지통이나 복원을 지원하지 않습니다.")
             },
             confirmButton = {
                 Button(enabled = state.controlAvailable, onClick = {
