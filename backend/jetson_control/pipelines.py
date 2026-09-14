@@ -127,6 +127,46 @@ class PipelineManager:
         manifest = self._load_manifest(pipeline_id)
         return self._response(manifest, self._status(pipeline_id))
 
+    def runtime_identity(self, pipeline_id: str) -> Dict[str, object]:
+        """Return the immutable source/config inputs used by a contextual start."""
+
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        manifest = self._load_manifest(pipeline_id)
+        config_path = self._runtime_config_path(pipeline_id, manifest)
+        try:
+            config_sha256 = hashlib.sha256(config_path.read_bytes()).hexdigest()
+        except OSError as error:
+            raise PipelineError(f"Could not hash pipeline config: {error}") from error
+        return {
+            "pipelineId": pipeline_id,
+            "label": manifest["label"],
+            "sourceRevision": manifest["source_revision"],
+            "sourceDirty": manifest["source_dirty"],
+            "release": str((self.registry_root / pipeline_id / "current").resolve(strict=True)),
+            "config": manifest["config"],
+            "configSha256": config_sha256,
+            "writablePaths": list(manifest.get("writable_paths", [])),
+        }
+
+    def assert_output_allowed(self, pipeline_id: str, output_directory: Path) -> None:
+        """Require contextual output to remain inside a registered writable path."""
+
+        pipeline_id = validate_config_id(pipeline_id, "pipeline")
+        manifest = self._load_manifest(pipeline_id)
+        candidate = Path(output_directory).expanduser().resolve()
+        for raw in manifest.get("writable_paths", []):
+            try:
+                candidate.relative_to(Path(str(raw)).expanduser().resolve())
+                return
+            except ValueError:
+                continue
+        raise PipelineConflict("Selected output path is not registered writable storage")
+
+    def status(self, pipeline_id: str) -> Dict[str, object]:
+        """Expose the normalized current state without issuing a command."""
+
+        return self.get(pipeline_id)
+
     @_serialized_mutation
     def control(self, pipeline_id: str, action: str) -> Dict[str, object]:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
