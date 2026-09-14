@@ -37,6 +37,18 @@ EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
 DEFERRED_FILE_HASH_MODE = "deferred-v1"
 CONTENT_DIGEST_MAGIC = b"JETSON-UPLOAD-CONTENT-V1\x00"
+CONTEXT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$")
+OUTPUT_CONTEXT_FIELDS = (
+    "surveyProjectId",
+    "surveySectionId",
+    "runId",
+    "deviceId",
+    "pipelineId",
+    "sourceRevision",
+    "configSha256",
+    "outputId",
+    "createdAt",
+)
 
 
 class ReceiverError(Exception):
@@ -77,6 +89,7 @@ class Manifest:
     total_bytes: int
     canonical_json: str
     digest: str
+    context: Mapping[str, object] | None
 
 
 @dataclass(frozen=True)
@@ -193,6 +206,11 @@ class ReceiverService:
                     now,
                 ),
             )
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "DEVICE_TOKEN_ACTIVATED",
+                "SUCCEEDED", target_id=canonical_device_id,
+                details={"expiresAt": expires_at, "quotaBytes": quota_bytes},
+            )
 
     def validate_token_configuration(
         self,
@@ -218,6 +236,10 @@ class ReceiverService:
             )
             if cursor.rowcount != 1:
                 raise ValueError("Device was not found")
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "DEVICE_DISABLED",
+                "SUCCEEDED", target_id=canonical_device_id,
+            )
 
     def upsert_project(self, project_id: str, display_name: str) -> None:
         self.ensure_storage_available()
@@ -235,6 +257,11 @@ class ReceiverService:
                     updated_at=excluded.updated_at
                 """,
                 (project_id, display_name, now, now),
+            )
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "PROJECT_UPSERTED",
+                "SUCCEEDED", project_id=project_id,
+                details={"displayName": display_name},
             )
 
     def assign_device_to_project(self, device_id: str, project_id: str) -> None:
@@ -265,6 +292,10 @@ class ReceiverService:
                 ON CONFLICT(device_id) DO NOTHING
                 """,
                 (project_id, device_id, now),
+            )
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "DEVICE_PROJECT_ASSIGNED",
+                "SUCCEEDED", project_id=project_id, target_id=device_id,
             )
 
     def issue_employee_token(
@@ -360,6 +391,11 @@ class ReceiverService:
                 """,
                 [(employee_id, project_id, now) for project_id in projects],
             )
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "EMPLOYEE_TOKEN_ACTIVATED",
+                "SUCCEEDED", target_id=employee_id,
+                details={"role": role, "projectIds": list(projects), "expiresAt": expires_at},
+            )
 
     def disable_employee(self, employee_id: str) -> None:
         self.ensure_storage_available()
@@ -371,6 +407,69 @@ class ReceiverService:
             )
             if cursor.rowcount != 1:
                 raise ValueError("Employee was not found")
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "EMPLOYEE_DISABLED",
+                "SUCCEEDED", target_id=employee_id,
+            )
+
+    def set_employee_role(self, employee_id: str, role: str) -> None:
+        self.ensure_storage_available()
+        employee_id = self.validate_access_id(employee_id, "employeeId")
+        role = role.strip().upper()
+        if role not in {"VIEWER", "OPERATOR", "ADMIN"}:
+            raise ValueError("role must be VIEWER, OPERATOR, or ADMIN")
+        now = self.timestamp()
+        with self.database.immediate() as connection:
+            projects = [
+                row["project_id"]
+                for row in connection.execute(
+                    "SELECT project_id FROM employee_project_grants WHERE employee_id=?",
+                    (employee_id,),
+                ).fetchall()
+            ]
+            cursor = connection.execute(
+                "UPDATE employees SET role=?, updated_at=? WHERE employee_id=?",
+                (role, now, employee_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Employee was not found")
+            for project_id in projects:
+                self._append_audit(
+                    connection, "ADMIN_CLI", "local-admin", "EMPLOYEE_ROLE_CHANGED",
+                    "SUCCEEDED", project_id=project_id, target_id=employee_id,
+                    details={"role": role},
+                )
+
+    def revoke_employee_project(self, employee_id: str, project_id: str) -> None:
+        self.ensure_storage_available()
+        employee_id = self.validate_access_id(employee_id, "employeeId")
+        project_id = self.validate_access_id(project_id, "projectId")
+        with self.database.immediate() as connection:
+            cursor = connection.execute(
+                "DELETE FROM employee_project_grants WHERE employee_id=? AND project_id=?",
+                (employee_id, project_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Employee project grant was not found")
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "EMPLOYEE_PROJECT_REVOKED",
+                "SUCCEEDED", project_id=project_id, target_id=employee_id,
+            )
+
+    def disable_project(self, project_id: str) -> None:
+        self.ensure_storage_available()
+        project_id = self.validate_access_id(project_id, "projectId")
+        with self.database.immediate() as connection:
+            cursor = connection.execute(
+                "UPDATE projects SET enabled=0, updated_at=? WHERE project_id=?",
+                (self.timestamp(), project_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Project was not found")
+            self._append_audit(
+                connection, "ADMIN_CLI", "local-admin", "PROJECT_DISABLED",
+                "SUCCEEDED", project_id=project_id,
+            )
 
     def cleanup_staging(self, *, older_than_hours: int) -> int:
         self.ensure_storage_available()
@@ -542,6 +641,9 @@ class ReceiverService:
         if hash_mode not in {"required", DEFERRED_FILE_HASH_MODE}:
             raise ReceiverError(400, "Manifest hashMode is invalid")
         deferred_hashes = hash_mode == DEFERRED_FILE_HASH_MODE
+        context = self._parse_upload_context(value.get("context"))
+        if context is not None and context["deviceId"] != device_id:
+            raise ReceiverError(403, "Upload context device does not match the manifest")
 
         files = []
         seen_paths = set()
@@ -602,6 +704,8 @@ class ReceiverService:
         }
         if deferred_hashes:
             canonical_value["hashMode"] = DEFERRED_FILE_HASH_MODE
+        if context is not None:
+            canonical_value["context"] = context
         canonical_json = json.dumps(
             canonical_value,
             ensure_ascii=False,
@@ -616,7 +720,31 @@ class ReceiverService:
             total_bytes=total_bytes,
             canonical_json=canonical_json,
             digest=hashlib.sha256(canonical_json.encode("utf-8")).hexdigest(),
+            context=context,
         )
+
+    def _parse_upload_context(self, value: object) -> Dict[str, object] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict) or set(value) != {"schemaVersion", *OUTPUT_CONTEXT_FIELDS}:
+            raise ReceiverError(400, "Upload context fields are invalid")
+        if value.get("schemaVersion") != 1:
+            raise ReceiverError(400, "Upload context schema version is unsupported")
+        result: Dict[str, object] = {"schemaVersion": 1}
+        for field in OUTPUT_CONTEXT_FIELDS:
+            item = value.get(field)
+            if not isinstance(item, str) or not CONTEXT_ID_PATTERN.fullmatch(item):
+                raise ReceiverError(400, f"Upload context {field} is invalid")
+            result[field] = item
+        if not SHA256_PATTERN.fullmatch(str(result["configSha256"])):
+            raise ReceiverError(400, "Upload context configSha256 is invalid")
+        if not str(result["runId"]).startswith(f"{result['pipelineId']}/"):
+            raise ReceiverError(400, "Upload context runId does not match pipelineId")
+        try:
+            self._parse_timestamp(str(result["createdAt"]))
+        except ValueError as error:
+            raise ReceiverError(400, "Upload context createdAt is invalid") from error
+        return result
 
     def create_session(self, device: Device, manifest: Manifest) -> tuple[str, int]:
         self.ensure_storage_available()
@@ -1168,7 +1296,11 @@ class ReceiverService:
                 "role": employee.role,
             },
             "projects": [
-                {"projectId": row["project_id"], "displayName": row["display_name"]}
+                {
+                    "projectId": row["project_id"],
+                    "accessProjectId": row["project_id"],
+                    "displayName": row["display_name"],
+                }
                 for row in projects
             ],
             "maxPreviewBytes": self.settings.max_preview_bytes,
@@ -1208,6 +1340,7 @@ class ReceiverService:
             "serverEnvironment": self.settings.server_environment,
             "employeeId": employee.employee_id,
             "projectId": project_id,
+            "accessProjectId": project_id,
             "jobs": jobs,
             "nextOffset": offset + limit if len(rows) > limit else None,
             "refreshedAt": self.timestamp(),
@@ -1229,6 +1362,7 @@ class ReceiverService:
             {
                 "serverEnvironment": self.settings.server_environment,
                 "projectId": project_id,
+                "accessProjectId": project_id,
                 "refreshedAt": self.timestamp(),
             }
         )
@@ -1271,6 +1405,7 @@ class ReceiverService:
             {
                 "serverEnvironment": self.settings.server_environment,
                 "projectId": project_id,
+                "accessProjectId": project_id,
                 "matched": True,
                 "verifiedAt": verified_at,
                 "refreshedAt": verified_at,
@@ -1290,7 +1425,8 @@ class ReceiverService:
                 """
                 SELECT upload_sessions.session_id, upload_sessions.client_job_id,
                        upload_sessions.source_name, upload_sessions.total_bytes,
-                       upload_sessions.file_count, library_trash.trashed_at
+                       upload_sessions.file_count, upload_sessions.manifest_json,
+                       library_trash.trashed_at
                 FROM library_trash
                 JOIN upload_sessions USING (session_id)
                 WHERE library_trash.project_id=? AND library_trash.state='TRASHED'
@@ -1302,6 +1438,7 @@ class ReceiverService:
         return {
             "serverEnvironment": self.settings.server_environment,
             "projectId": project_id,
+            "accessProjectId": project_id,
             "jobs": [
                 {
                     "sessionId": row["session_id"],
@@ -1309,11 +1446,62 @@ class ReceiverService:
                     "sourceName": row["source_name"],
                     "totalBytes": row["total_bytes"],
                     "fileCount": row["file_count"],
+                    "surveyContext": self._stored_context(row["manifest_json"]),
                     "state": "TRASHED",
                     "trashedAt": row["trashed_at"],
                 }
                 for row in rows
             ],
+            "refreshedAt": self.timestamp(),
+        }
+
+    def list_server_audit(
+        self,
+        employee: Employee,
+        project_id: str,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        self._require_role(employee, "ADMIN")
+        project_id = self._require_project_grant(employee, project_id)
+        if limit < 1 or limit > 200 or offset < 0 or offset > 10_000:
+            raise ReceiverError(400, "Audit pagination is invalid")
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM audit_events
+                WHERE project_id=?
+                ORDER BY created_at DESC, event_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (project_id, limit + 1, offset),
+            ).fetchall()
+        events = []
+        for row in rows[:limit]:
+            try:
+                details = json.loads(row["details_json"])
+            except json.JSONDecodeError:
+                details = {}
+            events.append({
+                "eventId": row["event_id"],
+                "actorKind": row["actor_kind"],
+                "actorId": row["actor_id"],
+                "action": row["action"],
+                "outcome": row["outcome"],
+                "accessProjectId": row["project_id"],
+                "sessionId": row["session_id"],
+                "targetId": row["target_id"],
+                "details": details,
+                "createdAt": row["created_at"],
+            })
+        return {
+            "serverEnvironment": self.settings.server_environment,
+            "employeeId": employee.employee_id,
+            "projectId": project_id,
+            "events": events,
+            "nextOffset": offset + limit if len(rows) > limit else None,
             "refreshedAt": self.timestamp(),
         }
 
@@ -1354,6 +1542,11 @@ class ReceiverService:
                     )
                 except sqlite3.IntegrityError as error:
                     raise ReceiverError(409, "Job is already in trash") from error
+                self._append_audit(
+                    connection, "EMPLOYEE", employee.employee_id,
+                    "SERVER_JOB_TRASH_REQUESTED", "PENDING",
+                    project_id=project_id, session_id=session_id,
+                )
             try:
                 trash.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 self._fsync_directory(trash.parent)
@@ -1379,6 +1572,11 @@ class ReceiverService:
                     )
                     if cursor.rowcount != 1:
                         raise sqlite3.IntegrityError("Trash transition was lost")
+                    self._append_audit(
+                        connection, "EMPLOYEE", employee.employee_id,
+                        "SERVER_JOB_TRASHED", "SUCCEEDED",
+                        project_id=project_id, session_id=session_id,
+                    )
             except sqlite3.Error as error:
                 raise ReceiverError(
                     503, "Job trash state is pending recovery", retry_after=5
@@ -1386,6 +1584,7 @@ class ReceiverService:
             return {
                 "sessionId": session_id,
                 "projectId": project_id,
+                "accessProjectId": project_id,
                 "state": "TRASHED",
                 "trashedAt": now,
                 "serverEnvironment": self.settings.server_environment,
@@ -1420,6 +1619,11 @@ class ReceiverService:
                     "UPDATE library_trash SET state='RESTORING', updated_at=? WHERE session_id=?",
                     (self.timestamp(), session_id),
                 )
+                self._append_audit(
+                    connection, "EMPLOYEE", employee.employee_id,
+                    "SERVER_JOB_RESTORE_REQUESTED", "PENDING",
+                    project_id=project_id, session_id=session_id,
+                )
             try:
                 final.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 self._fsync_directory(final.parent)
@@ -1442,6 +1646,11 @@ class ReceiverService:
                     )
                     if cursor.rowcount != 1:
                         raise sqlite3.IntegrityError("Restore transition was lost")
+                    self._append_audit(
+                        connection, "EMPLOYEE", employee.employee_id,
+                        "SERVER_JOB_RESTORED", "SUCCEEDED",
+                        project_id=project_id, session_id=session_id,
+                    )
             except sqlite3.Error as error:
                 raise ReceiverError(
                     503, "Job restore state is pending recovery", retry_after=5
@@ -1449,6 +1658,7 @@ class ReceiverService:
             return {
                 "sessionId": session_id,
                 "projectId": project_id,
+                "accessProjectId": project_id,
                 "state": "COMPLETED",
                 "serverEnvironment": self.settings.server_environment,
                 "restoredAt": self.timestamp(),
@@ -1468,7 +1678,7 @@ class ReceiverService:
             rows = connection.execute(
                 """
                 SELECT session_id, client_job_id, source_name, total_bytes, file_count,
-                       created_at, completed_at
+                       manifest_json, created_at, completed_at
                 FROM upload_sessions
                 LEFT JOIN library_trash USING (session_id)
                 WHERE device_id=? AND upload_sessions.state='COMPLETED'
@@ -1487,6 +1697,7 @@ class ReceiverService:
                     "folderName": row["source_name"],
                     "totalBytes": row["total_bytes"],
                     "fileCount": row["file_count"],
+                    "surveyContext": self._stored_context(row["manifest_json"]),
                     "createdAt": row["created_at"],
                     "completedAt": row["completed_at"],
                 }
@@ -1545,55 +1756,19 @@ class ReceiverService:
                     files,
                 ),
                 "completedAt": session["completed_at"],
+                "surveyContext": self._stored_context(session["manifest_json"]),
             }
 
     def delete_library_session(self, device: Device, session_id: str) -> str:
-        """Delete one owned completed session and its finalized objects."""
+        """Reject the legacy permanent-delete endpoint without touching data."""
         self.ensure_storage_available()
         session_id = self.validate_session_id(session_id)
-        with self._guard(f"session:{session_id}"):
-            with self.database.connect() as connection:
-                session = self._owned_session(connection, device, session_id)
-                self._assert_not_trashed(connection, session_id)
-            if session["state"] != "COMPLETED":
-                raise ReceiverError(409, "Only completed library sessions can be deleted")
-
-            final = self._final_directory(device.device_id, session_id)
-            try:
-                final_metadata = final.lstat()
-            except FileNotFoundError:
-                final_metadata = None
-            except OSError as error:
-                raise ReceiverError(
-                    503,
-                    "Library session storage is inconsistent",
-                    retry_after=5,
-                ) from error
-            if final_metadata is not None and not stat.S_ISDIR(final_metadata.st_mode):
-                raise ReceiverError(503, "Library session storage is inconsistent")
-            if final_metadata is not None:
-                try:
-                    self._remove_tree(final)
-                    self._fsync_directory(final.parent)
-                except OSError as error:
-                    raise ReceiverError(
-                        503,
-                        "Library session could not be deleted",
-                        retry_after=5,
-                    ) from error
-
-            with self.database.immediate() as connection:
-                cursor = connection.execute(
-                    """
-                    DELETE FROM upload_sessions
-                    WHERE session_id=? AND device_id=? AND state='COMPLETED'
-                    """,
-                    (session_id, device.device_id),
-                )
-                if cursor.rowcount != 1:
-                    raise ReceiverError(409, "Library session changed while deleting")
-            self._drop_session_hashers(session_id)
-            return "DELETED"
+        with self.database.connect() as connection:
+            self._owned_session(connection, device, session_id)
+        raise ReceiverError(
+            409,
+            "Permanent device-token deletion is disabled; use employee-scoped trash",
+        )
 
     @staticmethod
     def _content_digest(
@@ -2195,6 +2370,7 @@ class ReceiverService:
             "sessionId": session_id,
             "clientJobId": row["client_job_id"],
             "projectId": project_id,
+            "accessProjectId": project_id,
             "deviceId": row["device_id"],
             "sourceName": row["source_name"],
             "state": row["state"],
@@ -2205,6 +2381,7 @@ class ReceiverService:
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
             "completedAt": row["completed_at"],
+            "surveyContext": self._stored_context(row["manifest_json"]),
             "pathSummary": {
                 "rootEntries": roots[:5],
                 "rootEntriesTruncated": len(roots) > 5,
@@ -2212,6 +2389,51 @@ class ReceiverService:
                 "videoCount": media["video_count"],
             },
         }
+
+    @staticmethod
+    def _stored_context(manifest_json: object) -> Dict[str, object] | None:
+        if not isinstance(manifest_json, str):
+            return None
+        try:
+            value = json.loads(manifest_json)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        context = value.get("context") if isinstance(value, dict) else None
+        return dict(context) if isinstance(context, dict) else None
+
+    def _append_audit(
+        self,
+        connection: sqlite3.Connection,
+        actor_kind: str,
+        actor_id: str,
+        action: str,
+        outcome: str,
+        *,
+        project_id: str | None = None,
+        session_id: str | None = None,
+        target_id: str | None = None,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO audit_events(
+                event_id, actor_kind, actor_id, action, outcome, project_id,
+                session_id, target_id, details_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                actor_kind,
+                actor_id,
+                action,
+                outcome,
+                project_id,
+                session_id,
+                target_id,
+                json.dumps(details or {}, ensure_ascii=True, separators=(",", ":")),
+                self.timestamp(),
+            ),
+        )
 
     def _mark_failed(self, session_id: str, failure_code: str) -> None:
         with self.database.immediate() as connection:

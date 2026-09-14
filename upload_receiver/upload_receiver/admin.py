@@ -111,6 +111,23 @@ def main() -> None:
     )
     disable_employee.add_argument("--employee-id", required=True)
 
+    set_role = subparsers.add_parser(
+        "set-employee-role", help="change an employee role without rotating the token"
+    )
+    set_role.add_argument("--employee-id", required=True)
+    set_role.add_argument("--role", choices=("VIEWER", "OPERATOR", "ADMIN"), required=True)
+
+    revoke_project = subparsers.add_parser(
+        "revoke-employee-project", help="revoke one employee access-project grant"
+    )
+    revoke_project.add_argument("--employee-id", required=True)
+    revoke_project.add_argument("--project-id", required=True)
+
+    disable_project = subparsers.add_parser(
+        "disable-project", help="disable an access project and all of its grants"
+    )
+    disable_project.add_argument("--project-id", required=True)
+
     cleanup = subparsers.add_parser("cleanup", help="expire old staging sessions")
     cleanup.add_argument("--older-than-hours", type=int, default=72)
 
@@ -135,6 +152,18 @@ def main() -> None:
     if args.command == "disable-employee":
         receiver.disable_employee(args.employee_id)
         print(f"Disabled employee: {args.employee_id}")
+        return
+    if args.command == "set-employee-role":
+        receiver.set_employee_role(args.employee_id, args.role)
+        print(f"Updated employee role: {args.employee_id} -> {args.role}")
+        return
+    if args.command == "revoke-employee-project":
+        receiver.revoke_employee_project(args.employee_id, args.project_id)
+        print(f"Revoked employee {args.employee_id} from project {args.project_id}")
+        return
+    if args.command == "disable-project":
+        receiver.disable_project(args.project_id)
+        print(f"Disabled server access project: {args.project_id}")
         return
     if args.command == "cleanup":
         removed = receiver.cleanup_staging(older_than_hours=args.older_than_hours)

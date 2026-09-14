@@ -219,6 +219,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             projectId,
         )
 
+    @application.get("/v1/server/audit")
+    async def server_audit(
+        request: Request,
+        projectId: str,
+        limit: int = 100,
+        offset: int = 0,
+    ):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.list_server_audit,
+            principal,
+            projectId,
+            limit=limit,
+            offset=offset,
+        )
+
     @application.delete("/v1/server/jobs/{session_id}")
     async def trash_server_job(session_id: str, request: Request, projectId: str):
         receiver = service(request)

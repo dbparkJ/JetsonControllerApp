@@ -128,6 +128,23 @@ class ReceiverApiTest(unittest.TestCase):
             content=json.dumps(manifest, ensure_ascii=False).encode("utf-8"),
         )
 
+    @staticmethod
+    def survey_context(**changes: object) -> dict[str, object]:
+        value: dict[str, object] = {
+            "schemaVersion": 1,
+            "surveyProjectId": "survey-alpha",
+            "surveySectionId": "section-01",
+            "runId": "capture/run-20260914T010203.000004Z-123.log",
+            "deviceId": DEVICE_ID,
+            "pipelineId": "capture",
+            "sourceRevision": "1234567890abcdef1234567890abcdef12345678",
+            "configSha256": "a" * 64,
+            "outputId": "output-0123456789abcdef",
+            "createdAt": "2026-09-14T01:02:03Z",
+        }
+        value.update(changes)
+        return value
+
     def put(
         self,
         session_id: str,
@@ -269,6 +286,60 @@ class ReceiverApiTest(unittest.TestCase):
         )
         self.assertEqual(foreign.status_code, 403)
 
+    def test_survey_context_is_immutable_and_propagates_to_jobs_receipt_and_trash(self) -> None:
+        body = b"contextual output"
+        manifest = self.manifest([("output.bin", body)], client_job_id="6" * 32)
+        manifest["context"] = self.survey_context()
+        created = self.create(manifest)
+        self.assertEqual(created.status_code, 201, created.text)
+        session_id = created.json()["sessionId"]
+
+        changed = dict(manifest)
+        changed["context"] = self.survey_context(surveySectionId="section-02")
+        conflict = self.create(changed)
+        self.assertEqual(conflict.status_code, 409)
+        self.assertIn("another manifest", conflict.json()["detail"])
+
+        self.assertEqual(self.put(session_id, "output.bin", body).status_code, 200)
+        self.assertEqual(self.client.post(
+            f"/v1/upload-sessions/{session_id}/complete", headers=self.auth(), json={}
+        ).status_code, 200)
+        self.assertEqual(
+            self.client.get("/v1/library/sessions", headers=self.auth()).json()[
+                "sessions"
+            ][0]["surveyContext"],
+            self.survey_context(),
+        )
+        receipt = self.client.get(
+            f"/v1/library/sessions/{session_id}/verification", headers=self.auth()
+        ).json()
+        self.assertEqual(receipt["surveyContext"], self.survey_context())
+
+        employee_token = self.configure_employee_access(role="OPERATOR")
+        headers = self.employee_auth(employee_token)
+        job = self.client.get(
+            "/v1/server/jobs", params={"projectId": "road-alpha"}, headers=headers
+        ).json()["jobs"][0]
+        self.assertEqual(job["projectId"], "road-alpha")
+        self.assertEqual(job["surveyContext"]["surveyProjectId"], "survey-alpha")
+        trashed = self.client.delete(
+            f"/v1/server/jobs/{session_id}",
+            params={"projectId": "road-alpha"},
+            headers=headers,
+        )
+        self.assertEqual(trashed.status_code, 200, trashed.text)
+        trash_entry = self.client.get(
+            "/v1/server/trash", params={"projectId": "road-alpha"}, headers=headers
+        ).json()["jobs"][0]
+        self.assertEqual(trash_entry["surveyContext"], self.survey_context())
+
+    def test_context_requires_exact_fields_and_matching_device(self) -> None:
+        manifest = self.manifest([("output.bin", b"x")], client_job_id="5" * 32)
+        manifest["context"] = self.survey_context(deviceId=SECOND_DEVICE_ID)
+        self.assertEqual(self.create(manifest).status_code, 403)
+        manifest["context"] = {**self.survey_context(), "unexpected": True}
+        self.assertEqual(self.create(manifest).status_code, 400)
+
     def test_direct_server_query_uses_separate_employee_project_auth(self) -> None:
         employee_token = self.configure_employee_access(role="VIEWER")
         body = b"preview"
@@ -391,6 +462,61 @@ class ReceiverApiTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             receiver.assign_device_to_project(DEVICE_ID, "road-beta")
 
+    def test_role_project_revocation_and_admin_audit_take_effect_immediately(self) -> None:
+        operator = self.configure_employee_access(role="OPERATOR")
+        receiver: ReceiverService = self.client.app.state.receiver
+        admin_token = receiver.issue_employee_token(
+            "employee.admin", "Employee Admin", "ADMIN", project_ids=["road-alpha"]
+        )
+        body = b"audit"
+        session_id = self.create(
+            self.manifest([("audit.bin", body)], client_job_id="4" * 32)
+        ).json()["sessionId"]
+        self.assertEqual(self.put(session_id, "audit.bin", body).status_code, 200)
+        self.assertEqual(self.client.post(
+            f"/v1/upload-sessions/{session_id}/complete", headers=self.auth(), json={}
+        ).status_code, 200)
+
+        receiver.set_employee_role("employee.one", "VIEWER")
+        denied_role = self.client.delete(
+            f"/v1/server/jobs/{session_id}", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(denied_role.status_code, 403)
+        receiver.set_employee_role("employee.one", "OPERATOR")
+        trashed = self.client.delete(
+            f"/v1/server/jobs/{session_id}", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(trashed.status_code, 200, trashed.text)
+
+        viewer_audit = self.client.get(
+            "/v1/server/audit", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(viewer_audit.status_code, 403)
+        audit = self.client.get(
+            "/v1/server/audit", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(admin_token),
+        )
+        self.assertEqual(audit.status_code, 200, audit.text)
+        actions = [event["action"] for event in audit.json()["events"]]
+        self.assertIn("SERVER_JOB_TRASH_REQUESTED", actions)
+        self.assertIn("SERVER_JOB_TRASHED", actions)
+        self.assertIn("EMPLOYEE_ROLE_CHANGED", actions)
+
+        receiver.revoke_employee_project("employee.one", "road-alpha")
+        denied_project = self.client.get(
+            "/v1/server/jobs", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(denied_project.status_code, 403)
+        receiver.disable_project("road-alpha")
+        self.assertEqual(self.client.get(
+            "/v1/server/jobs", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(admin_token),
+        ).status_code, 403)
+
     def test_direct_server_trash_restore_and_ambiguous_fsync_recovery(self) -> None:
         employee_token = self.configure_employee_access()
         body = b"recoverable"
@@ -471,7 +597,7 @@ class ReceiverApiTest(unittest.TestCase):
             )
         self.assertTrue(recovered_again._final_directory(DEVICE_ID, session_id).is_dir())
 
-    def test_completed_library_session_can_be_verified_and_securely_deleted(self) -> None:
+    def test_completed_library_session_is_verified_but_device_delete_is_disabled(self) -> None:
         files = [("camera/front.bin", b"front"), ("notes.txt", b"notes")]
         created = self.create(self.manifest(files, client_job_id="9" * 32))
         session_id = created.json()["sessionId"]
@@ -513,26 +639,21 @@ class ReceiverApiTest(unittest.TestCase):
             f"/v1/library/sessions/{session_id}",
             headers=self.auth(),
         )
-        self.assertEqual(
-            deleted.json(),
-            {"sessionId": session_id, "state": "DELETED"},
-        )
-        self.assertFalse(final_directory.exists())
+        self.assertEqual(deleted.status_code, 409)
+        self.assertIn("employee-scoped trash", deleted.json()["detail"])
+        self.assertTrue(final_directory.exists())
         with receiver.database.connect() as connection:
-            self.assertIsNone(
+            self.assertIsNotNone(
                 connection.execute(
                     "SELECT 1 FROM upload_sessions WHERE session_id=?",
                     (session_id,),
                 ).fetchone()
             )
-        self.assertEqual(
-            self.client.get("/v1/library/sessions", headers=self.auth()).json()[
-                "sessions"
-            ],
-            [],
-        )
+        self.assertEqual(len(self.client.get(
+            "/v1/library/sessions", headers=self.auth()
+        ).json()["sessions"]), 1)
 
-    def test_library_delete_rejects_open_sessions_and_symlink_storage(self) -> None:
+    def test_library_delete_rejects_open_and_completed_sessions_without_touching_storage(self) -> None:
         open_session = self.create(
             self.manifest([("open.bin", b"open")], client_job_id="a" * 32)
         ).json()["sessionId"]
@@ -572,7 +693,7 @@ class ReceiverApiTest(unittest.TestCase):
                 f"/v1/library/sessions/{completed_session}",
                 headers=self.auth(),
             )
-            self.assertEqual(rejected.status_code, 503)
+            self.assertEqual(rejected.status_code, 409)
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
             with receiver.database.connect() as connection:
                 self.assertIsNotNone(
@@ -585,7 +706,7 @@ class ReceiverApiTest(unittest.TestCase):
             final_directory.unlink()
             original.rename(final_directory)
 
-    def test_library_delete_finishes_after_objects_were_already_removed(self) -> None:
+    def test_library_delete_does_not_remove_database_when_objects_are_missing(self) -> None:
         body = b"completed"
         session_id = self.create(
             self.manifest([("done.bin", body)], client_job_id="c" * 32)
@@ -608,10 +729,9 @@ class ReceiverApiTest(unittest.TestCase):
             f"/v1/library/sessions/{session_id}",
             headers=self.auth(),
         )
-        self.assertEqual(deleted.status_code, 200, deleted.text)
-        self.assertEqual(deleted.json()["state"], "DELETED")
+        self.assertEqual(deleted.status_code, 409, deleted.text)
         with receiver.database.connect() as connection:
-            self.assertIsNone(
+            self.assertIsNotNone(
                 connection.execute(
                     "SELECT 1 FROM upload_sessions WHERE session_id=?",
                     (session_id,),

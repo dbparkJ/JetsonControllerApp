@@ -108,6 +108,22 @@ ON project_devices(project_id, device_id);
 
 CREATE INDEX IF NOT EXISTS employee_project_grants_project_idx
 ON employee_project_grants(project_id, employee_id);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    event_id TEXT PRIMARY KEY,
+    actor_kind TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    project_id TEXT,
+    session_id TEXT,
+    target_id TEXT,
+    details_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS audit_events_project_created_idx
+ON audit_events(project_id, created_at DESC, event_id DESC);
 """
 
 
