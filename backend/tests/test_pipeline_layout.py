@@ -59,7 +59,7 @@ class PipelineFolderLayoutTest(unittest.TestCase):
 
         self.assertEqual(layout.pipeline_id, "26_camera_record")
 
-    def test_manager_folder_registration_calls_shortcut_with_autostart(self) -> None:
+    def test_manager_folder_registration_defaults_to_manual_reboot_start(self) -> None:
         results_root = self.root / "collected-data"
         manager = PipelineManager(
             registry_root=self.root / "registry",
@@ -95,7 +95,7 @@ class PipelineFolderLayoutTest(unittest.TestCase):
                 "--results-dir",
                 str(results_root / "camera-capture"),
                 "--use-template-defaults",
-                "--autostart",
+                "--no-autostart",
             ],
         )
         get.assert_called_once_with("camera-capture")
@@ -116,6 +116,7 @@ class PipelineFolderLayoutTest(unittest.TestCase):
             str(results_root / "camera-capture"),
         )
         self.assertFalse(response["resultsExists"])
+        self.assertFalse(response["autostartDefault"])
 
 
 if __name__ == "__main__":

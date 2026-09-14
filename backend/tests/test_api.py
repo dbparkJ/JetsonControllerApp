@@ -868,6 +868,25 @@ class ApiContractTest(unittest.TestCase):
             autostart=True,
         )
 
+    def test_pipeline_registration_defaults_to_manual_reboot_start(self) -> None:
+        body = json.dumps(
+            {
+                "rootId": "workspace-home",
+                "path": "jobs/capture",
+                "name": "카메라 수집",
+            },
+            separators=(",", ":"),
+        ).encode()
+
+        response = self.signed_request("POST", "/v1/pipelines/register-folder", body)
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.pipelines.register_folder.assert_called_once_with(
+            label="카메라 수집",
+            repository=self.base / "jobs" / "capture",
+            autostart=False,
+        )
+
     def test_convention_pipeline_time_fan_and_workspace_contracts(self) -> None:
         discover_body = json.dumps(
             {"rootId": "workspace-home", "path": "jobs/capture"},

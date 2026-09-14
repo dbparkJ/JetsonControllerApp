@@ -101,7 +101,7 @@ class PipelineManager:
         response["resultsDirectory"] = str(results)
         response["resultsExists"] = results.is_dir()
         response["logDirectory"] = str(self.logs_root / layout.pipeline_id)
-        response["autostartDefault"] = True
+        response["autostartDefault"] = False
         return response
 
     def list_pipelines(self) -> List[Dict[str, object]]:
@@ -132,14 +132,51 @@ class PipelineManager:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         if action not in PIPELINE_ACTIONS:
             raise ValueError("Unknown pipeline action")
-        self._load_manifest(pipeline_id)
+        manifest = self._load_manifest(pipeline_id)
+
+        before = self._status(pipeline_id)
+        if self._action_satisfied(action, before):
+            response = self._response(manifest, before)
+            response["control"] = {
+                "action": action,
+                "commandIssued": False,
+                "outcome": "ALREADY_SATISFIED",
+            }
+            return response
 
         unit = self._unit(pipeline_id)
-        result = self._run(["systemctl", action, unit], timeout=30)
+        try:
+            result = self._run(["systemctl", action, unit], timeout=30)
+        except PipelineError:
+            observed = self._status(pipeline_id)
+            if action != "restart" and self._action_satisfied(action, observed):
+                response = self._response(manifest, observed)
+                response["control"] = {
+                    "action": action,
+                    "commandIssued": True,
+                    "outcome": "OBSERVED_AFTER_COMMAND_ERROR",
+                }
+                return response
+            raise
         if result.returncode != 0:
+            observed = self._status(pipeline_id)
+            if action != "restart" and self._action_satisfied(action, observed):
+                response = self._response(manifest, observed)
+                response["control"] = {
+                    "action": action,
+                    "commandIssued": True,
+                    "outcome": "OBSERVED_AFTER_COMMAND_ERROR",
+                }
+                return response
             message = (result.stderr or result.stdout or "systemctl failed").strip()
             raise PipelineError(message)
-        return self.get(pipeline_id)
+        response = self._response(manifest, self._status(pipeline_id))
+        response["control"] = {
+            "action": action,
+            "commandIssued": True,
+            "outcome": "COMMAND_COMPLETED",
+        }
+        return response
 
     def logs(self, pipeline_id: str, lines: int = 200) -> Dict[str, object]:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
@@ -663,7 +700,7 @@ class PipelineManager:
         *,
         label: str,
         repository: Path,
-        autostart: bool = True,
+        autostart: bool = False,
     ) -> Dict[str, object]:
         """Register a convention-based folder while preserving the legacy path."""
 
@@ -798,6 +835,7 @@ class PipelineManager:
                 "--property=ExecMainStatus",
                 "--property=Result",
                 "--property=NRestarts",
+                "--property=InvocationID",
                 "--no-pager",
             ],
             timeout=10,
@@ -811,6 +849,7 @@ class PipelineManager:
                 "ExecMainStatus": "0",
                 "Result": "unknown",
                 "NRestarts": "0",
+                "InvocationID": "",
             }
         properties: Dict[str, str] = {}
         for line in result.stdout.splitlines():
@@ -843,7 +882,7 @@ class PipelineManager:
         if state in {"RUNNING", "STARTING"} and not time_synchronized:
             state = "WAITING_FOR_TIME_SYNC"
         unit_file_state = status.get("UnitFileState", "unknown")
-        enabled = unit_file_state in {"enabled", "enabled-runtime", "linked", "linked-runtime"}
+        enabled = unit_file_state == "enabled"
         try:
             exit_code = int(status.get("ExecMainStatus", "0"))
         except ValueError:
@@ -853,6 +892,7 @@ class PipelineManager:
         except ValueError:
             restart_count = 0
 
+        execution = self._latest_execution(str(manifest["id"]), state, status)
         return {
             "id": manifest["id"],
             "label": manifest["label"],
@@ -876,7 +916,153 @@ class PipelineManager:
             "resultsDirectory": str(manifest.get("results_directory", "")) or None,
             "folderConvention": bool(manifest.get("folder_convention", False)),
             "timeSynchronized": time_synchronized,
+            "observedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "activeRunId": (
+                str(execution["runId"])
+                if execution is not None and execution.get("active") is True
+                else None
+            ),
+            "execution": execution,
+            "failureKind": (
+                execution.get("failureKind") if execution is not None else None
+            ),
         }
+
+    def _latest_execution(
+        self,
+        pipeline_id: str,
+        pipeline_state: str,
+        status: Mapping[str, str],
+    ) -> Optional[Dict[str, object]]:
+        """Read bounded runner-owned metadata from the newest persistent run log."""
+
+        try:
+            directory = self._log_directory(pipeline_id)
+            if directory is None:
+                return None
+            candidates = []
+            for path in directory.iterdir():
+                match = PIPELINE_LOG_ID.fullmatch(path.name)
+                if match is None:
+                    continue
+                try:
+                    started = datetime.strptime(
+                        match.group(1), "%Y%m%dT%H%M%S.%fZ"
+                    ).replace(tzinfo=timezone.utc)
+                    metadata = os.lstat(path)
+                except (OSError, ValueError):
+                    continue
+                if stat.S_ISREG(metadata.st_mode):
+                    candidates.append((started, path.name, path))
+            if not candidates:
+                return None
+            started, log_id, path = max(candidates)
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            descriptor = os.open(path, flags)
+            try:
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode):
+                    return None
+                head = os.pread(descriptor, min(16 * 1024, metadata.st_size), 0)
+                tail_size = min(16 * 1024, metadata.st_size)
+                tail = os.pread(descriptor, tail_size, metadata.st_size - tail_size)
+            finally:
+                os.close(descriptor)
+        except (OSError, PipelineError):
+            return None
+
+        header: Dict[str, str] = {}
+        head_text = head.decode("utf-8", errors="replace")
+        if head_text.startswith("=== Jetson pipeline run ===\n"):
+            for line in head_text.split("\n")[1:]:
+                if not line:
+                    break
+                key, separator, value = line.partition("=")
+                if separator and key in {
+                    "invocation_id",
+                    "source_revision",
+                    "source_dirty",
+                    "release",
+                    "config_sha256",
+                    "results_directory",
+                    "storage_available_bytes",
+                    "storage_required_bytes",
+                    "storage_preflight",
+                }:
+                    header[key] = value
+
+        finished_at: Optional[str] = None
+        exit_code: Optional[int] = None
+        footer = re.search(
+            r"=== Jetson pipeline run finished ===\n"
+            r"finished_at=([^\n]+)\nexit_code=(\d+)\n?$",
+            tail.decode("utf-8", errors="replace"),
+        )
+        if footer is not None:
+            finished_at = footer.group(1)
+            exit_code = int(footer.group(2))
+        started_at = started.isoformat().replace("+00:00", "Z")
+        invocation_id = header.get("invocation_id", "")
+        active = (
+            bool(invocation_id)
+            and invocation_id == status.get("InvocationID", "")
+            and finished_at is None
+            and pipeline_state in {
+                "RUNNING",
+                "STARTING",
+                "STOPPING",
+                "RETRYING",
+                "WAITING_FOR_TIME_SYNC",
+            }
+        )
+
+        def optional_integer(key: str) -> Optional[int]:
+            try:
+                return int(header[key])
+            except (KeyError, ValueError):
+                return None
+
+        return {
+            "runId": f"{pipeline_id}/{log_id}",
+            "logId": log_id,
+            "active": active,
+            "startedAt": started_at,
+            "finishedAt": finished_at,
+            "exitCode": exit_code,
+            "sourceRevision": header.get("source_revision") or None,
+            "sourceDirty": (
+                header.get("source_dirty") == "true"
+                if "source_dirty" in header
+                else None
+            ),
+            "release": header.get("release") or None,
+            "configSha256": header.get("config_sha256") or None,
+            "resultsDirectory": header.get("results_directory") or None,
+            "storageAvailableBytes": optional_integer("storage_available_bytes"),
+            "storageRequiredBytes": optional_integer("storage_required_bytes"),
+            "storagePreflight": header.get("storage_preflight") or None,
+            "failureKind": (
+                "STORAGE_PREFLIGHT"
+                if header.get("storage_preflight") == "failed"
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _action_satisfied(action: str, status: Mapping[str, str]) -> bool:
+        active_state = status.get("ActiveState", "unknown")
+        unit_file_state = status.get("UnitFileState", "unknown")
+        if action == "start":
+            return active_state in {"active", "activating"}
+        if action == "stop":
+            return active_state in {"inactive", "failed"}
+        if action == "enable":
+            return unit_file_state == "enabled"
+        if action == "disable":
+            return unit_file_state == "disabled"
+        return False
 
     def _run(self, command: Sequence[str], timeout: int) -> subprocess.CompletedProcess:
         try:

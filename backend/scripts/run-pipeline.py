@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -47,6 +48,22 @@ MAX_LOG_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_RUN_LOG_BYTES = 128 * 1024 * 1024
 LOG_TRUNCATED = b"\n=== file log limit reached; output continues in journald ===\n"
 LOG_WRITE_FAILED = b"\n=== file log write failed; output continues in journald ===\n"
+DEFAULT_MIN_FREE_BYTES = 0
+STORAGE_PREFLIGHT_EXIT_CODE = 78
+
+
+class StoragePreflightError(RuntimeError):
+    pass
+
+
+def service_exit_code(application_exit_code: int) -> int:
+    """Keep the runner-only preflight status distinct from child exit codes."""
+
+    return (
+        1
+        if application_exit_code == STORAGE_PREFLIGHT_EXIT_CODE
+        else application_exit_code
+    )
 
 
 def fail(message: str) -> "NoReturn":
@@ -200,6 +217,126 @@ def stop_process_group(
         raise RuntimeError("Pipeline process did not stop") from error
 
 
+def minimum_free_bytes(environment: Mapping[str, str]) -> int:
+    raw = environment.get("JETSON_PIPELINE_MIN_FREE_BYTES")
+    if raw is None:
+        return DEFAULT_MIN_FREE_BYTES
+    if not raw.isascii() or not raw.isdecimal():
+        raise StoragePreflightError(
+            "JETSON_PIPELINE_MIN_FREE_BYTES must be a non-negative integer"
+        )
+    value = int(raw)
+    if value > (1 << 63) - 1:
+        raise StoragePreflightError("JETSON_PIPELINE_MIN_FREE_BYTES is too large")
+    return value
+
+
+def preflight_writable_storage(
+    paths: list[Path],
+    required_bytes: int,
+) -> Optional[int]:
+    """Verify capacity and a create/fsync/unlink cycle as the service user."""
+
+    available_values = []
+    for path in paths:
+        try:
+            usage = os.statvfs(path)
+        except OSError as error:
+            raise StoragePreflightError(
+                f"Could not inspect pipeline storage {path}: {error}"
+            ) from error
+        available = usage.f_bavail * usage.f_frsize
+        available_values.append(available)
+        if available < required_bytes:
+            raise StoragePreflightError(
+                f"Pipeline storage {path} has {available} bytes available; "
+                f"{required_bytes} bytes are required"
+            )
+
+        probe = path / f".jetson-pipeline-preflight-{os.getpid()}-{time.time_ns()}"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor: Optional[int] = None
+        try:
+            descriptor = os.open(probe, flags, 0o600)
+            os.write(descriptor, b"1")
+            os.fsync(descriptor)
+        except OSError as error:
+            raise StoragePreflightError(
+                f"Pipeline storage {path} is not writable: {error}"
+            ) from error
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                probe.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                raise StoragePreflightError(
+                    f"Could not remove pipeline storage probe {probe}: {error}"
+                ) from error
+    return min(available_values) if available_values else None
+
+
+def resolve_writable_storage(
+    manifest: Mapping[str, Any],
+) -> tuple[list[Path], Optional[Path]]:
+    writable_values = manifest.get("writable_paths", [])
+    if not isinstance(writable_values, list) or any(
+        not isinstance(value, str) for value in writable_values
+    ):
+        raise StoragePreflightError(
+            "Manifest writable_paths must be an array of strings"
+        )
+    resolved_writable_paths = []
+    for value in writable_values:
+        requested = Path(value)
+        if not requested.is_absolute():
+            raise StoragePreflightError("Manifest writable path must be absolute")
+        try:
+            metadata = os.lstat(requested)
+            resolved = requested.resolve(strict=True)
+        except OSError as error:
+            raise StoragePreflightError(
+                f"Pipeline writable path is unavailable: {error}"
+            ) from error
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise StoragePreflightError("Pipeline writable path is unsafe")
+        if resolved not in resolved_writable_paths:
+            resolved_writable_paths.append(resolved)
+
+    results_directory: Optional[Path] = None
+    results_value = manifest.get("results_directory")
+    if results_value:
+        if not isinstance(results_value, str):
+            raise StoragePreflightError(
+                "Manifest results_directory must be a string"
+            )
+        requested_results = Path(results_value)
+        if not requested_results.is_absolute():
+            raise StoragePreflightError(
+                "Manifest results_directory must be absolute"
+            )
+        try:
+            results_metadata = os.lstat(requested_results)
+            results_directory = requested_results.resolve(strict=True)
+        except OSError as error:
+            raise StoragePreflightError(
+                f"Pipeline results directory is unavailable: {error}"
+            ) from error
+        if stat.S_ISLNK(results_metadata.st_mode) or not stat.S_ISDIR(
+            results_metadata.st_mode
+        ):
+            raise StoragePreflightError("Pipeline results path is unsafe")
+        if results_directory not in resolved_writable_paths:
+            raise StoragePreflightError(
+                "Pipeline results directory is not an approved writable path"
+            )
+    return resolved_writable_paths, results_directory
+
+
 def prepare_log_directory() -> Path:
     value = os.environ.get("LOGS_DIRECTORY", "")
     directory = Path(value)
@@ -289,6 +426,16 @@ class RunLogWriter:
             self.truncated = True
             self._journal(LOG_WRITE_FAILED)
 
+    def emit_footer(self, data: bytes) -> None:
+        """Persist bounded launcher metadata after child output was truncated."""
+
+        self._journal(data)
+        try:
+            if self.output.write(data) != len(data):
+                raise OSError("short pipeline log footer write")
+        except OSError:
+            self._journal(LOG_WRITE_FAILED)
+
     def close(self) -> None:
         try:
             try:
@@ -360,35 +507,6 @@ def main() -> int:
         fail("Pipeline arguments must be an array of strings")
     config_argument = required_string(manifest, "config_argument")
 
-    results_directory: Optional[Path] = None
-    results_value = manifest.get("results_directory")
-    if results_value:
-        if not isinstance(results_value, str):
-            fail("Manifest results_directory must be a string")
-        requested_results = Path(results_value)
-        if not requested_results.is_absolute():
-            fail("Manifest results_directory must be absolute")
-        try:
-            results_metadata = os.lstat(requested_results)
-            results_directory = requested_results.resolve(strict=True)
-        except OSError as error:
-            fail(f"Pipeline results directory is unavailable: {error}")
-        if stat.S_ISLNK(results_metadata.st_mode) or not stat.S_ISDIR(results_metadata.st_mode):
-            fail("Pipeline results path is unsafe")
-        writable_paths = manifest.get("writable_paths", [])
-        if not isinstance(writable_paths, list) or any(
-            not isinstance(value, str) for value in writable_paths
-        ):
-            fail("Manifest writable_paths must be an array of strings")
-        resolved_writable_paths = []
-        for value in writable_paths:
-            try:
-                resolved_writable_paths.append(Path(value).resolve(strict=True))
-            except OSError:
-                continue
-        if results_directory not in resolved_writable_paths:
-            fail("Pipeline results directory is not an approved writable path")
-
     environment = os.environ.copy()
     environment.update(
         {
@@ -405,6 +523,9 @@ def main() -> int:
             "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
+    invocation_id = environment.get("INVOCATION_ID", "")
+    if invocation_id and not re.fullmatch(r"[0-9a-f]{32}", invocation_id):
+        fail("Systemd invocation identity is invalid")
     relay_environment = mobile_rtk_relay_environment(pipeline_id)
     environment.update(relay_environment)
     if relay_environment:
@@ -413,8 +534,6 @@ def main() -> int:
             f"{relay_environment['NTRIP_HOST']}:{relay_environment['NTRIP_PORT']}",
             flush=True,
         )
-    if results_directory is not None:
-        environment["JETSON_PIPELINE_RESULTS_DIR"] = str(results_directory)
     os.chdir(working_directory)
     command = [
         str(python),
@@ -442,23 +561,92 @@ def main() -> int:
     environment["JETSON_PIPELINE_LOGS_DIR"] = str(log_directory)
     prune_logs(log_directory)
     writer = RunLogWriter(log_directory)
+    required_storage_bytes: Optional[int] = None
+    try:
+        required_storage_bytes = minimum_free_bytes(environment)
+        resolved_writable_paths, results_directory = resolve_writable_storage(manifest)
+        available_storage_bytes = preflight_writable_storage(
+            resolved_writable_paths,
+            required_storage_bytes,
+        )
+        storage_preflight = "passed" if resolved_writable_paths else "not_configured"
+    except StoragePreflightError as error:
+        available_storage_bytes = None
+        storage_preflight = "failed"
+        preflight_error = str(error).replace("\n", " ")
+        header = (
+            "=== Jetson pipeline run ===\n"
+            f"started_at={writer.started_at}\n"
+            f"pipeline_id={pipeline_id}\n"
+            f"invocation_id={invocation_id}\n"
+            f"release={release}\n"
+            f"source_revision={manifest.get('source_revision', '')}\n"
+            f"source_dirty={'true' if manifest.get('source_dirty') is True else 'false'}\n"
+            "storage_preflight=failed\n"
+            f"storage_preflight_error={preflight_error}\n\n"
+        ).encode("utf-8")
+        writer.emit(header)
+        finished_at = utc_now().isoformat().replace("+00:00", "Z")
+        writer.emit_footer(
+            (
+                "\n=== Jetson pipeline run finished ===\n"
+                f"finished_at={finished_at}\n"
+                f"exit_code={STORAGE_PREFLIGHT_EXIT_CODE}\n"
+            ).encode("ascii")
+        )
+        writer.close()
+        print(f"Pipeline storage preflight failed: {error}", file=sys.stderr, flush=True)
+        return STORAGE_PREFLIGHT_EXIT_CODE
+    if results_directory is not None:
+        environment["JETSON_PIPELINE_RESULTS_DIR"] = str(results_directory)
+    try:
+        config_sha256 = hashlib.sha256(config.read_bytes()).hexdigest()
+    except OSError as error:
+        writer.close()
+        fail(f"Could not hash pipeline config: {error}")
     header = (
         "=== Jetson pipeline run ===\n"
         f"started_at={writer.started_at}\n"
         f"pipeline_id={pipeline_id}\n"
+        f"invocation_id={invocation_id}\n"
         f"release={release}\n"
+        f"source_revision={manifest.get('source_revision', '')}\n"
+        f"source_dirty={'true' if manifest.get('source_dirty') is True else 'false'}\n"
+        f"config_sha256={config_sha256}\n"
+        f"results_directory={results_directory or ''}\n"
+        f"storage_preflight={storage_preflight}\n"
+        f"storage_available_bytes={available_storage_bytes if available_storage_bytes is not None else ''}\n"
+        f"storage_required_bytes={required_storage_bytes}\n\n"
     ).encode("utf-8")
     writer.emit(header)
     from jetson_control.route_recorder import RouteRecorder
     route_recorder = None
     sensor_lease: Optional[CaptureDeviceLease] = None
+    run_finished = False
+
+    def finish_run(exit_code: int) -> int:
+        nonlocal run_finished
+        if not run_finished:
+            finished_at = utc_now().isoformat().replace("+00:00", "Z")
+            writer.emit_footer(
+                (
+                    "\n=== Jetson pipeline run finished ===\n"
+                    f"finished_at={finished_at}\n"
+                    f"exit_code={exit_code}\n"
+                ).encode("ascii")
+            )
+            run_finished = True
+        # Exit 78 is reserved for the runner's preflight result. Preserve an
+        # application's real 78 in the log while allowing systemd recovery.
+        return service_exit_code(exit_code)
+
     try:
         monitor_settings = settings_for_pipeline(pipeline_id, SENSOR_MONITOR_CONFIG)
         if monitor_settings is not None:
             print("Requesting sensor devices from the boot monitor", flush=True)
             sensor_lease = CaptureDeviceLease(monitor_settings, pipeline_id)
             if not sensor_lease.acquire(cancelled=lambda: pending_signal is not None):
-                return 128 + int(pending_signal or signal.SIGTERM)
+                return finish_run(128 + int(pending_signal or signal.SIGTERM))
             environment["JETSON_PIPELINE_SENSOR_BRIDGE_DIR"] = str(
                 monitor_settings.bridge_dir
             )
@@ -478,14 +666,14 @@ def main() -> int:
             )
         except OSError as error:
             writer.emit(f"launcher_error={error}\n".encode("utf-8", errors="replace"))
-            return 1
+            return finish_run(1)
         writer.emit(f"process_id={child.pid}\n\n".encode("ascii"))
         if pending_signal is not None and process_group_exists(child.pid):
             signal_process_group(child.pid, pending_signal)
         if child.stdout is None:
             writer.emit(b"launcher_error=child output pipe is unavailable\n")
             child.terminate()
-            return 1
+            return finish_run(1)
         while True:
             try:
                 chunk = os.read(child.stdout.fileno(), 64 * 1024)
@@ -498,15 +686,11 @@ def main() -> int:
         if process_group_exists(child.pid):
             stop_process_group(child)
         exit_code = 128 - return_code if return_code < 0 else return_code
-        finished_at = utc_now().isoformat().replace("+00:00", "Z")
-        writer.emit(
-            (
-                "\n=== Jetson pipeline run finished ===\n"
-                f"finished_at={finished_at}\n"
-                f"exit_code={exit_code}\n"
-            ).encode("ascii")
-        )
-        return exit_code
+        return finish_run(exit_code)
+    except Exception as error:
+        writer.emit(f"launcher_error={error}\n".encode("utf-8", errors="replace"))
+        finish_run(1)
+        raise
     finally:
         try:
             if child is not None and process_group_exists(child.pid):

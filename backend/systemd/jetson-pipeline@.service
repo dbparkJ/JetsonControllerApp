@@ -10,6 +10,9 @@ EnvironmentFile=-/etc/jetson-control/pipelines/%i.env
 ExecStart=/opt/jetson-control/run-pipeline.py %i
 Restart=on-failure
 RestartSec=15
+# Storage/configuration preflight failures require an operator decision. Runtime
+# failures still recover automatically during the current boot.
+RestartPreventExitStatus=78
 KillSignal=SIGINT
 KillMode=mixed
 TimeoutStopSec=30
