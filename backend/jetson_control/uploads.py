@@ -355,6 +355,27 @@ class UploadManager:
                 raise UploadConflict("Only completed uploads can delete their source")
             if job.get("sourceDeletedAt") is not None:
                 return job
+            existing_trash_id = job.get("sourceTrashId")
+            if isinstance(existing_trash_id, str):
+                try:
+                    trash_state = self.trash.get_entry(existing_trash_id).get("state")
+                except (KeyError, OSError, ValueError) as error:
+                    raise UploadConflict(
+                        "Recoverable upload source state is unavailable"
+                    ) from error
+                if trash_state == "TRASHED":
+                    return job
+                if trash_state != "RESTORED":
+                    raise UploadConflict(
+                        "Recoverable upload source is still transitioning"
+                    )
+                job = self._update(
+                    job_id,
+                    sourceTrashId=None,
+                    sourceTrashedAt=None,
+                    sourceRecoverable=False,
+                    deletionEligible=False,
+                )
             root_id, relative_path, target_id = self._job_parameters(job)
             root, resolved_source = self.storage.resolve(root_id, relative_path)
             source = self._resolve_deletion_source(

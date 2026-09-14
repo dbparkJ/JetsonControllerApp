@@ -691,6 +691,11 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             self.assertTrue(deleted_job["sourceRecoverable"])
             self.assertIsNotNone(deleted_job["sourceTrashedAt"])
             self.assertFalse((self.source / "folder").exists())
+            duplicate = uploads.delete_completed_source(
+                str(job["id"]),
+                confirmed=True,
+            )
+            self.assertEqual(duplicate["sourceTrashId"], deleted_job["sourceTrashId"])
             uploads.trash.restore(str(deleted_job["sourceTrashId"]), confirmed=True)
             self.assertTrue((self.source / "folder").is_dir())
             source_file.write_bytes(b"z" * len(original))

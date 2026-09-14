@@ -16,6 +16,7 @@
 ## 검증
 
 - backend 전체: `309 tests`, `OK`, 12.528초. 기존 backend venv와 `PYTHONPATH=/usr/lib/python3/dist-packages`를 사용해 native `dbus`/`gi` binding을 포함했다.
+- 최종 adapter·runtime·storage 집중 회귀: `104 tests`, `OK`, 11.038초. 별도 end-to-end contextual API fixture 3건을 포함한다.
 - upload receiver 전체: `41 tests`, `OK`, 3.947초.
 - 추가 회귀는 malformed journal 격리, symlink trash parent, 복원 destination 경합, active output/ancestor lock, terminal+FINAL upload gate, 실행 이력 reconciliation-before-trash, source trash→restore→변조→fresh mismatch, survey context 불변성, 직원 token rotation/expiry/disable을 포함한다.
 - Python compile과 `git diff --check`를 통과했다.
