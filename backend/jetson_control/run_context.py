@@ -32,6 +32,7 @@ REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$")
 REVISION = re.compile(r"^[0-9a-f]{64}$")
 MAX_PREFLIGHTS = 512
 MAX_START_REQUESTS = 1024
+MAX_REQUEST_STORE_BYTES = 512 * 1024
 MAX_OUTPUT_FILES = 100_000
 PREFLIGHT_MAX_AGE_MILLIS = 120_000
 
@@ -589,6 +590,14 @@ class RunContextService:
             record["createdAt"] = created_at
         requests.append(record)
         del requests[:-MAX_START_REQUESTS]
+        while len(requests) > 1 and len(json.dumps(
+            store, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")) > MAX_REQUEST_STORE_BYTES:
+            del requests[0]
+        if len(json.dumps(
+            store, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")) > MAX_REQUEST_STORE_BYTES:
+            raise RunContextError("Request replay record exceeds the persistence limit")
         _atomic_json(path, store)
 
     def _save_start_request(self, store: Dict[str, object], request: Mapping[str, object]) -> None:
