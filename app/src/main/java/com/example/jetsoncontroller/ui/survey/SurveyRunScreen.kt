@@ -94,7 +94,8 @@ internal fun SurveyRunScreen(
         },
         bottomBar = {
             Surface(tonalElevation = 3.dp) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(startReadinessLabel(state), style = MaterialTheme.typography.bodySmall)
                     when {
