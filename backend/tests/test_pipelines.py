@@ -34,6 +34,7 @@ class FakeCommands:
         self.enabled = "disabled"
         self.exit_status = 0
         self.restart_count = 0
+        self.invocation_id = "a" * 32
 
     def __call__(self, command, **_kwargs):
         self.commands.append(command)
@@ -46,6 +47,7 @@ class FakeCommands:
                 f"ExecMainStatus={self.exit_status}\n"
                 f"Result={'exit-code' if self.exit_status else 'success'}\n"
                 f"NRestarts={self.restart_count}\n"
+                f"InvocationID={self.invocation_id}\n"
             )
             return subprocess.CompletedProcess(command, 0, output, "")
         if command[:2] == ["systemctl", "start"]:
@@ -124,6 +126,75 @@ class PipelineManagerTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             self.manager.control("capture", "status; reboot")
+
+    def test_duplicate_start_and_stop_do_not_issue_another_mutation(self) -> None:
+        self.commands.active_state = "active"
+        started = self.manager.control("capture", "start")
+        self.assertEqual(started["control"]["outcome"], "ALREADY_SATISFIED")
+        self.assertFalse(started["control"]["commandIssued"])
+        self.assertFalse(any(command[:2] == ["systemctl", "start"] for command in self.commands.commands))
+
+        self.commands.active_state = "inactive"
+        stopped = self.manager.control("capture", "stop")
+        self.assertEqual(stopped["control"]["outcome"], "ALREADY_SATISFIED")
+        self.assertFalse(any(command[:2] == ["systemctl", "stop"] for command in self.commands.commands))
+
+    def test_only_persistent_systemd_enable_is_reported_as_reboot_autostart(self) -> None:
+        for state in ("linked", "linked-runtime", "enabled-runtime"):
+            with self.subTest(state=state):
+                self.commands.enabled = state
+                self.assertFalse(self.manager.get("capture")["enabled"])
+        self.commands.enabled = "enabled"
+        self.assertTrue(self.manager.get("capture")["enabled"])
+
+    def test_active_run_identity_requires_the_current_systemd_invocation(self) -> None:
+        directory = self.logs_root / "capture"
+        directory.mkdir(parents=True)
+        name = "run-20260814T000000.000001Z-100.log"
+        path = directory / name
+        path.write_text(
+            "=== Jetson pipeline run ===\n"
+            "started_at=2026-08-14T00:00:00.000001Z\n"
+            "pipeline_id=capture\n"
+            f"invocation_id={'b' * 32}\n"
+            "storage_preflight=passed\n\n"
+            f"child output: invocation_id={'a' * 32}\n"
+            "storage_preflight=failed\n",
+            encoding="utf-8",
+        )
+        self.commands.active_state = "active"
+        self.assertIsNone(self.manager.get("capture")["activeRunId"])
+
+        path.write_text(path.read_text().replace("b" * 32, "a" * 32), encoding="utf-8")
+        current = self.manager.get("capture")
+        self.assertEqual(current["activeRunId"], f"capture/{name}")
+        self.assertTrue(current["execution"]["active"])
+        self.assertEqual(current["execution"]["storagePreflight"], "passed")
+        self.assertIsNone(current["failureKind"])
+
+    def test_malformed_run_timestamp_and_exit_78_do_not_invent_preflight_failure(self) -> None:
+        directory = self.logs_root / "capture"
+        directory.mkdir(parents=True)
+        malformed = directory / "run-20269999T999999.000001Z-100.log"
+        malformed.write_text("=== Jetson pipeline run ===\n\n", encoding="utf-8")
+        self.assertIsNone(self.manager.get("capture")["execution"])
+
+        malformed.unlink()
+        valid = directory / "run-20260814T000000.000001Z-100.log"
+        valid.write_text(
+            "=== Jetson pipeline run ===\n"
+            "storage_preflight=passed\n\n"
+            "=== Jetson pipeline run finished ===\n"
+            "finished_at=2026-08-14T00:01:00Z\n"
+            "exit_code=78\n",
+            encoding="utf-8",
+        )
+        result = self.manager.get("capture")
+        self.assertIsNone(result["failureKind"])
+        self.assertEqual(result["execution"]["exitCode"], 78)
+
+        valid.write_text(valid.read_text().replace("passed", "failed"), encoding="utf-8")
+        self.assertEqual(self.manager.get("capture")["failureKind"], "STORAGE_PREFLIGHT")
 
     def test_auto_restart_is_reported_as_retrying(self) -> None:
         self.commands.active_state = "activating"

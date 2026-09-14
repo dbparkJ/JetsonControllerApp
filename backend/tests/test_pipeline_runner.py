@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -62,6 +63,57 @@ class PipelineRunnerLogTest(unittest.TestCase):
             writer.path.read_bytes(),
             b"12345" + pipeline_runner.LOG_TRUNCATED,
         )
+
+    def test_finish_metadata_is_kept_after_child_output_is_truncated(self) -> None:
+        with patch.object(pipeline_runner, "MAX_RUN_LOG_BYTES", 5):
+            writer = pipeline_runner.RunLogWriter(self.directory)
+            writer.emit(b"123456789")
+            writer.emit_footer(b"\nfinished_at=now\nexit_code=0\n")
+            writer.close()
+
+        self.assertTrue(writer.path.read_bytes().endswith(b"finished_at=now\nexit_code=0\n"))
+
+    def test_storage_preflight_requires_capacity_and_cleans_probe(self) -> None:
+        with patch.object(
+            pipeline_runner.os,
+            "statvfs",
+            return_value=SimpleNamespace(f_bavail=10, f_frsize=1024),
+        ):
+            available = pipeline_runner.preflight_writable_storage(
+                [self.directory],
+                required_bytes=1024,
+            )
+        self.assertEqual(available, 10 * 1024)
+        self.assertEqual(list(self.directory.glob(".jetson-pipeline-preflight-*")), [])
+
+        with patch.object(
+            pipeline_runner.os,
+            "statvfs",
+            return_value=SimpleNamespace(f_bavail=1, f_frsize=1024),
+        ):
+            with self.assertRaisesRegex(pipeline_runner.StoragePreflightError, "required"):
+                pipeline_runner.preflight_writable_storage(
+                    [self.directory],
+                    required_bytes=2048,
+                )
+
+    def test_minimum_free_storage_default_and_override_are_bounded(self) -> None:
+        self.assertEqual(pipeline_runner.minimum_free_bytes({}), 0)
+        self.assertEqual(
+            pipeline_runner.minimum_free_bytes({"JETSON_PIPELINE_MIN_FREE_BYTES": "0"}),
+            0,
+        )
+        with self.assertRaises(pipeline_runner.StoragePreflightError):
+            pipeline_runner.minimum_free_bytes({"JETSON_PIPELINE_MIN_FREE_BYTES": "1GiB"})
+
+    def test_application_exit_78_remains_recoverable_by_systemd(self) -> None:
+        self.assertEqual(
+            pipeline_runner.service_exit_code(
+                pipeline_runner.STORAGE_PREFLIGHT_EXIT_CODE
+            ),
+            1,
+        )
+        self.assertEqual(pipeline_runner.service_exit_code(7), 7)
 
     def test_retention_removes_oldest_run_files_only(self) -> None:
         for index in range(4):

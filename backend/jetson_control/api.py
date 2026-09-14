@@ -144,7 +144,7 @@ class RegisterPipelineRequest(BaseModel):
         alias="writableDirectories",
         default_factory=list,
     )
-    autostart: bool = True
+    autostart: bool = False
 
 
 class PipelineFolderRequest(BaseModel):
@@ -156,7 +156,7 @@ class PipelineFolderRequest(BaseModel):
 
 class RegisterPipelineFolderRequest(PipelineFolderRequest):
     name: str = Field(min_length=1, max_length=64)
-    autostart: bool = True
+    autostart: bool = False
 
 
 class SynchronizeSystemTimeRequest(BaseModel):

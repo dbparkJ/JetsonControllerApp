@@ -2,6 +2,8 @@ package com.example.jetsoncontroller.data.network
 
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineFolderDiscovery
 import com.google.gson.Gson
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -59,6 +61,46 @@ class ApiCompatibilityTest {
         assertEquals(127.0, telemetry.gnssSensor.longitude!!, 0.0)
         assertTrue(legacy.cameraRunning)
         assertEquals("none", legacy.gnssSensor.fixType)
+    }
+
+    @Test
+    fun `pipeline execution evidence is additive and legacy defaults remain safe`() {
+        val gson = Gson()
+        val current = gson.fromJson(
+            """{
+                "id":"capture","label":"Capture","entrypoint":"capture.py",
+                "config":"capture.yaml","virtualenv":".venv","state":"RUNNING",
+                "observedAt":"2026-09-14T01:02:03Z","activeRunId":"capture/run-1.log",
+                "execution":{"runId":"capture/run-1.log","logId":"run-1.log","active":true,
+                    "startedAt":"2026-09-14T01:00:00Z","sourceDirty":false,
+                    "storageAvailableBytes":4096,"storageRequiredBytes":1024,
+                    "storagePreflight":"passed"},
+                "control":{"action":"start","commandIssued":false,"outcome":"ALREADY_SATISFIED"}
+            }""".trimIndent(),
+            ManagedPipeline::class.java
+        )
+        val legacy = gson.fromJson(
+            """{"id":"legacy","label":"Legacy","entrypoint":"run.py",
+                "config":"config.yaml","virtualenv":".venv"}""",
+            ManagedPipeline::class.java
+        )
+        val legacyDiscovery = gson.fromJson(
+            """{"pipelineId":"legacy","repository":"repo","virtualenv":".venv",
+                "entrypoint":"run.py","config":"config.yaml","workingDirectory":".",
+                "resultsDirectory":"results","resultsExists":false,"logDirectory":"logs"}""",
+            PipelineFolderDiscovery::class.java
+        )
+
+        assertEquals("capture/run-1.log", current.activeRunId)
+        assertTrue(current.execution!!.active)
+        assertEquals(4096L, current.execution!!.storageAvailableBytes)
+        assertEquals("ALREADY_SATISFIED", current.control!!.outcome)
+        assertNull(legacy.observedAt)
+        assertNull(legacy.activeRunId)
+        assertNull(legacy.execution)
+        assertNull(legacy.failureKind)
+        assertNull(legacy.control)
+        assertFalse(legacyDiscovery.autostartDefault)
     }
 
     @Test
