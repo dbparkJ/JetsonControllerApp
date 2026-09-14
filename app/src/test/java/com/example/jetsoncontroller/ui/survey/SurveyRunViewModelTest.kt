@@ -18,12 +18,14 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SurveyRunViewModelTest {
     @After fun resetMain() = Dispatchers.resetMain()
 
@@ -180,13 +182,13 @@ class SurveyRunViewModelTest {
         override suspend fun createProject(request: SurveyLabelMutationRequest) = Result.failure<SurveyProject>(UnsupportedOperationException())
         override suspend fun sections(projectId: String) = Result.success(sections)
         override suspend fun createSection(projectId: String, request: SurveyLabelMutationRequest) = Result.failure<SurveySection>(UnsupportedOperationException())
-        override suspend fun policy(pipelineId: String) = configuredPolicy?.let(Result.Companion::success)
+        override suspend fun policy(pipelineId: String) = configuredPolicy?.let { Result.success(it) }
             ?: Result.failure(com.example.jetsoncontroller.data.network.JetsonApiException(
                 404, "POLICY_NOT_CONFIGURED", null, "missing"
             ))
         override suspend fun savePolicy(pipelineId: String, request: UpdatePipelineRunPolicyRequest) = Result.failure<PipelineRunPolicy>(UnsupportedOperationException())
         override suspend fun preflight(pipelineId: String, request: PipelinePreflightRequest) =
-            configuredPreflight?.let(Result.Companion::success) ?: Result.failure(UnsupportedOperationException())
+            configuredPreflight?.let { Result.success(it) } ?: Result.failure(UnsupportedOperationException())
         override suspend fun contextualStart(pipelineId: String, request: ContextualStartRequest) =
             Result.failure<ManagedPipeline>(startFailure ?: UnsupportedOperationException())
         override suspend fun pipelineRun(runId: String) = Result.failure<PipelineRun>(UnsupportedOperationException())

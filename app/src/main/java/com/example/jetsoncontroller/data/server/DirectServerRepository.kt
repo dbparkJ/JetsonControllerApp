@@ -113,6 +113,9 @@ class DirectServerRepository(
             check(it.projectId == profile.projectId && it.sessionId == sessionId) {
                 "Server receipt scope mismatch"
             }
+            check(it.accessProjectId == null || it.accessProjectId == profile.projectId) {
+                "Server receipt access project mismatch"
+            }
             check(it.state == "COMPLETED" && it.matched) {
                 "Server receipt has not independently verified the completed content"
             }
@@ -123,6 +126,9 @@ class DirectServerRepository(
         api.trash(profile.projectId).requiredBody().also {
             requireEnvironment(it.serverEnvironment)
             check(it.projectId == profile.projectId) { "Server project mismatch" }
+            check(it.accessProjectId == null || it.accessProjectId == profile.projectId) {
+                "Server trash access project mismatch"
+            }
         }
     }
 
@@ -144,7 +150,12 @@ class DirectServerRepository(
         requireEnvironment(response.serverEnvironment)
         check(response.employeeId == profile.employeeId) { "Server employee identity mismatch" }
         check(response.projectId == profile.projectId) { "Server project mismatch" }
-        check(response.jobs.all { it.projectId == profile.projectId }) {
+        check(response.accessProjectId == null || response.accessProjectId == profile.projectId) {
+            "Server access project mismatch"
+        }
+        check(response.jobs.all { it.projectId == profile.projectId &&
+            (it.accessProjectId == null || it.accessProjectId == profile.projectId)
+        }) {
             "Server returned a job outside the selected project"
         }
     }

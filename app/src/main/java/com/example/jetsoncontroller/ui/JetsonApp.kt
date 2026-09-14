@@ -1168,7 +1168,7 @@ fun JetsonApp(
                 onUndoDelete = fieldToolsViewModel::undoDeleteRun,
                 onUploadOutput = { run ->
                     val output = run.output
-                    val runId = run.runId
+                    val runId = run.runId ?: run.id.takeIf { run.contextSnapshot != null }
                     if (output != null && runId != null) {
                         navController.navigate(
                             "upload_confirm/${Uri.encode(output.rootId)}?path=${Uri.encode(output.path)}&runId=${Uri.encode(runId)}"

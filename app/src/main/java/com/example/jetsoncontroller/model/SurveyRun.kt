@@ -145,7 +145,10 @@ data class PipelinePreflight(
     val checkedAtEpochMillis: Long,
     val checks: PipelinePreflightChecks,
     val ready: Boolean = false,
-    val problems: List<PipelinePreflightProblem> = emptyList()
+    val problems: List<PipelinePreflightProblem> = emptyList(),
+    val bootId: String? = null,
+    val sourceDirty: Boolean? = null,
+    val release: String? = null
 )
 
 data class ContextualStartRequest(
@@ -168,7 +171,7 @@ data class PipelineOutputManifest(
     val schemaVersion: Int = 1,
     val runId: String,
     val generatedAt: String,
-    val finishedAt: String,
+    val finishedAt: String? = null,
     val fileCount: Int = 0,
     val bytesTotal: Long = 0,
     val truncated: Boolean = false,
@@ -224,10 +227,10 @@ data class PipelineRun(
     val policySnapshot: PipelineRunPolicy,
     val preflightSnapshot: PipelinePreflight,
     val sourceRevision: String,
-    val sourceDirty: Boolean? = null,
-    val release: String? = null,
     val configRevision: String,
     val output: PipelineRunOutput,
     val uploadContext: UploadContext,
-    val active: Boolean = false
+    val active: Boolean = false,
+    val sourceDirty: Boolean? = null,
+    val release: String? = null
 )

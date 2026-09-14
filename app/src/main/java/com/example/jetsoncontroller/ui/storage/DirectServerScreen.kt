@@ -318,7 +318,7 @@ private fun JobDetail(
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(job.sourceName, style = MaterialTheme.typography.titleLarge)
                 Text("세션 ${job.sessionId}", style = MaterialTheme.typography.bodySmall)
-                Text("프로젝트 ${job.projectId} · 장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
+                Text("접근 프로젝트 ${job.accessProjectId ?: job.projectId} · 장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
                 job.surveyContext?.let { context ->
                     Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}",
                         style = MaterialTheme.typography.bodySmall)
@@ -485,6 +485,7 @@ private fun ReceiptDialog(receipt: ServerReceipt, onDismiss: () -> Unit) {
             StatusBadge(if (receipt.matched) "검증 일치" else "검증 불일치",
                 if (receipt.matched) StatusTone.SUCCESS else StatusTone.ERROR)
             Text("세션 ${receipt.sessionId}")
+            Text("접근 프로젝트 ${receipt.accessProjectId ?: receipt.projectId}")
             receipt.surveyContext?.let { context ->
                 Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}")
                 Text("Run ${context.runId} · 장비 ${context.deviceId}")

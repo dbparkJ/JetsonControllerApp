@@ -97,7 +97,7 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     }
                 }
                 delay(5_000)
-            } while (run.state == "RUNNING" && g == generation && request == routeRequestGeneration)
+            } while (run.isActiveRun() && g == generation && request == routeRequestGeneration)
         }
     }
     fun openLog(run: TaskRun) {
@@ -114,7 +114,7 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         if (_state.value.message == shown) _state.value = _state.value.copy(message = null, undoTrashId = null)
     }
     fun deleteRun(run: TaskRun) {
-        if (!_state.value.online || _state.value.deletingRunId != null || run.state == "RUNNING") return
+        if (!_state.value.online || _state.value.deletingRunId != null || run.isActiveRun()) return
         val g = generation
         historyJob?.cancel()
         routeJob?.cancel()
@@ -224,6 +224,8 @@ internal fun routeResponseIsCurrent(
     responseRunId: String
 ): Boolean = expectedDeviceGeneration == currentDeviceGeneration &&
     expectedRequestGeneration == currentRequestGeneration && selectedRunId == responseRunId
+
+internal fun TaskRun.isActiveRun(): Boolean = active || state in setOf("STARTING", "RUNNING", "STOPPING")
 
 internal fun saveToGallery(context: Context, name: String, bytes: ByteArray) {
     val resolver = context.contentResolver

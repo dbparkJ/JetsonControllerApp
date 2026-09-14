@@ -44,7 +44,8 @@ data class ServerJob(
     val updatedAt: String,
     val completedAt: String?,
     val pathSummary: ServerPathSummary,
-    val surveyContext: UploadContext? = null
+    val surveyContext: UploadContext? = null,
+    val accessProjectId: String? = null
 )
 
 data class ServerJobsResponse(
@@ -53,7 +54,8 @@ data class ServerJobsResponse(
     val projectId: String,
     val jobs: List<ServerJob>,
     val nextOffset: Int?,
-    val refreshedAt: String
+    val refreshedAt: String,
+    val accessProjectId: String? = null
 )
 
 data class ServerFileEntry(
@@ -89,7 +91,8 @@ data class ServerReceipt(
     val matched: Boolean,
     val verifiedAt: String,
     val refreshedAt: String,
-    val surveyContext: UploadContext? = null
+    val surveyContext: UploadContext? = null,
+    val accessProjectId: String? = null
 )
 
 data class ServerTrashJob(
@@ -107,7 +110,8 @@ data class ServerTrashResponse(
     val serverEnvironment: String,
     val projectId: String,
     val jobs: List<ServerTrashJob>,
-    val refreshedAt: String
+    val refreshedAt: String,
+    val accessProjectId: String? = null
 )
 
 data class ServerLifecycleResponse(

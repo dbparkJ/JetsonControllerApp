@@ -7,7 +7,8 @@ data class TaskRun(val id: String, val pipelineId: String, val label: String, va
     val contextSnapshot: SurveyContextSnapshot? = null,
     val policySnapshot: PipelineRunPolicy? = null,
     val preflightSnapshot: PipelinePreflight? = null,
-    val output: PipelineRunOutput? = null)
+    val output: PipelineRunOutput? = null,
+    val active: Boolean = false)
 data class TaskRunsResponse(val runs: List<TaskRun> = emptyList(), val nextOffset: Int? = null)
 data class RoutePoint(val latitude: Double, val longitude: Double, val timestamp: Long,
     val segment: Int = 0, val fixState: String? = null, val sensorState: String? = null)

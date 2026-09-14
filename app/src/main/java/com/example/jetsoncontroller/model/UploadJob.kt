@@ -36,7 +36,8 @@ data class UploadJob(
     val sourceTrashId: String? = null,
     val sourceTrashedAt: String? = null,
     val sourceRecoverable: Boolean = false,
-    val context: UploadContext? = null
+    val context: UploadContext? = null,
+    val sourceIdentity: String? = null
 )
 
 data class UploadSourceSummary(

@@ -524,7 +524,7 @@ internal class SurveyRunViewModel(
                         if (current(expected, pipelineId) && _uiState.value.deviceId == deviceId) {
                             localState = localState.copy(pendingStart = null)
                             val conflictingRunId = if (error.errorCode in setOf(
-                                "ACTIVE_RUN_CONTEXT_MISMATCH", "CONTEXT_LOCKED"
+                                "ACTIVE_RUN_CONTEXT_MISMATCH", "PIPELINE_ALREADY_ACTIVE", "CONTEXT_LOCKED"
                             )) currentRunId(error.currentJson) else null
                             _uiState.value = _uiState.value.copy(
                                 pendingStart = null,
@@ -643,6 +643,10 @@ internal fun surveyErrorMessage(code: String?, fallback: String?): String = when
     "ACTIVE_RUN_CONTEXT_MISMATCH" -> "장비에서 다른 프로젝트·구간의 수집이 실행 중입니다. 현재 실행을 확인하세요."
     "REVISION_REQUIRED", "REVISION_MISMATCH" -> "서버에서 항목이 변경되었습니다. 최신 버전을 다시 불러와 확인하세요."
     "PREFLIGHT_STALE", "PREFLIGHT_MISMATCH" -> "시작 전 점검 근거가 현재 선택과 다릅니다. 다시 점검하세요."
+    "PREFLIGHT_NOT_READY" -> "시작 전 점검이 만료되었거나 준비되지 않았습니다. 다시 점검하세요."
+    "PIPELINE_CHANGED" -> "점검 뒤 작업 소스 또는 설정이 변경되었습니다. 다시 점검하세요."
+    "PIPELINE_ALREADY_ACTIVE" -> "같은 작업의 수집이 이미 실행 중입니다. 현재 실행 상태를 확인하세요."
+    "LEGACY_RUN_ACTIVE" -> "조사 컨텍스트 없이 시작된 기존 작업이 실행 중입니다. 현재 실행을 먼저 종료하세요."
     "IDEMPOTENCY_CONFLICT" -> "같은 요청 ID에 다른 시작 정보가 연결되어 있습니다. 실행 상태를 새로고침하세요."
     else -> fallback ?: "조사 수집 요청을 처리하지 못했습니다."
 }
