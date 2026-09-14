@@ -2,66 +2,70 @@
 
 기준 요구사항: `docs/product/REQUIREMENTS_TRACEABILITY_KO.md`의 42개 ID. 이 표는 코드 존재, 자동 검증, 실장치 검증, demo, 내부 운영 합격을 서로 독립적으로 기록한다.
 
-결과 값은 `PASS`, `PARTIAL`, `MISSING`, `NOT_RUN`, `PM_REQUIRED`만 사용한다. `PASS`는 해당 열의 증거만 충족한다. 자동 검증 `PASS`가 실장치나 운영 합격을 뜻하지 않는다. 실행 보고서의 로컬 결과는 해당 worker commit에 한정되고, root가 제공한 통합 결과는 `ROOT_REPORTED_LOCAL`로 구분한다.
+> 2026-09-14 P0 후속 검증 반영본이다. 최종 통합 commit, CI, main 병합과 배포 판정은 [`INTEGRATION_ASTRA_REVIEW.md`](../agent-runs/INTEGRATION_ASTRA_REVIEW.md)를 우선한다. 이 표의 `PASS`는 해당 행과 해당 열의 증거 범위만 뜻하며 전체 42개 요구사항 또는 생산 release 일괄 승인이 아니다.
 
-현재 자동 증거 색인:
+결과 값은 `PASS`, `PARTIAL`, `MISSING`, `NOT_RUN`, `PM_REQUIRED`만 사용한다. 자동 검증 `PASS`가 실장치나 운영 합격을 뜻하지 않는다. QA에서 사용한 required sensor, 최소 저장량과 expected output 값은 검증 입력이며 생산 threshold 승인 기록이 아니다.
 
-- AG03 `3945b5b`: Android 연결/복구 focused JVM 70개 통과.
-- AG04 `bf48810`: backend runtime targeted 86개 통과.
-- AG05 `00bfa15` + `9409328`: receiver 37개와 Android direct-server 4개 통과, Astra PASS.
-- AG06 `6827e1c`: backend quality targeted 64개와 Android quality/API compatibility 통과.
-- 통합 `03b2e93`: root가 2026-09-14에 backend discovery 275개 및 receiver discovery 37개, skip 0을 로컬 실행해 통과했다고 보고했다. 원격 CI 실행 증거가 아니다.
-- AG02 `0b8662c`는 화면·ViewModel 관련 JVM 28개와 source 검수에서 Astra PASS를 받았고 통합 commit `5b2f393`에 반영됐다. 이 로컬 증거는 phone/tablet 렌더링이나 운영 합격을 뜻하지 않는다.
-- 최종 기능·CI 통합 `3d716c6`: root가 Android assemble/lint/full JVM을 실행해 51 suites/242 tests, failure/error/skip 0을 확인했다. Lint는 error 0, warning 76이며 통합 Astra `00cdd99`가 로컬 통합 범위 PASS, demo NOT_RUN, 내부 운영 BLOCKED를 기록했다.
+현재 증거 색인:
+
+- 최신 root Android: full JVM **252 tests**, `assembleDebug`, `lintDebug`, `assembleDebugAndroidTest` PASS, 총 2분 17초. Slate Harmony 66 token/94 role pair와 QA 42행 checker PASS.
+- 최신 root backend: full discovery **312 tests** PASS, 마지막 upload/runtime targeted **28 tests** PASS. Receiver full discovery **41 tests** PASS.
+- Galaxy S22 Ultra SM-S908N, Android API 36: `1.17.0`/code 25 설치 성공. 새 Survey instrumentation 2개 PASS, 대표 UI 6개 PASS. 기존 test 1개 실패는 worker `104f859`에서 수정됐고 재실행 결과는 아직 대기 중이다.
+- Orin NX `jm-desktop`: camera와 GNSS ACTIVE, external IMU는 missing/error. QA 정책 `required=camera,gnss`, `optional=imu`, `minFreeBytes=1 GiB`, `expectedOutput=1 file/1 byte`로 preflight/start, 같은 request ID의 동일 run ID replay, active survey 변경 409, API 재시작 중 수집 지속, 명시 stop의 `STOPPED`를 확인했다. 이 QA 정책은 생산 정책 승인이 아니다.
+- 같은 Orin run: workload 387 files/1,083,395,576 bytes, output manifest `FINAL`/`SATISFIED`. metadata 2개를 포함한 upload 389 files/1,083,396,422 bytes가 공개 receiver에서 `COMPLETED` 뒤 전체 hash `MATCHED`로 검증됐다.
+- Orin run/source trash, 중복 DELETE, restore, fresh verification, log exact hash와 context 보존 PASS. API 구 package rollback과 신 package 복귀 뒤 TLS/HMAC, identity와 run 보존 PASS.
+- 공개 receiver `geonwsPrecision`: 기존 6 sessions/196,131 files 보존 backup·DB migration·rollback PASS. 중단된 13 MiB upload offset resume, 3-file batch, context mismatch 409, scope 403, oversize 413, wrong environment 409, role downgrade 403, project revoke 403, account disable 401, token rotation/expiry, audit, trash/restore를 실제 server에서 확인했다.
+- 미검증 범위: outdoor RTK FIX 신호, physical tablet, 예정 viewport 조합, 장시간 연속 수집, 모든 BLE·Wi-Fi Direct·LTE 전환. 자동 purge는 의도적으로 제공하지 않으며 조직 SSO 연동은 현재 범위가 아니다.
+- 문서 작성 시점에 main 병합은 완료되지 않았고 PR 7 CI가 진행 중이다. 최종 commit과 배포 결과는 통합 Astra 보고서에서 갱신한다.
 
 | ID | 현재 코드·계약 판단 | 자동 증거 | 실장치·운영환경 증거 | Demo gate | 내부 운영 gate | Blocker / 다음 증거 |
 |---|---|---|---|---|---|---|
-| REQ-CON-001 | 명시 장비 선택과 session 격리 구현 | PASS: AG03 target-switch/stale-response JVM | NOT_RUN | NOT_RUN | MISSING | Android 두 대와 Jetson 두 대에서 A→B 오제어 없음 확인 |
-| REQ-CON-002 | transport/capability 모델과 구분 UI 구현 | PASS: AG03 policy와 AG02 상태 표현 JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | phone/tablet에서 LAN, Direct, BLE, offline 대표 화면 |
-| REQ-CON-003 | generation 폐기와 재조회 구현, 잠금 lifecycle 미실행 | PARTIAL: AG03 endpoint/recovery JVM | NOT_RUN | NOT_RUN | MISSING | 화면 잠금·복귀 후 같은 deviceId와 pipeline/upload/storage 재조회 로그 |
-| REQ-CON-004 | pipeline은 transport와 독립이고 offline UI는 현재 상태를 확정하지 않음 | PARTIAL: AG04 runtime + AG03 recovery + AG02 상태 표현 | NOT_RUN | NOT_RUN | MISSING | 연결 단절 중 동일 runId/process/output 지속 실장치 증거 |
-| REQ-CON-005 | one-shot mutation과 GET reconciliation 구현 | PASS: 실제 TLS/HMAC start/stop 유실·지연·중복 test | NOT_RUN | NOT_RUN | MISSING | 실제 Jetson proxy fault 시험과 mutation count |
-| REQ-CTX-001 | survey project entity와 실행 고정 없음 | MISSING | NOT_RUN | NOT_RUN | MISSING | P0: projectId source, 저장, run 연결 구현 |
-| REQ-CTX-002 | survey section entity와 실행 고정 없음 | MISSING | NOT_RUN | NOT_RUN | MISSING | P0: project-section 관계와 run 중 변경 방지 구현 |
-| REQ-CTX-003 | receiver access project/role 구현, survey context와 조직 IdP 없음 | PARTIAL: AG05 allow/deny·scope test | NOT_RUN | NOT_RUN | MISSING | 운영 직원 lifecycle, IdP 또는 승인된 token 운영 정책 |
-| REQ-TASK-001 | pipeline/source/config/results metadata와 작업 화면 구현 | PASS: AG04 API + AG02 화면 JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | 선택 요약과 Jetson 응답 identity 동일성 device evidence |
-| REQ-TASK-002 | snapshot/venv/entrypoint 등록·검증 구현 | PASS: AG04 registration/layout/runtime test | NOT_RUN | NOT_RUN | MISSING | Orin NX 설치와 실제 외부 pipeline 실행 |
-| REQ-CHK-001 | 개별 근거는 있으나 통합 preflight snapshot/run 연결 없음 | PARTIAL | NOT_RUN | NOT_RUN | MISSING | P0: device/task/time/storage/sensor/RTK/server snapshot을 run에 저장 |
-| REQ-CHK-002 | writable probe와 bytes evidence 구현, 정책/UI 미완료 | PARTIAL: AG04 full/read-only/path test | NOT_RUN | NOT_RUN | PM_REQUIRED | pipeline별 최소 여유량은 승인 전 0/관찰만 사용 |
-| REQ-CHK-003 | REQUIRED/OPTIONAL 모델은 있으나 runtime 기본 UNSPECIFIED | PARTIAL: AG06 explicit-policy test | NOT_RUN | NOT_RUN | PM_REQUIRED | 필수 센서 목록과 policy source 승인·runner 연결 |
-| REQ-CHK-004 | 임의 RTK pass/fail 임계값 없음 | PASS: AG06 threshold-free interpreter test | NOT_RUN | NOT_RUN | PM_REQUIRED | 현장 임계값은 PM 승인 전 추가 금지 |
-| REQ-RUN-001 | RUNNING과 현재 InvocationID 기반 activeRunId 제공 | PASS: AG04 runtime + AG03 adapter/reconciliation | NOT_RUN | NOT_RUN | MISSING | 실제 start에서 새 runId와 output 생성 확인 |
-| REQ-RUN-002 | source/config/run 일부만 존재, device/project/section/output 연결 불완전 | MISSING | NOT_RUN | NOT_RUN | MISSING | P0 end-to-end identity schema와 persistence |
-| REQ-RUN-003 | systemd 실행과 휴대전화 session 비연동 | PARTIAL: 구조/unit evidence | NOT_RUN | NOT_RUN | MISSING | phone radio/앱 종료 중 process와 output 지속 |
-| REQ-RUN-004 | autostart opt-in 기본 false | PASS: AG04 registrar/runtime + AG03 legacy adapter | NOT_RUN | NOT_RUN | MISSING | Orin NX reboot 뒤 등록별 enable 상태 확인 |
-| REQ-RUN-005 | run log/route/quality 계약과 이력·지도 표현 구현 | PASS: AG04 + AG06 API/persistence, AG02 quality UI JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | 하나의 runId로 log, route, quality를 실제 수집에서 조회 |
-| REQ-RUN-006 | terminal execution evidence 제공, 정상 종료 정책 미결 | PARTIAL: AG04 stop/runtime + AG03 lost-stop test | NOT_RUN | NOT_RUN | PM_REQUIRED | 정상 operator stop result 정책과 실제 footer/exit 확인 |
-| REQ-RUN-007 | 품질 저하가 수집을 중단하지 않고 interval 기록 | PASS: AG06 invalid/stale/non-FIX fixtures | NOT_RUN | NOT_RUN | MISSING | 실제 RTK 저하 중 pipeline/output 지속 |
-| REQ-STO-001 | resultsDirectory는 제공, run→root/session identity 불완전 | PARTIAL | NOT_RUN | NOT_RUN | MISSING | 종료 run에서 정확한 output root/path를 직접 탐색 |
-| REQ-STO-002 | runtime bytes/preflight는 있으나 기대 파일 수·총량 계약 없음 | MISSING | NOT_RUN | NOT_RUN | MISSING | P0 empty/partial/missing output 판정과 upload gate |
-| REQ-UPL-001 | Jetson direct HTTPS upload와 app job API 구현 | PASS: 통합 backend/receiver discovery | NOT_RUN | NOT_RUN | MISSING | 실제 Orin→공개 HTTPS receiver transfer |
-| REQ-UPL-002 | resume/retry/cancel/idempotent offset 구현 | PASS: receiver/backend interruption fixtures | NOT_RUN | NOT_RUN | MISSING | 장시간 전송 network interruption 실환경 시험 |
-| REQ-UPL-003 | COMPLETED + matched receipt + session identity 구현 | PASS: AG05 totals/hash/mismatch test | NOT_RUN | NOT_RUN | MISSING | 실제 업로드 객체를 receiver에서 독립 재검증 |
-| REQ-UPL-004 | verification 전 source delete 차단 구현 | PASS: backend verification/delete test | NOT_RUN | NOT_RUN | MISSING | receiver timeout/불일치에서 Jetson 원본 보존 확인 |
-| REQ-SRV-001 | Jetson 독립 Android direct client와 화면 연결 구현 | PASS: AG05 direct repository + AG02 navigation/ViewModel source 검수 | NOT_RUN | NOT_RUN | MISSING | Jetson 전원 OFF에서 phone LTE receiver 조회 |
-| REQ-SRV-002 | scope별 stale cache/refreshedAt와 화면 표현 구현 | PASS: AG05 cache + AG02 presentation/ViewModel JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | process restart/offline cache timestamp 화면 |
-| REQ-SRV-003 | environment header/binding과 mismatch 거절 구현 | PASS: AG05 server/client environment test | NOT_RUN | NOT_RUN | MISSING | 운영 profile로 test server 접근 거절 실환경 증거 |
-| REQ-SRV-004 | bounded image/video preview와 MIME 거절 구현 | PASS: AG05 receiver + Android media test | NOT_RUN | NOT_RUN | MISSING | phone/tablet에서 실제 image/video/oversize 표시 |
-| REQ-DEL-001 | receiver trash/restore·Undo UI는 구현됐으나 device 파일과 실행 이력은 영구 삭제 | PARTIAL: AG05 crash-recovery/trash + AG02 capability별 문구 검수 | NOT_RUN | NOT_RUN | MISSING | device/server 각 제거·Undo·restore·retention 계약 |
-| REQ-DEL-002 | 역할·확인은 일부 구현, audit/IdP/purge 정책 미완료 | PARTIAL: AG05 authorization test | NOT_RUN | NOT_RUN | MISSING | 영구 삭제 권한, 이중 확인, 감사 기록과 보존 정책 |
-| REQ-UX-001 | 연결/수집/인터넷/GNSS·RTK를 분리한 operator home 구현 | PASS: AG02 operational summary JVM 28개 묶음과 Astra source 검수 | NOT_RUN | NOT_RUN | MISSING | current commit phone/tablet 대표 화면과 접근성 확인 |
-| REQ-UX-002 | 일반/관리자 정보 구조는 구현됐으나 화면 구분이 server 권한 부여는 아님 | PARTIAL: AG02 navigation/source 검수 + AG05 backend role test | NOT_RUN | NOT_RUN | MISSING | VIEWER/OPERATOR/ADMIN navigation과 backend deny 증거 |
-| REQ-UX-003 | 확인 사실·미확인 범위·다음 행동 문구 구현 | PASS: AG02 state/presentation JVM과 Astra source 검수 | NOT_RUN | NOT_RUN | MISSING | 오류별 사실·미확인 범위·다음 행동 screenshot |
-| REQ-QLT-001 | timing-weighted FIX 근거와 무임계값 해석 구현 | PASS: AG06 deterministic quality fixtures | NOT_RUN | NOT_RUN | PM_REQUIRED | 현장 GNSS 로그 교차검증, 승인 전 pass/fail 금지 |
-| REQ-QLT-002 | run quality/interval/route index와 이력·지도 표현 구현 | PASS: AG06 serialization/index + AG02 quality presentation JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | 실제 run의 지도·이력에서 같은 문제 구간 확인 |
-| REQ-QA-001 | 지원·acceptance matrix와 consistency checker 추가 | PASS: `scripts/check_qa_acceptance.py` | NOT_RUN | NOT_RUN | MISSING | 각 지원 조합 device evidence 행 채우기 |
-| REQ-QA-002 | 증거 등급과 서로 독립인 gate 정의 | PASS: QA 문서와 template | NOT_RUN | NOT_RUN | MISSING | demo/field 실행 record 생성 |
-| REQ-QA-003 | 데이터 손실·오제어·인증 hard blocker 정의 | PASS: release checklist blocker query | NOT_RUN | NOT_RUN | MISSING | blocker owner/결과/waiver 없음 확인과 승인 서명 |
-| REQ-QA-004 | freeze, internal release, rollback, diagnosis 절차 추가 | PASS: QA 문서 정적 검사 | NOT_RUN | NOT_RUN | MISSING | checklist dry run 및 rollback rehearsal |
+| REQ-CON-001 | 명시 deviceId 선택, session generation과 contextual run device 고정 구현 | PASS: identity와 stale-response 회귀 | PARTIAL: S22 한 대와 Orin 한 대 검증 | PARTIAL: 단일 장비 흐름 | PARTIAL: 두 Android·두 Jetson 오제어 시험 없음 | A→B 전환 중 늦은 A 응답 격리 실기 |
+| REQ-CON-002 | LAN·Direct·BLE 제한·offline transport와 capability 구분 구현 | PASS: transport policy와 UI 계약 | PARTIAL: TLS LAN 경로 확인, 전체 radio 전환 미실행 | PARTIAL | PARTIAL | BLE·Wi-Fi Direct·LTE 대표 전환과 tablet 화면 |
+| REQ-CON-003 | 재인증, generation 폐기와 canonical pipeline/run/upload 재조회 구현 | PASS: lifecycle/recovery tests | PARTIAL: API rollback·restart 뒤 identity/run 보존, Android 기존 test 수정 후 재시험 대기 | PARTIAL | PARTIAL | S22 잠금·복귀 재시험과 endpoint 전환 |
+| REQ-CON-004 | phone/API session과 systemd 수집 분리, offline을 stop으로 해석하지 않음 | PASS: 독립 runtime와 stale UI tests | PASS: API 재시작 중 같은 Orin 수집 지속 | PASS: 대표 단절 지속 흐름 | PARTIAL: 장시간·radio 단절 미검증 | 장시간 phone 단절과 재연결 동일 run 확인 |
+| REQ-CON-005 | payload-bound mutation replay와 GET reconciliation 구현 | PASS: idempotency·unknown-state tests | PASS: 동일 start clientRequestId가 같은 runId 반환 | PASS | PASS: 검증한 contextual start 범위 | proxy 지연을 포함한 추가 장시간 fault는 후속 |
+| REQ-CTX-001 | Jetson-authoritative SurveyProject CRUD와 실행 snapshot 고정 구현 | PASS: backend/API/Android tests | PASS: S22 Survey instrumentation과 Orin active 변경 409 | PASS | PARTIAL: main·CI와 S22 재시험 대기 | 최종 통합 commit에서 재확인 |
+| REQ-CTX-002 | SurveySection CRUD, project 관계와 실행 snapshot 고정 구현 | PASS: 관계·revision·lock tests | PASS: S22 생성/선택과 active context lock | PASS | PARTIAL: main·CI 대기 | physical tablet 선택 흐름 |
+| REQ-CTX-003 | receiver 직원 token, access project role과 survey context namespace 분리 | PASS: allow/deny와 mapping 경계 tests | PASS: role downgrade, revoke, disable, token rotate/expire 실제 server | PASS | PASS: 현재 receiver token 운영 계약 | 조직 SSO는 범위 밖이며 별도 연동 시 재검수 |
+| REQ-TASK-001 | pipeline/release/config/output와 survey 선택 요약 구현 | PASS: API/model/UI tests | PASS: 실제 Orin run identity와 output 연결 | PASS | PARTIAL: 최종 main/CI 대기 | release artifact 기준 동일성 재확인 |
+| REQ-TASK-002 | snapshot/venv/entrypoint 등록과 안전한 release 실행 구현 | PASS: layout/registration/runner tests | PASS: Orin의 실제 external pipeline 실행 | PASS | PASS: 검증한 Orin pipeline 범위 | 다른 외부 pipeline은 별도 호환 검증 |
+| REQ-CHK-001 | device/task/time/storage/sensor/GNSS context preflight와 run snapshot 구현 | PASS: API/Android preflight contract | PARTIAL: Orin 핵심 항목 확인, outdoor RTK와 server 상태 snapshot은 제한 | PASS: 수집 blocker 흐름 | PARTIAL | outdoor RTK와 선택 receiver 상태 표현 확인 |
+| REQ-CHK-002 | pipeline-user write/traverse, free bytes와 versioned minimum 정책 구현 | PASS: read-only/ancestor/free-space tests | PASS: QA용 1 GiB 정책 preflight | PASS | PM_REQUIRED: 생산 최소량 미승인 | 작업별 생산 minFreeBytes 승인 필요 |
+| REQ-CHK-003 | 명시 required/optional sensor 정책과 required-only blocker 구현 | PASS: policy snapshot과 runner recheck tests | PASS: required IMU 차단, optional external IMU error에서 camera/GNSS run 허용 | PASS | PM_REQUIRED: QA 목록은 생산 승인 아님 | pipeline별 생산 sensor policy 승인 |
+| REQ-CHK-004 | RTK 근거를 기록하되 임의 pass/fail threshold 없음 | PASS: threshold-free quality tests | PARTIAL: GNSS active, RTK FIX 없음 | PARTIAL | PM_REQUIRED: 현장 threshold 승인 없음 | outdoor RTK dataset; 승인 전 관찰값 유지 |
+| REQ-RUN-001 | contextual start가 immutable runId와 실제 RUNNING identity를 연결 | PASS: start/replay/reconciliation tests | PASS: Orin start와 동일 request replay 확인 | PASS | PASS: 검증한 pipeline 범위 | 최종 release commit 재확인 |
+| REQ-RUN-002 | device/survey/pipeline/source/config/preflight/output/upload identity를 root record에 영속 연결 | PASS: canonical run과 trusted upload tests | PASS: Orin run에서 receiver receipt까지 동일 context 확인 | PASS | PASS: 검증한 chain 범위 | 장기간 보존 뒤 재조회는 후속 |
+| REQ-RUN-003 | 휴대전화/API가 끊겨도 Jetson child와 output 지속 | PASS: process/session 독립 tests | PASS: API 재시작 중 수집 지속 | PASS | PARTIAL: 장시간 phone/radio 단절 미검증 | S22 network loss 장시간 시험 |
+| REQ-RUN-004 | autostart opt-in과 contextual one-shot launch, legacy bypass 차단 구현 | PASS: absent/stale/consumed launch와 legacy start 차단 tests | PARTIAL: contextual start 확인, Orin reboot autostart 시험 없음 | PASS | PARTIAL | Orin reboot 뒤 enable 상태와 무재생 확인 |
+| REQ-RUN-005 | 같은 runId의 log, route, quality, output과 history/map 연결 구현 | PASS: persistence/API/UI tests | PARTIAL: Orin log/output 확인, 실제 문제구간 map과 tablet 미확인 | PARTIAL | PARTIAL | outdoor route/quality를 S22 history/map에서 대조 |
+| REQ-RUN-006 | operator stop과 natural completion을 실제 footer로 구분 | PASS: STOPPING race/footer/recovery tests | PASS: Orin explicit stop이 `STOPPED`, output `FINAL` | PASS | PASS: 검증한 stop 경로 | 장시간 forced-kill 복구는 후속 |
+| REQ-RUN-007 | sensor/RTK 저하에서 수집 지속하고 problem interval 기록 | PASS: stale/loss/clock-gap tests | PASS: optional external IMU error 중 Orin 수집과 output 지속 | PASS | PARTIAL: outdoor RTK 저하 미검증 | 실제 RTK loss/recovery 장시간 interval |
+| REQ-STO-001 | 종료 run에서 canonical output root/path/outputId 직접 탐색 구현 | PASS: run source lookup tests | PASS: Orin run output과 log/context exact identity | PASS | PASS | retention 기간 뒤 lookup은 후속 |
+| REQ-STO-002 | 기대 file/bytes/pattern과 종료 evidence manifest 구현 | PASS: empty/partial/metadata exclusion tests | PASS: 387 files, 1,083,395,576 bytes, FINAL/SATISFIED | PASS | PM_REQUIRED: QA 1 file/1 byte는 생산 승인 아님 | pipeline별 expected output 승인 |
+| REQ-UPL-001 | Jetson이 공개 HTTPS receiver로 직접 upload하고 앱이 job 감시 | PASS: backend/receiver/Android tests | PASS: 389 files, 1,083,396,422 bytes 실제 upload COMPLETED | PASS | PASS: 검증한 target/run | 장시간 다른 network 경로는 후속 |
+| REQ-UPL-002 | offset resume, batch, retry/cancel과 session identity 유지 구현 | PASS: interruption/idempotency tests | PASS: 중단 13 MiB resume와 3-file batch 실제 server | PASS | PASS | LTE handover 중 resume는 미검증 |
+| REQ-UPL-003 | COMPLETED 뒤 remote totals와 모든 object hash MATCHED 검증 | PASS: receipt/hash mismatch tests | PASS: 실제 389 files 전체 hash MATCHED | PASS | PASS | 없음; 새 receiver version마다 회귀 |
+| REQ-UPL-004 | fresh verification 전 원본 제거 차단과 mismatch 보존 구현 | PASS: delete gate/trash tests | PASS: fresh verification, source trash/restore와 context 보존 | PASS | PASS | 자동 purge 없음은 의도된 정책 |
+| REQ-SRV-001 | Jetson local API와 독립된 Android direct receiver client 구현 | PASS: direct repository/UI tests | PARTIAL: 공개 receiver 실제 동작, phone LTE 단독 경로 미확인 | PARTIAL | PARTIAL | Jetson OFF와 S22 LTE에서 직접 조회 |
+| REQ-SRV-002 | cache source, refreshedAt과 stale 상태 표현 구현 | PASS: process restart/offline cache tests | PARTIAL: 대표 S22 UI PASS, offline 장시간 cache 미확인 | PARTIAL | PARTIAL | S22 process death/offline timestamp |
+| REQ-SRV-003 | environment binding과 wrong-environment 차단 구현 | PASS: server/client environment tests | PASS: 실제 wrong environment 409 | PASS | PASS | production profile 변경 시 재검수 |
+| REQ-SRV-004 | 권한·크기 제한 image/video preview 구현 | PASS: MIME/size/player tests | PARTIAL: oversize 413 실제 server, phone/tablet media preview 미확인 | PARTIAL | PARTIAL | 실제 image/video와 physical tablet |
+| REQ-DEL-001 | receiver와 Jetson run/source를 trash/restore로 복구 가능하게 구현 | PASS: local/receiver trash tests | PASS: run/source trash, duplicate DELETE, restore, fresh verification 실제 확인 | PASS | PASS: 자동 purge 없음이 현재 계약 | 장기 retention은 운영 정책으로 별도 결정 |
+| REQ-DEL-002 | 역할·확인·audit가 있는 파괴 작업 경계 구현 | PASS: authorization/audit tests | PASS: role downgrade/revoke/disable/audit와 trash restore 실제 server | PASS | PASS: 현재 no-purge 계약 | 영구 purge 도입 시 별도 승인과 시험 |
+| REQ-UX-001 | 연결·준비·수집·server·GNSS/RTK를 분리한 operator home 구현 | PASS: Compose/ViewModel tests | PARTIAL: S22 대표 UI 6 PASS, 수정된 기존 test 재실행과 tablet 대기 | PARTIAL | PARTIAL | `104f859` 재시험, tablet/large font/landscape |
+| REQ-UX-002 | 일반 사용자와 관리자 영역 및 receiver role action 구분 구현 | PASS: navigation/role tests | PARTIAL: server role deny 실제 확인, 전체 S22 role navigation 미확인 | PARTIAL | PARTIAL | VIEWER/OPERATOR/ADMIN physical navigation |
+| REQ-UX-003 | 사실·미확인 범위·다음 행동과 partial/unknown 표현 구현 | PASS: presentation/state tests | PARTIAL: 대표 S22 UI PASS, 오류별 전체 화면 evidence 없음 | PARTIAL | PARTIAL | radio/auth/storage 오류 screenshot과 semantics |
+| REQ-QLT-001 | timing-weighted FIX ratio/time/unknown과 no-threshold semantics 구현 | PASS: clock high-watermark와 no-sample tests | PARTIAL: GNSS active지만 outdoor RTK FIX 표본 없음 | PARTIAL | PM_REQUIRED: RTK 생산 판정 미승인 | outdoor fixed/float/loss 로그 교차검증 |
+| REQ-QLT-002 | history/map에 같은 run의 sensor/RTK interval과 nullable 위치 표시 | PASS: serialization/index/render tests | PARTIAL: physical route 문제구간과 tablet 지도 미확인 | PARTIAL | PARTIAL | outdoor run을 S22와 tablet에서 대조 |
+| REQ-QA-001 | 42행 acceptance와 phone/tablet/Orin/receiver matrix 유지 | PASS: checker가 42 ID를 정확히 한 번 확인 | PARTIAL: S22/Orin/receiver 증거 있음, physical tablet 없음 | PARTIAL | PARTIAL | tablet과 예정 viewport 실행 |
+| REQ-QA-002 | 자동·실장치·demo·운영 evidence gate 분리 | PASS: 문서 checker와 report 구조 | PASS: 실제 환경 증거를 자동 결과와 분리 기록 | PASS | PASS: 범위별 판정 유지 | 전체 42행 일괄 PASS 금지 |
+| REQ-QA-003 | 데이터 손실·오제어·인증 오류를 hard blocker로 처리 | PASS: blocker queries와 negative tests | PASS: 401/403/409, mismatch, restore 경로 실제 확인 | PASS | PASS: 검증한 receiver/run 범위 | 새 Astra FAIL은 waiver 금지 |
+| REQ-QA-004 | freeze, diagnosis, rollback과 release checklist 제공 | PASS: QA/runbook tests | PASS: API package와 receiver DB/package 실제 rollback·복귀 | PASS | PARTIAL: PR 7 CI와 main 병합, 최종 Android 재시험 대기 | 최종 integration review에 commit·artifact·배포 갱신 |
 
 ## 현재 판정
 
-- 자동 검증은 다수 기능 계약을 확인했지만 실장치·demo·운영환경 증거는 모두 `NOT_RUN`이다.
-- `REQ-CTX-001`, `REQ-CTX-002`, `REQ-RUN-002`, `REQ-STO-002`는 P0 구현 공백이다.
-- 조직 IdP/직원 lifecycle, 필수 센서, 저장 최소량, 정상 stop 결과, RTK 정책은 승인 또는 구현이 남았다.
-- 따라서 이 문서는 demo 또는 내부 운영 release 합격을 선언하지 않는다.
+- Survey Project/Section, contextual preflight/start, run→output→upload→receipt chain, recoverable local deletion의 Cycle 01 P0 공백은 구현됐고 S22·Orin NX·공개 receiver의 대표 경로에서 실제 증거를 확보했다.
+- QA 정책 `required camera+gnss`, `optional imu`, `minFreeBytes 1 GiB`, `expectedOutput 1 file/1 byte`는 검증 fixture다. 생산 작업별 sensor/storage/output threshold는 `PM_REQUIRED`로 남는다.
+- Outdoor RTK FIX, physical tablet, 장시간 수집, 전체 BLE·Wi-Fi Direct·LTE 전환은 미검증이다. 조직 SSO와 자동 purge는 현재 범위가 아니다.
+- 문서 작성 시점에는 worker `104f859` 수정 뒤 Android 재시험, PR 7 CI, main 병합과 최종 배포 보고가 남았다. 그러므로 모든 42개 요구사항의 글로벌 PASS나 무조건적인 운영 release 승인을 선언하지 않는다.

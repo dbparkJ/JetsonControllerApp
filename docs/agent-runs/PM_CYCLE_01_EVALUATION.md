@@ -1,6 +1,24 @@
 # PM Cycle 01 통합 평가
 
-> 최종 판정: Cycle 01 통합 코드·로컬 검증 **PASS**, demo **NOT_RUN**, 내부 운영 release **BLOCKED**. 전체 제품 요구사항 완료 또는 운영 승인이 아니다.
+> **현재 상태 공지, 2026-09-14:** 이 문서의 §1~§10은 `00cdd99` 시점 Cycle 01 평가 기록으로 보존한다. 당시 P0 미구현·모든 실기 `NOT_RUN` 결론은 후속 P0 구현과 실제 검증으로 일부 해소됐다. 현재 최종 통합 commit, CI, main 병합과 배포 판정은 [`INTEGRATION_ASTRA_REVIEW.md`](INTEGRATION_ASTRA_REVIEW.md)를 우선하고, 요구사항별 현재 증거는 [`ACCEPTANCE_MATRIX_KO.md`](../qa/ACCEPTANCE_MATRIX_KO.md)를 따른다. 아래 역사 문구를 현재 release 판정으로 인용하면 안 된다.
+
+## 0. Cycle 01 후속 P0 구현·검증 갱신
+
+당시 P0였던 Survey Project/Section, versioned required/optional sensor·storage·expected-output policy, contextual preflight/start, root 소유 run→output→upload→receipt identity, recoverable Jetson run/source 삭제가 구현됐다. Receiver access project는 survey context와 별도 namespace로 유지된다. 같은 contextual start `clientRequestId` replay는 실제 Orin에서 동일 `runId`를 반환했고, active survey 변경은 409로 거절됐다.
+
+현재 자동 검증은 Android full JVM 252개와 `assembleDebug`, `lintDebug`, `assembleDebugAndroidTest`, backend full 312개와 마지막 upload 관련 targeted 28개, receiver full 41개, Slate 66 token/94 role pair, QA 42행 coverage가 PASS다. 이는 최신 root 통합 source의 로컬 자동 검증 범위이며 원격 CI 완료나 모든 hardware acceptance를 뜻하지 않는다.
+
+실제 환경의 확인 범위는 다음과 같다.
+
+- Galaxy S22 Ultra SM-S908N, Android API 36에 `1.17.0`/code 25 설치 성공. 새 Survey instrumentation 2개와 대표 UI 6개는 PASS다. 기존 test 1개 실패는 worker `104f859`에서 수정됐고 이 문서 작성 시점 재시험은 대기 중이다.
+- Orin NX `jm-desktop`에서 camera·GNSS ACTIVE, external IMU missing/error를 관찰했다. QA용 정책 `required=camera,gnss`, `optional=imu`, 최소 1 GiB, expected 1 file/1 byte로 preflight/start를 통과했고 required IMU 설정에서는 시작이 차단됐다. 이 값은 생산 threshold 승인 기록이 아니다.
+- API 재시작 동안 수집은 계속됐고 explicit stop은 `STOPPED`로 종결됐다. workload 387 files/1,083,395,576 bytes가 `FINAL`/`SATISFIED` manifest로 기록됐다.
+- metadata 2개를 포함한 389 files/1,083,396,422 bytes를 공개 receiver로 upload해 `COMPLETED` 뒤 모든 object hash `MATCHED`를 확인했다. Jetson run/source trash, 중복 DELETE, restore, fresh verification, exact log hash와 context 보존도 PASS다.
+- Jetson API 구 package rollback과 신 package 복귀 뒤 TLS/HMAC, device identity와 run 보존을 확인했다. 공개 receiver `geonwsPrecision`은 기존 6 sessions/196,131 files를 보존한 backup·DB migration·rollback, 중단 13 MiB offset resume, 3-file batch, context/environment/auth/role 거절, token lifecycle, audit와 trash/restore를 실제 server에서 통과했다.
+
+현재 release 판정은 범위별로 유지한다. P0 핵심 수집·저장·upload·검증·복구 흐름은 자동 및 대표 실제 환경에서 확인됐다. Outdoor RTK FIX, physical tablet, 예정 viewport 조합, 장시간 연속 수집과 모든 BLE·Wi-Fi Direct·LTE 전환은 아직 미검증이다. 자동 purge는 의도적으로 제공하지 않으며 조직 SSO 연동은 이번 범위가 아니다. 문서 작성 시점 main 병합은 완료되지 않았고 PR 7 CI가 진행 중이다. 따라서 새 증거를 전체 42개 요구사항의 글로벌 PASS 또는 생산 정책·최종 device 승인으로 확대하지 않는다.
+
+> 역사 판정: Cycle 01 `00cdd99` 통합 코드·로컬 검증 **PASS**, demo **NOT_RUN**, 내부 운영 release **BLOCKED**. 아래 내용은 그 시점의 후속 작업 결정을 설명한다.
 
 ## 1. 평가 기준과 현재 결론
 
