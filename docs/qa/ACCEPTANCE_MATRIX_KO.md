@@ -11,19 +11,20 @@
 - AG05 `00bfa15` + `9409328`: receiver 37개와 Android direct-server 4개 통과, Astra PASS.
 - AG06 `6827e1c`: backend quality targeted 64개와 Android quality/API compatibility 통과.
 - 통합 `03b2e93`: root가 2026-09-14에 backend discovery 275개 및 receiver discovery 37개, skip 0을 로컬 실행해 통과했다고 보고했다. 원격 CI 실행 증거가 아니다.
-- AG02 UI 결과는 아직 독립 검수 전이므로 현재 표에서 운영 합격 근거로 사용하지 않는다.
+- AG02 `0b8662c`는 화면·ViewModel 관련 JVM 28개와 source 검수에서 Astra PASS를 받았고 통합 commit `5b2f393`에 반영됐다. 이 로컬 증거는 phone/tablet 렌더링이나 운영 합격을 뜻하지 않는다.
+- 최종 기능·CI 통합 `3d716c6`: root가 Android assemble/lint/full JVM을 실행해 51 suites/242 tests, failure/error/skip 0을 확인했다. Lint는 error 0, warning 76이며 통합 Astra `00cdd99`가 로컬 통합 범위 PASS, demo NOT_RUN, 내부 운영 BLOCKED를 기록했다.
 
 | ID | 현재 코드·계약 판단 | 자동 증거 | 실장치·운영환경 증거 | Demo gate | 내부 운영 gate | Blocker / 다음 증거 |
 |---|---|---|---|---|---|---|
 | REQ-CON-001 | 명시 장비 선택과 session 격리 구현 | PASS: AG03 target-switch/stale-response JVM | NOT_RUN | NOT_RUN | MISSING | Android 두 대와 Jetson 두 대에서 A→B 오제어 없음 확인 |
-| REQ-CON-002 | transport/capability 모델 구현, UI 검수 대기 | PARTIAL: AG03 policy와 AG02 branch test | NOT_RUN | NOT_RUN | MISSING | phone/tablet에서 LAN, Direct, BLE, offline 대표 화면 |
+| REQ-CON-002 | transport/capability 모델과 구분 UI 구현 | PASS: AG03 policy와 AG02 상태 표현 JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | phone/tablet에서 LAN, Direct, BLE, offline 대표 화면 |
 | REQ-CON-003 | generation 폐기와 재조회 구현, 잠금 lifecycle 미실행 | PARTIAL: AG03 endpoint/recovery JVM | NOT_RUN | NOT_RUN | MISSING | 화면 잠금·복귀 후 같은 deviceId와 pipeline/upload/storage 재조회 로그 |
-| REQ-CON-004 | pipeline은 transport와 독립, offline UI 검수 대기 | PARTIAL: AG04 runtime + AG03 recovery | NOT_RUN | NOT_RUN | MISSING | 연결 단절 중 동일 runId/process/output 지속 실장치 증거 |
+| REQ-CON-004 | pipeline은 transport와 독립이고 offline UI는 현재 상태를 확정하지 않음 | PARTIAL: AG04 runtime + AG03 recovery + AG02 상태 표현 | NOT_RUN | NOT_RUN | MISSING | 연결 단절 중 동일 runId/process/output 지속 실장치 증거 |
 | REQ-CON-005 | one-shot mutation과 GET reconciliation 구현 | PASS: 실제 TLS/HMAC start/stop 유실·지연·중복 test | NOT_RUN | NOT_RUN | MISSING | 실제 Jetson proxy fault 시험과 mutation count |
 | REQ-CTX-001 | survey project entity와 실행 고정 없음 | MISSING | NOT_RUN | NOT_RUN | MISSING | P0: projectId source, 저장, run 연결 구현 |
 | REQ-CTX-002 | survey section entity와 실행 고정 없음 | MISSING | NOT_RUN | NOT_RUN | MISSING | P0: project-section 관계와 run 중 변경 방지 구현 |
 | REQ-CTX-003 | receiver access project/role 구현, survey context와 조직 IdP 없음 | PARTIAL: AG05 allow/deny·scope test | NOT_RUN | NOT_RUN | MISSING | 운영 직원 lifecycle, IdP 또는 승인된 token 운영 정책 |
-| REQ-TASK-001 | pipeline/source/config/results metadata 구현, 최종 UI 검수 대기 | PARTIAL: AG04 API test | NOT_RUN | NOT_RUN | MISSING | 선택 요약과 Jetson 응답 identity 동일성 device evidence |
+| REQ-TASK-001 | pipeline/source/config/results metadata와 작업 화면 구현 | PASS: AG04 API + AG02 화면 JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | 선택 요약과 Jetson 응답 identity 동일성 device evidence |
 | REQ-TASK-002 | snapshot/venv/entrypoint 등록·검증 구현 | PASS: AG04 registration/layout/runtime test | NOT_RUN | NOT_RUN | MISSING | Orin NX 설치와 실제 외부 pipeline 실행 |
 | REQ-CHK-001 | 개별 근거는 있으나 통합 preflight snapshot/run 연결 없음 | PARTIAL | NOT_RUN | NOT_RUN | MISSING | P0: device/task/time/storage/sensor/RTK/server snapshot을 run에 저장 |
 | REQ-CHK-002 | writable probe와 bytes evidence 구현, 정책/UI 미완료 | PARTIAL: AG04 full/read-only/path test | NOT_RUN | NOT_RUN | PM_REQUIRED | pipeline별 최소 여유량은 승인 전 0/관찰만 사용 |
@@ -33,7 +34,7 @@
 | REQ-RUN-002 | source/config/run 일부만 존재, device/project/section/output 연결 불완전 | MISSING | NOT_RUN | NOT_RUN | MISSING | P0 end-to-end identity schema와 persistence |
 | REQ-RUN-003 | systemd 실행과 휴대전화 session 비연동 | PARTIAL: 구조/unit evidence | NOT_RUN | NOT_RUN | MISSING | phone radio/앱 종료 중 process와 output 지속 |
 | REQ-RUN-004 | autostart opt-in 기본 false | PASS: AG04 registrar/runtime + AG03 legacy adapter | NOT_RUN | NOT_RUN | MISSING | Orin NX reboot 뒤 등록별 enable 상태 확인 |
-| REQ-RUN-005 | run log/route/quality 계약 구현, 통합 UI 검수 대기 | PARTIAL: AG04 + AG06 API/persistence test | NOT_RUN | NOT_RUN | MISSING | 하나의 runId로 log, route, quality, output 조회 |
+| REQ-RUN-005 | run log/route/quality 계약과 이력·지도 표현 구현 | PASS: AG04 + AG06 API/persistence, AG02 quality UI JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | 하나의 runId로 log, route, quality를 실제 수집에서 조회 |
 | REQ-RUN-006 | terminal execution evidence 제공, 정상 종료 정책 미결 | PARTIAL: AG04 stop/runtime + AG03 lost-stop test | NOT_RUN | NOT_RUN | PM_REQUIRED | 정상 operator stop result 정책과 실제 footer/exit 확인 |
 | REQ-RUN-007 | 품질 저하가 수집을 중단하지 않고 interval 기록 | PASS: AG06 invalid/stale/non-FIX fixtures | NOT_RUN | NOT_RUN | MISSING | 실제 RTK 저하 중 pipeline/output 지속 |
 | REQ-STO-001 | resultsDirectory는 제공, run→root/session identity 불완전 | PARTIAL | NOT_RUN | NOT_RUN | MISSING | 종료 run에서 정확한 output root/path를 직접 탐색 |
@@ -42,17 +43,17 @@
 | REQ-UPL-002 | resume/retry/cancel/idempotent offset 구현 | PASS: receiver/backend interruption fixtures | NOT_RUN | NOT_RUN | MISSING | 장시간 전송 network interruption 실환경 시험 |
 | REQ-UPL-003 | COMPLETED + matched receipt + session identity 구현 | PASS: AG05 totals/hash/mismatch test | NOT_RUN | NOT_RUN | MISSING | 실제 업로드 객체를 receiver에서 독립 재검증 |
 | REQ-UPL-004 | verification 전 source delete 차단 구현 | PASS: backend verification/delete test | NOT_RUN | NOT_RUN | MISSING | receiver timeout/불일치에서 Jetson 원본 보존 확인 |
-| REQ-SRV-001 | Jetson 독립 Android direct client/data layer 구현, UI 검수 대기 | PARTIAL: AG05 direct repository test | NOT_RUN | NOT_RUN | MISSING | Jetson 전원 OFF에서 phone LTE receiver 조회 |
-| REQ-SRV-002 | scope별 stale cache와 refreshedAt 구현, UI 검수 대기 | PARTIAL: AG05 cache test | NOT_RUN | NOT_RUN | MISSING | process restart/offline cache timestamp 화면 |
+| REQ-SRV-001 | Jetson 독립 Android direct client와 화면 연결 구현 | PASS: AG05 direct repository + AG02 navigation/ViewModel source 검수 | NOT_RUN | NOT_RUN | MISSING | Jetson 전원 OFF에서 phone LTE receiver 조회 |
+| REQ-SRV-002 | scope별 stale cache/refreshedAt와 화면 표현 구현 | PASS: AG05 cache + AG02 presentation/ViewModel JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | process restart/offline cache timestamp 화면 |
 | REQ-SRV-003 | environment header/binding과 mismatch 거절 구현 | PASS: AG05 server/client environment test | NOT_RUN | NOT_RUN | MISSING | 운영 profile로 test server 접근 거절 실환경 증거 |
 | REQ-SRV-004 | bounded image/video preview와 MIME 거절 구현 | PASS: AG05 receiver + Android media test | NOT_RUN | NOT_RUN | MISSING | phone/tablet에서 실제 image/video/oversize 표시 |
-| REQ-DEL-001 | receiver trash/restore 구현, 모든 일반 제거와 UI는 미완료 | PARTIAL: AG05 crash-recovery/trash test | NOT_RUN | NOT_RUN | MISSING | device/server 각 제거·Undo·restore·retention 계약 |
+| REQ-DEL-001 | receiver trash/restore·Undo UI는 구현됐으나 device 파일과 실행 이력은 영구 삭제 | PARTIAL: AG05 crash-recovery/trash + AG02 capability별 문구 검수 | NOT_RUN | NOT_RUN | MISSING | device/server 각 제거·Undo·restore·retention 계약 |
 | REQ-DEL-002 | 역할·확인은 일부 구현, audit/IdP/purge 정책 미완료 | PARTIAL: AG05 authorization test | NOT_RUN | NOT_RUN | MISSING | 영구 삭제 권한, 이중 확인, 감사 기록과 보존 정책 |
-| REQ-UX-001 | operator home 재구성 branch 존재, 독립 검수·화면 증거 없음 | PARTIAL: AG02 local semantics test만 | NOT_RUN | NOT_RUN | MISSING | current commit phone/tablet 대표 화면과 접근성 확인 |
-| REQ-UX-002 | 일반/관리자 정보 구조 branch 존재, 권한 기반 완성 아님 | PARTIAL | NOT_RUN | NOT_RUN | MISSING | VIEWER/OPERATOR/ADMIN navigation과 backend deny 증거 |
-| REQ-UX-003 | 확인 필요/부분 성공 문구 branch 존재, 전체 상태 matrix 미검수 | PARTIAL: 일부 ViewModel JVM | NOT_RUN | NOT_RUN | MISSING | 오류별 사실·미확인 범위·다음 행동 screenshot |
+| REQ-UX-001 | 연결/수집/인터넷/GNSS·RTK를 분리한 operator home 구현 | PASS: AG02 operational summary JVM 28개 묶음과 Astra source 검수 | NOT_RUN | NOT_RUN | MISSING | current commit phone/tablet 대표 화면과 접근성 확인 |
+| REQ-UX-002 | 일반/관리자 정보 구조는 구현됐으나 화면 구분이 server 권한 부여는 아님 | PARTIAL: AG02 navigation/source 검수 + AG05 backend role test | NOT_RUN | NOT_RUN | MISSING | VIEWER/OPERATOR/ADMIN navigation과 backend deny 증거 |
+| REQ-UX-003 | 확인 사실·미확인 범위·다음 행동 문구 구현 | PASS: AG02 state/presentation JVM과 Astra source 검수 | NOT_RUN | NOT_RUN | MISSING | 오류별 사실·미확인 범위·다음 행동 screenshot |
 | REQ-QLT-001 | timing-weighted FIX 근거와 무임계값 해석 구현 | PASS: AG06 deterministic quality fixtures | NOT_RUN | NOT_RUN | PM_REQUIRED | 현장 GNSS 로그 교차검증, 승인 전 pass/fail 금지 |
-| REQ-QLT-002 | run quality/interval/route index 계약 구현, UI 증거 없음 | PARTIAL: AG06 serialization/index test | NOT_RUN | NOT_RUN | MISSING | 지도와 이력에서 같은 run 문제 구간 표시 |
+| REQ-QLT-002 | run quality/interval/route index와 이력·지도 표현 구현 | PASS: AG06 serialization/index + AG02 quality presentation JVM/source 검수 | NOT_RUN | NOT_RUN | MISSING | 실제 run의 지도·이력에서 같은 문제 구간 확인 |
 | REQ-QA-001 | 지원·acceptance matrix와 consistency checker 추가 | PASS: `scripts/check_qa_acceptance.py` | NOT_RUN | NOT_RUN | MISSING | 각 지원 조합 device evidence 행 채우기 |
 | REQ-QA-002 | 증거 등급과 서로 독립인 gate 정의 | PASS: QA 문서와 template | NOT_RUN | NOT_RUN | MISSING | demo/field 실행 record 생성 |
 | REQ-QA-003 | 데이터 손실·오제어·인증 hard blocker 정의 | PASS: release checklist blocker query | NOT_RUN | NOT_RUN | MISSING | blocker owner/결과/waiver 없음 확인과 승인 서명 |
