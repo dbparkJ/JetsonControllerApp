@@ -65,6 +65,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
             state.error?.let { item { InlineMessage(it, true) } }
             item { Text("실행 기록을 오른쪽으로 밀면 삭제할 수 있습니다.", style = MaterialTheme.typography.bodySmall, color = c.muted) }
             items(runs, key = { it.id }) { run ->
+                val runPresentation = historyRunPresentation(run, state.online, state.historyCurrent)
                 val canDelete = state.online && state.deletingRunId == null && run.state != "RUNNING"
                 val swipe = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
                     if (value == SwipeToDismissBoxValue.StartToEnd && canDelete) deleting = run
@@ -88,12 +89,12 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
                     Surface(color = c.sectionSoft, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Icon(if (run.state == "RUNNING") Icons.Default.PlayCircle else Icons.Default.Assignment, null, tint = c.primary)
+                                Icon(if (run.state == "RUNNING" && state.online) Icons.Default.PlayCircle else Icons.Default.Assignment, null, tint = c.primary)
                                 Text(run.label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                                StatusBadge(when (run.state) { "RUNNING" -> "진행 중"; "COMPLETED" -> "완료"; "STOPPED" -> "중지"; "FAILED" -> "실패"; else -> "결과 미확인" },
-                                    when (run.state) { "COMPLETED" -> StatusTone.SUCCESS; "FAILED" -> StatusTone.ERROR; "UNKNOWN" -> StatusTone.WARNING; else -> StatusTone.INFO })
+                                StatusBadge(runPresentation.first, runPresentation.second)
                             }
                             Text(com.example.jetsoncontroller.ui.storage.localDateTimeLabel(run.startedAt), style = MaterialTheme.typography.bodySmall, color = c.muted)
+                            RunQualityEvidence(run.quality, compact = true)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onLog(run) }, enabled = state.online, modifier = Modifier.weight(1f)) { Text("실행 로그") }
                                 OutlinedButton(onClick = { onRoute(run) }, modifier = Modifier.weight(1f)) { Text("수집 경로") }
@@ -115,4 +116,13 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
             } }
         }
     }
+}
+
+internal fun historyRunPresentation(run: TaskRun, online: Boolean, historyCurrent: Boolean): Pair<String, StatusTone> = when {
+    run.state == "RUNNING" && (!online || !historyCurrent) -> "최근 실행 보고 · 현재 미확인" to StatusTone.WARNING
+    run.state == "RUNNING" -> "진행 중" to StatusTone.INFO
+    run.state == "COMPLETED" -> "완료" to StatusTone.SUCCESS
+    run.state == "STOPPED" -> "중지" to StatusTone.INFO
+    run.state == "FAILED" -> "실패" to StatusTone.ERROR
+    else -> "결과 미확인" to StatusTone.WARNING
 }

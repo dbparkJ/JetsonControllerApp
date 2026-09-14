@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -30,6 +32,13 @@ import com.example.jetsoncontroller.ui.theme.LocalCobaltColors
 import com.example.jetsoncontroller.ui.theme.Button
 import com.example.jetsoncontroller.ui.theme.OutlinedButton
 import com.example.jetsoncontroller.ui.theme.TextButton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,8 +122,8 @@ internal fun DirectServerScreen(
                 AppBanner(
                     message,
                     StatusTone.SUCCESS,
-                    actionLabel = "실행 취소",
-                    onAction = onUndoTrash,
+                    actionLabel = state.undoSessionId?.let { "실행 취소" },
+                    onAction = state.undoSessionId?.let { onUndoTrash },
                     onDismiss = onDismissMessage,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                 )
@@ -438,7 +447,10 @@ private fun ProfilesPane(
         item { OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("HTTPS 서버 루트 주소") }, supportingText = { Text("예: https://uploads.example.com/") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
         item { OutlinedTextField(value = employeeId, onValueChange = { employeeId = it }, label = { Text("직원 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
         item { OutlinedTextField(value = projectId, onValueChange = { projectId = it }, label = { Text("프로젝트 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("직원 토큰") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()) }
+        item { OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("직원 토큰") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+            singleLine = true, modifier = Modifier.fillMaxWidth()) }
         item {
             Button(
                 onClick = {
@@ -530,20 +542,65 @@ private fun VideoPreview(preview: DirectServerPreview) {
         preview.mediaType?.contains("quicktime") == true -> ".mov"
         else -> ".mp4"
     }
-    val file = remember(preview.bytes) {
-        java.io.File.createTempFile("server-preview-", suffix, context.cacheDir).apply {
-            writeBytes(preview.bytes)
+    var retry by remember(preview) { mutableIntStateOf(0) }
+    var file by remember(preview) { mutableStateOf<java.io.File?>(null) }
+    var failure by remember(preview) { mutableStateOf<String?>(null) }
+    LaunchedEffect(preview, retry) {
+        failure = null
+        file = null
+        var candidate: java.io.File? = null
+        try {
+            withContext(Dispatchers.IO) {
+                val target = java.io.File.createTempFile("server-preview-", suffix, context.cacheDir)
+                candidate = target
+                try {
+                    target.writeBytes(preview.bytes)
+                } catch (error: Exception) {
+                    target.delete()
+                    throw error
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            file = candidate
+            awaitCancellation()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            failure = error.message ?: "영상 미리보기 파일을 준비하지 못했습니다."
+        } finally {
+            candidate?.let { abandoned ->
+                withContext(NonCancellable + Dispatchers.IO) { abandoned.delete() }
+            }
         }
     }
-    DisposableEffect(file) { onDispose { file.delete() } }
-    AndroidView(
-        factory = { viewContext ->
-            android.widget.VideoView(viewContext).apply {
-                setVideoPath(file.absolutePath)
-                setMediaController(android.widget.MediaController(viewContext).also { it.setAnchorView(this) })
-                setOnPreparedListener { it.isLooping = false; seekTo(1) }
+    failure?.let { error ->
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            InlineMessage("영상 미리보기를 준비하지 못했습니다. $error", true)
+            OutlinedButton(onClick = { retry += 1 }, modifier = Modifier.fillMaxWidth()) {
+                Text("영상 미리보기 다시 준비")
             }
-        },
-        modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp)
-    )
+        }
+    } ?: file?.let { readyFile ->
+        var videoView by remember(preview, readyFile) { mutableStateOf<android.widget.VideoView?>(null) }
+        DisposableEffect(preview, readyFile) {
+            onDispose {
+                videoView?.stopPlayback()
+                videoView = null
+                runCatching { readyFile.delete() }
+            }
+        }
+        key(preview, readyFile) {
+            AndroidView(
+                factory = { viewContext ->
+                    android.widget.VideoView(viewContext).apply {
+                        videoView = this
+                        setVideoPath(readyFile.absolutePath)
+                        setMediaController(android.widget.MediaController(viewContext).also { it.setAnchorView(this) })
+                        setOnPreparedListener { it.isLooping = false; seekTo(1) }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp)
+            )
+        }
+    } ?: LinearProgressIndicator(Modifier.fillMaxWidth())
 }

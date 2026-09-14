@@ -1239,6 +1239,7 @@ fun JetsonApp(
             StatusPollingLifecycleEffect(dashboardViewModel)
             GnssMapScreen(
                 route = fieldState.route,
+                quality = fieldState.routeQuality,
                 routeLabel = fieldState.selectedRun?.label,
                 gnss = dashboardState.status.gnssSensor,
                 telemetryFresh = dashboardState.status.sensorTelemetryFresh,

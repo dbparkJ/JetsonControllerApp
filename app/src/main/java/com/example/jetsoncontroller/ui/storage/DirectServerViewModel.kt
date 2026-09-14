@@ -8,10 +8,13 @@ import com.example.jetsoncontroller.data.server.*
 import com.example.jetsoncontroller.data.storage.RecentServerJobsCache
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.security.cert.CertificateException
 import javax.net.ssl.SSLException
@@ -72,7 +75,15 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            store.profiles.collectLatest { profiles ->
+            store.profiles.catch { error ->
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    isConnecting = false,
+                    message = error.message ?: "저장된 서버 프로필을 불러오지 못했습니다.",
+                    messageIsError = true,
+                    errorActionLabel = "프로필 편집"
+                )
+            }.collectLatest { profiles ->
                 val selected = _uiState.value.selectedProfileId
                     ?.takeIf { id -> profiles.any { it.profile.profileId == id } }
                     ?: profiles.firstOrNull()?.profile?.profileId
@@ -252,10 +263,15 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         launchOperation { generation ->
             source.preview(job.sessionId, entry.relativePath).onSuccess { body ->
                 if (!requestGeneration.isCurrent(generation)) { body.close(); return@onSuccess }
-                body.use {
+                val preview = body.use {
+                    val mediaType = it.contentType()?.toString()
+                    val bytes = withContext(Dispatchers.IO) { it.bytes() }
+                    DirectServerPreview(entry.name, mediaType, bytes)
+                }
+                if (requestGeneration.isCurrent(generation) && _uiState.value.selectedJob?.sessionId == job.sessionId) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        preview = DirectServerPreview(entry.name, it.contentType()?.toString(), it.bytes())
+                        preview = preview
                     )
                 }
             }.onFailure { showError(it, "파일 목록으로 돌아가기", generation) }
@@ -324,12 +340,13 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
                 if (result.status == ServerMutationStatus.CONFIRMED) {
                     _uiState.value = _uiState.value.copy(
                         undoSessionId = null,
-                        mutationMessage = null,
-                        message = "서버 작업을 복원했습니다.",
+                        mutationMessage = "서버 작업을 복원했습니다.",
+                        message = null,
                         messageIsError = false,
                         isLoading = false
                     )
                     refreshTrashNow(generation)
+                    if (requestGeneration.isCurrent(generation)) refreshJobsNow(generation)
                 } else {
                     showUnknownMutation(result.detail)
                 }
@@ -408,13 +425,19 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         operation?.cancel()
         val expected = generation ?: requestGeneration.next()
         operation = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isConnecting = connecting,
-                isLoading = !connecting,
-                message = null,
-                errorActionLabel = null
-            )
-            block(expected)
+            try {
+                _uiState.value = _uiState.value.copy(
+                    isConnecting = connecting,
+                    isLoading = !connecting,
+                    message = null,
+                    errorActionLabel = null
+                )
+                block(expected)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showError(error, directServerRecoveryAction(error), expected)
+            }
         }
     }
 
@@ -447,6 +470,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             receipt = if (clearSensitiveViews) null else _uiState.value.receipt,
             trash = if (clearSensitiveViews) emptyList() else _uiState.value.trash,
             undoSessionId = if (clearSensitiveViews) null else _uiState.value.undoSessionId,
+            mutationMessage = if (clearSensitiveViews) null else _uiState.value.mutationMessage,
             message = directServerErrorMessage(error),
             messageIsError = true,
             errorActionLabel = action
