@@ -197,6 +197,7 @@ class RunContextService:
         self.records_dir = self.state_dir / "pipeline-runs"
         self.preflights_dir = self.state_dir / "pipeline-preflights"
         self.start_requests_path = self.state_dir / "pipeline-start-requests.json"
+        self.policy_requests_path = self.state_dir / "pipeline-policy-requests.json"
 
     def _policy_path(self, pipeline_id: str) -> Path:
         if PIPELINE_ID.fullmatch(pipeline_id) is None:
@@ -310,6 +311,18 @@ class RunContextService:
         }
         request_hash = _canonical_hash(request_body)
         with self._lock:
+            request_store = self._request_store(self.policy_requests_path, "Policy")
+            for replay in request_store["requests"]:
+                if isinstance(replay, dict) and replay.get("clientRequestId") == client_request_id:
+                    if replay.get("bodyHash") != request_hash:
+                        raise RunContextConflict(
+                            "IDEMPOTENCY_CONFLICT",
+                            "clientRequestId was already used for a different run policy mutation",
+                        )
+                    result = replay.get("result")
+                    if not isinstance(result, dict):
+                        raise RunContextError("Policy request replay is invalid")
+                    return dict(result)
             self.assert_pipeline_mutable(pipeline_id)
             current = self.policy_or_none(pipeline_id)
             raw = self._raw_policy(pipeline_id)
@@ -319,7 +332,15 @@ class RunContextService:
                         "IDEMPOTENCY_CONFLICT",
                         "clientRequestId was already used for a different run policy mutation",
                     )
-                return {key: item for key, item in raw.items() if not key.startswith("_")}
+                result = {key: item for key, item in raw.items() if not key.startswith("_")}
+                self._remember_request(
+                    self.policy_requests_path,
+                    request_store,
+                    client_request_id,
+                    request_hash,
+                    result=result,
+                )
+                return result
             if current is None:
                 if expected_revision is not None:
                     raise RunContextConflict("REVISION_MISMATCH", "Run policy does not exist")
@@ -346,7 +367,15 @@ class RunContextService:
                 "_requestHash": request_hash,
             }
             _atomic_json(self._policy_path(pipeline_id), policy, 0o644)
-            return {key: item for key, item in policy.items() if not key.startswith("_")}
+            result = {key: item for key, item in policy.items() if not key.startswith("_")}
+            self._remember_request(
+                self.policy_requests_path,
+                request_store,
+                client_request_id,
+                request_hash,
+                result=result,
+            )
+            return result
 
     def enrich_pipeline(self, pipeline: Mapping[str, object]) -> Dict[str, object]:
         response = dict(pipeline)
@@ -522,21 +551,55 @@ class RunContextService:
             raise RunContextError("Preflight identity is invalid")
         return value
 
-    def _start_requests(self) -> Dict[str, object]:
+    @staticmethod
+    def _request_store(path: Path, kind: str) -> Dict[str, object]:
         try:
-            value = _read_json(self.start_requests_path)
+            value = _read_json(path)
         except RunContextNotFound:
             return {"schemaVersion": 1, "requests": []}
         if value.get("schemaVersion") != 1 or not isinstance(value.get("requests"), list):
-            raise RunContextError("Start request store is invalid")
+            raise RunContextError(kind + " request store is invalid")
         return value
 
-    def _save_start_request(self, store: Dict[str, object], request: Mapping[str, object]) -> None:
+    def _start_requests(self) -> Dict[str, object]:
+        return self._request_store(self.start_requests_path, "Start")
+
+    @staticmethod
+    def _remember_request(
+        path: Path,
+        store: Dict[str, object],
+        request_id: str,
+        body_hash: str,
+        *,
+        result: Optional[Mapping[str, object]] = None,
+        run_id: Optional[str] = None,
+        created_at: Optional[object] = None,
+    ) -> None:
         requests = store["requests"]
         assert isinstance(requests, list)
-        requests.append(dict(request))
+        record: Dict[str, object] = {
+            "clientRequestId": request_id,
+            "bodyHash": body_hash,
+        }
+        if result is not None:
+            record["result"] = dict(result)
+        if run_id is not None:
+            record["runId"] = run_id
+        if created_at is not None:
+            record["createdAt"] = created_at
+        requests.append(record)
         del requests[:-MAX_START_REQUESTS]
-        _atomic_json(self.start_requests_path, store)
+        _atomic_json(path, store)
+
+    def _save_start_request(self, store: Dict[str, object], request: Mapping[str, object]) -> None:
+        self._remember_request(
+            self.start_requests_path,
+            store,
+            str(request["clientRequestId"]),
+            str(request["bodyHash"]),
+            run_id=str(request["runId"]),
+            created_at=request.get("createdAt"),
+        )
 
     def _find_start_request(self, request_id: str) -> Optional[Dict[str, object]]:
         for value in self._start_requests()["requests"]:

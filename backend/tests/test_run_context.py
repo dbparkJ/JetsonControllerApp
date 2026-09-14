@@ -163,6 +163,20 @@ class RunContextServiceTest(unittest.TestCase):
             expected_revision=first["revision"], client_request_id="policy-request-1002",
         )
         self.assertEqual(second["policyVersion"], 2)
+        self.assertEqual(self.configure_policy(), first)
+
+    def test_policy_replay_succeeds_while_active_but_new_mutation_is_locked(self):
+        policy = self.configure_policy()
+        self.start(policy, self.preflight(policy))
+        self.assertEqual(self.configure_policy(), policy)
+        with self.assertRaises(RunContextConflict) as conflict:
+            self.service.set_policy(
+                "capture", required_sensors=["camera"], optional_sensors=[],
+                min_free_bytes=0, output_root_id="recordings", output_path="",
+                expected_output={"minFiles": 0, "minBytes": 0, "patterns": []},
+                expected_revision=policy["revision"], client_request_id="policy-request-1002",
+            )
+        self.assertEqual(conflict.exception.code, "CONTEXT_LOCKED")
 
     def test_preflight_preserves_context_snapshot_and_has_no_rtk_threshold(self):
         policy = self.configure_policy()
