@@ -514,6 +514,50 @@ Android app
 
 두 API도 장비 token이 필요합니다. 미완료 세션은 `409`이고, 검증 시 저장소 불일치는 `503`입니다. 삭제 성공 응답은 `{"sessionId":"...","state":"DELETED"}`입니다. 앱은 Jetson의 인증된 API와 삭제 확인 화면을 통해 요청합니다.
 
+## 휴대전화의 서버 직접 조회
+
+`/v1/library/*`는 Jetson 장비 token용 호환 API입니다. Jetson이 꺼져 있어도 휴대전화가 인터넷을 통해 조회하는 화면은 별도 `/v1/server/*` API와 직원 token을 사용합니다. 장비 token은 직원 권한으로 취급하지 않으며 Android에 전달하지 않습니다.
+
+직원 token은 `emp_` 접두어를 사용하고 DB에는 pepper HMAC만 저장합니다. 역할은 `VIEWER`, `OPERATOR`, `ADMIN`이며 모든 요청은 역할과 별개로 명시적인 access project grant가 있어야 합니다. 이 access project는 서버 접근 경계를 위한 것이고 현장 조사·파이프라인 project metadata를 대신하지 않습니다. 장비는 하나의 access project에만 배정되며 과거 session 노출이 바뀌지 않도록 다른 project로의 재배정은 거부합니다.
+
+각 요청은 선택한 프로필의 환경을 다음 헤더에 보냅니다.
+
+```http
+Authorization: Bearer <employee-token>
+X-Expected-Server-Environment: production
+```
+
+`UPLOAD_RECEIVER_ENVIRONMENT`은 `development`, `test`, `production` 중 하나입니다. 서버와 헤더가 다르면 `409`이며 모든 JSON 응답과 preview 응답 헤더에도 실제 환경이 포함됩니다. Android 프로필은 HTTPS root URL만 허용하고 redirect를 따르지 않습니다.
+
+| Method | Path | 최소 역할 | 설명 |
+|---|---|---|---|
+| `GET` | `/v1/server/capabilities` | `VIEWER` | 직원 identity, 역할, 허용 project, 환경 확인 |
+| `GET` | `/v1/server/jobs?projectId=...&limit=...&offset=...` | `VIEWER` | project 장비의 upload job 상태와 경로 요약 |
+| `GET` | `/v1/server/jobs/{sessionId}/files?projectId=...&path=...` | `VIEWER` | 가상 폴더 조회 |
+| `GET` | `/v1/server/jobs/{sessionId}/preview?projectId=...&path=...` | `VIEWER` | 크기 제한 이미지·영상 preview |
+| `GET` | `/v1/server/jobs/{sessionId}/receipt?projectId=...` | `VIEWER` | 완료 객체를 다시 검증한 receipt |
+| `GET` | `/v1/server/trash?projectId=...` | `VIEWER` | 복원 가능한 보관 목록 |
+| `DELETE` | `/v1/server/jobs/{sessionId}?projectId=...` | `OPERATOR` | 완료 session을 휴지통으로 이동 |
+| `POST` | `/v1/server/trash/{sessionId}/restore?projectId=...` | `OPERATOR` | session 복원 |
+
+job 응답은 `OPEN`, `FINALIZING`, `COMPLETED`, `CANCELLED`, `FAILED` 상태와 `receivedBytes`, `updatedAt`을 포함합니다. `pathSummary`에는 최대 5개의 `rootEntries`, 생략 여부, image/video 개수가 포함됩니다. 목록 응답의 `refreshedAt`은 서버가 실제 조회한 시각입니다. Android의 최근 목록 cache는 환경+base URL+직원 identity+project+credential revision으로 격리하며 cache 응답은 항상 stale로 표시하고 저장된 `refreshedAt`을 함께 보여야 합니다. `401`, `403`, 환경/identity/project 불일치에서는 cache를 폐기하고 표시하지 않습니다.
+
+receipt가 성공을 증명하려면 `state=COMPLETED`, `matched=true`, 화면이 요청한 같은 `sessionId`여야 합니다. `matched`는 receiver가 최종 객체의 크기와 SHA-256을 독립적으로 다시 읽어 검증했다는 뜻입니다. 업로드 접수만 된 상태는 성공 receipt가 아닙니다.
+
+휴지통 이동과 복원은 같은 filesystem 안의 directory rename과 DB transition record를 사용합니다. rename 뒤 `fsync`나 DB commit 결과가 불명확하면 active 목록에서 숨긴 transition을 남기고 시작 시 실제 두 directory 위치를 확인해 완료합니다. 클라이언트는 network timeout이나 `5xx`를 확정 실패로 표시하거나 자동 재시도하지 않고 상태를 새로 조회해야 합니다. 영구 삭제는 이 직접 API에 제공하지 않습니다.
+
+접근 project와 직원 token 구성 예시입니다. token 원문은 지정한 `0600` 파일에만 기록합니다.
+
+```bash
+upload_receiver/.venv/bin/python -m upload_receiver.admin upsert-project \
+  --project-id road-alpha --display-name "Road Alpha"
+upload_receiver/.venv/bin/python -m upload_receiver.admin assign-device-project \
+  --device-id <canonical-device-uuid> --project-id road-alpha
+upload_receiver/.venv/bin/python -m upload_receiver.admin issue-employee-token \
+  --employee-id employee.one --display-name "Employee One" --role OPERATOR \
+  --project-id road-alpha --output /secure/path/employee.one.token
+```
+
 ## HTTPS 프록시
 
 - 공개 포트는 443만 연다.
@@ -535,6 +579,7 @@ Android app
 |-- secrets/device-tokens/<deviceId>.token
 |-- storage/staging/<deviceId>/<sessionId>/*.blob
 |-- storage/objects/<deviceId>/<sessionId>/{manifest.json,*.blob}
+|-- storage/trash/<deviceId>/<sessionId>/{manifest.json,*.blob}
 |-- storage/locks/
 |-- runtime/
 `-- caddy/{data,config}/
@@ -547,7 +592,7 @@ Android app
 ```bash
 # 저장소 루트에서 실행
 ./upload_receiver/scripts/install-user-service.sh \
-  /data/server_storage/jetson-upload-receiver
+  /data/server_storage/jetson-upload-receiver production
 ```
 
 설치기는 `upload_receiver/.venv`에 requirements를 설치하고 user service와 cleanup timer를 갱신·재시작합니다. 기존 DB, 객체, pepper와 token은 유지합니다. Caddy 설정 변경은 아래 HTTPS 구성 명령도 다시 실행해야 반영됩니다.

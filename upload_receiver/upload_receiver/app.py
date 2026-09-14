@@ -84,6 +84,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if actual != expected:
             raise ReceiverError(400, f"Content-Type must be {expected}")
 
+    async def employee(request: Request):
+        receiver = service(request)
+        return await run_in_threadpool(
+            receiver.authenticate_employee,
+            request.headers.get("authorization"),
+            request.headers.get("x-expected-server-environment"),
+        )
+
     @application.get("/health/live")
     async def health_live():
         return {"state": "LIVE"}
@@ -121,6 +129,117 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "maxPreviewBytes": effective_settings.max_preview_bytes,
             },
         }
+
+    @application.get("/v1/server/capabilities")
+    async def server_capabilities(request: Request):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(receiver.server_identity, principal)
+
+    @application.get("/v1/server/jobs")
+    async def server_jobs(
+        request: Request,
+        projectId: str,
+        limit: int = 100,
+        offset: int = 0,
+    ):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.list_server_jobs,
+            principal,
+            projectId,
+            limit=limit,
+            offset=offset,
+        )
+
+    @application.get("/v1/server/jobs/{session_id}/files")
+    async def server_files(
+        session_id: str,
+        request: Request,
+        projectId: str,
+        path: str = "",
+    ):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.list_server_files,
+            principal,
+            projectId,
+            session_id,
+            path,
+        )
+
+    @application.get("/v1/server/jobs/{session_id}/preview")
+    async def server_preview(
+        session_id: str,
+        request: Request,
+        projectId: str,
+        path: str,
+    ):
+        receiver = service(request)
+        principal = await employee(request)
+        name, content = await run_in_threadpool(
+            receiver.read_server_preview,
+            principal,
+            projectId,
+            session_id,
+            path,
+        )
+        media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Server-Environment": effective_settings.server_environment,
+                "X-Preview-Size-Bytes": str(len(content)),
+                "X-Preview-Kind": "VIDEO" if media_type.startswith("video/") else "IMAGE",
+            },
+        )
+
+    @application.get("/v1/server/jobs/{session_id}/receipt")
+    async def server_receipt(session_id: str, request: Request, projectId: str):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.server_receipt,
+            principal,
+            projectId,
+            session_id,
+        )
+
+    @application.get("/v1/server/trash")
+    async def server_trash(request: Request, projectId: str):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.list_server_trash,
+            principal,
+            projectId,
+        )
+
+    @application.delete("/v1/server/jobs/{session_id}")
+    async def trash_server_job(session_id: str, request: Request, projectId: str):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.trash_server_job,
+            principal,
+            projectId,
+            session_id,
+        )
+
+    @application.post("/v1/server/trash/{session_id}/restore")
+    async def restore_server_job(session_id: str, request: Request, projectId: str):
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.restore_server_job,
+            principal,
+            projectId,
+            session_id,
+        )
 
     @application.get("/v1/library/sessions")
     async def library_sessions(

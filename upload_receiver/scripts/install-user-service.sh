@@ -5,6 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 app_root="$(cd "${script_dir}/.." && pwd)"
 data_root="${1:-/data/server_storage/jetson-upload-receiver}"
 expected_mount="/data/server_storage"
+server_environment="${2:-${UPLOAD_RECEIVER_ENVIRONMENT:-production}}"
+
+case "${server_environment}" in
+  development|test|production) ;;
+  *)
+    echo "Server environment must be development, test, or production" >&2
+    exit 2
+    ;;
+esac
 
 if ! mountpoint --quiet "${expected_mount}"; then
   echo "Required HDD is not mounted: ${expected_mount}" >&2
@@ -32,6 +41,7 @@ python3 -m venv "${app_root}/.venv"
 export UPLOAD_RECEIVER_DATA_ROOT="$(realpath -m "${data_root}")"
 export UPLOAD_RECEIVER_EXPECTED_MOUNT="$(realpath "${expected_mount}")"
 export UPLOAD_RECEIVER_REQUIRE_MOUNT=true
+export UPLOAD_RECEIVER_ENVIRONMENT="${server_environment}"
 PYTHONPATH="${app_root}" "${app_root}/.venv/bin/python" \
   -m upload_receiver.admin init
 
@@ -46,6 +56,7 @@ printf '%s\n' \
   "UPLOAD_RECEIVER_DATA_ROOT=${UPLOAD_RECEIVER_DATA_ROOT}" \
   "UPLOAD_RECEIVER_EXPECTED_MOUNT=${UPLOAD_RECEIVER_EXPECTED_MOUNT}" \
   "UPLOAD_RECEIVER_REQUIRE_MOUNT=true" \
+  "UPLOAD_RECEIVER_ENVIRONMENT=${UPLOAD_RECEIVER_ENVIRONMENT}" \
   "UPLOAD_RECEIVER_MAX_BATCH_BYTES=33554432" \
   "UPLOAD_RECEIVER_MAX_BATCH_FILES=256" \
   "PYTHONDONTWRITEBYTECODE=1" \
