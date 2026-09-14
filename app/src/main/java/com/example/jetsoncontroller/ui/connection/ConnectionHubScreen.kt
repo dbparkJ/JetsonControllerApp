@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -82,7 +83,8 @@ fun ConnectionHubScreen(
     onReconnectDevice: (RegisteredDevice) -> Unit,
     onDirectConnect: (RegisteredDevice) -> Unit = {},
     onSettingsClick: () -> Unit = {},
-    onUploadHistoryClick: () -> Unit = {}
+    onUploadHistoryClick: () -> Unit = {},
+    onServerDataClick: () -> Unit = {}
 ) {
     var directDevice by remember { mutableStateOf<RegisteredDevice?>(null) }
     directDevice?.let { device ->
@@ -219,7 +221,7 @@ fun ConnectionHubScreen(
             item {
                 Spacer(Modifier.height(AppSpacing.section))
                 SectionHeader(
-                    title = "연결 도구 및 앱 설정",
+                    title = "서버 데이터 · 앱 설정",
                     modifier = Modifier.padding(horizontal = AppSpacing.screen)
                 )
                 ConnectionMethod(
@@ -227,6 +229,12 @@ fun ConnectionHubScreen(
                     title = "새 장비 등록",
                     description = "QR로 장비 인증 정보 저장",
                     onClick = onAddDevice
+                )
+                ConnectionMethod(
+                    Icons.Default.Cloud,
+                    "서버 데이터 직접 보기",
+                    "Jetson 연결 없이 휴대전화 인터넷으로 조회",
+                    onServerDataClick
                 )
                 ConnectionMethod(Icons.Default.Settings, "설정", "장비·서버·알림·화면 설정", onSettingsClick)
                 ConnectionMethod(Icons.Default.History, "업로드 기록", "마지막으로 확인한 전송 기록 보기", onUploadHistoryClick)

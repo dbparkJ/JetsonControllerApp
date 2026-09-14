@@ -23,4 +23,10 @@ class NavigationWorkflowTest {
 
         assertFalse(connectionAttemptCompleted(null, lan))
     }
+
+    @Test
+    fun `background device registration failure does not eject direct server workflow`() {
+        assertFalse(deviceRegistrationRedirectAllowed("server_storage"))
+        assertTrue(deviceRegistrationRedirectAllowed("dashboard"))
+    }
 }
