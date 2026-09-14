@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from jetson_control.field_tools import delete_run_history, read_run_quality, run_history, safe_read, terminal
 from fastapi import HTTPException
@@ -12,6 +12,75 @@ from jetson_control.route_recorder import RouteRecorder
 
 
 class FieldToolsTest(unittest.TestCase):
+    def test_history_merges_root_owned_contextual_run_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / 'capture'
+            directory.mkdir()
+            log = directory / 'run-20260912T010001.000001Z-123.log'
+            log.write_text('running', encoding='utf-8')
+            context = Mock()
+            context.get_run.return_value = {
+                'runId': 'capture/' + log.name,
+                'pipelineId': 'capture',
+                'logId': log.name,
+                'state': 'COMPLETED',
+                'active': False,
+                'contextSnapshot': {'surveyProjectId': 'project-1'},
+                'output': {'manifestState': 'FINAL'},
+                'uploadContext': {'outputId': 'output-1'},
+            }
+
+            history = run_history(root, [], 0, 30, run_context=context)
+
+            self.assertEqual(history['runs'][0]['state'], 'COMPLETED')
+            self.assertFalse(history['runs'][0]['active'])
+            self.assertEqual(
+                history['runs'][0]['contextSnapshot']['surveyProjectId'],
+                'project-1',
+            )
+            self.assertEqual(
+                history['runs'][0]['output']['manifestState'], 'FINAL'
+            )
+            context.get_run.assert_called_once_with('capture/' + log.name)
+
+    def test_contextual_history_is_reconciled_before_recoverable_trash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / 'capture'
+            directory.mkdir()
+            log = directory / 'run-20260912T010001.000001Z-123.log'
+            log.write_text('completed', encoding='utf-8')
+            calls = []
+            context = Mock()
+            context.get_run.side_effect = lambda run_id: (
+                calls.append(('get', run_id))
+                or {'runId': run_id, 'active': False, 'state': 'COMPLETED'}
+            )
+            trash = Mock()
+            trash.trash_run_history.side_effect = lambda *args: (
+                calls.append(('trash', args[1] + '/' + args[2]))
+                or {'category': 'RUN_HISTORY', 'state': 'TRASHED'}
+            )
+
+            result = delete_run_history(
+                root,
+                [],
+                'capture',
+                log.name,
+                run_context=context,
+                trash=trash,
+            )
+
+            self.assertEqual(result['state'], 'TRASHED')
+            self.assertEqual(
+                calls,
+                [
+                    ('get', 'capture/' + log.name),
+                    ('trash', 'capture/' + log.name),
+                ],
+            )
+
     def test_delete_one_history_removes_log_and_route_but_preserves_other_runs_and_data(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

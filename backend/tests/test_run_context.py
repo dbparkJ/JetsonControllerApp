@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from jetson_control.filesystem import StorageRegistry
 from jetson_control.run_context import RunContextConflict, RunContextService
@@ -388,6 +389,69 @@ class RunContextServiceTest(unittest.TestCase):
         with self.assertRaises(RunContextConflict) as conflict:
             self.service.expected_context_for_source("recordings", "untrusted")
         self.assertEqual(conflict.exception.code, "UNTRUSTED_OUTPUT_CONTEXT")
+
+    def test_active_output_and_its_ancestor_are_locked_from_storage_mutation(self):
+        policy = self.configure_policy()
+        run = self.start(policy, self.preflight(policy))["run"]
+        operation = Mock()
+
+        with self.assertRaises(RunContextConflict) as conflict:
+            self.service.mutate_source(
+                "recordings",
+                "",
+                operation,
+                "recordings",
+                "",
+            )
+
+        self.assertEqual(conflict.exception.code, "ACTIVE_RUN_OUTPUT_LOCKED")
+        self.assertEqual(conflict.exception.current["runId"], run["runId"])
+        operation.assert_not_called()
+
+    def test_linked_upload_requires_terminal_run_and_final_manifest(self):
+        policy = self.configure_policy()
+        run = self.start(policy, self.preflight(policy))["run"]
+        relative_output = str(run["output"]["path"])
+        operation = Mock(return_value={"id": "upload-1"})
+
+        with self.assertRaises(RunContextConflict) as conflict:
+            self.service.mutate_source(
+                "recordings",
+                relative_output,
+                operation,
+                "recordings",
+                relative_output,
+                require_final_context=True,
+            )
+        self.assertEqual(conflict.exception.code, "ACTIVE_RUN_OUTPUT_LOCKED")
+
+        output_directory = Path(run["outputDirectory"])
+        (output_directory / "new.jsonl").write_text("new", encoding="utf-8")
+        log_directory = self.logs / "capture"
+        log_directory.mkdir()
+        (log_directory / run["logId"]).write_text(
+            "=== Jetson pipeline run finished ===\n"
+            "finished_at=2026-09-14T10:00:00Z\n"
+            "exit_code=0\nterminal_state=COMPLETED\nstop_signal=\n",
+            encoding="utf-8",
+        )
+        self.pipelines.state = "STOPPED"
+        self.pipelines.active_run_id = None
+
+        result = self.service.mutate_source(
+            "recordings",
+            relative_output,
+            operation,
+            "recordings",
+            relative_output,
+            require_final_context=True,
+        )
+
+        self.assertEqual(result, {"id": "upload-1"})
+        self.assertEqual(
+            operation.call_args.kwargs["expected_context"]["runId"],
+            run["runId"],
+        )
 
 
 if __name__ == "__main__":

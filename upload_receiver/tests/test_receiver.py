@@ -517,6 +517,40 @@ class ReceiverApiTest(unittest.TestCase):
             headers=self.employee_auth(admin_token),
         ).status_code, 403)
 
+    def test_employee_token_rotation_expiry_and_disable_are_immediate(self) -> None:
+        receiver: ReceiverService = self.client.app.state.receiver
+        receiver.upsert_project("road-alpha", "Road Alpha")
+        old_token = receiver.issue_employee_token(
+            "employee.lifecycle", "Lifecycle", "VIEWER", project_ids=["road-alpha"]
+        )
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(old_token)
+        ).status_code, 200)
+        new_token = receiver.issue_employee_token(
+            "employee.lifecycle", "Lifecycle", "OPERATOR", project_ids=["road-alpha"]
+        )
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(old_token)
+        ).status_code, 401)
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(new_token)
+        ).json()["employee"]["role"], "OPERATOR")
+        receiver.disable_employee("employee.lifecycle")
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(new_token)
+        ).status_code, 401)
+
+        expired = receiver.issue_employee_token(
+            "employee.expired",
+            "Expired",
+            "VIEWER",
+            project_ids=["road-alpha"],
+            expires_at="2000-01-01T00:00:00Z",
+        )
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(expired)
+        ).status_code, 401)
+
     def test_direct_server_trash_restore_and_ambiguous_fsync_recovery(self) -> None:
         employee_token = self.configure_employee_access()
         body = b"recoverable"
