@@ -24,23 +24,26 @@ import org.junit.Test
 class TaskFlowScreenTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun startRefreshesFinalChecksBeforeAnyCommandIsSent() {
+    @Test fun startOpensContextualPreparationWithoutSendingLegacyCommand() {
         val pipeline = ManagedPipeline("capture", "테스트 수집", state = PipelineState.STOPPED,
             entrypoint = "capture.py", config = "config.yaml", virtualenv = "venv")
         var state by mutableStateOf(PipelineUiState(deviceId = "A", controlAvailable = true,
             pipelines = listOf(pipeline), observedAtMillis = 1000))
         var refreshes = 0
         var starts = 0
+        var preparations = 0
         compose.setContent { JetsonControllerTheme {
             PipelineListScreen(state, {}, { refreshes++; state = state.copy(isLoading = true) }, {},
-                { _, _ -> starts++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001)
+                { _, _ -> starts++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001,
+                onPrepareRun = { preparations++ })
         } }
         compose.onNodeWithText("작업 시작").performScrollTo().performClick()
-        compose.onNodeWithText("작업 시작 · 최종 점검").assertIsDisplayed()
-        compose.onNodeWithText("확인 후 시작").assertIsNotEnabled()
-        compose.runOnIdle { assertEquals(1, refreshes); assertEquals(0, starts); state = state.copy(isLoading = false) }
-        compose.onNodeWithText("확인 후 시작").assertIsEnabled().performClick()
-        compose.runOnIdle { assertEquals(1, starts) }
+        compose.onNodeWithText("작업 시작 · 최종 점검").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(1, preparations)
+            assertEquals(0, refreshes)
+            assertEquals(0, starts)
+        }
     }
 
     @Test fun historyDeletionRequiresConfirmationAndRunningRunsCannotBeDeleted() {

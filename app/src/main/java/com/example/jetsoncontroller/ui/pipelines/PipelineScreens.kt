@@ -112,7 +112,7 @@ fun PipelineListScreen(
     startCapability: Boolean = false,
     nowMillis: Long = System.currentTimeMillis(),
     onHistory: () -> Unit = {},
-    onPrepareRun: (ManagedPipeline) -> Unit = { pipeline -> onControl(pipeline, "start") }
+    onPrepareRun: (ManagedPipeline) -> Unit = {}
 ) {
     var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
     val fresh = tasksAreFresh(state.controlAvailable, state.observedAtMillis, nowMillis)
