@@ -42,7 +42,7 @@ Android 앱
 
 1. JDK 25와 Android SDK의 `platform-tools`, `platforms;android-37.0`, `build-tools;37.0.0`을 준비합니다.
 2. Android Studio에서 프로젝트를 열거나, 로컬 `local.properties`에 `sdk.dir=/실제/Android/SDK/경로`를 설정합니다.
-3. 저장소 루트에서 빌드·검증합니다.
+3. 저장소 루트에서 빌드·검증합니다. 아래는 전체 조합 예시이며, 부분 변경은 영향을 받는 Gradle 작업과 `--tests '*테스트클래스명'`으로 범위를 선택합니다.
 
 ```bash
 ./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest \
@@ -122,5 +122,7 @@ PYTHONPATH=upload_receiver upload_receiver/.venv/bin/python -m unittest discover
 연결 안정성의 장시간·절전·실제 링크 장애 시험은 아직 남아 있습니다. 자동 테스트 통과와 실제 장비 배포·현장 검증 상태는 [연결 진단](docs/DIAGNOSTICS.md)에서 구분해 확인합니다.
 
 문서는 현재 사용법과 유지할 계약을 중심으로 갱신합니다. 완료된 작업 지시서·날짜별 실행 기록은 Git 이력으로 확인하고, APK·진단 ZIP·로그·캐시·로컬 설정은 커밋하지 않습니다.
+
+에이전트 작업 지침은 [AGENTS.md](AGENTS.md)에 있습니다. 작업에 필요한 문서·스킬·검증만 선택하며, 문서만 바꿀 때는 빌드 대신 diff와 참조 경로를 확인합니다. 지침 정리 근거는 OpenAI의 [Astra 스킬·프롬프트 개선 안내](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)입니다.
 
 신규 화면·저장 경로·호환성은 [GEO& 사용 설명](docs/GEO_FIELD_FEATURES.md), 외부 실시간 검지 프로그램의 연결 계약은 [외부 파이프라인 연동](docs/EXTERNAL_PIPELINE_CONTRACT.md)에 설명되어 있습니다.
