@@ -181,8 +181,10 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `GET` | `/v1/upload/library/sessions?target=&offset=` | HMAC | 외부 서버 완료 upload 목록 프록시 |
 | `GET` | `/v1/upload/library/files?target=&session=&path=` | HMAC | 외부 서버 upload의 가상 폴더 목록 프록시 |
 | `GET` | `/v1/upload/library/file?target=&session=&path=` | HMAC | 외부 서버 파일의 12 MiB 제한 미리보기 프록시 |
-| `DELETE` | `/v1/upload/library/sessions/{sessionId}?target=` | HMAC + 확인 | 외부 서버의 완료 업로드 삭제 |
-| `DELETE` | `/v1/fs/entry?root=&path=` | HMAC + 확인 | 장치 저장소의 선택 파일·폴더 삭제 |
+| `DELETE` | `/v1/upload/library/sessions/{sessionId}?target=` | HMAC + 확인 | legacy 장비-token 영구 삭제는 거부하며 직원 범위 휴지통 사용 안내 |
+| `DELETE` | `/v1/fs/entry?root=&path=` | HMAC + 확인 | 장치 저장소의 선택 파일·폴더를 복구 가능한 휴지통으로 이동 |
+| `GET` | `/v1/trash?includeRestored=false` | HMAC | 로컬 휴지통과 전이·감사 상태 조회 |
+| `POST` | `/v1/trash/{trashId}/restore` | HMAC + 확인 | 파일·폴더 또는 실행 이력과 sidecar 복원 |
 | `GET` | `/v1/upload/targets` | HMAC | 외부 업로드 대상 |
 | `PUT` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 HTTPS 업로드 서버 추가·수정 |
 | `DELETE` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 업로드 서버 삭제 |
@@ -417,7 +419,10 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - 앱이 등록한 서버와 token은 `/var/lib/jetson-control` 아래 root 전용 파일로 원자 저장한다. `/etc`의 관리자 대상은 앱에서 수정할 수 없다.
 - 재부팅 또는 API 재시작 후 진행 중 작업은 영속 상태에서 자동 재개한다.
 - 실패 작업의 retry는 같은 job ID와 receiver session을 재사용해 offset부터 이어간다.
+- 새 실행 결과 업로드는 `PipelineRun.uploadContext`를 `/v1/uploads`의 `context`로 그대로 보낸다. backend는 선택 경로가 root 소유 runtime record의 `resultsDirectory`와 일치하는지 확인하고, 해당 record·`.jetson-output-context.json`·요청의 10개 필드가 모두 같을 때만 linked job을 만든다. runtime record가 없는 legacy source는 context를 생략할 때만 허용한다.
+- job의 `sourceIdentity`는 시작 시 파일 경로·크기·inode·mtime/ctime inventory를 고정한다. retry 또는 전송 완료 전 source가 바뀌면 성공으로 표시하지 않는다. `context`는 receiver manifest hash에도 포함되어 동일 client job ID에 다른 조사 context를 붙일 수 없다.
 - receiver 완료 처리에서 수 TiB 전체 SHA-256 검증을 기다릴 수 있도록 완료 응답 read timeout만 24시간이며, 세션/offset/청크 요청은 기존 60초 timeout을 유지한다.
+- 로컬 삭제는 설정 root 안의 `.jetson-control-trash`로 동일 filesystem rename하고 전이 journal을 `/var/lib/jetson-control/local-trash`에 fsync한다. 예약 경로는 목록·읽기·upload에서 숨기며 symlink parent를 따르지 않는다. 복원은 기존 목적지를 덮어쓰지 않는다. 자동 purge와 영구 삭제 API는 없다.
 
 ## Python 수집 작업
 

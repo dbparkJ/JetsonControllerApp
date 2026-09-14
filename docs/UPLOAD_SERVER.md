@@ -164,6 +164,18 @@ Content-Type: application/json
   "deviceId": "00000000-0000-0000-0000-000000000001",
   "clientJobId": "6fd7a68a0a734c01a83bb6445e5f6c58",
   "sourceName": "capture-20260812",
+  "context": {
+    "schemaVersion": 1,
+    "surveyProjectId": "survey-alpha",
+    "surveySectionId": "section-01",
+    "runId": "capture/run-20260914T010203.000004Z-123.log",
+    "deviceId": "00000000-0000-0000-0000-000000000001",
+    "pipelineId": "capture",
+    "sourceRevision": "git-revision",
+    "configSha256": "64-lowercase-hex",
+    "outputId": "stable-output-id",
+    "createdAt": "2026-09-14T01:02:03Z"
+  },
   "files": [
     {
       "path": "camera/front/000001.jpg",
@@ -173,6 +185,8 @@ Content-Type: application/json
   ]
 }
 ```
+
+`context`는 legacy upload에서만 생략할 수 있다. 새 실행 결과에서는 Jetson의 root 소유 runtime record, 결과 폴더의 `.jetson-output-context.json`, Android가 echo한 `PipelineRun.uploadContext`가 정확히 같아야 한다. receiver는 context를 canonical manifest hash에 포함하므로 같은 `(deviceId, clientJobId)`를 다른 survey section, run, source revision 또는 config로 재사용하면 `409`다. 응답의 `surveyContext`는 조사 문맥이고 `accessProjectId`/호환 `projectId`는 서버 접근 권한 경계이므로 서로 대체하지 않는다.
 
 `deferredFileHashes`를 지원하는 receiver에는 다음처럼 전체 파일 SHA-256을 생략한다.
 
@@ -510,9 +524,9 @@ Android app
 | Method | Path | 역할 |
 |---|---|---|
 | `GET` | `/v1/library/sessions/{sessionId}/verification` | 완료 객체의 크기·해시를 검증하고 `contentSha256` 영수증 반환 |
-| `DELETE` | `/v1/library/sessions/{sessionId}` | 해당 장비가 소유한 완료 세션의 객체와 metadata 삭제 |
+| `DELETE` | `/v1/library/sessions/{sessionId}` | legacy 영구 삭제를 `409`로 거부하고 직원 범위 휴지통 사용 안내 |
 
-두 API도 장비 token이 필요합니다. 미완료 세션은 `409`이고, 검증 시 저장소 불일치는 `503`입니다. 삭제 성공 응답은 `{"sessionId":"...","state":"DELETED"}`입니다. 앱은 Jetson의 인증된 API와 삭제 확인 화면을 통해 요청합니다.
+두 API도 장비 token이 필요합니다. 검증 시 저장소 불일치는 `503`입니다. 장비 token은 역할·access project 감사 주체가 아니므로 완료 객체의 영구 삭제 권한을 갖지 않는다. 완료 데이터 lifecycle mutation은 직원 token의 `/v1/server/*` 휴지통 API만 사용한다.
 
 ## 휴대전화의 서버 직접 조회
 
@@ -539,12 +553,13 @@ X-Expected-Server-Environment: production
 | `GET` | `/v1/server/trash?projectId=...` | `VIEWER` | 복원 가능한 보관 목록 |
 | `DELETE` | `/v1/server/jobs/{sessionId}?projectId=...` | `OPERATOR` | 완료 session을 휴지통으로 이동 |
 | `POST` | `/v1/server/trash/{sessionId}/restore?projectId=...` | `OPERATOR` | session 복원 |
+| `GET` | `/v1/server/audit?projectId=...&limit=...&offset=...` | `ADMIN` | project 범위 mutation·권한 lifecycle 감사 조회 |
 
 job 응답은 `OPEN`, `FINALIZING`, `COMPLETED`, `CANCELLED`, `FAILED` 상태와 `receivedBytes`, `updatedAt`을 포함합니다. `pathSummary`에는 최대 5개의 `rootEntries`, 생략 여부, image/video 개수가 포함됩니다. 목록 응답의 `refreshedAt`은 서버가 실제 조회한 시각입니다. Android의 최근 목록 cache는 환경+base URL+직원 identity+project+credential revision으로 격리하며 cache 응답은 항상 stale로 표시하고 저장된 `refreshedAt`을 함께 보여야 합니다. `401`, `403`, 환경/identity/project 불일치에서는 cache를 폐기하고 표시하지 않습니다.
 
 receipt가 성공을 증명하려면 `state=COMPLETED`, `matched=true`, 화면이 요청한 같은 `sessionId`여야 합니다. `matched`는 receiver가 최종 객체의 크기와 SHA-256을 독립적으로 다시 읽어 검증했다는 뜻입니다. 업로드 접수만 된 상태는 성공 receipt가 아닙니다.
 
-휴지통 이동과 복원은 같은 filesystem 안의 directory rename과 DB transition record를 사용합니다. rename 뒤 `fsync`나 DB commit 결과가 불명확하면 active 목록에서 숨긴 transition을 남기고 시작 시 실제 두 directory 위치를 확인해 완료합니다. 클라이언트는 network timeout이나 `5xx`를 확정 실패로 표시하거나 자동 재시도하지 않고 상태를 새로 조회해야 합니다. 영구 삭제는 이 직접 API에 제공하지 않습니다.
+휴지통 이동과 복원은 같은 filesystem 안의 directory rename과 DB transition record를 사용합니다. rename 뒤 `fsync`나 DB commit 결과가 불명확하면 active 목록에서 숨긴 transition을 남기고 시작 시 실제 두 directory 위치를 확인해 완료합니다. 요청과 완료는 actor, access project, session, outcome과 함께 `audit_events`에 남는다. 클라이언트는 network timeout이나 `5xx`를 확정 실패로 표시하거나 자동 재시도하지 않고 상태를 새로 조회해야 합니다. 영구 삭제와 자동 purge는 제공하지 않습니다. 운영 서버의 별도 original-name hardlink view가 같은 inode를 유지할 수 있으므로 향후 purge가 추가되더라도 별도 view 정리·검증 없이는 disk byte 회수나 완전 삭제를 보장할 수 없다.
 
 접근 project와 직원 token 구성 예시입니다. 저장소 루트에서 실행하되, 기본 data root를 사용하지 않도록 먼저 배포된 receiver의 기존 environment file을 불러옵니다. token 원문은 지정한 `0600` 파일에만 기록합니다.
 
@@ -562,6 +577,8 @@ PYTHONPATH=upload_receiver upload_receiver/.venv/bin/python -m upload_receiver.a
   --employee-id employee.one --display-name "Employee One" --role OPERATOR \
   --project-id road-alpha --output /secure/path/employee.one.token
 ```
+
+즉시 권한 변경은 `set-employee-role`, `revoke-employee-project`, `disable-employee`, `disable-project`를 사용한다. 각 변경은 다음 인증 요청부터 DB의 현재 enabled/expiry/role/grant를 다시 확인하며 audit event를 남긴다. 조직 IdP 자격 증명은 이 도구가 발급하지 않으며 조직이 확정한 provisioning 절차에서 employee token을 전달·회수해야 한다.
 
 ## HTTPS 프록시
 
