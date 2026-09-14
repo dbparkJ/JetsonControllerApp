@@ -354,6 +354,9 @@ class RunContextServiceTest(unittest.TestCase):
         policy = self.configure_policy()
         run = self.start(policy, self.preflight(policy))["run"]
         self.service.record_stop_intent("capture")
+        stopping = self.service.get_run(run["runId"])
+        self.assertEqual(stopping["state"], "STOPPING")
+        self.assertTrue(stopping["active"])
         log_directory = self.logs / "capture"
         log_directory.mkdir()
         (log_directory / run["logId"]).write_text(

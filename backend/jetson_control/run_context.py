@@ -1023,8 +1023,9 @@ class RunContextService:
                         pipeline.get("state") == "RUNNING"
                         and pipeline.get("activeRunId") == record.get("runId")
                     ):
-                        record["state"] = "RUNNING"
-                        changed = True
+                        if record.get("state") == "STARTING":
+                            record["state"] = "RUNNING"
+                            changed = True
                     elif (
                         (self.logs_root / str(record["pipelineId"]) / str(record["logId"])).is_file()
                         and pipeline.get("state") in {"STOPPED", "FAILED"}
