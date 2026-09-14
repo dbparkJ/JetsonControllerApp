@@ -319,6 +319,11 @@ private fun JobDetail(
                 Text(job.sourceName, style = MaterialTheme.typography.titleLarge)
                 Text("세션 ${job.sessionId}", style = MaterialTheme.typography.bodySmall)
                 Text("프로젝트 ${job.projectId} · 장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
+                job.surveyContext?.let { context ->
+                    Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text("Run ${context.runId}", style = MaterialTheme.typography.bodySmall)
+                }
                 Text(if (state.currentPath.isBlank()) "서버 파일 루트" else state.currentPath,
                     style = MaterialTheme.typography.titleMedium)
             }
@@ -393,6 +398,10 @@ private fun TrashPane(
             SectionSurface(LocalCobaltColors.current.sectionSoft) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(job.sourceName, style = MaterialTheme.typography.titleMedium)
+                    job.surveyContext?.let { context ->
+                        Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                     Text("${job.fileCount}개 파일 · ${formatBytes(job.totalBytes)}", style = MaterialTheme.typography.bodySmall)
                     Text("이동 · ${localDateTimeLabel(job.trashedAt)}", style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = { onRestore(job.sessionId) }, enabled = canMutate && !state.isLoading,
@@ -476,6 +485,10 @@ private fun ReceiptDialog(receipt: ServerReceipt, onDismiss: () -> Unit) {
             StatusBadge(if (receipt.matched) "검증 일치" else "검증 불일치",
                 if (receipt.matched) StatusTone.SUCCESS else StatusTone.ERROR)
             Text("세션 ${receipt.sessionId}")
+            receipt.surveyContext?.let { context ->
+                Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}")
+                Text("Run ${context.runId} · 장비 ${context.deviceId}")
+            }
             Text("${receipt.fileCount}개 파일 · ${formatBytes(receipt.totalBytes)}")
             Text("SHA-256\n${receipt.contentSha256}")
             Text("완료 · ${localDateTimeLabel(receipt.completedAt)}")

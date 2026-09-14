@@ -73,7 +73,7 @@ fun ServerStorageScreen(
     onFileClick: (RemoteFileEntry) -> Unit,
     onLoadMore: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
-    deletionEnabled: Boolean = true,
+    deletionEnabled: Boolean = false,
     thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
     onDismissMessage: (String) -> Unit = {}
 ) {
@@ -243,11 +243,13 @@ private fun ServerSessionList(
                 leadingContent = { Icon(Icons.Default.Cloud, contentDescription = null) },
                 trailingContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = { onDeleteSession(session) },
-                            enabled = deletionEnabled && !state.isDeleting
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = "서버 데이터 삭제")
+                        if (deletionEnabled) {
+                            IconButton(
+                                onClick = { onDeleteSession(session) },
+                                enabled = !state.isDeleting
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "서버 데이터 삭제")
+                            }
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null)
                     }

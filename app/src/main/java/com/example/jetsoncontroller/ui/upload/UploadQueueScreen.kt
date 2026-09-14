@@ -166,6 +166,14 @@ fun UploadQueueScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                job.context?.let { context ->
+                                    Text(
+                                        "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId} · Run ${context.runId}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                                 if (progress != null) {
                                     LinearProgressIndicator(
                                         progress = { progress },

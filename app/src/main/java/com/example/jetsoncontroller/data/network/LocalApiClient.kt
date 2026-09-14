@@ -6,7 +6,6 @@ import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.model.CameraPreviewFrame
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.DiscoverPipelineFolderRequest
-import com.example.jetsoncontroller.model.DeviceStorageDeletion
 import com.example.jetsoncontroller.model.FanStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.MobileRtkRelayConfig
@@ -32,6 +31,19 @@ import com.example.jetsoncontroller.model.UploadSourceSummary
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.model.SystemTimeStatus
+import com.example.jetsoncontroller.model.ContextualStartRequest
+import com.example.jetsoncontroller.model.PipelinePreflight
+import com.example.jetsoncontroller.model.PipelinePreflightRequest
+import com.example.jetsoncontroller.model.PipelineRun
+import com.example.jetsoncontroller.model.PipelineRunPolicy
+import com.example.jetsoncontroller.model.SurveyLabelMutationRequest
+import com.example.jetsoncontroller.model.SurveyProject
+import com.example.jetsoncontroller.model.SurveyProjectsResponse
+import com.example.jetsoncontroller.model.SurveySection
+import com.example.jetsoncontroller.model.SurveySectionsResponse
+import com.example.jetsoncontroller.model.UpdatePipelineRunPolicyRequest
+import com.example.jetsoncontroller.model.TrashEntry
+import com.example.jetsoncontroller.model.TrashEntriesResponse
 import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -321,14 +333,25 @@ class LocalApiClient(
     suspend fun deleteStorageEntry(
         rootId: String,
         path: String
-    ): Result<DeviceStorageDeletion> = command(
-        "장치 데이터 삭제", query = { listFiles(rootId, path.substringBeforeLast('/', "")) }
+    ): Result<TrashEntry> = command(
+        "장치 데이터 휴지통 이동",
+        query = { observeTrashThen { listFiles(rootId, path.substringBeforeLast('/', "")) } },
+        serverFailureMayBeApplied = true
     ) {
         requireApi().deleteStorageEntry(
             rootId,
             path,
             LocalControlApi.ConfirmDeletionRequest()
         )
+    }
+
+    suspend fun getTrash(includeRestored: Boolean = false): Result<TrashEntriesResponse> =
+        request("장치 휴지통 조회") { requireApi().getTrash(includeRestored) }
+
+    suspend fun restoreTrash(trashId: String): Result<TrashEntry> = command(
+        "장치 휴지통 복원", query = { getTrash(includeRestored = true) }, serverFailureMayBeApplied = true
+    ) {
+        requireApi().restoreTrash(trashId, LocalControlApi.ConfirmDeletionRequest())
     }
 
     suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> =
@@ -363,8 +386,15 @@ class LocalApiClient(
 
 
     suspend fun taskRuns(offset: Int) = request("작업 기록 조회") { requireApi().taskRuns(offset) }
-    suspend fun deleteTaskRun(pipelineId: String, logId: String) = command("작업 이력 삭제", query = { taskRuns(0) }) {
+    suspend fun deleteTaskRun(pipelineId: String, logId: String) = command("작업 이력 휴지통 이동", query = {
+        observeTrashThen { taskRuns(0) }
+    }, serverFailureMayBeApplied = true) {
         requireApi().deleteTaskRun(pipelineId, logId, LocalControlApi.ConfirmDeletionRequest())
+    }
+
+    private suspend fun observeTrashThen(next: suspend () -> Result<*>): Result<*> {
+        val trash = getTrash()
+        return if (trash.isSuccess) next() else Result.failure<Any>(trash.exceptionOrNull()!!)
     }
     suspend fun taskRoute(pipelineId: String, logId: String) = request("작업 경로 조회") { requireApi().taskRoute(pipelineId, logId) }
     suspend fun taskRunLog(pipelineId: String, logId: String) = request("저장 로그 조회") { requireApi().taskRunLog(pipelineId, logId) }
@@ -447,10 +477,11 @@ class LocalApiClient(
     suspend fun startUpload(
         rootId: String,
         relativePath: String,
-        targetId: String
+        targetId: String,
+        context: com.example.jetsoncontroller.model.UploadContext? = null
     ): Result<UploadJob> = command("업로드 시작", query = { getUploadJobs() }) {
         requireApi().startUpload(
-            LocalControlApi.StartUploadRequest(rootId, relativePath, targetId)
+            LocalControlApi.StartUploadRequest(rootId, relativePath, targetId, context)
         )
     }
 
@@ -477,7 +508,8 @@ class LocalApiClient(
         command("업로드 데이터 검증", query = { getUploadJob(jobId) }) { requireApi().verifyUploadSource(jobId) }
 
     suspend fun deleteUploadSource(jobId: String): Result<UploadJob> =
-        command("업로드 원본 삭제", query = { getUploadJob(jobId) }) {
+        command("업로드 원본 휴지통 이동", query = { observeTrashThen { getUploadJob(jobId) } },
+            serverFailureMayBeApplied = true) {
             requireApi().deleteUploadSource(
                 jobId,
                 LocalControlApi.ConfirmDeletionRequest()
@@ -486,6 +518,51 @@ class LocalApiClient(
 
     suspend fun getPipelines(): Result<List<ManagedPipeline>> =
         request("자동 실행 작업 조회") { requireApi().getPipelines() }
+
+    suspend fun surveyProjects(): Result<List<SurveyProject>> =
+        request("조사 프로젝트 조회") { requireApi().surveyProjects() }.map { it.projects }
+
+    suspend fun createSurveyProject(request: SurveyLabelMutationRequest): Result<SurveyProject> =
+        command("조사 프로젝트 생성", query = { surveyProjects() }) {
+            requireApi().createSurveyProject(request)
+        }
+
+    suspend fun surveySections(surveyProjectId: String): Result<List<SurveySection>> =
+        request("조사 구간 조회") { requireApi().surveySections(surveyProjectId) }.map { it.sections }
+
+    suspend fun createSurveySection(
+        surveyProjectId: String,
+        request: SurveyLabelMutationRequest
+    ): Result<SurveySection> = command("조사 구간 생성", query = { surveySections(surveyProjectId) }) {
+        requireApi().createSurveySection(surveyProjectId, request)
+    }
+
+    suspend fun pipelineRunPolicy(pipelineId: String): Result<PipelineRunPolicy> =
+        request("수집 정책 조회") { requireApi().pipelineRunPolicy(pipelineId) }
+
+    suspend fun updatePipelineRunPolicy(
+        pipelineId: String,
+        request: UpdatePipelineRunPolicyRequest
+    ): Result<PipelineRunPolicy> = command("수집 정책 저장", query = { pipelineRunPolicy(pipelineId) }) {
+        requireApi().updatePipelineRunPolicy(pipelineId, request)
+    }
+
+    suspend fun pipelinePreflight(
+        pipelineId: String,
+        request: PipelinePreflightRequest
+    ): Result<PipelinePreflight> = request("수집 시작 전 점검") {
+        requireApi().pipelinePreflight(pipelineId, request)
+    }
+
+    suspend fun contextualStart(
+        pipelineId: String,
+        request: ContextualStartRequest
+    ): Result<ManagedPipeline> = command("조사 수집 시작", query = { getPipelines() }) {
+        requireApi().contextualStart(pipelineId, request)
+    }
+
+    suspend fun pipelineRun(runId: String): Result<PipelineRun> =
+        request("수집 실행 확인") { requireApi().pipelineRun(runId) }
 
     suspend fun discoverPipelineFolder(
         rootId: String,
@@ -633,9 +710,10 @@ class LocalApiClient(
     private suspend fun <T> command(
         operation: String,
         query: suspend () -> Result<*>,
+        serverFailureMayBeApplied: Boolean = false,
         call: suspend () -> Response<T>
     ): Result<T> = suspendResult {
-        requireBody(withCommandRecovery(operation, query, call = call), operation)
+        requireBody(withCommandRecovery(operation, query, serverFailureMayBeApplied = serverFailureMayBeApplied, call = call), operation)
     }
 
     private suspend fun commandUnit(
@@ -650,6 +728,7 @@ class LocalApiClient(
         operation: String,
         query: suspend () -> Result<*>,
         allowEmptyBody: Boolean = false,
+        serverFailureMayBeApplied: Boolean = false,
         call: suspend () -> Response<T>
     ): Response<T> {
         val commandEndpoint = endpointRevision
@@ -661,6 +740,13 @@ class LocalApiClient(
         return try {
             call().also { response ->
                 requireCurrentEndpoint()
+                if (serverFailureMayBeApplied && response.code() >= 500) {
+                    val error = IOException("$operation HTTP ${response.code()} 이후 결과를 확인할 수 없습니다.")
+                    val observation = withTimeoutOrNull(COMMAND_STATE_QUERY_TIMEOUT_MILLIS) { query() }
+                        ?: Result.failure<Any>(IOException("현재 상태 조회 시간이 초과되었습니다."))
+                    requireCurrentEndpoint()
+                    throw JetsonCommandResultUnknownException(operation, observation, error)
+                }
                 if (response.isSuccessful && !allowEmptyBody && response.body() == null) {
                     throw IOException("$operation 응답이 비어 있어 실행 결과를 확인할 수 없습니다.")
                 }
@@ -767,14 +853,30 @@ class LocalApiClient(
 
     private fun requireSuccess(response: Response<*>, operation: String) {
         if (response.isSuccessful) return
+        var code: String? = null
+        var current: String? = null
         val detail = response.errorBody()?.string()?.let { raw ->
             runCatching {
-                gson.fromJson(raw, JsonObject::class.java)
-                    ?.get("detail")
-                    ?.asString
+                val node = gson.fromJson(raw, JsonObject::class.java)?.get("detail")
+                when {
+                    node == null -> null
+                    node.isJsonPrimitive -> node.asString
+                    node.isJsonObject -> node.asJsonObject.let { objectDetail ->
+                        code = objectDetail.get("code")?.takeIf { it.isJsonPrimitive }?.asString
+                        current = objectDetail.get("current")?.toString()
+                        objectDetail.get("message")?.takeIf { it.isJsonPrimitive }?.asString
+                            ?: objectDetail.get("detail")?.takeIf { it.isJsonPrimitive }?.asString
+                    }
+                    else -> null
+                }
             }.getOrNull()
         }
-        error(detail ?: "$operation 실패 (HTTP ${response.code()})")
+        throw JetsonApiException(
+            statusCode = response.code(),
+            errorCode = code,
+            currentJson = current,
+            message = detail ?: "$operation 실패 (HTTP ${response.code()})"
+        )
     }
 
     private fun hexToBytes(hex: String): ByteArray {
@@ -786,6 +888,13 @@ class LocalApiClient(
         }
     }
 }
+
+class JetsonApiException(
+    val statusCode: Int,
+    val errorCode: String? = null,
+    val currentJson: String? = null,
+    message: String
+) : IllegalStateException(message)
 
 private const val CAMERA_PREVIEW_WAIT_MILLIS = 1_000
 // Match the existing status call budget; never leave an uncertain command waiting

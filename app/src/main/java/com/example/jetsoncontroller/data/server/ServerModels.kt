@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.data.server
 
+import com.example.jetsoncontroller.model.UploadContext
+
 data class ServerEmployee(
     val employeeId: String,
     val displayName: String,
@@ -41,7 +43,8 @@ data class ServerJob(
     val createdAt: String,
     val updatedAt: String,
     val completedAt: String?,
-    val pathSummary: ServerPathSummary
+    val pathSummary: ServerPathSummary,
+    val surveyContext: UploadContext? = null
 )
 
 data class ServerJobsResponse(
@@ -85,7 +88,8 @@ data class ServerReceipt(
     val completedAt: String,
     val matched: Boolean,
     val verifiedAt: String,
-    val refreshedAt: String
+    val refreshedAt: String,
+    val surveyContext: UploadContext? = null
 )
 
 data class ServerTrashJob(
@@ -95,7 +99,8 @@ data class ServerTrashJob(
     val totalBytes: Long,
     val fileCount: Int,
     val state: String,
-    val trashedAt: String
+    val trashedAt: String,
+    val surveyContext: UploadContext? = null
 )
 
 data class ServerTrashResponse(

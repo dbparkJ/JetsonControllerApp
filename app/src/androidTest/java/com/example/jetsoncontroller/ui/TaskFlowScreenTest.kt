@@ -55,12 +55,12 @@ class TaskFlowScreenTest {
         compose.onNodeWithText("취소").performClick()
         compose.runOnIdle { assertEquals(0, deleted) }
         compose.onNodeWithTag("task-run-capture/log").performTouchInput { swipeRight() }
-        compose.onNode(hasText("이력 삭제") and hasAnyAncestor(isDialog())).performClick()
+        compose.onNode(hasText("휴지통으로 이동") and hasAnyAncestor(isDialog())).performClick()
         compose.onNodeWithText("완료된 수집").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, deleted); state = state.copy(runs = listOf(run.copy(state = "RUNNING"))) }
         compose.onNodeWithTag("task-run-capture/log").performScrollTo().performTouchInput { swipeRight() }
-        compose.onNodeWithText("작업 이력을 삭제할까요?").assertDoesNotExist()
-        compose.onNodeWithText("이력 삭제").assertDoesNotExist()
+        compose.onNodeWithText("작업 이력을 휴지통으로 옮길까요?").assertDoesNotExist()
+        compose.onNodeWithText("휴지통으로 이동").assertDoesNotExist()
     }
 
     @Test fun taskTabClearsSavedDetailsAndAlwaysReturnsToFreshTaskSelection() {

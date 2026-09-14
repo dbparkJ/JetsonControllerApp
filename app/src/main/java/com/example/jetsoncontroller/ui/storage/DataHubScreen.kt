@@ -27,7 +27,8 @@ fun DataHubScreen(
     onDevices: () -> Unit, onAlerts: () -> Unit, onFiles: () -> Unit,
     onHistory: () -> Unit, onTargets: () -> Unit,
     onTransfer: (String, String) -> Unit, onSection: (ControlSection) -> Unit,
-    onServerData: () -> Unit = {}
+    onServerData: () -> Unit = {},
+    onTrash: () -> Unit = {}
 ) {
     var selected by rememberSaveable(uploads.deviceId) { mutableStateOf<String?>(null) }
     var query by rememberSaveable(uploads.deviceId) { mutableStateOf("") }
@@ -76,6 +77,17 @@ fun DataHubScreen(
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("서버 데이터 직접 보기", style = MaterialTheme.typography.titleMedium)
                         Text("Jetson 연결 없이 휴대전화 인터넷으로 서버 수신 결과·영수증·휴지통을 확인합니다.",
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            item {
+                Surface(onClick = onTrash, shape = MaterialTheme.shapes.medium,
+                    color = LocalCobaltColors.current.sectionSoft,
+                    contentColor = LocalCobaltColors.current.ink) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("장비 휴지통", style = MaterialTheme.typography.titleMedium)
+                        Text("장비 데이터·업로드 원본·작업 이력을 확인하고 복원합니다. 휴지통 비우기는 지원하지 않습니다.",
                             style = MaterialTheme.typography.bodyMedium)
                     }
                 }

@@ -1584,7 +1584,7 @@ class JetsonRepository(
     suspend fun deleteStorageEntry(
         rootId: String,
         relativePath: String
-    ): Result<DeviceStorageDeletion> {
+    ): Result<TrashEntry> {
         if (rootId == WORKSPACE_ROOT_ID) {
             return Result.failure(
                 IllegalArgumentException("작업공간 데이터는 이 화면에서 삭제할 수 없습니다.")
@@ -1592,6 +1592,12 @@ class JetsonRepository(
         }
         return withIpSession { client -> client.deleteStorageEntry(rootId, relativePath) }
     }
+
+    suspend fun getTrash(includeRestored: Boolean = false): Result<TrashEntriesResponse> =
+        withIpSession { it.getTrash(includeRestored) }
+
+    suspend fun restoreTrash(trashId: String): Result<TrashEntry> =
+        withIpSession { it.restoreTrash(trashId) }
 
     suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> {
         return withIpSession { client -> client.getWorkspaceRoots() }
@@ -1666,14 +1672,19 @@ class JetsonRepository(
         return withIpSession { client -> client.deleteUploadTarget(targetId) }
     }
 
-    suspend fun startUpload(rootId: String, relativePath: String, targetId: String): Result<UploadJob> {
+    suspend fun startUpload(
+        rootId: String,
+        relativePath: String,
+        targetId: String,
+        context: UploadContext? = null
+    ): Result<UploadJob> {
         val transportType = transportCoordinator.currentTransport()?.type
         if (!canStartServerUpload(transportType)) {
             return Result.failure(
                 IllegalStateException(serverUploadUnavailableMessage(transportType))
             )
         }
-        return withIpSession { client -> client.startUpload(rootId, relativePath, targetId) }
+        return withIpSession { client -> client.startUpload(rootId, relativePath, targetId, context) }
     }
 
     suspend fun getUploadJobs(activeOnly: Boolean = false): Result<List<UploadJob>> {
@@ -1713,6 +1724,31 @@ class JetsonRepository(
     suspend fun getPipelines(): Result<List<ManagedPipeline>> {
         return withIpSession { client -> client.getPipelines() }
     }
+
+    suspend fun surveyProjects() = withIpSession { it.surveyProjects() }
+
+    suspend fun createSurveyProject(request: SurveyLabelMutationRequest) =
+        withIpSession { it.createSurveyProject(request) }
+
+    suspend fun surveySections(surveyProjectId: String) =
+        withIpSession { it.surveySections(surveyProjectId) }
+
+    suspend fun createSurveySection(surveyProjectId: String, request: SurveyLabelMutationRequest) =
+        withIpSession { it.createSurveySection(surveyProjectId, request) }
+
+    suspend fun pipelineRunPolicy(pipelineId: String) =
+        withIpSession { it.pipelineRunPolicy(pipelineId) }
+
+    suspend fun updatePipelineRunPolicy(pipelineId: String, request: UpdatePipelineRunPolicyRequest) =
+        withIpSession { it.updatePipelineRunPolicy(pipelineId, request) }
+
+    suspend fun pipelinePreflight(pipelineId: String, request: PipelinePreflightRequest) =
+        withIpSession { it.pipelinePreflight(pipelineId, request) }
+
+    suspend fun contextualStart(pipelineId: String, request: ContextualStartRequest) =
+        withIpSession { it.contextualStart(pipelineId, request) }
+
+    suspend fun pipelineRun(runId: String) = withIpSession { it.pipelineRun(runId) }
 
     suspend fun discoverPipelineFolder(
         rootId: String,

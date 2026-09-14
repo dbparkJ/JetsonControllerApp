@@ -111,30 +111,11 @@ fun PipelineListScreen(
     detailId: String? = null,
     startCapability: Boolean = false,
     nowMillis: Long = System.currentTimeMillis(),
-    onHistory: () -> Unit = {}
+    onHistory: () -> Unit = {},
+    onPrepareRun: (ManagedPipeline) -> Unit = { pipeline -> onControl(pipeline, "start") }
 ) {
     var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
-    var pendingStart by remember(state.deviceId, state.controlAvailable) { mutableStateOf<Pair<ManagedPipeline, String>?>(null) }
     val fresh = tasksAreFresh(state.controlAvailable, state.observedAtMillis, nowMillis)
-    pendingStart?.let { (pipeline, action) ->
-        val current = state.pipelines.firstOrNull { it.id == pipeline.id }
-        val ready = current != null && (action == "restart" || current.state in setOf(
-            PipelineState.STOPPED, PipelineState.FAILED, PipelineState.WAITING_FOR_TIME_SYNC))
-        val checked = fresh && !state.isLoading && state.error == null
-        AlertDialog(onDismissRequest = { pendingStart = null }, title = { Text("작업 시작 · 최종 점검") },
-            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("대상 장비: $deviceName\n작업: ${pipeline.label}")
-                if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                Text(if (checked) "✓ 장비 연결과 최신 작업 상태 확인" else "장비 연결과 최신 작업 상태를 확인하고 있습니다.")
-                Text(if (startCapability) "✓ 작업 제어와 시간 동기화 지원 확인" else "작업 제어 또는 시간 동기화 지원 여부 미확인")
-                Text(if (ready) "✓ 시작 가능한 작업 확인" else "작업이 실행 중이거나 시작 가능한 상태가 아닙니다.")
-                state.error?.let { InlineMessage(it, true) }
-                Text("확인 후 시작을 누르면 휴대전화 시간으로 동기화한 뒤 작업을 시작합니다. 카메라·GNSS·IMU는 시작 후 상태를 확인합니다.")
-            } },
-            confirmButton = { Button(shape = MaterialTheme.shapes.small, enabled = checked && ready && startCapability && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
-                onClick = { pendingStart = null; current?.let { onControl(it, action) } }, modifier = Modifier.heightIn(min = 52.dp)) { Text("확인 후 시작") } },
-            dismissButton = { TextButton(onClick = { pendingStart = null }) { Text("취소") } })
-    }
     pendingRemoval?.let { pipeline ->
         AlertDialog(onDismissRequest = { pendingRemoval = null },
             title = { Text("${pipeline.label} 등록을 해제할까요?") },
@@ -181,10 +162,8 @@ fun PipelineListScreen(
                     controlsEnabled = fresh && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
                     expanded = detailId != null,
                     onDetails = { onDetails(pipeline) },
-                    onControl = { action -> if (action in setOf("start", "restart")) {
-                        pendingStart = pipeline to action
-                        onRefresh()
-                    } else onControl(pipeline, action) },
+                    onControl = { action -> if (action in setOf("start", "restart")) onPrepareRun(pipeline)
+                        else onControl(pipeline, action) },
                     onRemove = { pendingRemoval = pipeline }, onLogs = { onLogs(pipeline) },
                     onConfig = { onConfig(pipeline) }, onOutput = { onOutput(pipeline) })
             }

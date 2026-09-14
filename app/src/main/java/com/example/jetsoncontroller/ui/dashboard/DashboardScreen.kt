@@ -180,8 +180,10 @@ fun DashboardScreen(
             }
             item {
                 AppBanner(
-                    message = "프로젝트·조사 구간은 현재 앱에 연결되지 않았습니다. 실제 운영 전 배정 정보를 별도로 확인하세요.",
-                    tone = StatusTone.WARNING
+                    message = "작업 시작에서 프로젝트·조사 구간·수집 정책을 선택하고 장비의 필수 점검 근거를 확인하세요.",
+                    tone = StatusTone.INFO,
+                    actionLabel = "작업 시작",
+                    onAction = onPipelinesClick
                 )
             }
             item { SectionHeader("시작 준비", trailing = { TextButton(onClick = onSensorsClick) { Text("센서 전체 보기") } }) }

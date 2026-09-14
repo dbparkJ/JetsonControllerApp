@@ -28,7 +28,9 @@ data class ManagedPipeline(
     val activeRunId: String? = null,
     val execution: PipelineExecution? = null,
     val failureKind: String? = null,
-    val control: PipelineControl? = null
+    val control: PipelineControl? = null,
+    val runPolicy: PipelineRunPolicy? = null,
+    val contextualStart: ContextualStartReceipt? = null
 )
 
 data class PipelineExecution(

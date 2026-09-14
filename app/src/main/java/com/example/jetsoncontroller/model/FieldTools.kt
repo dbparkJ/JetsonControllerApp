@@ -2,7 +2,12 @@ package com.example.jetsoncontroller.model
 
 data class TaskRun(val id: String, val pipelineId: String, val label: String, val logId: String,
     val startedAt: String, val finishedAt: String? = null, val state: String = "UNKNOWN",
-    val exitCode: Int? = null, val quality: RunQuality? = null)
+    val exitCode: Int? = null, val quality: RunQuality? = null,
+    val runId: String? = null, val deviceId: String? = null,
+    val contextSnapshot: SurveyContextSnapshot? = null,
+    val policySnapshot: PipelineRunPolicy? = null,
+    val preflightSnapshot: PipelinePreflight? = null,
+    val output: PipelineRunOutput? = null)
 data class TaskRunsResponse(val runs: List<TaskRun> = emptyList(), val nextOffset: Int? = null)
 data class RoutePoint(val latitude: Double, val longitude: Double, val timestamp: Long,
     val segment: Int = 0, val fixState: String? = null, val sensorState: String? = null)

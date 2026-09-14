@@ -57,6 +57,7 @@ fun UploadProgressScreen(
     onRetry: () -> Unit,
     onVerify: () -> Unit,
     onDeleteSource: () -> Unit,
+    onRestoreSource: () -> Unit,
     onBack: () -> Unit,
     serverMutationEnabled: Boolean = true,
     serverMutationDisabledReason: String? = null,
@@ -86,15 +87,15 @@ fun UploadProgressScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("장치의 원본을 삭제할까요?") },
+            title = { Text("장치의 원본을 휴지통으로 옮길까요?") },
             text = {
-                Text("서버 데이터와 다시 대조한 뒤 장치의 원본 폴더를 영구 삭제합니다. 되돌릴 수 없습니다.")
+                Text("서버 데이터와 다시 대조한 뒤 장치의 원본 폴더를 휴지통으로 옮깁니다. 이동이 확인되면 복원할 수 있습니다.")
             },
             confirmButton = {
                 Button(onClick = {
                     showDeleteDialog = false
                     onDeleteSource()
-                }) { Text("확인 후 삭제") }
+                }) { Text("확인 후 휴지통 이동") }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) { Text("취소") }
@@ -170,6 +171,20 @@ fun UploadProgressScreen(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                job.context?.let { context ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}\nRun ${context.runId}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                job.remoteSessionId?.let { sessionId ->
+                    Spacer(Modifier.height(6.dp))
+                    Text("수신 세션 $sessionId", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
 
                 Spacer(Modifier.height(32.dp))
                 if ((job.bytesTotal ?: 0) > 0 || job.state == UploadJobState.COMPLETED) {
@@ -240,6 +255,10 @@ fun UploadProgressScreen(
                     Spacer(Modifier.height(12.dp))
                     InlineMessage(message = "장치의 업로드 원본이 삭제되었습니다.", isError = false)
                 }
+                if (job.sourceRecoverable && job.sourceTrashId != null) {
+                    Spacer(Modifier.height(12.dp))
+                    InlineMessage(message = "장치 원본이 휴지통에 있으며 복원할 수 있습니다.", isError = false)
+                }
                 val serverMutationActionVisible = job.state == UploadJobState.FAILED ||
                     (
                         job.state == UploadJobState.COMPLETED &&
@@ -299,14 +318,21 @@ fun UploadProgressScreen(
                             Text(if (isLoading) "준비 중" else "다시 업로드")
                         }
                     }
-                    if (verification?.matched == true && verification.deletionAllowed) {
+                    if (job.sourceRecoverable && job.sourceTrashId != null) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onRestoreSource,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading && deviceDeletionEnabled
+                        ) { Text("장치 원본 복원") }
+                    } else if (verification?.matched == true && verification.deletionAllowed && job.deletionEligible) {
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = { showDeleteDialog = true },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !isLoading && deviceDeletionEnabled
                         ) {
-                            Text("확인된 장치 원본 삭제")
+                            Text("확인된 장치 원본 휴지통 이동")
                         }
                     }
                     Spacer(Modifier.height(8.dp))

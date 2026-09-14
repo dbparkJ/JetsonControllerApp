@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.*
@@ -23,7 +24,8 @@ data class FieldState(
     val loading: Boolean = false, val error: String? = null,
     val terminalBusy: Boolean = false, val terminalOutput: String = "",
     val captureBusy: Boolean = false, val captureMessage: String? = null,
-    val log: String? = null, val deletingRunId: String? = null, val message: String? = null
+    val log: String? = null, val deletingRunId: String? = null, val undoTrashId: String? = null,
+    val message: String? = null
 )
 
 class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel() {
@@ -109,7 +111,7 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
     }
     fun stopRoutePolling() { routeRequestGeneration++; routeJob?.cancel() }
     fun dismissMessage(shown: String) {
-        if (_state.value.message == shown) _state.value = _state.value.copy(message = null)
+        if (_state.value.message == shown) _state.value = _state.value.copy(message = null, undoTrashId = null)
     }
     fun deleteRun(run: TaskRun) {
         if (!_state.value.online || _state.value.deletingRunId != null || run.state == "RUNNING") return
@@ -120,7 +122,7 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         logJob?.cancel()
         _state.value = _state.value.copy(deletingRunId = run.id, loading = false, error = null, message = null)
         deleteJob = viewModelScope.launch {
-            repository.deleteTaskRun(run.pipelineId, run.logId).onSuccess {
+            repository.deleteTaskRun(run.pipelineId, run.logId).onSuccess { trashed ->
                 if (g == generation) {
                     val current = _state.value
                     _state.value = current.copy(
@@ -128,13 +130,46 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                         selectedRun = current.selectedRun?.takeUnless { it.id == run.id },
                         route = if (current.selectedRun?.id == run.id) emptyList() else current.route,
                         routeQuality = if (current.selectedRun?.id == run.id) null else current.routeQuality,
-                        log = null, message = "작업 이력을 삭제했습니다. 수집 원본 데이터는 유지됩니다.")
+                        log = null,
+                        undoTrashId = trashed.trashId.takeIf { trashed.restoreSupported && trashed.state == "TRASHED" },
+                        message = if (trashed.restoreSupported && trashed.state == "TRASHED") {
+                            "작업 이력을 휴지통으로 옮겼습니다. 수집 원본 데이터는 유지됩니다."
+                        } else "작업 이력을 휴지통으로 옮겼지만 이 항목은 복원할 수 없습니다.")
                     refresh()
                 }
             }.onFailure {
                 if (g == generation) {
-                    _state.value = _state.value.copy(deletingRunId = null, error = it.message ?: "작업 이력을 삭제하지 못했습니다.")
+                    _state.value = _state.value.copy(deletingRunId = null, error =
+                        if (it is JetsonCommandResultUnknownException) {
+                            "휴지통 이동 결과를 확인하지 못했습니다. 자동 재시도하지 않고 작업 이력을 다시 조회합니다."
+                        } else it.message ?: "작업 이력을 휴지통으로 옮기지 못했습니다.")
+                    refresh()
                 }
+            }
+        }
+    }
+    fun undoDeleteRun() {
+        if (!_state.value.online || _state.value.deletingRunId != null) return
+        val trashId = _state.value.undoTrashId ?: return
+        val g = generation
+        _state.value = _state.value.copy(deletingRunId = trashId, message = null, error = null)
+        deleteJob?.cancel()
+        deleteJob = viewModelScope.launch {
+            repository.restoreTrash(trashId).onSuccess { restored ->
+                if (g == generation) {
+                    _state.value = _state.value.copy(
+                        deletingRunId = null,
+                        undoTrashId = null,
+                        message = if (restored.state == "RESTORED") "${restored.name} 작업 이력을 복원했습니다."
+                        else "복원 상태를 다시 확인해 주세요."
+                    )
+                    refresh()
+                }
+            }.onFailure { error ->
+                if (g == generation) _state.value = _state.value.copy(
+                    deletingRunId = null,
+                    error = error.message ?: "작업 이력을 복원하지 못했습니다. 휴지통을 다시 확인하세요."
+                )
             }
         }
     }
