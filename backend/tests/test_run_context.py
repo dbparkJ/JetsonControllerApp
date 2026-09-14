@@ -199,6 +199,21 @@ class RunContextServiceTest(unittest.TestCase):
             )
         self.assertEqual(conflict.exception.code, "IDEMPOTENCY_CONFLICT")
 
+    def test_start_rejects_release_change_after_preflight(self):
+        policy = self.configure_policy()
+        preflight = self.preflight(policy)
+        original = self.pipelines.runtime_identity
+
+        def changed(pipeline_id):
+            identity = original(pipeline_id)
+            identity["release"] = "/opt/re-registered-release"
+            return identity
+
+        self.pipelines.runtime_identity = changed
+        with self.assertRaises(RunContextConflict) as conflict:
+            self.start(policy, preflight)
+        self.assertEqual(conflict.exception.code, "PIPELINE_CHANGED")
+
     def test_terminal_evidence_counts_only_run_directory_and_tombstones_launch(self):
         policy = self.configure_policy()
         started = self.start(policy, self.preflight(policy))
@@ -233,6 +248,63 @@ class RunContextServiceTest(unittest.TestCase):
         active = self.service.active_run("capture")
         self.assertIsNotNone(active)
         self.assertEqual(active["runId"], self.pipelines.active_run_id)
+
+    def test_non_running_pipeline_state_does_not_promote_starting_record(self):
+        policy = self.configure_policy()
+        started = self.start(policy, self.preflight(policy))
+        self.pipelines.state = "STARTING"
+        self.pipelines.active_run_id = started["run"]["runId"]
+        observed = self.service.get_run(started["run"]["runId"])
+        self.assertEqual(observed["state"], "STARTING")
+
+    def test_stopped_run_without_footer_recovers_as_failed(self):
+        policy = self.configure_policy()
+        run = self.start(policy, self.preflight(policy))["run"]
+        log_directory = self.logs / "capture"
+        log_directory.mkdir()
+        (log_directory / run["logId"]).write_text("partial output\n")
+        self.pipelines.state = "STOPPED"
+        self.pipelines.active_run_id = None
+        observed = self.service.get_run(run["runId"])
+        self.assertEqual(observed["state"], "FAILED")
+        self.assertEqual(observed["stopReason"], "INTERRUPTED_NO_TERMINAL_EVIDENCE")
+
+    def test_unknown_status_never_unlocks_delayed_or_previously_running_run(self):
+        policy = self.configure_policy()
+        run = self.start(policy, self.preflight(policy))["run"]
+        self.pipelines.state = "UNKNOWN"
+        self.pipelines.active_run_id = None
+        self.clock_value += 10
+        delayed = self.service.get_run(run["runId"])
+        self.assertTrue(delayed["active"])
+        self.assertEqual(delayed["state"], "STARTING")
+
+        self.pipelines.state = "RUNNING"
+        self.pipelines.active_run_id = run["runId"]
+        running = self.service.get_run(run["runId"])
+        self.assertEqual(running["state"], "RUNNING")
+        self.pipelines.state = "UNKNOWN"
+        self.pipelines.active_run_id = None
+        uncertain = self.service.get_run(run["runId"])
+        self.assertTrue(uncertain["active"])
+        self.assertEqual(uncertain["state"], "RUNNING")
+
+    def test_operator_stop_intent_wins_completion_race(self):
+        policy = self.configure_policy()
+        run = self.start(policy, self.preflight(policy))["run"]
+        self.service.record_stop_intent("capture")
+        log_directory = self.logs / "capture"
+        log_directory.mkdir()
+        (log_directory / run["logId"]).write_text(
+            "=== Jetson pipeline run finished ===\n"
+            "finished_at=2026-09-14T10:00:00Z\n"
+            "exit_code=0\nterminal_state=COMPLETED\nstop_signal=\n"
+        )
+        self.pipelines.state = "STOPPED"
+        self.pipelines.active_run_id = None
+        observed = self.service.get_run(run["runId"])
+        self.assertEqual(observed["state"], "STOPPED")
+        self.assertEqual(observed["stopReason"], "OPERATOR")
 
     def test_pipeline_user_permission_is_checked_instead_of_api_root(self):
         self.output.chmod(0o500)

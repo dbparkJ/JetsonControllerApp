@@ -928,6 +928,8 @@ class RunContextService:
             changed = False
             terminal = self._terminal_from_log(record)
             if terminal is not None and record.get("state") not in TERMINAL_STATES:
+                if record.get("stopIntent") is not None and terminal["state"] == "COMPLETED":
+                    terminal["state"] = "STOPPED"
                 record.update(terminal)
                 record["active"] = False
                 record["stopReason"] = (
@@ -947,7 +949,7 @@ class RunContextService:
                         changed = True
                     elif (
                         (self.logs_root / str(record["pipelineId"]) / str(record["logId"])).is_file()
-                        and pipeline.get("state") in {"STOPPED", "FAILED", "UNKNOWN"}
+                        and pipeline.get("state") in {"STOPPED", "FAILED"}
                     ):
                         record["state"] = "FAILED"
                         record["active"] = False
@@ -955,7 +957,7 @@ class RunContextService:
                         record["stopReason"] = "INTERRUPTED_NO_TERMINAL_EVIDENCE"
                         changed = True
                     elif (
-                        pipeline.get("state") in {"STOPPED", "FAILED", "UNKNOWN"}
+                        pipeline.get("state") in {"STOPPED", "FAILED"}
                         and isinstance(record.get("startedAtEpochMillis"), int)
                         and int(self.clock() * 1000) - int(record["startedAtEpochMillis"]) > 5_000
                     ):
