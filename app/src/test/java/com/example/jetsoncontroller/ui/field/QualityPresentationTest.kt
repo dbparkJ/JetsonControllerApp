@@ -79,7 +79,7 @@ class QualityPresentationTest {
     }
 
     @Test
-    fun `offline running history is an unconfirmed last observation`() {
+    fun `running history never claims more than observation freshness supports`() {
         val run = TaskRun("id", "pipeline", "label", "log", "start", state = "RUNNING")
         assertEquals(
             "최근 실행 보고 · 현재 미확인" to StatusTone.WARNING,
@@ -90,7 +90,7 @@ class QualityPresentationTest {
             historyRunPresentation(run, online = true, historyCurrent = false)
         )
         assertEquals(
-            "진행 중" to StatusTone.INFO,
+            "실행 보고" to StatusTone.INFO,
             historyRunPresentation(run, online = true, historyCurrent = true)
         )
     }
