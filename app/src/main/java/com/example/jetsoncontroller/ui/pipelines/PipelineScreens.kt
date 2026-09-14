@@ -111,33 +111,28 @@ fun PipelineListScreen(
     detailId: String? = null,
     startCapability: Boolean = false,
     nowMillis: Long = System.currentTimeMillis(),
-    fieldState: com.example.jetsoncontroller.ui.field.FieldState? = null,
-    onHistoryRefresh: () -> Unit = {}, onMoreHistory: () -> Unit = {},
-    onRunLog: (com.example.jetsoncontroller.model.TaskRun) -> Unit = {},
-    onRunRoute: (com.example.jetsoncontroller.model.TaskRun) -> Unit = {},
-    onDismissRunLog: () -> Unit = {}
+    onHistory: () -> Unit = {}
 ) {
-    var choosing by androidx.compose.runtime.saveable.rememberSaveable(state.deviceId) { mutableStateOf(false) }
-    androidx.activity.compose.BackHandler(choosing && detailId == null) { choosing = false }
-    if (fieldState != null && detailId == null && !choosing) {
-        com.example.jetsoncontroller.ui.field.GeoRunDashboard(fieldState, state.pipelines, deviceName,
-            unreadCount, onBack, onAlerts, onSectionSelected, { choosing = true }, onHistoryRefresh,
-            onMoreHistory, onRunLog, onRunRoute, onDismissRunLog, onDetails)
-        return
-    }
     var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
     var pendingStart by remember(state.deviceId, state.controlAvailable) { mutableStateOf<Pair<ManagedPipeline, String>?>(null) }
     val fresh = tasksAreFresh(state.controlAvailable, state.observedAtMillis, nowMillis)
     pendingStart?.let { (pipeline, action) ->
-        AlertDialog(onDismissRequest = { pendingStart = null }, title = { Text("시작 전 확인") },
+        val current = state.pipelines.firstOrNull { it.id == pipeline.id }
+        val ready = current != null && (action == "restart" || current.state in setOf(
+            PipelineState.STOPPED, PipelineState.FAILED, PipelineState.WAITING_FOR_TIME_SYNC))
+        val checked = fresh && !state.isLoading && state.error == null
+        AlertDialog(onDismissRequest = { pendingStart = null }, title = { Text("작업 시작 · 최종 점검") },
             text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("대상 장비: $deviceName\n작업: ${pipeline.label}")
-                Text(if (startCapability) "장비 작업 제어와 시간 동기화 지원 확인" else "작업 제어 또는 시간 동기화 지원 여부 미확인")
-                Text("실행 직전 휴대전화 시간으로 동기화합니다. 작업 기동 후 활성화되는 센서는 시작 차단 조건이 아닙니다.")
-                Text("요청 접수 후 실제 실행 상태를 다시 확인합니다.")
+                if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text(if (checked) "✓ 장비 연결과 최신 작업 상태 확인" else "장비 연결과 최신 작업 상태를 확인하고 있습니다.")
+                Text(if (startCapability) "✓ 작업 제어와 시간 동기화 지원 확인" else "작업 제어 또는 시간 동기화 지원 여부 미확인")
+                Text(if (ready) "✓ 시작 가능한 작업 확인" else "작업이 실행 중이거나 시작 가능한 상태가 아닙니다.")
+                state.error?.let { InlineMessage(it, true) }
+                Text("확인 후 시작을 누르면 휴대전화 시간으로 동기화한 뒤 작업을 시작합니다. 카메라·GNSS·IMU는 시작 후 상태를 확인합니다.")
             } },
-            confirmButton = { Button(shape = MaterialTheme.shapes.small, enabled = fresh && startCapability && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
-                onClick = { pendingStart = null; onControl(pipeline, action) }, modifier = Modifier.heightIn(min = 52.dp)) { Text("작업 시작 요청") } },
+            confirmButton = { Button(shape = MaterialTheme.shapes.small, enabled = checked && ready && startCapability && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
+                onClick = { pendingStart = null; current?.let { onControl(it, action) } }, modifier = Modifier.heightIn(min = 52.dp)) { Text("확인 후 시작") } },
             dismissButton = { TextButton(onClick = { pendingStart = null }) { Text("취소") } })
     }
     pendingRemoval?.let { pipeline ->
@@ -152,8 +147,8 @@ fun PipelineListScreen(
     Scaffold(
         topBar = {
             com.example.jetsoncontroller.ui.components.DeviceContextHeader(
-                if (detailId == null) "새 작업 · 실행 프로그램 선택" else "작업 상세", deviceName,
-                if (fresh) "작업 상태 확인됨" else "현재 상태 미확인", { if (choosing && detailId == null) choosing = false else onBack() }, unreadCount, onAlerts,
+                if (detailId == null) "작업 시작 · 실행 프로그램 선택" else "작업 상세", deviceName,
+                if (fresh) "작업 상태 확인됨" else "현재 상태 미확인", onBack, unreadCount, onAlerts,
                 actions = {
                     if (detailId == null) IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "작업 추가") }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading && state.busyPipelineId == null) { Icon(Icons.Default.Refresh, "상태 새로고침") }
@@ -163,6 +158,9 @@ fun PipelineListScreen(
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item { OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                Text("작업 이력")
+            } }
             item { Text("전체 ${state.pipelines.size} · 실행 확인 ${if (fresh) state.pipelines.count { it.state == PipelineState.RUNNING && it.id !in state.pendingActions } else 0}",
                 style = MaterialTheme.typography.bodyMedium) }
             state.error?.let { item { InlineMessage(it, true) } }
@@ -181,7 +179,10 @@ fun PipelineListScreen(
                     controlsEnabled = fresh && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
                     expanded = detailId != null,
                     onDetails = { onDetails(pipeline) },
-                    onControl = { action -> if (action in setOf("start", "restart")) pendingStart = pipeline to action else onControl(pipeline, action) },
+                    onControl = { action -> if (action in setOf("start", "restart")) {
+                        pendingStart = pipeline to action
+                        onRefresh()
+                    } else onControl(pipeline, action) },
                     onRemove = { pendingRemoval = pipeline }, onLogs = { onLogs(pipeline) },
                     onConfig = { onConfig(pipeline) }, onOutput = { onOutput(pipeline) })
             }
@@ -234,7 +235,7 @@ private fun TaskStateCard(
                 if (expanded) Button(shape = MaterialTheme.shapes.small, onClick = { onControl("restart") }, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("다시 시작") }
             } else {
                 Button(shape = MaterialTheme.shapes.small, onClick = { onControl("start") }, enabled = controlsEnabled,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(if (pendingAction != null) "요청 확인 중…" else "시작 전 확인") }
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(if (pendingAction != null) "요청 확인 중…" else "작업 시작") }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (!controlsEnabled) Text("연결·최근 상태·진행 중 요청을 확인한 뒤 제어할 수 있습니다.", style = MaterialTheme.typography.bodyMedium)

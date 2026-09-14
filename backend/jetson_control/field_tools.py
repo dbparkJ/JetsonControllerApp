@@ -67,6 +67,43 @@ def run_history(logs_root: Path, pipelines: list, offset: int, limit: int) -> di
     return dict(runs=runs, nextOffset=offset + limit if offset + limit < len(candidates) else None)
 
 
+def delete_run_history(logs_root: Path, pipelines: list, pipeline_id: str, log_id: str) -> dict:
+    """Delete one inactive run's log/route, never its acquisition output directory."""
+    if not PIPELINE_ID.fullmatch(pipeline_id) or not RUN_NAME.fullmatch(log_id):
+        raise HTTPException(400, 'Invalid run')
+    root_fd = os.open(logs_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        directory_fd = os.open(pipeline_id, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+    finally:
+        os.close(root_fd)
+    try:
+        names = [name for name in os.listdir(directory_fd) if RUN_NAME.fullmatch(name)
+                 and stat.S_ISREG(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode)]
+        current = next((p for p in pipelines if p['id'] == pipeline_id), {})
+        if names and log_id == max(names) and current.get('state') in ('RUNNING', 'STARTING', 'STOPPING', 'RETRYING'):
+            raise HTTPException(409, '실행 중인 작업 이력은 삭제할 수 없습니다. 작업을 중지한 뒤 다시 확인하세요.')
+        metadata = os.stat(log_id, dir_fd=directory_fd, follow_symlinks=False)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise HTTPException(400, 'Unsafe run log')
+        route_id = log_id + '.route.jsonl'
+        try:
+            route = os.stat(route_id, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            route = None
+        if route is not None:
+            if not stat.S_ISREG(route.st_mode):
+                raise HTTPException(400, 'Unsafe run route')
+            os.unlink(route_id, dir_fd=directory_fd)
+        os.unlink(log_id, dir_fd=directory_fd)
+        return {'deleted': True}
+    finally:
+        os.close(directory_fd)
+
+
+class RunDeletionRequest(BaseModel):
+    confirmed: bool = False
+
+
 class TerminalRequest(BaseModel):
     command: str = Field(min_length=1, max_length=4096)
 
@@ -131,6 +168,17 @@ def register_field_routes(app, authenticated, paths, config, pipelines, sensor_b
         def read():
             return run_history(paths.pipeline_logs, pipelines.list_pipelines(), offset, limit)
         return await run_in_threadpool(read)
+
+    @app.delete('/v1/task-runs/{pipeline_id}/{log_id}', dependencies=authenticated)
+    async def delete_history(pipeline_id: str, log_id: str, request: RunDeletionRequest):
+        if not request.confirmed:
+            raise HTTPException(400, '작업 이력 삭제 확인이 필요합니다.')
+        try:
+            return await run_in_threadpool(pipelines.delete_run_history, pipeline_id, log_id)
+        except FileNotFoundError as error:
+            raise HTTPException(404, '작업 이력을 찾지 못했습니다. 목록을 새로고침해 주세요.') from error
+        except OSError as error:
+            raise HTTPException(503, '작업 이력을 삭제하지 못했습니다.') from error
 
     @app.get('/v1/task-runs/{pipeline_id}/{log_id}/route', dependencies=authenticated)
     async def route(pipeline_id: str, log_id: str):

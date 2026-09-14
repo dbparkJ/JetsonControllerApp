@@ -127,7 +127,7 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             com.example.jetsoncontroller.ui.components.DeviceContextHeader(
-                title = "GEO& 도로관리장치 제어", deviceName = state.deviceName,
+                title = "도로관리장치 제어", deviceName = state.deviceName, showLogo = true,
                 connectionLabel = userConnectionStage(state.isOnline, state.transportType).label,
                 onDevices = onBack, unreadCount = unreadAlertCount, onAlerts = onAlertsClick)
         },

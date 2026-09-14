@@ -23,6 +23,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/var/lib/jetson-control /run/jetson-control /opt/jetson-pipelines
+ReadWritePaths=-/var/log/jetson-pipelines
 ReadWritePaths=-/sys/devices/pwm-fan -/sys/devices/platform/pwm-fan
 ProtectKernelTunables=true
 ProtectKernelModules=true

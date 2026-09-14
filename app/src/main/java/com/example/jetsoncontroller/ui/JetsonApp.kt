@@ -19,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
+import androidx.navigation.NavHostController
 import androidx.navigation.navArgument
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.alerts.AlertDestination
@@ -116,6 +117,7 @@ private object Routes {
 
     const val PIPELINES =
         "pipelines"
+    const val TASK_HISTORY = "task_history"
 
     const val PIPELINE_EDITOR =
         "pipeline_editor"
@@ -388,6 +390,14 @@ fun JetsonApp(
     val deviceUiState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
     val onSectionSelected: (ControlSection) -> Unit = onSectionSelected@ { section ->
+        if (section == ControlSection.OVERVIEW) {
+            navigateToDashboard(navController)
+            return@onSectionSelected
+        }
+        if (section == ControlSection.PIPELINES) {
+            navigateToTaskStart(navController)
+            return@onSectionSelected
+        }
         val route = when (section) {
             ControlSection.OVERVIEW -> Routes.DASHBOARD
             ControlSection.DATA -> Routes.STORAGE
@@ -852,6 +862,7 @@ fun JetsonApp(
                 }
             }
             DeviceStorageScreen(
+                onDismissMessage = storageViewModel::dismissMessage,
                 onTransferQueue = { navController.navigate(Routes.DATA) },
                 thumbnailLoader = { entry -> repository.getFile(storageState.currentRoot!!.id, entry.relativePath) },
                 state = storageState,
@@ -885,6 +896,7 @@ fun JetsonApp(
                 serverStorageViewModel.refresh()
             }
             ServerStorageScreen(
+                onDismissMessage = serverStorageViewModel::dismissMessage,
                 thumbnailLoader = { entry -> repository.getUploadLibraryFile(serverStorageState.selectedTarget!!.id, serverStorageState.selectedSession!!.sessionId, entry.relativePath) },
                 state = serverStorageState,
                 onBack = {
@@ -1020,12 +1032,7 @@ fun JetsonApp(
         composable(taskRoute) { taskEntry ->
             StatusPollingLifecycleEffect(dashboardViewModel)
             PipelineListScreen(
-                fieldState = fieldState,
-                onHistoryRefresh = { fieldToolsViewModel.refresh() },
-                onMoreHistory = { fieldToolsViewModel.refresh(true) },
-                onRunLog = fieldToolsViewModel::openLog,
-                onDismissRunLog = fieldToolsViewModel::dismissLog,
-                onRunRoute = { fieldToolsViewModel.selectRun(it); navController.navigate(Routes.GNSS_MAP) },
+                onHistory = { navController.navigate(Routes.TASK_HISTORY) { launchSingleTop = true } },
 
                 state = pipelineState,
                 onBack = { navController.popBackStack() },
@@ -1059,6 +1066,23 @@ fun JetsonApp(
                 startCapability = dashboardState.capabilities.pipelines && dashboardState.capabilities.mobileTimeSync
             )
         }
+        }
+
+        composable(Routes.TASK_HISTORY) {
+            LaunchedEffect(Unit) { fieldToolsViewModel.refresh() }
+            com.example.jetsoncontroller.ui.field.GeoRunDashboard(
+                state = fieldState, pipelines = pipelineState.pipelines, deviceName = selectedDeviceName,
+                unreadCount = alertCenterState.unreadCount,
+                onBack = { navController.popBackStack() }, onAlerts = { navController.navigate(Routes.ALERTS) },
+                onSection = onSectionSelected, onNew = { navigateToTaskStart(navController) },
+                onRefresh = { fieldToolsViewModel.refresh() }, onMore = { fieldToolsViewModel.refresh(true) },
+                onLog = fieldToolsViewModel::openLog,
+                onRoute = { fieldToolsViewModel.selectRun(it); navController.navigate(Routes.GNSS_MAP) },
+                onDismissLog = fieldToolsViewModel::dismissLog,
+                onPipeline = { navController.navigate("pipeline_detail/${Uri.encode(it.id)}") },
+                onDeleteRun = fieldToolsViewModel::deleteRun,
+                onDismissMessage = fieldToolsViewModel::dismissMessage
+            )
         }
 
         composable(Routes.PIPELINE_EDITOR) {
@@ -1288,6 +1312,24 @@ private fun StatusPollingLifecycleEffect(viewModel: DashboardViewModel) {
             lifecycleOwner.lifecycle.removeObserver(observer)
             viewModel.setVisible(false)
         }
+    }
+}
+
+internal fun navigateToTaskStart(navController: NavHostController) {
+    navController.clearBackStack(Routes.PIPELINES)
+    navController.navigate(Routes.PIPELINES) {
+        popUpTo(Routes.DASHBOARD) { saveState = false }
+        launchSingleTop = true
+        restoreState = false
+    }
+}
+
+internal fun navigateToDashboard(navController: NavHostController) {
+    navController.clearBackStack(Routes.DASHBOARD)
+    navController.navigate(Routes.DASHBOARD) {
+        popUpTo(Routes.DASHBOARD) { inclusive = true; saveState = false }
+        launchSingleTop = true
+        restoreState = false
     }
 }
 

@@ -24,7 +24,7 @@ class GeoFieldScreenTest {
     @Test fun welcomeShowsRequiredBrandInBothThemes() {
         var dark by mutableStateOf(false)
         compose.setContent { JetsonControllerTheme(darkTheme = dark) { GeoWelcomeScene() } }
-        compose.onNodeWithText("GEO&").assertIsDisplayed()
+        compose.onNodeWithContentDescription("GEO& 로고").assertIsDisplayed()
         compose.onNodeWithText("도로관리장치 제어").assertIsDisplayed()
         capture("welcome-light")
         compose.runOnIdle { dark = true }
@@ -40,7 +40,7 @@ class GeoFieldScreenTest {
             GeoRunDashboard(FieldState(deviceId = "fixture", runs = runs), emptyList(), "GEO& UI 테스트",
                 0, {}, {}, {}, { newRequests++ }, {}, {}, {}, {}, {}, {})
         } }
-        compose.onNodeWithText("최근 실행 10개 · 완료 탭에서 이전 기록을 확인하세요.").assertIsDisplayed()
+        compose.onNodeWithText("실행 기록을 오른쪽으로 밀면 삭제할 수 있습니다.").assertIsDisplayed()
         capture("tasks-all")
         compose.onAllNodesWithText("완료")[0].performClick()
         compose.onNodeWithText("진행 화면 예시").assertDoesNotExist()

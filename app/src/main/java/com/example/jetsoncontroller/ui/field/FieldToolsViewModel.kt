@@ -21,7 +21,7 @@ data class FieldState(
     val loading: Boolean = false, val error: String? = null,
     val terminalBusy: Boolean = false, val terminalOutput: String = "",
     val captureBusy: Boolean = false, val captureMessage: String? = null,
-    val log: String? = null
+    val log: String? = null, val deletingRunId: String? = null, val message: String? = null
 )
 
 class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel() {
@@ -33,15 +33,16 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
     private var logJob: Job? = null
     private var terminalJob: Job? = null
     private var captureJob: Job? = null
+    private var deleteJob: Job? = null
     init {
         viewModelScope.launch {
             combine(repository.selectedDeviceId, repository.transportState) { id, transport -> id to transport }
                 .distinctUntilChanged().collectLatest { (id, transport) ->
                     generation++
-                    historyJob?.cancel(); routeJob?.cancel(); logJob?.cancel(); terminalJob?.cancel(); captureJob?.cancel()
+                    historyJob?.cancel(); routeJob?.cancel(); logJob?.cancel(); terminalJob?.cancel(); captureJob?.cancel(); deleteJob?.cancel()
                     val online = transport is TransportState.Connected && transport.type != TransportType.BLE && transport.deviceId.equals(id, true)
                     _state.value = if (id != _state.value.deviceId) FieldState(deviceId = id, online = online)
-                        else _state.value.copy(online = online, loading = false, terminalBusy = false, captureBusy = false)
+                        else _state.value.copy(online = online, loading = false, terminalBusy = false, captureBusy = false, deletingRunId = null)
                     if (online) {
                         while (true) { refresh(retainLoaded = true); delay(10_000) }
                     }
@@ -49,7 +50,7 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         }
     }
     fun refresh(more: Boolean = false, retainLoaded: Boolean = false) {
-        if (!_state.value.online || historyJob?.isActive == true) return
+        if (!_state.value.online || historyJob?.isActive == true || _state.value.deletingRunId != null) return
         val g = generation
         val offset = if (more) _state.value.nextOffset ?: return else 0
         historyJob = viewModelScope.launch {
@@ -94,6 +95,34 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         }
     }
     fun stopRoutePolling() { routeJob?.cancel() }
+    fun dismissMessage(shown: String) {
+        if (_state.value.message == shown) _state.value = _state.value.copy(message = null)
+    }
+    fun deleteRun(run: TaskRun) {
+        if (!_state.value.online || _state.value.deletingRunId != null || run.state == "RUNNING") return
+        val g = generation
+        historyJob?.cancel()
+        routeJob?.cancel()
+        logJob?.cancel()
+        _state.value = _state.value.copy(deletingRunId = run.id, loading = false, error = null, message = null)
+        deleteJob = viewModelScope.launch {
+            repository.deleteTaskRun(run.pipelineId, run.logId).onSuccess {
+                if (g == generation) {
+                    val current = _state.value
+                    _state.value = current.copy(
+                        runs = current.runs.filterNot { it.id == run.id }, deletingRunId = null,
+                        selectedRun = current.selectedRun?.takeUnless { it.id == run.id },
+                        route = if (current.selectedRun?.id == run.id) emptyList() else current.route,
+                        log = null, message = "작업 이력을 삭제했습니다. 수집 원본 데이터는 유지됩니다.")
+                    refresh()
+                }
+            }.onFailure {
+                if (g == generation) {
+                    _state.value = _state.value.copy(deletingRunId = null, error = it.message ?: "작업 이력을 삭제하지 못했습니다.")
+                }
+            }
+        }
+    }
     fun dismissLog() { _state.value = _state.value.copy(log = null) }
     fun execute(command: String) {
         if (!_state.value.online || _state.value.terminalBusy || command.isBlank()) return

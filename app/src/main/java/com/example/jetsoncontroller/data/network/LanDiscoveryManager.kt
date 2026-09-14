@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.charset.StandardCharsets
+import java.net.InetAddress
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class LanDiscoveryManager(private val context: Context) {
 
@@ -36,6 +38,43 @@ class LanDiscoveryManager(private val context: Context) {
     val error: StateFlow<String?> = _error.asStateFlow()
 
     private var discoveryActive = false
+    private val authenticatedEndpoints = ConcurrentHashMap<String, DeviceEndpoint>()
+    private val endpointPreferences = context.applicationContext.getSharedPreferences(
+        "authenticated_lan_endpoints", Context.MODE_PRIVATE
+    )
+
+    fun rememberAuthenticatedEndpoint(endpoint: DeviceEndpoint) {
+        val id = endpoint.deviceId.lowercase()
+        authenticatedEndpoints[id] = endpoint
+        endpointPreferences.edit().putString("$id.host", endpoint.host)
+            .putInt("$id.port", endpoint.port).apply()
+    }
+
+    /** Re-evaluate on every retry, after Android has restored foreground network access. */
+    fun reconnectEndpoint(endpoint: DeviceEndpoint): DeviceEndpoint {
+        val id = endpoint.deviceId.lowercase()
+        val previous = authenticatedEndpoints[id] ?: endpointPreferences.getString("$id.host", null)?.let {
+            endpoint.copy(host = it, port = endpointPreferences.getInt("$id.port", -1))
+        } ?: return endpoint
+        if (previous.port != endpoint.port) return endpoint
+        return runCatching {
+            val prefixes = connectivityManager.allNetworks.filter { network ->
+                val capabilities = connectivityManager.getNetworkCapabilities(network)
+                !isDirectNetwork(network) &&
+                    (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                        capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true)
+            }.flatMap { network ->
+                connectivityManager.getLinkProperties(network)?.linkAddresses.orEmpty()
+                    .map { LanAddressPrefix(it.address, it.prefixLength) }
+            }
+            val host = selectLanReconnectAddress(
+                InetAddress.getByName(endpoint.host),
+                InetAddress.getByName(previous.host),
+                prefixes
+            ).hostAddress ?: endpoint.host
+            endpoint.copy(host = host)
+        }.getOrDefault(endpoint)
+    }
 
     private val discoveryListener = object : NsdManager.DiscoveryListener {
         override fun onDiscoveryStarted(regType: String) {

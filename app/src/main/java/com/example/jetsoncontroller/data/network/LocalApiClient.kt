@@ -363,6 +363,9 @@ class LocalApiClient(
 
 
     suspend fun taskRuns(offset: Int) = request("작업 기록 조회") { requireApi().taskRuns(offset) }
+    suspend fun deleteTaskRun(pipelineId: String, logId: String) = command("작업 이력 삭제", query = { taskRuns(0) }) {
+        requireApi().deleteTaskRun(pipelineId, logId, LocalControlApi.ConfirmDeletionRequest())
+    }
     suspend fun taskRoute(pipelineId: String, logId: String) = request("작업 경로 조회") { requireApi().taskRoute(pipelineId, logId) }
     suspend fun taskRunLog(pipelineId: String, logId: String) = request("저장 로그 조회") { requireApi().taskRunLog(pipelineId, logId) }
     suspend fun captureFrame() = command("카메라 캡처", query = { getStatus() }) { requireApi().captureFrame() }

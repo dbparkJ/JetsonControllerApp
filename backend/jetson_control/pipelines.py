@@ -166,6 +166,11 @@ class PipelineManager:
             "lines": result.stdout.splitlines(),
         }
 
+    @_serialized_mutation
+    def delete_run_history(self, pipeline_id: str, log_id: str) -> Dict[str, object]:
+        from .field_tools import delete_run_history
+        return delete_run_history(self.logs_root, self.list_pipelines(), pipeline_id, log_id)
+
     def log_files(self, pipeline_id: str) -> Dict[str, object]:
         pipeline_id = validate_config_id(pipeline_id, "pipeline")
         self._load_manifest(pipeline_id)

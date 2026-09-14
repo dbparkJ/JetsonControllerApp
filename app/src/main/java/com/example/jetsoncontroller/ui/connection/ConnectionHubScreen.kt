@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -41,7 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,24 +103,20 @@ fun ConnectionHubScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("GEO& 도로관리장치 제어")
-                        Text(
-                            "내 장비",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            Surface(color = MaterialTheme.colorScheme.background) {
+                Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        com.example.jetsoncontroller.ui.components.GeoLogo(Modifier.width(164.dp))
+                        Spacer(Modifier.weight(1f))
+                        AlertIconButton(unreadAlertCount, onAlertsClick)
+                        IconButton(onClick = onAddDevice) { Icon(Icons.Default.Add, "새 장비 등록") }
                     }
-                },
-                actions = {
-                    AlertIconButton(unreadAlertCount, onAlertsClick)
-                    IconButton(onClick = onAddDevice) {
-                        Icon(Icons.Default.Add, contentDescription = "새 장비 등록")
-                    }
+                    Text("도로관리장치 제어", style = MaterialTheme.typography.titleLarge)
+                    Text("내 장비", style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            )
+            }
         }
     ) { paddingValues ->
         LazyColumn(
@@ -286,7 +284,7 @@ private fun RegisteredDeviceCard(
                         device.deviceName,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
@@ -296,13 +294,14 @@ private fun RegisteredDeviceCard(
                             available -> "같은 네트워크에서 장비를 찾았습니다."
                             else -> "인증 정보가 저장되어 있습니다. 연결을 시도해 주세요."
                         },
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(Modifier.height(8.dp))
+                    StatusBadge(badgeLabel, badgeTone)
                 }
-                StatusBadge(badgeLabel, badgeTone)
             }
             Spacer(Modifier.height(AppSpacing.medium))
             Button(

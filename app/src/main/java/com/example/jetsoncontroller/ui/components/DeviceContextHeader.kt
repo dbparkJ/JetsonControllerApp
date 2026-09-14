@@ -16,6 +16,7 @@ import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 fun DeviceContextHeader(
     title: String, deviceName: String, connectionLabel: String,
     onDevices: () -> Unit, unreadCount: Int = 0, onAlerts: () -> Unit = {},
+    showLogo: Boolean = false,
     actions: @Composable () -> Unit = {}
 ) {
     Surface(color = MaterialTheme.colorScheme.background) {
@@ -23,13 +24,20 @@ fun DeviceContextHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onDevices, modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(0.dp)) {
-                    Text(deviceName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Text(deviceName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                     Icon(Icons.Default.ExpandMore, contentDescription = "장비 선택")
                 }
                 actions()
                 AlertIconButton(unreadCount, onAlerts)
             }
-            Text(title, style = MaterialTheme.typography.headlineMedium)
+            if (showLogo) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GeoLogo(Modifier.width(120.dp))
+                    Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                }
+            } else {
+                Text(title, style = MaterialTheme.typography.headlineMedium)
+            }
             Text(connectionLabel, style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

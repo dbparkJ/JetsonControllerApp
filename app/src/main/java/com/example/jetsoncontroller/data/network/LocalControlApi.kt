@@ -8,6 +8,9 @@ import retrofit2.http.*
 interface LocalControlApi {
     @GET("/v1/task-runs")
     suspend fun taskRuns(@Query("offset") offset: Int): Response<com.example.jetsoncontroller.model.TaskRunsResponse>
+    @HTTP(method = "DELETE", path = "/v1/task-runs/{pipelineId}/{logId}", hasBody = true)
+    suspend fun deleteTaskRun(@Path("pipelineId") pipelineId: String, @Path("logId") logId: String,
+        @Body request: ConfirmDeletionRequest): Response<Map<String, Boolean>>
     @GET("/v1/task-runs/{pipelineId}/{logId}/route")
     suspend fun taskRoute(@Path("pipelineId") pipelineId: String, @Path("logId") logId: String): Response<com.example.jetsoncontroller.model.TaskRoute>
     @GET("/v1/task-runs/{pipelineId}/{logId}/log")

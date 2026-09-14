@@ -7,6 +7,32 @@ import org.junit.Test
 
 class LanAddressSelectionTest {
     @Test
+    fun `reconnect recovers authenticated wifi after DNS switches to unreachable ethernet`() {
+        val ethernet = InetAddress.getByName("192.168.1.102")
+        val wifi = InetAddress.getByName("111.111.111.67")
+        val phone = LanAddressPrefix(InetAddress.getByName("111.111.111.192"), 24)
+        assertEquals(wifi, selectLanReconnectAddress(ethernet, wifi, listOf(phone)))
+    }
+
+    @Test
+    fun `reconnect accepts a new advertised address on the current subnet`() {
+        val previous = InetAddress.getByName("111.111.111.67")
+        val current = InetAddress.getByName("111.111.111.68")
+        val phone = LanAddressPrefix(InetAddress.getByName("111.111.111.192"), 24)
+        assertEquals(current, selectLanReconnectAddress(current, previous, listOf(phone)))
+    }
+
+    @Test
+    fun `reconnect does not reuse old wifi after network change or missing network access`() {
+        val ethernet = InetAddress.getByName("192.168.1.102")
+        val wifi = InetAddress.getByName("111.111.111.67")
+        val newNetwork = LanAddressPrefix(InetAddress.getByName("192.168.1.50"), 24)
+        assertEquals(ethernet, selectLanReconnectAddress(ethernet, wifi, listOf(newNetwork)))
+        assertEquals(ethernet, selectLanReconnectAddress(ethernet, wifi, emptyList()))
+        assertEquals(ethernet, selectLanReconnectAddress(ethernet, null, listOf(newNetwork)))
+    }
+
+    @Test
     fun `dual interface Jetson selects phone reachable wifi regardless of DNS order`() {
         val ethernet = InetAddress.getByName("192.168.1.102")
         val wifi = InetAddress.getByName("111.111.111.67")

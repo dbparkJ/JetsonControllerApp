@@ -5,11 +5,77 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from jetson_control.field_tools import run_history, safe_read, terminal
+from jetson_control.field_tools import delete_run_history, run_history, safe_read, terminal
+from fastapi import HTTPException
 from jetson_control.route_recorder import RouteRecorder
 
 
 class FieldToolsTest(unittest.TestCase):
+    def test_delete_one_history_removes_log_and_route_but_preserves_other_runs_and_data(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / 'capture'
+            directory.mkdir()
+            old = directory / 'run-20260912T010001.000001Z-123.log'
+            recent = directory / 'run-20260912T010002.000001Z-123.log'
+            for path in (old, recent):
+                path.write_text('completed')
+            route = directory / (old.name + '.route.jsonl')
+            route.write_text('{"latitude":37.0}')
+            raw = directory / 'measurements.csv'
+            raw.write_text('original data')
+            result = delete_run_history(root, [{'id': 'capture', 'state': 'RUNNING'}], 'capture', old.name)
+            self.assertTrue(result['deleted'])
+            self.assertFalse(old.exists())
+            self.assertFalse(route.exists())
+            self.assertTrue(recent.exists())
+            self.assertEqual(raw.read_text(), 'original data')
+            history = run_history(root, [], 0, 30)
+            self.assertEqual([r['logId'] for r in history['runs']], [recent.name])
+
+    def test_delete_refuses_latest_run_during_active_or_transition_states(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / 'capture'
+            directory.mkdir()
+            log = directory / 'run-20260912T010001.000001Z-123.log'
+            log.write_text('running')
+            for state in ('RUNNING', 'STARTING', 'STOPPING', 'RETRYING'):
+                with self.subTest(state=state), self.assertRaises(HTTPException) as error:
+                    delete_run_history(root, [{'id': 'capture', 'state': state}], 'capture', log.name)
+                self.assertEqual(error.exception.status_code, 409)
+                self.assertTrue(log.exists())
+
+    def test_delete_rejects_symlink_log_route_and_directory_without_touching_targets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / 'capture'
+            directory.mkdir()
+            target = root / 'keep.txt'
+            target.write_text('keep')
+            log = directory / 'run-20260912T010001.000001Z-123.log'
+            log.symlink_to(target)
+            with self.assertRaises(HTTPException):
+                delete_run_history(root, [], 'capture', log.name)
+            log.unlink()
+            log.write_text('old log')
+            route = directory / (log.name + '.route.jsonl')
+            route.symlink_to(target)
+            with self.assertRaises(HTTPException):
+                delete_run_history(root, [], 'capture', log.name)
+            self.assertTrue(log.exists())
+            (root / 'linked').symlink_to(directory, target_is_directory=True)
+            with self.assertRaises(OSError):
+                delete_run_history(root, [], 'linked', log.name)
+            self.assertEqual(target.read_text(), 'keep')
+
+    def test_delete_rejects_path_traversal_before_reading_the_filesystem(self):
+        for pipeline_id, log_id in [('..', 'run-20260912T010001.000001Z-123.log'),
+                                    ('capture', '../keep.txt')]:
+            with self.assertRaises(HTTPException) as error:
+                delete_run_history(Path('/missing'), [], pipeline_id, log_id)
+            self.assertEqual(error.exception.status_code, 400)
+
     def test_history_keeps_separate_runs_and_honest_results_after_unregister(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

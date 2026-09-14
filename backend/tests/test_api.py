@@ -273,6 +273,18 @@ class ApiContractTest(unittest.TestCase):
         response = self.signed_request("GET", "/v1/task-runs/capture/not-a-log/route")
         self.assertEqual(response.status_code, 400)
 
+    def test_run_deletion_requires_auth_confirmation_and_returns_signed_result(self):
+        path = '/v1/task-runs/capture/run-20260912T010001.000001Z-123.log'
+        self.assertEqual(self.client.request('DELETE', path, json={'confirmed': True}).status_code, 401)
+        self.assertEqual(self.signed_request('DELETE', path, b'{"confirmed":false}').status_code, 400)
+        self.pipelines.delete_run_history.assert_not_called()
+        self.pipelines.delete_run_history.return_value = {'deleted': True}
+        response = self.signed_request('DELETE', path, b'{"confirmed":true}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'deleted': True})
+        self.assertIn('X-Response-Signature', response.headers)
+        self.pipelines.delete_run_history.assert_called_once_with('capture', 'run-20260912T010001.000001Z-123.log')
+
     def signed_request(self, method: str, path: str, body: bytes = b""):
         self.nonce_counter += 1
         nonce = f"request-{self.nonce_counter:04d}"

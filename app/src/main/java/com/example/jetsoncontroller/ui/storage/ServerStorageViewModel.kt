@@ -67,6 +67,10 @@ class ServerStorageViewModel(
         }
     }
 
+    fun dismissMessage(shown: String) {
+        if (_uiState.value.message == shown) _uiState.value = _uiState.value.copy(message = null)
+    }
+
     fun refresh() {
         if (!_uiState.value.controlAvailable) return
         val state = _uiState.value

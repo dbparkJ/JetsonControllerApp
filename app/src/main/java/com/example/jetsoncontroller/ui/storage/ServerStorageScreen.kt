@@ -74,7 +74,8 @@ fun ServerStorageScreen(
     onLoadMore: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
     deletionEnabled: Boolean = true,
-    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null
+    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
+    onDismissMessage: (String) -> Unit = {}
 ) {
     var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<UploadLibrarySession?>(null) }
     pendingDeletion?.let { session ->
@@ -95,6 +96,7 @@ fun ServerStorageScreen(
     }
     BackHandler(onBack = onBack)
     Scaffold(
+        snackbarHost = { com.example.jetsoncontroller.ui.components.OperationMessageHost(state.message, onDismissMessage) },
         topBar = {
             TopAppBar(
                 title = {
@@ -204,15 +206,6 @@ private fun ServerSessionList(
                         Text("다시 불러오기", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
-            }
-        }
-        state.message?.let { message ->
-            item {
-                InlineMessage(
-                    message,
-                    isError = false,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
             }
         }
         if (state.controlAvailable && state.sessions.isEmpty() && !state.isLoading && state.error == null) {

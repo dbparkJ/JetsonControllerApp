@@ -39,13 +39,13 @@ fun DeveloperScreen(state: FieldState, onBack: () -> Unit, onExecute: (String) -
                 OutlinedButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("앱 연결 로그 · 진단 내보내기") }
                 HorizontalDivider()
                 Text("원격 터미널", style = MaterialTheme.typography.titleLarge)
-                Text("장치: ${state.deviceId ?: "선택 안 됨"}\n단일 명령 · 최대 15초 · 출력 64KB", style = MaterialTheme.typography.bodySmall)
+                Text("장치: ${state.deviceId ?: "선택 안 됨"}\n단일 명령 · 최대 15초 · 출력 64KB", style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(value = command, onValueChange = { if (it.length <= 4096) command = it },
                     label = { Text("명령어") }, placeholder = { Text("pwd") }, modifier = Modifier.fillMaxWidth(), minLines = 3,
                     enabled = !state.terminalBusy)
                 Button(onClick = { confirm = true }, enabled = state.online && !state.terminalBusy && command.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (state.terminalBusy) "명령 실행 중…" else "명령 실행") }
                 if (!state.online) Text("장치 LAN 또는 Wi-Fi Direct 연결이 필요합니다.")
-                SelectionContainer { Text(state.terminalOutput, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                SelectionContainer { Text(state.terminalOutput, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium) }
             } else Text("개발자 모드를 껐습니다. 설정의 빌드 번호를 7번 눌러 다시 활성화할 수 있습니다.")
         }
     }

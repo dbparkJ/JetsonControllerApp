@@ -94,12 +94,12 @@ class CobaltFieldScreenTest {
                     { _, _ -> calls++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001)
             }
         }
-        compose.onNodeWithText("시작 전 확인").performScrollTo().performClick()
+        compose.onNodeWithText("작업 시작").performScrollTo().performClick()
         compose.onNodeWithText("취소").performClick()
         compose.runOnIdle { assertEquals(0, calls) }
-        compose.onNodeWithText("시작 전 확인").performScrollTo().performClick()
+        compose.onNodeWithText("작업 시작").performScrollTo().performClick()
         compose.runOnIdle { device = "B" }
-        compose.onAllNodesWithText("작업 시작 요청").assertCountEquals(0)
+        compose.onAllNodesWithText("확인 후 시작").assertCountEquals(0)
         compose.runOnIdle { assertEquals(0, calls) }
     }
 }

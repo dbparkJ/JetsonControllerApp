@@ -85,7 +85,8 @@ fun DeviceStorageScreen(
     onSectionSelected: (ControlSection) -> Unit,
     onServerDataClick: () -> Unit = {},
     onTransferQueue: () -> Unit = {},
-    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null
+    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
+    onDismissMessage: (String) -> Unit = {}
 ) {
     var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<RemoteFileEntry?>(null) }
     pendingDeletion?.let { entry ->
@@ -113,6 +114,7 @@ fun DeviceStorageScreen(
     }
     BackHandler(onBack = onBack)
     Scaffold(
+        snackbarHost = { com.example.jetsoncontroller.ui.components.OperationMessageHost(state.message, onDismissMessage) },
         topBar = {
             TopAppBar(
                 title = {
@@ -256,15 +258,6 @@ private fun DirectoryList(
                         Text("다시 불러오기", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
-            }
-        }
-        state.message?.let { message ->
-            item {
-                InlineMessage(
-                    message = message,
-                    isError = false,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
             }
         }
         if (state.entries.isEmpty() && !state.isLoading && state.error == null) {

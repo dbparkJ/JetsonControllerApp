@@ -1167,9 +1167,10 @@ class JetsonRepository(
     }
 
     private fun connectLan(
-        endpoint: DeviceEndpoint,
+        discoveredEndpoint: DeviceEndpoint,
         automaticAttemptKey: String? = null
     ) {
+        val endpoint = lanDiscoveryManager.reconnectEndpoint(discoveredEndpoint)
         Log.d(
             "JetsonLAN",
             "Connecting to ${endpoint.host}:${endpoint.port} for ${endpoint.deviceId}; " +
@@ -1267,6 +1268,7 @@ class JetsonRepository(
                         _lanConnectionError.value = null
                         stopMobileRtkRelay()
                         activeIpClient = candidateClient
+                        lanDiscoveryManager.rememberAuthenticatedEndpoint(endpoint)
                         cancelWifiProvisioningHandoff()
                         transportCoordinator.setActiveTransport(
                             transport = IpControlTransport(
@@ -1320,7 +1322,7 @@ class JetsonRepository(
                     !connectedSuccessfully &&
                     transportCoordinator.connectionAttemptIsCurrent(generation)
                 ) {
-                    scheduleAutomaticLanRetry(endpoint, automaticAttemptKey)
+                    scheduleAutomaticLanRetry(discoveredEndpoint, automaticAttemptKey)
                 }
             }
         }
@@ -1600,6 +1602,7 @@ class JetsonRepository(
 
 
     suspend fun taskRuns(offset: Int = 0) = withIpSession { it.taskRuns(offset) }
+    suspend fun deleteTaskRun(pipelineId: String, logId: String) = withIpSession { it.deleteTaskRun(pipelineId, logId) }
     suspend fun taskRoute(pipelineId: String, logId: String) = withIpSession { it.taskRoute(pipelineId, logId) }
     suspend fun taskRunLog(pipelineId: String, logId: String) = withIpSession { it.taskRunLog(pipelineId, logId) }
     suspend fun captureFrame() = withIpSession { it.captureFrame() }
