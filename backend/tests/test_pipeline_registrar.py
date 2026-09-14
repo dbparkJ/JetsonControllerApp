@@ -143,7 +143,7 @@ class PipelineRegistrarTest(unittest.TestCase):
             "/home/Test\\x20Path/100%%/\\xed\\x95\\x9c\\xea\\xb8\\x80",
         )
 
-    def test_folder_shortcut_infers_convention_and_defaults_to_autostart(self) -> None:
+    def test_folder_shortcut_does_not_enable_reboot_autostart_by_default(self) -> None:
         (self.repo / ".venv").mkdir()
         args = argparse.Namespace(
             folder=self.repo,
@@ -168,7 +168,8 @@ class PipelineRegistrarTest(unittest.TestCase):
         self.assertEqual(args.config, "config.yaml")
         self.assertEqual(args.working_dir, self.repo)
         self.assertEqual(args.write_path, [self.repo / "results"])
-        self.assertTrue(args.autostart)
+        self.assertFalse(args.autostart)
+        self.assertFalse(args.no_autostart)
 
     def test_folder_registration_excludes_runtime_directories_from_snapshot(self) -> None:
         (self.repo / ".venv" / "bin").mkdir(parents=True)
