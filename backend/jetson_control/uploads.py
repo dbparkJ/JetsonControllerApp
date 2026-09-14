@@ -300,15 +300,35 @@ class UploadManager:
         job = self.get(job_id)
         if job.get("state") != "COMPLETED":
             raise UploadConflict("Only completed uploads can be verified")
-        if job.get("sourceTrashId") is not None:
-            return {
-                "jobId": job_id,
-                "state": "SOURCE_TRASHED",
-                "matched": True,
-                "deletionAllowed": False,
-                "verifiedAt": job.get("verifiedAt"),
-                "trashId": job.get("sourceTrashId"),
-            }
+        trash_id = job.get("sourceTrashId")
+        if isinstance(trash_id, str):
+            try:
+                trash_entry = self.trash.get_entry(trash_id)
+            except (KeyError, OSError, ValueError) as error:
+                raise UploadConflict(
+                    "Recoverable upload source state is unavailable"
+                ) from error
+            trash_state = trash_entry.get("state")
+            if trash_state == "TRASHED":
+                return {
+                    "jobId": job_id,
+                    "state": "SOURCE_TRASHED",
+                    "matched": True,
+                    "deletionAllowed": False,
+                    "verifiedAt": job.get("verifiedAt"),
+                    "trashId": trash_id,
+                }
+            if trash_state != "RESTORED":
+                raise UploadConflict(
+                    "Recoverable upload source is still transitioning"
+                )
+            job = self._update(
+                job_id,
+                sourceTrashId=None,
+                sourceTrashedAt=None,
+                sourceRecoverable=False,
+                deletionEligible=False,
+            )
         root_id, relative_path, target_id = self._job_parameters(job)
         source, target = self._resolve_source_and_target(
             root_id,

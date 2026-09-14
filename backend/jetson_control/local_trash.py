@@ -176,6 +176,16 @@ class LocalTrashManager:
             self._complete_restore(record)
             return self._public(record)
 
+    def get_entry(self, trash_id: str) -> Dict[str, object]:
+        """Return one current journal entry for internal lifecycle reconciliation."""
+        if not TRASH_ID.fullmatch(trash_id):
+            raise ValueError("Invalid trash identifier")
+        with self._lock:
+            path = self.journal_dir / f"{trash_id}.json"
+            if not path.exists():
+                raise KeyError(trash_id)
+            return self._public(self._read_record(path))
+
     def payload_path(self, trash_id: str, member_index: int = 0) -> Path:
         """Return one validated payload path for an internal verification step."""
         if not TRASH_ID.fullmatch(trash_id) or member_index < 0:

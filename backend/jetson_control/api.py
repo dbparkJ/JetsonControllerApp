@@ -19,6 +19,7 @@ from .commands import CommandDisabled, CommandError, CommandRunner
 from .config import DeviceConfig, RuntimePaths
 from .diagnostics import DiagnosticsStore, RequestEvidenceMiddleware, safe_direct_network
 from .filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
+from .local_trash import LocalTrashManager, TrashConflict, register_local_trash_routes
 from .network import WifiProvisioner, validate_wifi_credentials
 from .mobile_rtk import MobileRtkRelayRegistry
 from .pipelines import (
@@ -30,7 +31,21 @@ from .pipelines import (
 )
 from .status import StatusCollector, StatusSnapshotService
 from .sensors import SensorBridgeStore
+from .run_context import (
+    RunContextConflict,
+    RunContextError,
+    RunContextNotFound,
+    RunContextService,
+    RunPolicyNotConfigured,
+)
+from .survey_context import (
+    SurveyContextConflict,
+    SurveyContextError,
+    SurveyContextNotFound,
+    SurveyContextStore,
+)
 from .system_control import (
+    DEFAULT_TIME_SYNC_MARKER,
     FanControlError,
     FanController,
     FanUnavailable,
@@ -112,6 +127,63 @@ class StartUploadRequest(BaseModel):
     root_id: str = Field(alias="rootId")
     relative_path: str = Field(alias="relativePath")
     target_id: str = Field(alias="targetId")
+    context: Optional[Dict[str, object]] = None
+
+
+class SurveyCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=128)
+    client_request_id: str = Field(alias="clientRequestId", min_length=8, max_length=128)
+
+
+class SurveyUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=128)
+    expected_revision: Optional[int] = Field(alias="expectedRevision", default=None, ge=1)
+
+
+class SurveyDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: Optional[int] = Field(alias="expectedRevision", default=None, ge=1)
+
+
+class ExpectedOutputRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_files: int = Field(alias="minFiles", ge=0)
+    min_bytes: int = Field(alias="minBytes", ge=0)
+    patterns: List[str] = Field(default_factory=list)
+
+
+class RunPolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required_sensors: List[str] = Field(alias="requiredSensors")
+    optional_sensors: List[str] = Field(alias="optionalSensors")
+    min_free_bytes: int = Field(alias="minFreeBytes", ge=0)
+    output_root_id: str = Field(alias="outputRootId")
+    output_path: str = Field(alias="outputPath")
+    expected_output: ExpectedOutputRequest = Field(alias="expectedOutput")
+    expected_revision: Optional[str] = Field(alias="expectedRevision", default=None)
+    client_request_id: str = Field(alias="clientRequestId", min_length=8, max_length=128)
+
+
+class RunPreflightRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    survey_project_id: str = Field(alias="surveyProjectId")
+    survey_section_id: str = Field(alias="surveySectionId")
+    survey_project_revision: int = Field(alias="surveyProjectRevision", ge=1)
+    survey_section_revision: int = Field(alias="surveySectionRevision", ge=1)
+    policy_revision: str = Field(alias="policyRevision", min_length=64, max_length=64)
+
+
+class ContextualStartRequest(RunPreflightRequest):
+    preflight_id: str = Field(alias="preflightId")
+    client_request_id: str = Field(alias="clientRequestId", min_length=8, max_length=128)
 
 
 class SaveUploadTargetRequest(BaseModel):
@@ -201,6 +273,9 @@ def create_app(
     storage: Optional[StorageRegistry] = None,
     workspace_storage: Optional[WorkspaceRegistry] = None,
     upload_manager: Optional[UploadManager] = None,
+    trash_manager: Optional[LocalTrashManager] = None,
+    survey_store: Optional[SurveyContextStore] = None,
+    run_context_service: Optional[RunContextService] = None,
     wifi_provisioner: Optional[WifiProvisioner] = None,
     pipeline_manager: Optional[PipelineManager] = None,
     mobile_rtk_registry: Optional[MobileRtkRelayRegistry] = None,
@@ -222,12 +297,6 @@ def create_app(
         sensor_bridge=sensor_bridge,
     )
     commands = command_runner or CommandRunner(device_config)
-    uploads = upload_manager or UploadManager(
-        storage=storage_service,
-        targets_path=runtime_paths.upload_targets,
-        state_dir=runtime_paths.state_dir,
-        device_id=device_config.device_id,
-    )
     wifi = wifi_provisioner or WifiProvisioner(
         device_config.wifi_interface,
         coordinate_wifi_direct=device_config.wifi_direct_enabled,
@@ -249,6 +318,44 @@ def create_app(
         )
     else:
         pipelines = pipeline_manager
+    local_trash = trash_manager or LocalTrashManager(
+        storage_service,
+        runtime_paths.state_dir / "local-trash",
+        runtime_paths.pipeline_logs,
+    )
+    uploads = upload_manager or UploadManager(
+        storage=storage_service,
+        targets_path=runtime_paths.upload_targets,
+        state_dir=runtime_paths.state_dir,
+        device_id=device_config.device_id,
+        trash=local_trash,
+    )
+    uploads.trash = local_trash
+    survey = survey_store or SurveyContextStore(
+        runtime_paths.state_dir / "survey-context.json"
+    )
+    configured_pipeline_user = getattr(pipelines, "pipeline_user", None)
+    if not isinstance(configured_pipeline_user, str):
+        configured_pipeline_user = device_config.pipeline_user
+    configured_time_marker = getattr(pipelines, "time_sync_marker", None)
+    if not isinstance(configured_time_marker, Path):
+        configured_time_marker = DEFAULT_TIME_SYNC_MARKER
+    configured_time_owner = getattr(pipelines, "time_sync_marker_owner_uid", 0)
+    if not isinstance(configured_time_owner, int):
+        configured_time_owner = 0
+    run_context = run_context_service or RunContextService(
+        state_dir=runtime_paths.state_dir,
+        registry_root=runtime_paths.pipeline_registry,
+        logs_root=runtime_paths.pipeline_logs,
+        device_id=device_config.device_id,
+        pipeline_user=configured_pipeline_user,
+        pipelines=pipelines,
+        survey=survey,
+        sensor_bridge=sensor_bridge,
+        storage=storage_service,
+        time_sync_marker=configured_time_marker,
+        time_sync_owner_uid=configured_time_owner,
+    )
     mobile_rtk = mobile_rtk_registry or MobileRtkRelayRegistry(
         runtime_paths.mobile_rtk_relay
     )
@@ -293,6 +400,9 @@ def create_app(
     app.state.storage = storage_service
     app.state.workspace_storage = workspace_service
     app.state.upload_manager = uploads
+    app.state.local_trash = local_trash
+    app.state.survey_context = survey
+    app.state.run_context = run_context
     app.state.wifi_provisioner = wifi
     app.state.pipeline_manager = pipelines
     app.state.mobile_rtk_registry = mobile_rtk
@@ -438,7 +548,36 @@ def create_app(
                     break
         response.setdefault("outputRootId", None)
         response.setdefault("outputPath", None)
-        return response
+        return run_context.enrich_pipeline(response)
+
+    def raise_context_error(error: Exception) -> None:
+        if isinstance(error, (RunContextConflict, SurveyContextConflict)):
+            detail: Dict[str, object] = {
+                "code": error.code,
+                "message": str(error),
+            }
+            if error.current is not None:
+                detail["current"] = error.current
+            raise HTTPException(status_code=409, detail=detail) from error
+        if isinstance(
+            error,
+            (RunContextNotFound, RunPolicyNotConfigured, SurveyContextNotFound),
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "NOT_FOUND", "message": str(error)},
+            ) from error
+        if isinstance(error, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "INVALID_REQUEST", "message": str(error)},
+            ) from error
+        if isinstance(error, (RunContextError, SurveyContextError)):
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "CONTEXT_STORAGE_ERROR", "message": str(error)},
+            ) from error
+        raise error
 
     @app.get("/v1/hello")
     async def hello() -> Dict[str, object]:
@@ -481,11 +620,217 @@ def create_app(
             "mobileTimeSync": True,
             "mobileRtkRelay": True,
             "fanControl": True,
+            "surveyContext": True,
+            "contextualRuns": True,
+            "localTrash": {
+                "version": 1,
+                "restore": True,
+                "automaticPurge": False,
+                "permanentDelete": False,
+            },
         }
 
     from .field_tools import register_field_routes
     register_field_routes(app, authenticated, runtime_paths, device_config,
-                          pipelines, sensor_bridge, storage_service)
+                          pipelines, sensor_bridge, storage_service,
+                          run_context=run_context, trash=local_trash)
+    register_local_trash_routes(app, authenticated, local_trash)
+
+    @app.get("/v1/survey/projects", dependencies=authenticated)
+    def list_survey_projects() -> Dict[str, object]:
+        try:
+            return survey.list_projects()
+        except (SurveyContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.post("/v1/survey/projects", status_code=201, dependencies=authenticated)
+    def create_survey_project(body: SurveyCreateRequest) -> Dict[str, object]:
+        try:
+            return run_context.create_project(body.label, body.client_request_id)
+        except (SurveyContextError, RunContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.get("/v1/survey/projects/{project_id}", dependencies=authenticated)
+    def get_survey_project(project_id: str) -> Dict[str, object]:
+        try:
+            return survey.get_project(project_id)
+        except (SurveyContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.put("/v1/survey/projects/{project_id}", dependencies=authenticated)
+    def update_survey_project(
+        project_id: str, body: SurveyUpdateRequest
+    ) -> Dict[str, object]:
+        try:
+            return run_context.update_project(
+                project_id, body.label, body.expected_revision
+            )
+        except (SurveyContextError, RunContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.delete("/v1/survey/projects/{project_id}", dependencies=authenticated)
+    def delete_survey_project(
+        project_id: str, body: SurveyDeleteRequest
+    ) -> Dict[str, object]:
+        try:
+            return run_context.delete_project(project_id, body.expected_revision)
+        except (SurveyContextError, RunContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.get(
+        "/v1/survey/projects/{project_id}/sections", dependencies=authenticated
+    )
+    def list_survey_sections(project_id: str) -> Dict[str, object]:
+        try:
+            return survey.list_sections(project_id)
+        except (SurveyContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.post(
+        "/v1/survey/projects/{project_id}/sections",
+        status_code=201,
+        dependencies=authenticated,
+    )
+    def create_survey_section(
+        project_id: str, body: SurveyCreateRequest
+    ) -> Dict[str, object]:
+        try:
+            return run_context.create_section(
+                project_id, body.label, body.client_request_id
+            )
+        except (SurveyContextError, RunContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.get(
+        "/v1/survey/projects/{project_id}/sections/{section_id}",
+        dependencies=authenticated,
+    )
+    def get_survey_section(project_id: str, section_id: str) -> Dict[str, object]:
+        try:
+            return survey.get_section(project_id, section_id)
+        except (SurveyContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.put(
+        "/v1/survey/projects/{project_id}/sections/{section_id}",
+        dependencies=authenticated,
+    )
+    def update_survey_section(
+        project_id: str, section_id: str, body: SurveyUpdateRequest
+    ) -> Dict[str, object]:
+        try:
+            return run_context.update_section(
+                project_id, section_id, body.label, body.expected_revision
+            )
+        except (SurveyContextError, RunContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.delete(
+        "/v1/survey/projects/{project_id}/sections/{section_id}",
+        dependencies=authenticated,
+    )
+    def delete_survey_section(
+        project_id: str, section_id: str, body: SurveyDeleteRequest
+    ) -> Dict[str, object]:
+        try:
+            return run_context.delete_section(
+                project_id, section_id, body.expected_revision
+            )
+        except (SurveyContextError, RunContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.get("/v1/pipelines/{pipeline_id}/run-policy", dependencies=authenticated)
+    def get_run_policy(pipeline_id: str) -> Dict[str, object]:
+        try:
+            return run_context.policy(pipeline_id)
+        except (RunContextError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.put("/v1/pipelines/{pipeline_id}/run-policy", dependencies=authenticated)
+    def set_run_policy(
+        pipeline_id: str, body: RunPolicyRequest
+    ) -> Dict[str, object]:
+        try:
+            return run_context.set_policy(
+                pipeline_id,
+                required_sensors=body.required_sensors,
+                optional_sensors=body.optional_sensors,
+                min_free_bytes=body.min_free_bytes,
+                output_root_id=body.output_root_id,
+                output_path=body.output_path,
+                expected_output=body.expected_output.model_dump(by_alias=True),
+                expected_revision=body.expected_revision,
+                client_request_id=body.client_request_id,
+            )
+        except (RunContextError, PipelineError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.post("/v1/pipelines/{pipeline_id}/preflight", dependencies=authenticated)
+    def run_preflight(
+        pipeline_id: str, body: RunPreflightRequest
+    ) -> Dict[str, object]:
+        try:
+            return run_context.preflight(
+                pipeline_id,
+                body.survey_project_id,
+                body.survey_section_id,
+                body.survey_project_revision,
+                body.survey_section_revision,
+                body.policy_revision,
+            )
+        except (RunContextError, SurveyContextError, PipelineError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.post(
+        "/v1/pipelines/{pipeline_id}/contextual-start",
+        dependencies=authenticated,
+    )
+    async def contextual_start(
+        pipeline_id: str, body: ContextualStartRequest
+    ) -> Dict[str, object]:
+        try:
+            result = await run_in_threadpool(
+                run_context.contextual_start,
+                pipeline_id,
+                project_id=body.survey_project_id,
+                section_id=body.survey_section_id,
+                project_revision=body.survey_project_revision,
+                section_revision=body.survey_section_revision,
+                policy_revision=body.policy_revision,
+                preflight_id=body.preflight_id,
+                client_request_id=body.client_request_id,
+            )
+            run = await run_in_threadpool(
+                run_context.get_run, str(result["run"]["runId"])
+            )
+            response = await run_in_threadpool(
+                pipeline_response, dict(result["pipeline"])
+            )
+            response["contextualStart"] = {
+                key: run.get(key)
+                for key in (
+                    "runId",
+                    "clientRequestId",
+                    "contextSnapshot",
+                    "preflightSnapshot",
+                    "output",
+                    "uploadContext",
+                )
+            }
+            response["contextualStart"]["outcome"] = result["outcome"]
+            response["contextualStart"]["statusUrl"] = (
+                "/v1/pipeline-runs/" + str(run["runId"])
+            )
+            return response
+        except (RunContextError, SurveyContextError, PipelineError, ValueError) as error:
+            raise_context_error(error)
+
+    @app.get("/v1/pipeline-runs/{run_id:path}", dependencies=authenticated)
+    def get_pipeline_run(run_id: str) -> Dict[str, object]:
+        try:
+            return run_context.get_run(run_id)
+        except (RunContextError, ValueError) as error:
+            raise_context_error(error)
 
     @app.get("/v1/status", dependencies=authenticated)
     async def device_status() -> Dict[str, object]:
@@ -597,13 +942,18 @@ def create_app(
         body: ConfirmDeletionRequest,
     ) -> Dict[str, object]:
         try:
-            return uploads.delete_storage_entry(
+            return run_context.mutate_source(
+                root,
+                path,
+                uploads.delete_storage_entry,
                 root,
                 path,
                 confirmed=body.confirmed,
             )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except RunContextConflict as error:
+            raise_context_error(error)
         except (UploadConflict, UploadConfirmationRequired) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
@@ -788,14 +1138,21 @@ def create_app(
     ) -> Dict[str, object]:
         require_lan_upload_request(request)
         try:
-            return uploads.start(
-                root_id=body.root_id,
-                relative_path=body.relative_path,
-                target_id=body.target_id,
+            return run_context.mutate_source(
+                body.root_id,
+                body.relative_path,
+                uploads.start,
+                body.root_id,
+                body.relative_path,
+                body.target_id,
+                context=body.context,
+                require_final_context=True,
             )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        except UploadCapacityExceeded as error:
+        except RunContextConflict as error:
+            raise_context_error(error)
+        except (UploadCapacityExceeded, UploadConflict) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -863,12 +1220,25 @@ def create_app(
         body: ConfirmDeletionRequest,
     ) -> Dict[str, object]:
         try:
-            return uploads.delete_completed_source(job_id, confirmed=body.confirmed)
+            job = uploads.get(job_id)
+            return run_context.mutate_source(
+                str(job["rootId"]),
+                str(job["relativePath"]),
+                uploads.delete_completed_source,
+                job_id,
+                confirmed=body.confirmed,
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Upload job not found") from error
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        except (UploadConflict, UploadConfirmationRequired, UploadVerificationMismatch) as error:
+        except RunContextConflict as error:
+            raise_context_error(error)
+        except (
+            UploadConflict,
+            UploadConfirmationRequired,
+            UploadVerificationMismatch,
+        ) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -937,12 +1307,15 @@ def create_app(
         try:
             repository = resolve_pipeline_source(body.root_id, body.path)
             return pipeline_response(
-                pipelines.register_folder(
+                run_context.mutate_pipeline_registry(
+                    pipelines.register_folder,
                     label=body.name,
                     repository=repository,
                     autostart=body.autostart,
                 )
             )
+        except RunContextConflict as error:
+            raise_context_error(error)
         except PipelineConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except (ValueError, FileNotFoundError, NotADirectoryError) as error:
@@ -969,7 +1342,8 @@ def create_app(
                 for value in body.writable_directories
             ]
             return pipeline_response(
-                pipelines.register(
+                run_context.mutate_pipeline_registry(
+                    pipelines.register,
                     pipeline_id=body.pipeline_id,
                     label=body.label,
                     repository=repository,
@@ -981,6 +1355,8 @@ def create_app(
                     autostart=body.autostart,
                 )
             )
+        except RunContextConflict as error:
+            raise_context_error(error)
         except PipelineConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except (ValueError, FileNotFoundError, NotADirectoryError) as error:
@@ -1026,7 +1402,7 @@ def create_app(
     @app.delete("/v1/pipelines/{pipeline_id}", status_code=204, dependencies=authenticated)
     def remove_pipeline(pipeline_id: str) -> Response:
         try:
-            pipelines.remove(pipeline_id)
+            run_context.mutate_pipeline(pipeline_id, pipelines.remove, pipeline_id)
             return Response(status_code=204)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
@@ -1085,7 +1461,11 @@ def create_app(
         body: UpdatePipelineConfigRequest,
     ) -> Dict[str, str]:
         try:
-            return pipelines.update_config(pipeline_id, body.content)
+            return run_context.mutate_pipeline(
+                pipeline_id, pipelines.update_config, pipeline_id, body.content
+            )
+        except RunContextConflict as error:
+            raise_context_error(error)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except (ValueError, PipelineError) as error:
@@ -1106,11 +1486,15 @@ def create_app(
         body: UpdatePipelineConfigFieldsRequest,
     ) -> Dict[str, object]:
         try:
-            return pipelines.update_config_fields(
+            return run_context.mutate_pipeline(
+                pipeline_id,
+                pipelines.update_config_fields,
                 pipeline_id,
                 body.revision,
                 body.values,
             )
+        except RunContextConflict as error:
+            raise_context_error(error)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except PipelineConflict as error:
@@ -1124,6 +1508,9 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown pipeline action")
         try:
             controlled = await run_in_threadpool(
+                run_context.legacy_control,
+                pipeline_id,
+                action,
                 pipelines.control,
                 pipeline_id,
                 action,
@@ -1131,6 +1518,8 @@ def create_app(
             return await run_in_threadpool(pipeline_response, controlled)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except RunContextConflict as error:
+            raise_context_error(error)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except PipelineError as error:

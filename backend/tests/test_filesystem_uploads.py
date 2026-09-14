@@ -693,6 +693,15 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             self.assertFalse((self.source / "folder").exists())
             uploads.trash.restore(str(deleted_job["sourceTrashId"]), confirmed=True)
             self.assertTrue((self.source / "folder").is_dir())
+            source_file.write_bytes(b"z" * len(original))
+            restored_mismatch = uploads.verify_completed_source(str(job["id"]))
+            self.assertEqual(restored_mismatch["state"], "MISMATCH")
+            self.assertFalse(restored_mismatch["matched"])
+            restored_job = uploads.get(str(job["id"]))
+            self.assertIsNone(restored_job["sourceTrashId"])
+            self.assertIsNone(restored_job["sourceTrashedAt"])
+            self.assertFalse(restored_job["sourceRecoverable"])
+            self.assertFalse(restored_job["deletionEligible"])
 
             with self.assertRaises(UploadConflict):
                 uploads.delete_library_session(

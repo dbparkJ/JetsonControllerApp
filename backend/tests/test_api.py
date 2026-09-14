@@ -314,15 +314,18 @@ class ApiContractTest(unittest.TestCase):
 
     def test_run_deletion_requires_auth_confirmation_and_returns_signed_result(self):
         path = '/v1/task-runs/capture/run-20260912T010001.000001Z-123.log'
+        run_log = self.paths.pipeline_logs / 'capture' / 'run-20260912T010001.000001Z-123.log'
+        run_log.parent.mkdir()
+        run_log.write_text('completed', encoding='utf-8')
         self.assertEqual(self.client.request('DELETE', path, json={'confirmed': True}).status_code, 401)
         self.assertEqual(self.signed_request('DELETE', path, b'{"confirmed":false}').status_code, 400)
         self.pipelines.delete_run_history.assert_not_called()
-        self.pipelines.delete_run_history.return_value = {'deleted': True}
         response = self.signed_request('DELETE', path, b'{"confirmed":true}')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'deleted': True})
+        self.assertEqual(response.json()['category'], 'RUN_HISTORY')
+        self.assertEqual(response.json()['state'], 'TRASHED')
         self.assertIn('X-Response-Signature', response.headers)
-        self.pipelines.delete_run_history.assert_called_once_with('capture', 'run-20260912T010001.000001Z-123.log')
+        self.assertFalse(run_log.exists())
 
     def signed_request(self, method: str, path: str, body: bytes = b""):
         self.nonce_counter += 1
@@ -584,9 +587,19 @@ class ApiContractTest(unittest.TestCase):
         body = json.dumps({"confirmed": True}, separators=(",", ":")).encode()
         deleted = self.signed_request("DELETE", path, body)
         self.assertEqual(deleted.status_code, 200, deleted.text)
-        self.assertEqual(deleted.json()["state"], "DELETED")
+        self.assertEqual(deleted.json()["state"], "TRASHED")
+        self.assertEqual(deleted.json()["category"], "STORAGE")
         self.assertEqual(deleted.json()["relativePath"], "hello world.txt")
         self.assertFalse((self.base / "source" / "hello world.txt").exists())
+
+        restored = self.signed_request(
+            "POST",
+            f"/v1/trash/{deleted.json()['trashId']}/restore",
+            body,
+        )
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertEqual(restored.json()["state"], "RESTORED")
+        self.assertTrue((self.base / "source" / "hello world.txt").is_file())
 
         root_path = "/v1/fs/entry?root=data&path="
         rejected_root = self.signed_request("DELETE", root_path, body)
@@ -707,6 +720,13 @@ class ApiContractTest(unittest.TestCase):
         self.uploads.verify_completed_source.assert_called_once_with("job-1")
 
     def test_upload_source_delete_requires_confirmation_and_returns_job(self) -> None:
+        self.uploads.get = Mock(
+            return_value={
+                "id": "job-1",
+                "rootId": "data",
+                "relativePath": "folder",
+            }
+        )
         self.uploads.delete_completed_source = Mock(
             side_effect=UploadConfirmationRequired("confirmation required")
         )

@@ -24,6 +24,8 @@ from .field_quality import (
     attach_route_indexes,
     summarize_quality,
 )
+from .local_trash import TrashConflict
+from .run_context import RunContextError, RunContextNotFound
 
 RUN_NAME = re.compile(r"run-(\d{8}T\d{6}\.\d{6}Z)-\d+\.log")
 PIPELINE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
@@ -82,7 +84,13 @@ def read_run_quality(path: Path, route_points=None, allow_evidence_fallback: boo
     return summary
 
 
-def run_history(logs_root: Path, pipelines: list, offset: int, limit: int) -> dict:
+def run_history(
+    logs_root: Path,
+    pipelines: list,
+    offset: int,
+    limit: int,
+    run_context=None,
+) -> dict:
     known = {str(p['id']): p for p in pipelines}
     candidates = []
     if logs_root.exists():
@@ -105,18 +113,42 @@ def run_history(logs_root: Path, pipelines: list, offset: int, limit: int) -> di
             pipeline = known.get(pipeline_id, {})
             active = latest[pipeline_id] == path.name and pipeline.get('state') in ('RUNNING', 'STARTING', 'STOPPING', 'RETRYING')
             state = ('COMPLETED' if int(footer[2]) == 0 else 'STOPPED' if int(footer[2]) in (130, 143) else 'FAILED') if footer else ('RUNNING' if active else 'UNKNOWN')
-            runs.append(dict(id=pipeline_id + '/' + path.name, pipelineId=pipeline_id,
+            run = dict(id=pipeline_id + '/' + path.name, pipelineId=pipeline_id,
                 label=pipeline.get('label', pipeline_id), logId=path.name,
                 startedAt=datetime.strptime(stamp, '%Y%m%dT%H%M%S.%fZ').replace(tzinfo=timezone.utc).isoformat(),
                 finishedAt=footer[1] if footer else None, state=state,
                 exitCode=int(footer[2]) if footer else None,
-                quality=read_run_quality(path)))
+                quality=read_run_quality(path))
+            if run_context is not None:
+                try:
+                    canonical = run_context.get_run(run['id'])
+                except RunContextNotFound:
+                    canonical = None
+                if isinstance(canonical, dict):
+                    for key in (
+                        'active', 'state', 'startedAt', 'finishedAt', 'exitCode',
+                        'stopReason', 'clientRequestId', 'contextSnapshot',
+                        'policySnapshot', 'preflightSnapshot', 'sourceRevision',
+                        'sourceDirty', 'release', 'configRevision', 'output',
+                        'uploadContext',
+                    ):
+                        if key in canonical:
+                            run[key] = canonical[key]
+            runs.append(run)
         except (OSError, ValueError):
             continue
     return dict(runs=runs, nextOffset=offset + limit if offset + limit < len(candidates) else None)
 
 
-def delete_run_history(logs_root: Path, pipelines: list, pipeline_id: str, log_id: str) -> dict:
+def delete_run_history(
+    logs_root: Path,
+    pipelines: list,
+    pipeline_id: str,
+    log_id: str,
+    *,
+    run_context=None,
+    trash=None,
+) -> dict:
     """Delete one inactive run's log/route, never its acquisition output directory."""
     if not PIPELINE_ID.fullmatch(pipeline_id) or not RUN_NAME.fullmatch(log_id):
         raise HTTPException(400, 'Invalid run')
@@ -129,6 +161,13 @@ def delete_run_history(logs_root: Path, pipelines: list, pipeline_id: str, log_i
         names = [name for name in os.listdir(directory_fd) if RUN_NAME.fullmatch(name)
                  and stat.S_ISREG(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode)]
         current = next((p for p in pipelines if p['id'] == pipeline_id), {})
+        if run_context is not None:
+            try:
+                canonical = run_context.get_run(pipeline_id + '/' + log_id)
+            except RunContextNotFound:
+                canonical = None
+            if isinstance(canonical, dict) and canonical.get('active') is True:
+                raise HTTPException(409, '실행 중인 작업 이력은 삭제할 수 없습니다. 작업을 중지한 뒤 다시 확인하세요.')
         if names and log_id == max(names) and current.get('state') in ('RUNNING', 'STARTING', 'STOPPING', 'RETRYING'):
             raise HTTPException(409, '실행 중인 작업 이력은 삭제할 수 없습니다. 작업을 중지한 뒤 다시 확인하세요.')
         metadata = os.stat(log_id, dir_fd=directory_fd, follow_symlinks=False)
@@ -147,6 +186,8 @@ def delete_run_history(logs_root: Path, pipelines: list, pipeline_id: str, log_i
             if not stat.S_ISREG(sidecar.st_mode):
                 raise HTTPException(400, 'Unsafe run ' + label)
             sidecars.append(sidecar_id)
+        if trash is not None:
+            return trash.trash_run_history(logs_root, pipeline_id, log_id)
         for sidecar_id in sidecars:
             os.unlink(sidecar_id, dir_fd=directory_fd)
         os.unlink(log_id, dir_fd=directory_fd)
@@ -215,13 +256,30 @@ def terminal(command: str, username: str) -> dict:
                 timedOut=timed_out, truncated=truncated)
 
 
-def register_field_routes(app, authenticated, paths, config, pipelines, sensor_bridge, storage):
+def register_field_routes(
+    app,
+    authenticated,
+    paths,
+    config,
+    pipelines,
+    sensor_bridge,
+    storage,
+    *,
+    run_context=None,
+    trash=None,
+):
     terminal_lock = threading.Lock()
 
     @app.get('/v1/task-runs', dependencies=authenticated)
     async def history(offset: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100)):
         def read():
-            return run_history(paths.pipeline_logs, pipelines.list_pipelines(), offset, limit)
+            return run_history(
+                paths.pipeline_logs,
+                pipelines.list_pipelines(),
+                offset,
+                limit,
+                run_context=run_context,
+            )
         return await run_in_threadpool(read)
 
     @app.delete('/v1/task-runs/{pipeline_id}/{log_id}', dependencies=authenticated)
@@ -229,9 +287,21 @@ def register_field_routes(app, authenticated, paths, config, pipelines, sensor_b
         if not request.confirmed:
             raise HTTPException(400, '작업 이력 삭제 확인이 필요합니다.')
         try:
-            return await run_in_threadpool(pipelines.delete_run_history, pipeline_id, log_id)
+            return await run_in_threadpool(
+                delete_run_history,
+                paths.pipeline_logs,
+                pipelines.list_pipelines(),
+                pipeline_id,
+                log_id,
+                run_context=run_context,
+                trash=trash,
+            )
         except FileNotFoundError as error:
             raise HTTPException(404, '작업 이력을 찾지 못했습니다. 목록을 새로고침해 주세요.') from error
+        except TrashConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except RunContextError as error:
+            raise HTTPException(503, str(error)) from error
         except OSError as error:
             raise HTTPException(503, '작업 이력을 삭제하지 못했습니다.') from error
 

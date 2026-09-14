@@ -1165,30 +1165,112 @@ class RunContextService:
             self.assert_pipeline_mutable(pipeline_id)
             return operation(*args, **kwargs)
 
+    def mutate_pipeline_registry(
+        self, operation: Callable[..., object], *args: object, **kwargs: object
+    ) -> object:
+        """Serialize registration with contextual starts and pipeline mutations."""
+        with self._lock:
+            return operation(*args, **kwargs)
+
+    def legacy_control(
+        self,
+        pipeline_id: str,
+        action: str,
+        operation: Callable[..., object],
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        """Keep policy/stop-intent checks atomic with a legacy control command."""
+        with self._lock:
+            self.reject_legacy_action(pipeline_id, action)
+            if action == "stop":
+                self.record_stop_intent(pipeline_id)
+            return operation(*args, **kwargs)
+
     def expected_context_for_source(self, root_id: str, relative_path: str) -> Optional[Dict[str, object]]:
         """Resolve an upload source to the exact root-owned run output record."""
-
-        _, source = self.storage.resolve(root_id, relative_path)
-        try:
-            paths = list(self.records_dir.glob("*.json"))
-        except OSError:
-            paths = []
-        for path in paths:
+        with self._lock:
+            _, source = self.storage.resolve(root_id, relative_path)
             try:
-                record = _read_json(path)
-            except RunContextError:
-                continue
-            if Path(str(record.get("outputDirectory", ""))).resolve() == source.resolve():
-                context = record.get("outputContext")
-                if not isinstance(context, dict):
-                    raise RunContextError("Canonical output context is invalid")
-                return dict(context)
-        if (source / ".jetson-output-context.json").exists():
-            raise RunContextConflict(
-                "UNTRUSTED_OUTPUT_CONTEXT",
-                "Output context sidecar has no matching root-owned run record",
-            )
-        return None
+                paths = list(self.records_dir.glob("*.json"))
+            except OSError:
+                paths = []
+            for path in paths:
+                try:
+                    record = _read_json(path)
+                except RunContextError:
+                    continue
+                if Path(str(record.get("outputDirectory", ""))).resolve() == source.resolve():
+                    current = self.get_run(str(record.get("runId", "")))
+                    output = current.get("output")
+                    if (
+                        current.get("state") not in TERMINAL_STATES
+                        or current.get("active") is not False
+                        or not isinstance(output, dict)
+                        or output.get("manifestState") != "FINAL"
+                    ):
+                        raise RunContextConflict(
+                            "RUN_OUTPUT_NOT_FINAL",
+                            "Run output cannot be uploaded before terminal evidence and final manifest",
+                            current,
+                        )
+                    context = current.get("uploadContext")
+                    if not isinstance(context, dict):
+                        raise RunContextError("Canonical output context is invalid")
+                    return dict(context)
+            if source.is_dir() and (source / ".jetson-output-context.json").exists():
+                raise RunContextConflict(
+                    "UNTRUSTED_OUTPUT_CONTEXT",
+                    "Output context sidecar has no matching root-owned run record",
+                )
+            return None
+
+    def mutate_source(
+        self,
+        root_id: str,
+        relative_path: str,
+        operation: Callable[..., object],
+        *args: object,
+        require_final_context: bool = False,
+        **kwargs: object,
+    ) -> object:
+        """Hold the run lock across active-output checks and a storage mutation."""
+        with self._lock:
+            _, source = self.storage.resolve(root_id, relative_path)
+            source = source.resolve()
+            try:
+                paths = list(self.records_dir.glob("*.json"))
+            except OSError:
+                paths = []
+            for path in paths:
+                try:
+                    record = _read_json(path)
+                    current = self.get_run(str(record.get("runId", "")))
+                except RunContextError:
+                    continue
+                if current.get("active") is not True:
+                    continue
+                output = Path(str(record.get("outputDirectory", ""))).resolve()
+                try:
+                    source.relative_to(output)
+                    overlaps = True
+                except ValueError:
+                    try:
+                        output.relative_to(source)
+                        overlaps = True
+                    except ValueError:
+                        overlaps = False
+                if overlaps:
+                    raise RunContextConflict(
+                        "ACTIVE_RUN_OUTPUT_LOCKED",
+                        "Active run output cannot be uploaded or moved to trash",
+                        current,
+                    )
+            if require_final_context:
+                kwargs["expected_context"] = self.expected_context_for_source(
+                    root_id, relative_path
+                )
+            return operation(*args, **kwargs)
 
     def reject_legacy_action(self, pipeline_id: str, action: str) -> None:
         if action in {"start", "restart", "enable"} and self.policy_or_none(pipeline_id) is not None:
