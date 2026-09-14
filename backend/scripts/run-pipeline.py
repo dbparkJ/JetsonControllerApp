@@ -20,6 +20,8 @@ from jetson_control.sensor_handoff import (
     settings_for_pipeline,
 )
 from jetson_control.mobile_rtk import MobileRtkRelayRegistry
+from jetson_control.field_quality import FieldQualitySampler
+from jetson_control.sensors import SensorBridgeStore
 
 
 PIPELINE_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
@@ -50,10 +52,190 @@ LOG_TRUNCATED = b"\n=== file log limit reached; output continues in journald ===
 LOG_WRITE_FAILED = b"\n=== file log write failed; output continues in journald ===\n"
 DEFAULT_MIN_FREE_BYTES = 0
 STORAGE_PREFLIGHT_EXIT_CODE = 78
+RUN_CONTEXT_SCHEMA_VERSION = 1
+CONTEXTUAL_LAUNCH_MAX_AGE_MILLIS = 120_000
 
 
 class StoragePreflightError(RuntimeError):
     pass
+
+
+def read_root_owned_json(path: Path, expected_owner_uid: int) -> Mapping[str, Any]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise StoragePreflightError(f"Could not read contextual run input: {error}") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != expected_owner_uid
+            or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            or metadata.st_size > 1024 * 1024
+        ):
+            raise StoragePreflightError("Contextual run input permissions are unsafe")
+        encoded = os.pread(descriptor, metadata.st_size, 0)
+    finally:
+        os.close(descriptor)
+    try:
+        value = json.loads(encoded.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StoragePreflightError("Contextual run input is invalid") from error
+    if not isinstance(value, dict):
+        raise StoragePreflightError("Contextual run input is invalid")
+    return value
+
+
+def current_boot_id(path: Path = Path("/proc/sys/kernel/random/boot_id")) -> str:
+    try:
+        value = path.read_text(encoding="ascii").strip().lower()
+    except OSError as error:
+        raise StoragePreflightError("Could not read device boot identity") from error
+    if re.fullmatch(r"[0-9a-f-]{32,36}", value) is None:
+        raise StoragePreflightError("Device boot identity is invalid")
+    return value
+
+
+def load_contextual_launch(
+    pipeline_root: Path,
+    pipeline_id: str,
+    *,
+    expected_owner_uid: int,
+    clock_millis: Callable[[], int] = lambda: int(time.time() * 1000),
+    boot_id: Callable[[], str] = current_boot_id,
+) -> Optional[Mapping[str, Any]]:
+    """Load an API-prepared launch; a configured policy forbids legacy starts."""
+
+    policy_path = pipeline_root / "run-policy.json"
+    if not policy_path.exists():
+        return None
+    policy = read_root_owned_json(policy_path, expected_owner_uid)
+    if (
+        policy.get("schemaVersion") != 1
+        or policy.get("pipelineId") != pipeline_id
+        or policy.get("configured") is not True
+    ):
+        raise StoragePreflightError("Configured run policy is invalid")
+    launch = read_root_owned_json(pipeline_root / "next-run.json", expected_owner_uid)
+    run_id = launch.get("runId")
+    log_id = launch.get("logId")
+    started_at = launch.get("startedAtEpochMillis")
+    age = clock_millis() - started_at if isinstance(started_at, int) and not isinstance(started_at, bool) else None
+    if (
+        launch.get("schemaVersion") != RUN_CONTEXT_SCHEMA_VERSION
+        or launch.get("pipelineId") != pipeline_id
+        or not isinstance(run_id, str)
+        or run_id != pipeline_id + "/" + str(log_id)
+        or not isinstance(log_id, str)
+        or LOG_FILE.fullmatch(log_id) is None
+        or not isinstance(launch.get("policySnapshot"), dict)
+        or launch["policySnapshot"].get("revision") != policy.get("revision")
+        or launch.get("bootId") != boot_id()
+        or age is None
+        or age < 0
+        or age > CONTEXTUAL_LAUNCH_MAX_AGE_MILLIS
+    ):
+        raise StoragePreflightError("Contextual launch identity is invalid")
+    return launch
+
+
+def contextual_storage(
+    launch: Mapping[str, Any], manifest: Mapping[str, Any]
+) -> Tuple[List[Path], Path, int]:
+    output_value = launch.get("outputDirectory")
+    policy = launch.get("policySnapshot")
+    if not isinstance(output_value, str) or not output_value or not isinstance(policy, dict):
+        raise StoragePreflightError("Contextual output is invalid")
+    output = Path(output_value)
+    if not output.is_absolute():
+        raise StoragePreflightError("Contextual output must be absolute")
+    try:
+        metadata = os.lstat(output)
+        output = output.resolve(strict=True)
+    except OSError as error:
+        raise StoragePreflightError(f"Contextual output is unavailable: {error}") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise StoragePreflightError("Contextual output is unsafe")
+    writable, _ = resolve_writable_storage(manifest)
+    if not any(_is_relative_to(output, root) for root in writable):
+        raise StoragePreflightError("Contextual output is outside registered writable storage")
+    required = policy.get("minFreeBytes")
+    if isinstance(required, bool) or not isinstance(required, int) or required < 0:
+        raise StoragePreflightError("Contextual storage policy is invalid")
+    return [output], output, required
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def contextual_sensor_preflight(
+    launch: Mapping[str, Any], bridge_dir: Path, observed_at_millis: int
+) -> Mapping[str, object]:
+    policy = launch.get("policySnapshot")
+    if not isinstance(policy, dict):
+        raise StoragePreflightError("Contextual sensor policy is invalid")
+    required = policy.get("requiredSensors")
+    optional = policy.get("optionalSensors")
+    if not isinstance(required, list) or not isinstance(optional, list):
+        raise StoragePreflightError("Contextual sensor policy is invalid")
+    supported = {"camera", "gnss", "imu"}
+    if any(sensor not in supported for sensor in required + optional):
+        raise StoragePreflightError("Contextual sensor policy contains an unsupported sensor")
+    requirements = {sensor: "REQUIRED" for sensor in required}
+    requirements.update({sensor: "OPTIONAL" for sensor in optional})
+    observation = FieldQualitySampler(requirements).observe(
+        SensorBridgeStore(bridge_dir).status(), observed_at_millis
+    )
+    missing = [sensor for sensor in required if observation["sensors"][sensor]["state"] != "ACTIVE"]
+    if missing:
+        raise StoragePreflightError("Required sensors are not ready: " + ",".join(missing))
+    return observation
+
+
+def validate_contextual_launch(
+    launch: Mapping[str, Any],
+    pipeline_id: str,
+    manifest: Mapping[str, Any],
+    release: Path,
+    config_sha256: str,
+) -> None:
+    context = launch.get("contextSnapshot")
+    preflight = launch.get("preflightSnapshot")
+    output_context = launch.get("outputContext")
+    policy = launch.get("policySnapshot")
+    run_id = launch.get("runId")
+    if not all(isinstance(value, dict) for value in (context, preflight, output_context, policy)):
+        raise StoragePreflightError("Contextual launch snapshots are invalid")
+    assert isinstance(context, dict) and isinstance(preflight, dict)
+    assert isinstance(output_context, dict) and isinstance(policy, dict)
+    expected = {
+        "surveyProjectId": context.get("surveyProjectId"),
+        "surveySectionId": context.get("surveySectionId"),
+        "runId": run_id,
+        "deviceId": launch.get("deviceId"),
+        "pipelineId": pipeline_id,
+        "sourceRevision": manifest.get("source_revision"),
+        "configSha256": config_sha256,
+        "outputId": launch.get("output", {}).get("outputId") if isinstance(launch.get("output"), dict) else None,
+    }
+    if (
+        launch.get("sourceRevision") != manifest.get("source_revision")
+        or launch.get("sourceDirty") != manifest.get("source_dirty")
+        or launch.get("release") != str(release)
+        or launch.get("configRevision") != config_sha256
+        or preflight.get("ready") is not True
+        or preflight.get("contextSnapshot") != context
+        or not isinstance(preflight.get("policy"), dict)
+        or preflight["policy"].get("revision") != policy.get("revision")
+        or any(output_context.get(key) != value for key, value in expected.items())
+    ):
+        raise StoragePreflightError("Pipeline source, config, context, or preflight changed")
 
 
 def service_exit_code(application_exit_code: int) -> int:
@@ -382,12 +564,18 @@ def prune_logs(directory: Path) -> None:
 
 
 class RunLogWriter:
-    def __init__(self, directory: Path) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        log_id: Optional[str] = None,
+        started_at: Optional[str] = None,
+    ) -> None:
         started = utc_now()
-        self.started_at = started.isoformat().replace("+00:00", "Z")
-        self.path = directory / (
-            f"run-{started.strftime('%Y%m%dT%H%M%S.%fZ')}-{os.getpid()}.log"
-        )
+        self.started_at = started_at or started.isoformat().replace("+00:00", "Z")
+        name = log_id or f"run-{started.strftime('%Y%m%dT%H%M%S.%fZ')}-{os.getpid()}.log"
+        if LOG_FILE.fullmatch(name) is None:
+            raise ValueError("Run log identity is invalid")
+        self.path = directory / name
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
@@ -554,17 +742,50 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, forward_signal)
     signal.signal(signal.SIGTERM, forward_signal)
-    if not wait_for_time_sync(cancelled=lambda: pending_signal is not None):
+
+    try:
+        config_sha256 = hashlib.sha256(config.read_bytes()).hexdigest()
+    except OSError as error:
+        fail(f"Could not hash pipeline config: {error}")
+    try:
+        contextual_launch = load_contextual_launch(
+            pipeline_root,
+            pipeline_id,
+            expected_owner_uid=manifest_stat.st_uid,
+        )
+        if contextual_launch is not None:
+            validate_contextual_launch(contextual_launch, pipeline_id, manifest, release, config_sha256)
+    except StoragePreflightError as error:
+        print(f"Contextual start rejected: {error}", file=sys.stderr, flush=True)
+        return STORAGE_PREFLIGHT_EXIT_CODE
+    if contextual_launch is None and not wait_for_time_sync(
+        cancelled=lambda: pending_signal is not None
+    ):
         return 128 + int(pending_signal or signal.SIGTERM)
 
     log_directory = prepare_log_directory()
     environment["JETSON_PIPELINE_LOGS_DIR"] = str(log_directory)
     prune_logs(log_directory)
-    writer = RunLogWriter(log_directory)
+    try:
+        writer = RunLogWriter(
+            log_directory,
+            str(contextual_launch["logId"]) if contextual_launch is not None else None,
+            str(contextual_launch["startedAt"]) if contextual_launch is not None else None,
+        )
+    except FileExistsError:
+        print("Contextual run was already consumed", file=sys.stderr, flush=True)
+        return STORAGE_PREFLIGHT_EXIT_CODE
     required_storage_bytes: Optional[int] = None
     try:
-        required_storage_bytes = minimum_free_bytes(environment)
-        resolved_writable_paths, results_directory = resolve_writable_storage(manifest)
+        if contextual_launch is None:
+            required_storage_bytes = minimum_free_bytes(environment)
+            resolved_writable_paths, results_directory = resolve_writable_storage(manifest)
+        else:
+            resolved_writable_paths, results_directory, required_storage_bytes = contextual_storage(
+                contextual_launch, manifest
+            )
+            if not time_sync_ready(TIME_SYNC_MARKER):
+                raise StoragePreflightError("Authenticated device time is not ready")
         available_storage_bytes = preflight_writable_storage(
             resolved_writable_paths,
             required_storage_bytes,
@@ -582,6 +803,7 @@ def main() -> int:
             f"release={release}\n"
             f"source_revision={manifest.get('source_revision', '')}\n"
             f"source_dirty={'true' if manifest.get('source_dirty') is True else 'false'}\n"
+            f"run_id={contextual_launch.get('runId', '') if contextual_launch is not None else ''}\n"
             "storage_preflight=failed\n"
             f"storage_preflight_error={preflight_error}\n\n"
         ).encode("utf-8")
@@ -592,6 +814,8 @@ def main() -> int:
                 "\n=== Jetson pipeline run finished ===\n"
                 f"finished_at={finished_at}\n"
                 f"exit_code={STORAGE_PREFLIGHT_EXIT_CODE}\n"
+                "terminal_state=FAILED\n"
+                "stop_signal=\n"
             ).encode("ascii")
         )
         writer.close()
@@ -599,11 +823,9 @@ def main() -> int:
         return STORAGE_PREFLIGHT_EXIT_CODE
     if results_directory is not None:
         environment["JETSON_PIPELINE_RESULTS_DIR"] = str(results_directory)
-    try:
-        config_sha256 = hashlib.sha256(config.read_bytes()).hexdigest()
-    except OSError as error:
-        writer.close()
-        fail(f"Could not hash pipeline config: {error}")
+    if contextual_launch is not None:
+        environment["JETSON_PIPELINE_RUN_ID"] = str(contextual_launch["runId"])
+        environment["JETSON_PIPELINE_OUTPUT_ID"] = str(contextual_launch["output"]["outputId"])
     header = (
         "=== Jetson pipeline run ===\n"
         f"started_at={writer.started_at}\n"
@@ -613,6 +835,11 @@ def main() -> int:
         f"source_revision={manifest.get('source_revision', '')}\n"
         f"source_dirty={'true' if manifest.get('source_dirty') is True else 'false'}\n"
         f"config_sha256={config_sha256}\n"
+        f"run_id={contextual_launch.get('runId', '') if contextual_launch is not None else ''}\n"
+        f"survey_project_id={contextual_launch.get('contextSnapshot', {}).get('surveyProjectId', '') if contextual_launch is not None else ''}\n"
+        f"survey_section_id={contextual_launch.get('contextSnapshot', {}).get('surveySectionId', '') if contextual_launch is not None else ''}\n"
+        f"policy_revision={contextual_launch.get('policySnapshot', {}).get('revision', '') if contextual_launch is not None else ''}\n"
+        f"output_id={contextual_launch.get('output', {}).get('outputId', '') if contextual_launch is not None else ''}\n"
         f"results_directory={results_directory or ''}\n"
         f"storage_preflight={storage_preflight}\n"
         f"storage_available_bytes={available_storage_bytes if available_storage_bytes is not None else ''}\n"
@@ -628,11 +855,18 @@ def main() -> int:
         nonlocal run_finished
         if not run_finished:
             finished_at = utc_now().isoformat().replace("+00:00", "Z")
+            terminal_state = (
+                "STOPPED" if pending_signal is not None
+                else "COMPLETED" if exit_code == 0
+                else "FAILED"
+            )
             writer.emit_footer(
                 (
                     "\n=== Jetson pipeline run finished ===\n"
                     f"finished_at={finished_at}\n"
                     f"exit_code={exit_code}\n"
+                    f"terminal_state={terminal_state}\n"
+                    f"stop_signal={pending_signal or ''}\n"
                 ).encode("ascii")
             )
             run_finished = True
@@ -641,6 +875,15 @@ def main() -> int:
         return service_exit_code(exit_code)
 
     try:
+        if contextual_launch is not None:
+            contextual_sensor_preflight(
+                contextual_launch,
+                Path(environment.get(
+                    "JETSON_PIPELINE_SENSOR_BRIDGE_DIR",
+                    environment.get("JETSON_CONTROL_SENSOR_BRIDGE_DIR", "/var/lib/jetson-sensors"),
+                )),
+                int(time.time() * 1000),
+            )
         monitor_settings = settings_for_pipeline(pipeline_id, SENSOR_MONITOR_CONFIG)
         if monitor_settings is not None:
             print("Requesting sensor devices from the boot monitor", flush=True)
@@ -651,8 +894,18 @@ def main() -> int:
                 monitor_settings.bridge_dir
             )
             print("Sensor devices handed off to the capture pipeline", flush=True)
+        sensor_requirements = None
+        if contextual_launch is not None:
+            policy_snapshot = contextual_launch["policySnapshot"]
+            sensor_requirements = {
+                sensor: "REQUIRED" for sensor in policy_snapshot["requiredSensors"]
+            }
+            sensor_requirements.update({
+                sensor: "OPTIONAL" for sensor in policy_snapshot["optionalSensors"]
+            })
         route_recorder = RouteRecorder(writer.path, Path(environment.get(
-            "JETSON_PIPELINE_SENSOR_BRIDGE_DIR", environment.get("JETSON_CONTROL_SENSOR_BRIDGE_DIR", "/var/lib/jetson-sensors"))))
+            "JETSON_PIPELINE_SENSOR_BRIDGE_DIR", environment.get("JETSON_CONTROL_SENSOR_BRIDGE_DIR", "/var/lib/jetson-sensors"))),
+            sensor_requirements=sensor_requirements)
         route_recorder.start()
         try:
             child = subprocess.Popen(

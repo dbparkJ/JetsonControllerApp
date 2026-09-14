@@ -276,6 +276,113 @@ class PipelineRunnerLogTest(unittest.TestCase):
             {},
         )
 
+    def test_contextual_launch_requires_fresh_same_boot_root_owned_reservation(self) -> None:
+        pipeline_root = self.directory / "capture"
+        pipeline_root.mkdir()
+        policy = {
+            "schemaVersion": 1,
+            "pipelineId": "capture",
+            "configured": True,
+            "revision": "a" * 64,
+        }
+        (pipeline_root / "run-policy.json").write_text(json.dumps(policy))
+        (pipeline_root / "run-policy.json").chmod(0o644)
+        launch = {
+            "schemaVersion": 1,
+            "pipelineId": "capture",
+            "runId": "capture/run-20260914T000000.000001Z-1.log",
+            "logId": "run-20260914T000000.000001Z-1.log",
+            "startedAtEpochMillis": 10_000,
+            "bootId": "fixture-boot",
+            "policySnapshot": {"revision": "a" * 64},
+        }
+        (pipeline_root / "next-run.json").write_text(json.dumps(launch))
+        (pipeline_root / "next-run.json").chmod(0o644)
+
+        loaded = pipeline_runner.load_contextual_launch(
+            pipeline_root,
+            "capture",
+            expected_owner_uid=os.geteuid(),
+            clock_millis=lambda: 11_000,
+            boot_id=lambda: "fixture-boot",
+        )
+        self.assertEqual(loaded["runId"], launch["runId"])
+
+        with self.assertRaisesRegex(pipeline_runner.StoragePreflightError, "identity"):
+            pipeline_runner.load_contextual_launch(
+                pipeline_root,
+                "capture",
+                expected_owner_uid=os.geteuid(),
+                clock_millis=lambda: 200_001,
+                boot_id=lambda: "fixture-boot",
+            )
+
+    def test_contextual_launch_rejects_changed_release_or_config(self) -> None:
+        release = self.directory / "release"
+        release.mkdir()
+        manifest = {"source_revision": "a" * 40, "source_dirty": False}
+        context = {
+            "surveyProjectId": "p",
+            "surveySectionId": "s",
+        }
+        policy = {"revision": "c" * 64}
+        launch = {
+            "runId": "capture/run-20260914T000000.000001Z-1.log",
+            "deviceId": "device",
+            "sourceRevision": "a" * 40,
+            "sourceDirty": False,
+            "release": str(release),
+            "configRevision": "b" * 64,
+            "contextSnapshot": context,
+            "policySnapshot": policy,
+            "preflightSnapshot": {
+                "ready": True,
+                "contextSnapshot": context,
+                "policy": policy,
+            },
+            "output": {"outputId": "output"},
+            "outputContext": {
+                "surveyProjectId": "p",
+                "surveySectionId": "s",
+                "runId": "capture/run-20260914T000000.000001Z-1.log",
+                "deviceId": "device",
+                "pipelineId": "capture",
+                "sourceRevision": "a" * 40,
+                "configSha256": "b" * 64,
+                "outputId": "output",
+            },
+        }
+        pipeline_runner.validate_contextual_launch(
+            launch, "capture", manifest, release, "b" * 64
+        )
+        with self.assertRaises(pipeline_runner.StoragePreflightError):
+            pipeline_runner.validate_contextual_launch(
+                launch, "capture", manifest, self.directory / "other", "b" * 64
+            )
+
+    def test_contextual_required_sensor_failure_is_explicit(self) -> None:
+        bridge = self.directory / "bridge"
+        bridge.mkdir()
+        now = 1_777_000_000_000
+        (bridge / "status.json").write_text(json.dumps({
+            "schemaVersion": 1,
+            "updatedAtEpochMillis": now,
+            "camera": {"configured": True, "connected": True, "active": False},
+            "gnss": {},
+            "imu": {},
+        }))
+        launch = {
+            "policySnapshot": {
+                "requiredSensors": ["camera"],
+                "optionalSensors": ["gnss"],
+            }
+        }
+        with patch("jetson_control.sensors.time.time", return_value=now / 1000):
+            with self.assertRaisesRegex(
+                pipeline_runner.StoragePreflightError, "camera"
+            ):
+                pipeline_runner.contextual_sensor_preflight(launch, bridge, now)
+
 
 if __name__ == "__main__":
     unittest.main()
