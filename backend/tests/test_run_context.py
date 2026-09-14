@@ -265,6 +265,15 @@ class RunContextServiceTest(unittest.TestCase):
             self.start(policy, preflight)
         self.assertEqual(conflict.exception.code, "PIPELINE_CHANGED")
 
+    def test_start_rejects_preflight_from_previous_boot_even_when_fresh(self):
+        self.service.boot_id = lambda: "boot-before-restart"
+        policy = self.configure_policy()
+        preflight = self.preflight(policy)
+        self.service.boot_id = lambda: "boot-after-restart"
+        with self.assertRaises(RunContextConflict) as conflict:
+            self.start(policy, preflight)
+        self.assertEqual(conflict.exception.code, "PIPELINE_CHANGED")
+
     def test_terminal_evidence_counts_only_run_directory_and_tombstones_launch(self):
         policy = self.configure_policy()
         started = self.start(policy, self.preflight(policy))

@@ -181,6 +181,7 @@ class RunContextService:
         time_sync_marker: Path,
         time_sync_owner_uid: int = 0,
         clock: Callable[[], float] = time.time,
+        boot_id: Callable[[], str] = _boot_id,
     ) -> None:
         self.state_dir = Path(state_dir)
         self.registry_root = Path(registry_root)
@@ -194,6 +195,7 @@ class RunContextService:
         self.time_sync_marker = Path(time_sync_marker)
         self.time_sync_owner_uid = time_sync_owner_uid
         self.clock = clock
+        self.boot_id = boot_id
         self._lock = threading.RLock()
         self.records_dir = self.state_dir / "pipeline-runs"
         self.preflights_dir = self.state_dir / "pipeline-preflights"
@@ -437,6 +439,7 @@ class RunContextService:
             )
             identity = self.pipelines.runtime_identity(pipeline_id)
             checked_at_millis = int(self.clock() * 1000)
+            boot_id = self.boot_id()
             marker = read_time_sync_marker(
                 self.time_sync_marker,
                 expected_owner_uid=self.time_sync_owner_uid,
@@ -507,6 +510,7 @@ class RunContextService:
                 "preflightId": preflight_id,
                 "pipelineId": pipeline_id,
                 "deviceId": self.device_id,
+                "bootId": boot_id,
                 "surveyProject": {
                     "surveyProjectId": context["surveyProjectId"],
                     "label": context["surveyProjectLabel"],
@@ -808,8 +812,10 @@ class RunContextService:
             ):
                 raise RunContextConflict("PREFLIGHT_NOT_READY", "A fresh successful preflight is required", preflight)
             identity = self.pipelines.runtime_identity(pipeline_id)
+            current_boot_id = self.boot_id()
             if (
-                preflight.get("sourceRevision") != identity["sourceRevision"]
+                preflight.get("bootId") != current_boot_id
+                or preflight.get("sourceRevision") != identity["sourceRevision"]
                 or preflight.get("sourceDirty") != identity["sourceDirty"]
                 or preflight.get("release") != identity["release"]
                 or preflight.get("configRevision") != identity["configSha256"]
@@ -830,7 +836,7 @@ class RunContextService:
                 "active": True,
                 "startedAt": _utc_now(self.clock),
                 "startedAtEpochMillis": int(self.clock() * 1000),
-                "bootId": _boot_id(),
+                "bootId": current_boot_id,
                 "finishedAt": None,
                 "exitCode": None,
                 "stopReason": None,
