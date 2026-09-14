@@ -163,6 +163,57 @@ class RunContextServiceTest(unittest.TestCase):
             expected_revision=first["revision"], client_request_id="policy-request-1002",
         )
         self.assertEqual(second["policyVersion"], 2)
+        self.assertEqual(self.configure_policy(), first)
+
+    def test_policy_replay_succeeds_while_active_but_new_mutation_is_locked(self):
+        policy = self.configure_policy()
+        self.start(policy, self.preflight(policy))
+        self.assertEqual(self.configure_policy(), policy)
+        with self.assertRaises(RunContextConflict) as conflict:
+            self.service.set_policy(
+                "capture", required_sensors=["camera"], optional_sensors=[],
+                min_free_bytes=0, output_root_id="recordings", output_path="",
+                expected_output={"minFiles": 0, "minBytes": 0, "patterns": []},
+                expected_revision=policy["revision"], client_request_id="policy-request-1002",
+            )
+        self.assertEqual(conflict.exception.code, "CONTEXT_LOCKED")
+
+    def test_large_policy_replays_remain_readable_after_restart(self):
+        patterns = [("segment-%02d-" % index) + "x" * 180 for index in range(64)]
+        first = self.service.set_policy(
+            "capture", required_sensors=["camera"], optional_sensors=["gnss", "imu"],
+            min_free_bytes=0, output_root_id="recordings", output_path="",
+            expected_output={"minFiles": 1, "minBytes": 1, "patterns": patterns},
+            expected_revision=None, client_request_id="large-policy-request-000",
+        )
+        current = first
+        for index in range(1, 20):
+            current = self.service.set_policy(
+                "capture", required_sensors=["camera"], optional_sensors=["gnss", "imu"],
+                min_free_bytes=index, output_root_id="recordings", output_path="",
+                expected_output={"minFiles": 1, "minBytes": 1, "patterns": patterns},
+                expected_revision=current["revision"],
+                client_request_id="large-policy-request-%03d" % index,
+            )
+        self.assertLess(
+            self.service.policy_requests_path.stat().st_size,
+            512 * 1024,
+        )
+        restarted = RunContextService(
+            state_dir=self.base / "state", registry_root=self.registry,
+            logs_root=self.logs, device_id=self.service.device_id,
+            pipeline_user=self.service.pipeline_user, pipelines=self.pipelines,
+            survey=self.survey, sensor_bridge=self.sensor, storage=self.service.storage,
+            time_sync_marker=self.marker, time_sync_owner_uid=os.geteuid(),
+            clock=lambda: self.clock_value,
+        )
+        replay = restarted.set_policy(
+            "capture", required_sensors=["camera"], optional_sensors=["gnss", "imu"],
+            min_free_bytes=0, output_root_id="recordings", output_path="",
+            expected_output={"minFiles": 1, "minBytes": 1, "patterns": patterns},
+            expected_revision=None, client_request_id="large-policy-request-000",
+        )
+        self.assertEqual(replay, first)
 
     def test_preflight_preserves_context_snapshot_and_has_no_rtk_threshold(self):
         policy = self.configure_policy()
