@@ -19,8 +19,16 @@ from fastapi import HTTPException, Query
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .field_quality import (
+    FIELD_QUALITY_SCHEMA_VERSION,
+    attach_route_indexes,
+    summarize_quality,
+)
+
 RUN_NAME = re.compile(r"run-(\d{8}T\d{6}\.\d{6}Z)-\d+\.log")
 PIPELINE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
+MAX_QUALITY_SUMMARY_BYTES = 256 * 1024
+MAX_QUALITY_EVIDENCE_BYTES = 8 * 1024 * 1024
 
 
 def safe_read(path: Path, limit: int = 65536, tail: bool = False) -> bytes:
@@ -32,6 +40,46 @@ def safe_read(path: Path, limit: int = 65536, tail: bool = False) -> bytes:
         return os.pread(fd, limit, max(0, metadata.st_size - limit) if tail else 0)
     finally:
         os.close(fd)
+
+
+def read_run_quality(path: Path, route_points=None, allow_evidence_fallback: bool = False):
+    """Read a bounded persisted summary, deriving it from evidence only for one run."""
+    summary_path = Path(str(path) + '.quality.json')
+    try:
+        encoded = safe_read(summary_path, MAX_QUALITY_SUMMARY_BYTES + 1)
+        if len(encoded) > MAX_QUALITY_SUMMARY_BYTES:
+            return None
+        summary = json.loads(encoded.decode('utf-8'))
+        if (not isinstance(summary, dict)
+                or summary.get('schemaVersion') != FIELD_QUALITY_SCHEMA_VERSION
+                or summary.get('sampleState') not in ('NO_SAMPLES', 'UNKNOWN', 'INSUFFICIENT_TIMING', 'OBSERVED')
+                or not isinstance(summary.get('problemIntervals'), list)
+                or not isinstance(summary.get('sensors'), list)):
+            raise ValueError('Invalid quality summary')
+    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        if not allow_evidence_fallback:
+            return None
+        evidence_path = Path(str(path) + '.quality.jsonl')
+        try:
+            encoded = safe_read(evidence_path, MAX_QUALITY_EVIDENCE_BYTES + 1)
+        except OSError:
+            return None
+        truncated = len(encoded) > MAX_QUALITY_EVIDENCE_BYTES
+        encoded = encoded[:MAX_QUALITY_EVIDENCE_BYTES]
+        if truncated:
+            encoded = encoded.rsplit(b'\n', 1)[0]
+        observations = []
+        for line in encoded.splitlines():
+            try:
+                value = json.loads(line)
+                if isinstance(value, dict):
+                    observations.append(value)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+        summary = summarize_quality(observations, truncated=truncated)
+    if route_points is not None:
+        return attach_route_indexes(summary, route_points)
+    return summary
 
 
 def run_history(logs_root: Path, pipelines: list, offset: int, limit: int) -> dict:
@@ -61,7 +109,8 @@ def run_history(logs_root: Path, pipelines: list, offset: int, limit: int) -> di
                 label=pipeline.get('label', pipeline_id), logId=path.name,
                 startedAt=datetime.strptime(stamp, '%Y%m%dT%H%M%S.%fZ').replace(tzinfo=timezone.utc).isoformat(),
                 finishedAt=footer[1] if footer else None, state=state,
-                exitCode=int(footer[2]) if footer else None))
+                exitCode=int(footer[2]) if footer else None,
+                quality=read_run_quality(path)))
         except (OSError, ValueError):
             continue
     return dict(runs=runs, nextOffset=offset + limit if offset + limit < len(candidates) else None)
@@ -85,15 +134,21 @@ def delete_run_history(logs_root: Path, pipelines: list, pipeline_id: str, log_i
         metadata = os.stat(log_id, dir_fd=directory_fd, follow_symlinks=False)
         if not stat.S_ISREG(metadata.st_mode):
             raise HTTPException(400, 'Unsafe run log')
-        route_id = log_id + '.route.jsonl'
-        try:
-            route = os.stat(route_id, dir_fd=directory_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            route = None
-        if route is not None:
-            if not stat.S_ISREG(route.st_mode):
-                raise HTTPException(400, 'Unsafe run route')
-            os.unlink(route_id, dir_fd=directory_fd)
+        sidecars = []
+        for sidecar_id, label in (
+            (log_id + '.route.jsonl', 'route'),
+            (log_id + '.quality.jsonl', 'quality evidence'),
+            (log_id + '.quality.json', 'quality summary'),
+        ):
+            try:
+                sidecar = os.stat(sidecar_id, dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(sidecar.st_mode):
+                raise HTTPException(400, 'Unsafe run ' + label)
+            sidecars.append(sidecar_id)
+        for sidecar_id in sidecars:
+            os.unlink(sidecar_id, dir_fd=directory_fd)
         os.unlink(log_id, dir_fd=directory_fd)
         return {'deleted': True}
     finally:
@@ -189,18 +244,31 @@ def register_field_routes(app, authenticated, paths, config, pipelines, sensor_b
             raise HTTPException(400, 'Unsafe run directory')
         def read():
             try:
-                lines = safe_read(directory / (log_id + '.route.jsonl'), 8 * 1024 * 1024).decode().splitlines()
+                lines = safe_read(directory / (log_id + '.route.jsonl'), 8 * 1024 * 1024).decode(
+                    'utf-8', errors='replace').splitlines()
             except FileNotFoundError:
-                return {'points': []}
+                lines = []
             points = []
             for line in lines:
                 try:
                     point = json.loads(line)
-                    if -90 <= point['latitude'] <= 90 and -180 <= point['longitude'] <= 180:
-                        points.append(point)
+                    latitude = point['latitude']
+                    longitude = point['longitude']
+                    timestamp = point['timestamp']
+                    if (isinstance(latitude, (int, float)) and not isinstance(latitude, bool)
+                            and isinstance(longitude, (int, float)) and not isinstance(longitude, bool)
+                            and isinstance(timestamp, int) and not isinstance(timestamp, bool)
+                            and -90 <= latitude <= 90 and -180 <= longitude <= 180):
+                        normalized = dict(latitude=latitude, longitude=longitude, timestamp=timestamp,
+                                          segment=point.get('segment', 0) if isinstance(point.get('segment', 0), int) else 0)
+                        for key in ('fixState', 'sensorState'):
+                            if isinstance(point.get(key), str):
+                                normalized[key] = point[key][:32]
+                        points.append(normalized)
                 except (ValueError, KeyError, TypeError):
                     continue
-            return {'points': points}
+            quality = read_run_quality(directory / log_id, points, allow_evidence_fallback=True)
+            return {'points': points, 'quality': quality}
         return await run_in_threadpool(read)
 
     @app.get('/v1/task-runs/{pipeline_id}/{log_id}/log', dependencies=authenticated)

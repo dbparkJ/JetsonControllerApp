@@ -17,6 +17,7 @@ from jetson_control.auth import (
     sign_response,
 )
 from jetson_control.config import DeviceConfig, RuntimePaths
+from jetson_control.field_quality import summarize_quality
 from jetson_control.filesystem import StorageRegistry, WorkspaceRegistry
 from jetson_control.mobile_rtk import MobileRtkRelayRegistry
 from jetson_control.uploads import UploadConfirmationRequired, UploadManager
@@ -58,7 +59,9 @@ class ApiContractTest(unittest.TestCase):
             upload_targets=targets_path,
             state_dir=base / "state",
             sensor_bridge_dir=sensor_bridge,
+            pipeline_logs=base / "logs",
         )
+        self.paths.pipeline_logs.mkdir()
         self.config = DeviceConfig(
             device_id="00000000-0000-0000-0000-000000000001",
             device_name="MMS-TEST",
@@ -272,6 +275,42 @@ class ApiContractTest(unittest.TestCase):
     def test_run_routes_reject_invalid_ids(self):
         response = self.signed_request("GET", "/v1/task-runs/capture/not-a-log/route")
         self.assertEqual(response.status_code, 400)
+
+    def test_run_history_and_route_expose_the_same_persisted_quality_summary(self):
+        directory = self.paths.pipeline_logs / "capture"
+        directory.mkdir()
+        log_id = "run-20260912T010001.000001Z-123.log"
+        log = directory / log_id
+        log.write_text("running", encoding="utf-8")
+        observations = [
+            {
+                "schemaVersion": 1,
+                "observedAtEpochMillis": at,
+                "observationWindowMillis": 2_000,
+                "rtkFixState": "FLOAT",
+                "sensors": {
+                    "gnss": {"state": "ACTIVE", "requirement": "UNSPECIFIED"}
+                },
+            }
+            for at in (1_000, 3_000)
+        ]
+        summary = summarize_quality(observations)
+        Path(str(log) + ".quality.json").write_text(json.dumps(summary), encoding="utf-8")
+        Path(str(log) + ".route.jsonl").write_text(
+            '{"latitude":37.0,"longitude":127.0,"timestamp":1000,"segment":0,"fixState":"FLOAT"}\n'
+            '{"latitude":37.1,"longitude":127.1,"timestamp":3000,"segment":0,"fixState":"FLOAT"}\n',
+            encoding="utf-8",
+        )
+
+        history = self.signed_request("GET", "/v1/task-runs?offset=0")
+        route = self.signed_request("GET", f"/v1/task-runs/capture/{log_id}/route")
+
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertEqual(route.status_code, 200, route.text)
+        self.assertEqual(history.json()["runs"][0]["quality"]["rtkFixRatio"], 0.0)
+        self.assertEqual(route.json()["quality"]["rtkFixRatio"], 0.0)
+        problem = route.json()["quality"]["problemIntervals"][0]
+        self.assertEqual((problem["startRoutePointIndex"], problem["endRoutePointIndex"]), (0, 1))
 
     def test_run_deletion_requires_auth_confirmation_and_returns_signed_result(self):
         path = '/v1/task-runs/capture/run-20260912T010001.000001Z-123.log'
