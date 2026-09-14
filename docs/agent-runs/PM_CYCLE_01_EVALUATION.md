@@ -10,13 +10,13 @@
 
 실제 환경의 확인 범위는 다음과 같다.
 
-- Galaxy S22 Ultra SM-S908N, Android API 36에 `1.17.0`/code 25 설치 성공. 실제 LAN stored-credential reconnect는 도달 불가 discovery host를 cached reachable endpoint로 복구하는 흐름을 3회 통과했다. Survey instrumentation은 2200×1600, density 240, font scale 1.5의 넓은 viewport에서 2개 PASS했고 실제 1440×3088, density 560, font scale 1.1 화면과 rotation 복원도 PASS했다. 다만 최종 UI 19개 중 CoreWorkflow LazyColumn 3개는 실패해 수정 중이므로 Android UI 전체 PASS로 판정하지 않는다.
+- Galaxy S22 Ultra SM-S908N, Android API 36에 `1.17.0`/code 25 설치 성공. 실제 LAN stored-credential reconnect는 도달 불가 discovery host를 cached reachable endpoint로 복구하는 흐름을 3회 통과했다. Survey instrumentation은 2200×1600, density 240, font scale 1.5의 넓은 viewport에서 2개 PASS했고 실제 1440×3088, density 560, font scale 1.1 화면과 rotation 복원도 PASS했다. 대표 UI와 실제 LAN reconnect 19개는 실패 테스트 보정 후 모두 통과했다(CoreWorkflow 9개 재실행 포함). Survey 하단 inset 보정은 최종 물리 터치 재확인 중이다.
 - Orin NX `jm-desktop`에서 camera·GNSS ACTIVE, external IMU missing/error를 관찰했다. QA용 정책 `required=camera,gnss`, `optional=imu`, 최소 1 GiB, expected 1 file/1 byte로 preflight/start를 통과했고 required IMU 설정에서는 시작이 차단됐다. 이 값은 생산 threshold 승인 기록이 아니다.
 - API 재시작 동안 수집은 계속됐고 explicit stop은 `STOPPED`로 종결됐다. workload 387 files/1,083,395,576 bytes가 `FINAL`/`SATISFIED` manifest로 기록됐다.
 - metadata 2개를 포함한 389 files/1,083,396,422 bytes를 공개 receiver로 upload해 `COMPLETED` 뒤 모든 object hash `MATCHED`를 확인했다. Jetson run/source trash, 중복 DELETE, restore, fresh verification, exact log hash와 context 보존도 PASS다.
 - Jetson API 구 package rollback과 신 package 복귀 뒤 TLS/HMAC, device identity와 run 보존을 확인했다. 공개 receiver `geonwsPrecision`은 기존 6 sessions/196,131 files를 보존한 backup·DB migration·rollback, 중단 13 MiB offset resume, 3-file batch, context/environment/auth/role 거절, token lifecycle, audit와 trash/restore를 실제 server에서 통과했다.
 
-현재 release 판정은 범위별로 유지한다. P0 핵심 수집·저장·upload·검증·복구 흐름은 자동 및 대표 실제 환경에서 확인됐다. 넓은 viewport와 S22 rotation은 검증했지만 physical tablet 증거를 대신하지 않는다. Outdoor RTK FIX, 장시간 연속 수집과 모든 BLE·Wi-Fi Direct·LTE 전환은 아직 미검증이다. 자동 purge는 의도적으로 제공하지 않으며 조직 SSO 연동은 이번 범위가 아니다. 문서 작성 시점에는 CoreWorkflow LazyColumn UI 3개 수정·재시험, main 병합과 진행 중인 PR 7 CI가 남아 있다. 따라서 새 증거를 전체 42개 요구사항의 글로벌 PASS 또는 생산 정책·최종 device 승인으로 확대하지 않는다.
+현재 release 판정은 범위별로 유지한다. P0 핵심 수집·저장·upload·검증·복구 흐름은 자동 및 대표 실제 환경에서 확인됐다. 넓은 viewport와 S22 rotation은 검증했지만 physical tablet 증거를 대신하지 않는다. Outdoor RTK FIX, 장시간 연속 수집과 모든 BLE·Wi-Fi Direct·LTE 전환은 아직 미검증이다. 자동 purge는 의도적으로 제공하지 않으며 조직 SSO 연동은 이번 범위가 아니다. 문서 작성 시점에는 Survey 하단 inset의 최종 물리 터치, main 병합과 진행 중인 PR 7 CI가 남아 있다. 따라서 새 증거를 전체 42개 요구사항의 글로벌 PASS 또는 생산 정책·최종 device 승인으로 확대하지 않는다.
 
 > 역사 판정: Cycle 01 `00cdd99` 통합 코드·로컬 검증 **PASS**, demo **NOT_RUN**, 내부 운영 release **BLOCKED**. 아래 내용은 그 시점의 후속 작업 결정을 설명한다.
 
