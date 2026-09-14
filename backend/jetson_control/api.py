@@ -572,6 +572,21 @@ def create_app(
                 status_code=400,
                 detail={"code": "INVALID_REQUEST", "message": str(error)},
             ) from error
+        if isinstance(error, PipelineNotFound):
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "PIPELINE_NOT_FOUND", "message": str(error)},
+            ) from error
+        if isinstance(error, PipelineConflict):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "PIPELINE_CONFLICT", "message": str(error)},
+            ) from error
+        if isinstance(error, PipelineError):
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "PIPELINE_ERROR", "message": str(error)},
+            ) from error
         if isinstance(error, (RunContextError, SurveyContextError)):
             raise HTTPException(
                 status_code=500,
@@ -1404,6 +1419,8 @@ def create_app(
         try:
             run_context.mutate_pipeline(pipeline_id, pipelines.remove, pipeline_id)
             return Response(status_code=204)
+        except RunContextConflict as error:
+            raise_context_error(error)
         except PipelineNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
