@@ -61,36 +61,54 @@ class MobileRtkRelayManager(
     private val activeSockets = ConcurrentHashMap.newKeySet<Socket>()
 
     suspend fun prepare(pipelineId: String, client: LocalApiClient): Result<Boolean> {
-        return try {
-            Result.success(
-                mutex.withLock {
+        return mutex.withLock {
+            try {
+                Result.success(
                     prepareLocked(pipelineId, client)
-                }
-            )
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            mutex.withLock { releaseLocalResourcesLocked() }
-            _state.value = MobileRtkRelayState(
-                pipelineId = pipelineId,
-                error = error.message ?: "모바일 RTK 중계를 시작하지 못했습니다."
-            )
-            Result.failure(error)
+                )
+            } catch (error: CancellationException) {
+                releaseLocalResourcesLocked()
+                _state.value = MobileRtkRelayState()
+                MobileRtkRelayService.stop(appContext)
+                throw error
+            } catch (error: Exception) {
+                // Cleanup remains under the same ownership lock. A failed old
+                // prepare cannot release a newer client's relay between locks.
+                releaseLocalResourcesLocked()
+                _state.value = MobileRtkRelayState(
+                    pipelineId = pipelineId,
+                    error = error.message ?: "모바일 RTK 중계를 시작하지 못했습니다."
+                )
+                MobileRtkRelayService.stop(appContext)
+                Result.failure(error)
+            }
         }
     }
 
-    suspend fun stop(client: LocalApiClient? = activeClient) {
+    /** Deliberately stops the current relay, regardless of which client owns it. */
+    suspend fun stop(client: LocalApiClient? = null) {
         mutex.withLock {
-            val pipelineId = _state.value.pipelineId
-            releaseLocalResourcesLocked()
-            if (pipelineId != null && client != null) {
-                client.unregisterMobileRtkRelay(pipelineId)
-            }
-            _state.value = MobileRtkRelayState(
-                message = "모바일 데이터 RTK 중계를 종료했습니다."
-            )
+            stopLocked(client ?: activeClient)
+            // Keep the foreground-service lifetime in the same ownership
+            // critical section as local relay resources.
+            MobileRtkRelayService.stop(appContext)
         }
-        MobileRtkRelayService.stop(appContext)
+    }
+
+    /**
+     * Stops only the relay still owned by [client]. A delayed cleanup from an
+     * old transport session must not tear down a relay prepared for a new one.
+     */
+    suspend fun stopIfOwnedBy(client: LocalApiClient?): Boolean {
+        return mutex.withLock {
+            if (activeClient !== client) {
+                false
+            } else {
+                stopLocked(client)
+                MobileRtkRelayService.stop(appContext)
+                true
+            }
+        }
     }
 
     private suspend fun prepareLocked(
@@ -101,6 +119,7 @@ class MobileRtkRelayManager(
         if (
             _state.value.active &&
             _state.value.pipelineId == pipelineId &&
+            activeClient === client &&
             existingServer != null &&
             !existingServer.isClosed
         ) {
@@ -109,6 +128,9 @@ class MobileRtkRelayManager(
         }
 
         releaseLocalResourcesLocked()
+        // Claim ownership before any cancellable network preparation so a
+        // target-switch cleanup can identify this in-flight session.
+        activeClient = client
         _state.value = MobileRtkRelayState(
             preparing = true,
             pipelineId = pipelineId,
@@ -117,10 +139,12 @@ class MobileRtkRelayManager(
 
         val config = client.getMobileRtkRelayConfig(pipelineId).getOrThrow()
         if (!config.available) {
+            activeClient = null
             _state.value = MobileRtkRelayState(
                 pipelineId = pipelineId,
                 message = "이 작업에는 NTRIP이 설정되어 있지 않습니다."
             )
+            MobileRtkRelayService.stop(appContext)
             return false
         }
         val upstreamHost = requireNotNull(config.upstreamHost) {
@@ -148,7 +172,6 @@ class MobileRtkRelayManager(
 
         cellularLease = lease
         serverSocket = server
-        activeClient = client
         acceptJob = scope.launch(Dispatchers.IO) {
             acceptConnections(server, lease.network, config, groupOwnerHost)
         }
@@ -173,6 +196,17 @@ class MobileRtkRelayManager(
         return true
     }
 
+    private suspend fun stopLocked(client: LocalApiClient?) {
+        val pipelineId = _state.value.pipelineId
+        releaseLocalResourcesLocked()
+        if (pipelineId != null && client != null) {
+            client.unregisterMobileRtkRelay(pipelineId)
+        }
+        _state.value = MobileRtkRelayState(
+            message = "모바일 데이터 RTK 중계를 종료했습니다."
+        )
+    }
+
     private fun startHeartbeat(
         pipelineId: String,
         port: Int,
@@ -185,7 +219,7 @@ class MobileRtkRelayManager(
                 client.registerMobileRtkRelay(pipelineId, port)
                     .onFailure { error ->
                         val current = _state.value
-                        if (current.active && current.pipelineId == pipelineId) {
+                        if (activeClient === client && current.active && current.pipelineId == pipelineId) {
                             ConnectionDiagnostics.record("rtk_heartbeat", mapOf(
                                 "success" to false, "active" to true,
                                 "bytesFromCaster" to current.bytesFromCaster,
@@ -198,7 +232,7 @@ class MobileRtkRelayManager(
                     }
                     .onSuccess {
                         val current = _state.value
-                        if (current.active && current.pipelineId == pipelineId) {
+                        if (activeClient === client && current.active && current.pipelineId == pipelineId) {
                             ConnectionDiagnostics.record("rtk_heartbeat", mapOf(
                                 "success" to true, "active" to true, "bytesFromCaster" to current.bytesFromCaster
                             ))

@@ -673,7 +673,7 @@ class JetsonRepository(
         ConnectionDiagnostics.record("connection_intent", mapOf(
             "desiredTransport" to "NONE", "reasonCode" to "USER", "intended" to false
         ))
-        stopMobileRtkRelay()
+        stopMobileRtkRelayForClient(activeIpClient)
         explicitDisconnectRequested.set(true)
         automaticConnectivityEnabled.value = false
         automaticDirectFallbackReady.value = false
@@ -741,6 +741,10 @@ class JetsonRepository(
         automaticDirectFallbackReady.value = false
         automaticDirectFallbackJob?.cancel()
         automaticDirectFallbackJob = null
+        // A relay is scoped to the authenticated target. Stop it before the old
+        // client is retired so location data cannot be forwarded to that device
+        // after an explicit target switch.
+        stopMobileRtkRelayForClient(activeIpClient)
         nextConnectionAttempt()
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
@@ -1059,7 +1063,7 @@ class JetsonRepository(
         _visibleConnectingLanDeviceId.value = null
         pendingWifiDirectTargetDeviceId = deviceId
         if (transportCoordinator.currentTransport()?.type == TransportType.LAN) {
-            stopMobileRtkRelay()
+            stopMobileRtkRelayForClient(activeIpClient)
             activeIpClient = null
             transportCoordinator.disconnect()
             clearReachableDeviceState()
@@ -1077,7 +1081,7 @@ class JetsonRepository(
         nextConnectionAttempt()
         pendingWifiDirectTargetDeviceId = null
         if (transportCoordinator.currentTransport()?.type == TransportType.WIFI_DIRECT) {
-            stopMobileRtkRelay()
+            stopMobileRtkRelayForClient(activeIpClient)
             activeIpClient = null
             transportCoordinator.disconnect()
             clearReachableDeviceState()
@@ -1266,7 +1270,7 @@ class JetsonRepository(
                         automaticDirectFallbackJob?.cancel()
                         automaticDirectFallbackJob = null
                         _lanConnectionError.value = null
-                        stopMobileRtkRelay()
+                        stopMobileRtkRelayForClient(activeIpClient)
                         activeIpClient = candidateClient
                         lanDiscoveryManager.rememberAuthenticatedEndpoint(endpoint)
                         cancelWifiProvisioningHandoff()
@@ -1417,7 +1421,7 @@ class JetsonRepository(
         nextConnectionAttempt()
         // Keep the existing RTK safety policy until its independent lease/data
         // health can be established; preserving a group alone does not prove it.
-        stopMobileRtkRelay()
+        stopMobileRtkRelayForClient(activeIpClient)
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
         _visibleConnectingLanDeviceId.value = null
@@ -1482,7 +1486,7 @@ class JetsonRepository(
 
     private fun beginWifiProvisioningHandoff(transportType: TransportType) {
         explicitWifiDirectRequested.set(false)
-        stopMobileRtkRelay()
+        stopMobileRtkRelayForClient(activeIpClient)
         wifiProvisioningHandoffJob?.cancel()
         wifiProvisioningHandoff.value = true
         automaticDirectFallbackReady.value = false
@@ -1764,26 +1768,35 @@ class JetsonRepository(
         // A lost response does not prove that start/restart failed. A verified
         // same-session read can preserve the prepared relay without promoting
         // the original RESULT_UNKNOWN into command success.
-        val observedPipeline = (controlled.exceptionOrNull() as? JetsonCommandResultUnknownException)
+        val unknownResult = controlled.exceptionOrNull() as? JetsonCommandResultUnknownException
+        val observedPipeline = unknownResult
             ?.stateQueryResult?.getOrNull() as? ManagedPipeline
-        val observedRunning = observedPipeline != null && observedPipeline.id == pipelineId &&
-            observedPipeline.state in setOf(PipelineState.RUNNING, PipelineState.STARTING)
-        if (controlled.isFailure && relayPrepared && !observedRunning) {
-            mobileRtkRelayManager.stop(client)
+        val observedTerminal = observedPipeline != null && observedPipeline.id == pipelineId &&
+            observedPipeline.state in setOf(PipelineState.STOPPED, PipelineState.FAILED)
+        if (
+            relayPrepared && controlled.isFailure &&
+            (unknownResult == null || observedTerminal)
+        ) {
+            mobileRtkRelayManager.stopIfOwnedBy(client)
         } else if (
             controlled.isSuccess &&
             action == "stop" &&
             mobileRtkRelayState.value.pipelineId == pipelineId
         ) {
-            mobileRtkRelayManager.stop(client)
+            mobileRtkRelayManager.stopIfOwnedBy(client)
         }
         return controlled
     }
 
     fun stopMobileRtkRelay() {
-        val client = activeIpClient
         scope.launch {
-            mobileRtkRelayManager.stop(client)
+            mobileRtkRelayManager.stop()
+        }
+    }
+
+    private fun stopMobileRtkRelayForClient(client: LocalApiClient?) {
+        scope.launch {
+            mobileRtkRelayManager.stopIfOwnedBy(client)
         }
     }
 

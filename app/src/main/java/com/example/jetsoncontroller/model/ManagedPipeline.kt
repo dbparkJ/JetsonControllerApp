@@ -23,7 +23,36 @@ data class ManagedPipeline(
     val outputPath: String? = null,
     val resultsDirectory: String? = null,
     val folderConvention: Boolean = false,
-    val timeSynchronized: Boolean = false
+    val timeSynchronized: Boolean = false,
+    val observedAt: String? = null,
+    val activeRunId: String? = null,
+    val execution: PipelineExecution? = null,
+    val failureKind: String? = null,
+    val control: PipelineControl? = null
+)
+
+data class PipelineExecution(
+    val runId: String = "",
+    val logId: String = "",
+    val active: Boolean = false,
+    val startedAt: String? = null,
+    val finishedAt: String? = null,
+    val exitCode: Int? = null,
+    val sourceRevision: String? = null,
+    val sourceDirty: Boolean? = null,
+    val release: String? = null,
+    val configSha256: String? = null,
+    val resultsDirectory: String? = null,
+    val storageAvailableBytes: Long? = null,
+    val storageRequiredBytes: Long? = null,
+    val storagePreflight: String? = null,
+    val failureKind: String? = null
+)
+
+data class PipelineControl(
+    val action: String = "",
+    val commandIssued: Boolean = false,
+    val outcome: String = ""
 )
 
 enum class PipelineState {
@@ -47,7 +76,7 @@ data class PipelineFolderDiscovery(
     val resultsDirectory: String,
     val resultsExists: Boolean,
     val logDirectory: String,
-    val autostartDefault: Boolean = true
+    val autostartDefault: Boolean = false
 )
 
 data class DiscoverPipelineFolderRequest(
