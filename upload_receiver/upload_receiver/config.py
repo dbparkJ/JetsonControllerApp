@@ -32,6 +32,15 @@ def _boolean(name: str, default: bool) -> bool:
     raise RuntimeError(f"{name} must be true or false")
 
 
+def _server_environment() -> str:
+    value = os.environ.get("UPLOAD_RECEIVER_ENVIRONMENT", "development").strip().lower()
+    if value not in {"development", "test", "production"}:
+        raise RuntimeError(
+            "UPLOAD_RECEIVER_ENVIRONMENT must be development, test, or production"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     data_root: Path
@@ -50,6 +59,7 @@ class Settings:
     max_manifest_requests_per_minute: int = 30
     readiness_cache_seconds: int = 5
     max_preview_bytes: int = 12 * 1024 * 1024
+    server_environment: str = "development"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -101,6 +111,7 @@ class Settings:
             max_preview_bytes=_positive_int(
                 "UPLOAD_RECEIVER_MAX_PREVIEW_BYTES", 12 * 1024 * 1024
             ),
+            server_environment=_server_environment(),
         )
 
     @property
@@ -118,6 +129,10 @@ class Settings:
     @property
     def objects_root(self) -> Path:
         return self.data_root / "storage" / "objects"
+
+    @property
+    def trash_root(self) -> Path:
+        return self.data_root / "storage" / "trash"
 
     @property
     def locks_root(self) -> Path:
@@ -151,6 +166,7 @@ class Settings:
             (self.pepper_path.parent, 0o700),
             (self.staging_root, 0o700),
             (self.objects_root, 0o700),
+            (self.trash_root, 0o700),
             (self.locks_root, 0o700),
             (self.runtime_root, 0o700),
         ):

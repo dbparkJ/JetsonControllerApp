@@ -31,6 +31,7 @@ from .database import Database
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 CLIENT_JOB_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+ACCESS_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 CONTENT_RANGE_PATTERN = re.compile(r"^bytes ([0-9]+)-([0-9]+)/([0-9]+)$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
@@ -50,6 +51,13 @@ class ReceiverError(Exception):
 class Device:
     device_id: str
     quota_bytes: int
+
+
+@dataclass(frozen=True)
+class Employee:
+    employee_id: str
+    display_name: str
+    role: str
 
 
 @dataclass(frozen=True)
@@ -80,6 +88,8 @@ class BatchFile:
 class ReceiverService:
     def __init__(self, settings: Settings, *, create_pepper: bool = False) -> None:
         self.settings = settings
+        if settings.server_environment not in {"development", "test", "production"}:
+            raise RuntimeError("Server environment is invalid")
         settings.prepare(create_pepper=create_pepper)
         self.database = Database(settings.database_path)
         self.database.initialize()
@@ -147,11 +157,20 @@ class ReceiverService:
             quota_bytes=quota_bytes,
             expires_at=expires_at,
         )
-        if not token or len(token) > 4096 or any(character.isspace() for character in token):
+        if (
+            not token
+            or token.startswith("emp_")
+            or len(token) > 4096
+            or any(character.isspace() for character in token)
+        ):
             raise ValueError("token is invalid")
         digest = self._token_digest(token)
         now = self.timestamp()
         with self.database.immediate() as connection:
+            if connection.execute(
+                "SELECT 1 FROM employees WHERE token_digest=?", (digest,)
+            ).fetchone() is not None:
+                raise ValueError("Token is already assigned to an employee")
             connection.execute(
                 """
                 INSERT INTO devices(
@@ -199,6 +218,159 @@ class ReceiverService:
             )
             if cursor.rowcount != 1:
                 raise ValueError("Device was not found")
+
+    def upsert_project(self, project_id: str, display_name: str) -> None:
+        self.ensure_storage_available()
+        project_id = self.validate_access_id(project_id, "projectId")
+        display_name = self.validate_display_name(display_name)
+        now = self.timestamp()
+        with self.database.immediate() as connection:
+            connection.execute(
+                """
+                INSERT INTO projects(project_id, display_name, enabled, created_at, updated_at)
+                VALUES (?, ?, 1, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                    display_name=excluded.display_name,
+                    enabled=1,
+                    updated_at=excluded.updated_at
+                """,
+                (project_id, display_name, now, now),
+            )
+
+    def assign_device_to_project(self, device_id: str, project_id: str) -> None:
+        self.ensure_storage_available()
+        device_id = self.validate_device_id(device_id)
+        project_id = self.validate_access_id(project_id, "projectId")
+        now = self.timestamp()
+        with self.database.immediate() as connection:
+            if connection.execute(
+                "SELECT 1 FROM devices WHERE device_id=?", (device_id,)
+            ).fetchone() is None:
+                raise ValueError("Device was not found")
+            if connection.execute(
+                "SELECT 1 FROM projects WHERE project_id=? AND enabled=1", (project_id,)
+            ).fetchone() is None:
+                raise ValueError("Project was not found")
+            existing = connection.execute(
+                "SELECT project_id FROM project_devices WHERE device_id=?", (device_id,)
+            ).fetchone()
+            if existing is not None and existing["project_id"] != project_id:
+                raise ValueError(
+                    "Device project assignment is immutable because it scopes historical jobs"
+                )
+            connection.execute(
+                """
+                INSERT INTO project_devices(project_id, device_id, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(device_id) DO NOTHING
+                """,
+                (project_id, device_id, now),
+            )
+
+    def issue_employee_token(
+        self,
+        employee_id: str,
+        display_name: str,
+        role: str,
+        *,
+        project_ids: Iterable[str],
+        expires_at: str | None = None,
+    ) -> str:
+        token = f"emp_{self.generate_token()}"
+        self.activate_employee_token(
+            employee_id,
+            display_name,
+            role,
+            token,
+            project_ids=project_ids,
+            expires_at=expires_at,
+        )
+        return token
+
+    def activate_employee_token(
+        self,
+        employee_id: str,
+        display_name: str,
+        role: str,
+        token: str,
+        *,
+        project_ids: Iterable[str],
+        expires_at: str | None = None,
+    ) -> None:
+        self.ensure_storage_available()
+        employee_id = self.validate_access_id(employee_id, "employeeId")
+        display_name = self.validate_display_name(display_name)
+        role = role.strip().upper()
+        if role not in {"VIEWER", "OPERATOR", "ADMIN"}:
+            raise ValueError("role must be VIEWER, OPERATOR, or ADMIN")
+        if not token.startswith("emp_") or len(token) > 4096 or any(
+            character.isspace() for character in token
+        ):
+            raise ValueError("employee token is invalid")
+        if expires_at is not None:
+            self._parse_timestamp(expires_at)
+        projects = tuple(
+            dict.fromkeys(
+                self.validate_access_id(project_id, "projectId")
+                for project_id in project_ids
+            )
+        )
+        if not projects:
+            raise ValueError("At least one project grant is required")
+        digest = self._token_digest(token)
+        now = self.timestamp()
+        with self.database.immediate() as connection:
+            if connection.execute(
+                "SELECT 1 FROM devices WHERE token_digest=?", (digest,)
+            ).fetchone() is not None:
+                raise ValueError("Token is already assigned to a device")
+            found = {
+                row["project_id"]
+                for row in connection.execute(
+                    f"SELECT project_id FROM projects WHERE enabled=1 AND project_id IN ({','.join('?' for _ in projects)})",
+                    projects,
+                ).fetchall()
+            }
+            if found != set(projects):
+                raise ValueError("One or more projects were not found")
+            connection.execute(
+                """
+                INSERT INTO employees(
+                    employee_id, display_name, role, token_digest, enabled,
+                    token_expires_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+                ON CONFLICT(employee_id) DO UPDATE SET
+                    display_name=excluded.display_name,
+                    role=excluded.role,
+                    token_digest=excluded.token_digest,
+                    enabled=1,
+                    token_expires_at=excluded.token_expires_at,
+                    updated_at=excluded.updated_at
+                """,
+                (employee_id, display_name, role, digest, expires_at, now, now),
+            )
+            connection.execute(
+                "DELETE FROM employee_project_grants WHERE employee_id=?",
+                (employee_id,),
+            )
+            connection.executemany(
+                """
+                INSERT INTO employee_project_grants(employee_id, project_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                [(employee_id, project_id, now) for project_id in projects],
+            )
+
+    def disable_employee(self, employee_id: str) -> None:
+        self.ensure_storage_available()
+        employee_id = self.validate_access_id(employee_id, "employeeId")
+        with self.database.immediate() as connection:
+            cursor = connection.execute(
+                "UPDATE employees SET enabled=0, updated_at=? WHERE employee_id=?",
+                (self.timestamp(), employee_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Employee was not found")
 
     def cleanup_staging(self, *, older_than_hours: int) -> int:
         self.ensure_storage_available()
@@ -278,6 +450,42 @@ class ReceiverService:
             if expires_at <= datetime.now(timezone.utc):
                 raise ReceiverError(401, "Authentication failed")
         return Device(row["device_id"], row["quota_bytes"])
+
+    def authenticate_employee(
+        self,
+        authorization: str | None,
+        expected_environment: str | None,
+    ) -> Employee:
+        self.ensure_storage_available()
+        if not authorization or not authorization.startswith("Bearer "):
+            raise ReceiverError(401, "Authentication failed")
+        token = authorization[7:]
+        if (
+            not token.startswith("emp_")
+            or len(token) > 4096
+            or any(character.isspace() for character in token)
+        ):
+            raise ReceiverError(401, "Authentication failed")
+        digest = self._token_digest(token)
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT employee_id, display_name, role, enabled, token_expires_at
+                FROM employees WHERE token_digest=?
+                """,
+                (digest,),
+            ).fetchone()
+        if row is None or not row["enabled"]:
+            raise ReceiverError(401, "Authentication failed")
+        if row["token_expires_at"] is not None and self._parse_timestamp(
+            row["token_expires_at"]
+        ) <= datetime.now(timezone.utc):
+            raise ReceiverError(401, "Authentication failed")
+        if expected_environment is None:
+            raise ReceiverError(400, "X-Expected-Server-Environment is required")
+        if expected_environment != self.settings.server_environment:
+            raise ReceiverError(409, "Server environment does not match the selected profile")
+        return Employee(row["employee_id"], row["display_name"], row["role"])
 
     def reserve_manifest_request(self, device: Device) -> None:
         now = time.monotonic()
@@ -939,6 +1147,313 @@ class ReceiverService:
             self._drop_session_hashers(session_id)
             return "CANCELLED"
 
+    def server_identity(self, employee: Employee) -> Dict[str, object]:
+        with self.database.connect() as connection:
+            projects = connection.execute(
+                """
+                SELECT projects.project_id, projects.display_name
+                FROM employee_project_grants
+                JOIN projects USING (project_id)
+                WHERE employee_project_grants.employee_id=? AND projects.enabled=1
+                ORDER BY projects.display_name COLLATE NOCASE, projects.project_id
+                """,
+                (employee.employee_id,),
+            ).fetchall()
+        return {
+            "version": 1,
+            "serverEnvironment": self.settings.server_environment,
+            "employee": {
+                "employeeId": employee.employee_id,
+                "displayName": employee.display_name,
+                "role": employee.role,
+            },
+            "projects": [
+                {"projectId": row["project_id"], "displayName": row["display_name"]}
+                for row in projects
+            ],
+            "maxPreviewBytes": self.settings.max_preview_bytes,
+            "refreshedAt": self.timestamp(),
+        }
+
+    def list_server_jobs(
+        self,
+        employee: Employee,
+        project_id: str,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        project_id = self._require_project_grant(employee, project_id)
+        if limit < 1 or limit > 200 or offset < 0 or offset > 10_000:
+            raise ReceiverError(400, "Job pagination is invalid")
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT upload_sessions.*,
+                       COALESCE(SUM(upload_files.next_offset), 0) AS received_bytes
+                FROM upload_sessions
+                JOIN project_devices USING (device_id)
+                LEFT JOIN upload_files USING (session_id)
+                LEFT JOIN library_trash USING (session_id)
+                WHERE project_devices.project_id=? AND library_trash.session_id IS NULL
+                GROUP BY upload_sessions.session_id
+                ORDER BY upload_sessions.updated_at DESC, upload_sessions.session_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (project_id, limit + 1, offset),
+            ).fetchall()
+            jobs = [self._server_job(connection, project_id, row) for row in rows[:limit]]
+        return {
+            "serverEnvironment": self.settings.server_environment,
+            "employeeId": employee.employee_id,
+            "projectId": project_id,
+            "jobs": jobs,
+            "nextOffset": offset + limit if len(rows) > limit else None,
+            "refreshedAt": self.timestamp(),
+        }
+
+    def list_server_files(
+        self,
+        employee: Employee,
+        project_id: str,
+        session_id: str,
+        directory: str,
+    ) -> Dict[str, object]:
+        project_id = self._require_project_grant(employee, project_id)
+        session = self._project_session(project_id, session_id, include_trashed=False)
+        response = self.list_library_files(
+            Device(str(session["device_id"]), 0), session_id, directory
+        )
+        response.update(
+            {
+                "serverEnvironment": self.settings.server_environment,
+                "projectId": project_id,
+                "refreshedAt": self.timestamp(),
+            }
+        )
+        return response
+
+    def read_server_preview(
+        self,
+        employee: Employee,
+        project_id: str,
+        session_id: str,
+        relative_path: str,
+    ) -> tuple[str, bytes]:
+        project_id = self._require_project_grant(employee, project_id)
+        session = self._project_session(project_id, session_id, include_trashed=False)
+        name = relative_path.rsplit("/", 1)[-1].lower()
+        if not name.endswith(
+            (
+                ".jpg", ".jpeg", ".png", ".webp", ".gif",
+                ".mp4", ".webm", ".mov", ".m4v",
+            )
+        ):
+            raise ReceiverError(415, "File type is not supported for preview")
+        return self.read_library_file(
+            Device(str(session["device_id"]), 0), session_id, relative_path
+        )
+
+    def server_receipt(
+        self,
+        employee: Employee,
+        project_id: str,
+        session_id: str,
+    ) -> Dict[str, object]:
+        project_id = self._require_project_grant(employee, project_id)
+        session = self._project_session(project_id, session_id, include_trashed=False)
+        receipt = self.verify_library_session(
+            Device(str(session["device_id"]), 0), session_id
+        )
+        verified_at = self.timestamp()
+        receipt.update(
+            {
+                "serverEnvironment": self.settings.server_environment,
+                "projectId": project_id,
+                "matched": True,
+                "verifiedAt": verified_at,
+                "refreshedAt": verified_at,
+            }
+        )
+        return receipt
+
+    def list_server_trash(
+        self,
+        employee: Employee,
+        project_id: str,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        project_id = self._require_project_grant(employee, project_id)
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT upload_sessions.session_id, upload_sessions.client_job_id,
+                       upload_sessions.source_name, upload_sessions.total_bytes,
+                       upload_sessions.file_count, library_trash.trashed_at
+                FROM library_trash
+                JOIN upload_sessions USING (session_id)
+                WHERE library_trash.project_id=? AND library_trash.state='TRASHED'
+                ORDER BY library_trash.trashed_at DESC, upload_sessions.session_id DESC
+                LIMIT 200
+                """,
+                (project_id,),
+            ).fetchall()
+        return {
+            "serverEnvironment": self.settings.server_environment,
+            "projectId": project_id,
+            "jobs": [
+                {
+                    "sessionId": row["session_id"],
+                    "clientJobId": row["client_job_id"],
+                    "sourceName": row["source_name"],
+                    "totalBytes": row["total_bytes"],
+                    "fileCount": row["file_count"],
+                    "state": "TRASHED",
+                    "trashedAt": row["trashed_at"],
+                }
+                for row in rows
+            ],
+            "refreshedAt": self.timestamp(),
+        }
+
+    def trash_server_job(
+        self,
+        employee: Employee,
+        project_id: str,
+        session_id: str,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        self._require_role(employee, "OPERATOR")
+        project_id = self._require_project_grant(employee, project_id)
+        with self._guard(f"session:{session_id}"):
+            session = self._project_session(project_id, session_id, include_trashed=True)
+            if session["state"] != "COMPLETED":
+                raise ReceiverError(409, "Only completed jobs can be moved to trash")
+            device_id = str(session["device_id"])
+            final = self._final_directory(device_id, session_id)
+            trash = self._trash_directory(device_id, session_id)
+            with self.database.connect() as connection:
+                if connection.execute(
+                    "SELECT 1 FROM library_trash WHERE session_id=?", (session_id,)
+                ).fetchone() is not None:
+                    raise ReceiverError(409, "Job is already in trash or pending recovery")
+            self._require_regular_directory(final, "Completed job storage is inconsistent")
+            if trash.exists() or trash.is_symlink():
+                raise ReceiverError(409, "Job is already in trash")
+            now = self.timestamp()
+            with self.database.immediate() as connection:
+                try:
+                    connection.execute(
+                        """
+                        INSERT INTO library_trash(
+                            session_id, project_id, employee_id, state, trashed_at, updated_at
+                        ) VALUES (?, ?, ?, 'MOVING_TO_TRASH', ?, ?)
+                        """,
+                        (session_id, project_id, employee.employee_id, now, now),
+                    )
+                except sqlite3.IntegrityError as error:
+                    raise ReceiverError(409, "Job is already in trash") from error
+            try:
+                trash.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                self._fsync_directory(trash.parent)
+                os.replace(final, trash)
+                self._fsync_directory(final.parent)
+                self._fsync_directory(trash.parent)
+            except OSError as error:
+                if final.exists() and not trash.exists():
+                    with self.database.immediate() as connection:
+                        connection.execute(
+                            "DELETE FROM library_trash WHERE session_id=? AND state='MOVING_TO_TRASH'",
+                            (session_id,),
+                        )
+                raise ReceiverError(503, "Job could not be moved to trash", retry_after=5) from error
+            try:
+                with self.database.immediate() as connection:
+                    cursor = connection.execute(
+                        """
+                        UPDATE library_trash SET state='TRASHED', updated_at=?
+                        WHERE session_id=? AND state='MOVING_TO_TRASH'
+                        """,
+                        (self.timestamp(), session_id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise sqlite3.IntegrityError("Trash transition was lost")
+            except sqlite3.Error as error:
+                raise ReceiverError(
+                    503, "Job trash state is pending recovery", retry_after=5
+                ) from error
+            return {
+                "sessionId": session_id,
+                "projectId": project_id,
+                "state": "TRASHED",
+                "trashedAt": now,
+                "serverEnvironment": self.settings.server_environment,
+            }
+
+    def restore_server_job(
+        self,
+        employee: Employee,
+        project_id: str,
+        session_id: str,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        self._require_role(employee, "OPERATOR")
+        project_id = self._require_project_grant(employee, project_id)
+        with self._guard(f"session:{session_id}"):
+            session = self._project_session(project_id, session_id, include_trashed=True)
+            device_id = str(session["device_id"])
+            with self.database.connect() as connection:
+                record = connection.execute(
+                    "SELECT state FROM library_trash WHERE session_id=? AND project_id=?",
+                    (session_id, project_id),
+                ).fetchone()
+            if record is None or record["state"] != "TRASHED":
+                raise ReceiverError(409, "Job is not available to restore")
+            final = self._final_directory(device_id, session_id)
+            trash = self._trash_directory(device_id, session_id)
+            self._require_regular_directory(trash, "Trash storage is inconsistent")
+            if final.exists() or final.is_symlink():
+                raise ReceiverError(503, "Restore destination is inconsistent")
+            with self.database.immediate() as connection:
+                connection.execute(
+                    "UPDATE library_trash SET state='RESTORING', updated_at=? WHERE session_id=?",
+                    (self.timestamp(), session_id),
+                )
+            try:
+                final.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                self._fsync_directory(final.parent)
+                os.replace(trash, final)
+                self._fsync_directory(trash.parent)
+                self._fsync_directory(final.parent)
+            except OSError as error:
+                if trash.exists() and not final.exists():
+                    with self.database.immediate() as connection:
+                        connection.execute(
+                            "UPDATE library_trash SET state='TRASHED', updated_at=? WHERE session_id=? AND state='RESTORING'",
+                            (self.timestamp(), session_id),
+                        )
+                raise ReceiverError(503, "Job could not be restored", retry_after=5) from error
+            try:
+                with self.database.immediate() as connection:
+                    cursor = connection.execute(
+                        "DELETE FROM library_trash WHERE session_id=? AND state='RESTORING'",
+                        (session_id,),
+                    )
+                    if cursor.rowcount != 1:
+                        raise sqlite3.IntegrityError("Restore transition was lost")
+            except sqlite3.Error as error:
+                raise ReceiverError(
+                    503, "Job restore state is pending recovery", retry_after=5
+                ) from error
+            return {
+                "sessionId": session_id,
+                "projectId": project_id,
+                "state": "COMPLETED",
+                "serverEnvironment": self.settings.server_environment,
+                "restoredAt": self.timestamp(),
+            }
+
     def list_library_sessions(
         self,
         device: Device,
@@ -955,7 +1470,9 @@ class ReceiverService:
                 SELECT session_id, client_job_id, source_name, total_bytes, file_count,
                        created_at, completed_at
                 FROM upload_sessions
-                WHERE device_id=? AND state='COMPLETED'
+                LEFT JOIN library_trash USING (session_id)
+                WHERE device_id=? AND upload_sessions.state='COMPLETED'
+                  AND library_trash.session_id IS NULL
                 ORDER BY completed_at DESC, session_id DESC
                 LIMIT ? OFFSET ?
                 """,
@@ -989,6 +1506,7 @@ class ReceiverService:
         with self._guard(f"session:{session_id}"):
             with self.database.connect() as connection:
                 session = self._owned_session(connection, device, session_id)
+                self._assert_not_trashed(connection, session_id)
                 if session["state"] != "COMPLETED":
                     raise ReceiverError(
                         409,
@@ -1036,6 +1554,7 @@ class ReceiverService:
         with self._guard(f"session:{session_id}"):
             with self.database.connect() as connection:
                 session = self._owned_session(connection, device, session_id)
+                self._assert_not_trashed(connection, session_id)
             if session["state"] != "COMPLETED":
                 raise ReceiverError(409, "Only completed library sessions can be deleted")
 
@@ -1116,6 +1635,7 @@ class ReceiverService:
 
         with self.database.connect() as connection:
             session = self._owned_session(connection, device, session_id)
+            self._assert_not_trashed(connection, session_id)
             if session["state"] != "COMPLETED":
                 raise ReceiverError(409, "Upload session is not available in the library")
             rows = connection.execute(
@@ -1181,6 +1701,7 @@ class ReceiverService:
         relative_path = self.validate_relative_path(relative_path)
         with self.database.connect() as connection:
             session = self._owned_session(connection, device, session_id)
+            self._assert_not_trashed(connection, session_id)
             if session["state"] != "COMPLETED":
                 raise ReceiverError(409, "Upload session is not available in the library")
             row = connection.execute(
@@ -1313,6 +1834,52 @@ class ReceiverService:
                     self._release_staging_accounting(str(session["session_id"]))
                 else:
                     self._recover_open_session(session)
+        self._recover_library_trash()
+
+    def _recover_library_trash(self) -> None:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT library_trash.session_id, library_trash.state,
+                       upload_sessions.device_id
+                FROM library_trash JOIN upload_sessions USING (session_id)
+                WHERE library_trash.state IN ('MOVING_TO_TRASH', 'RESTORING')
+                """
+            ).fetchall()
+        for row in rows:
+            session_id = str(row["session_id"])
+            final = self._final_directory(str(row["device_id"]), session_id)
+            trash = self._trash_directory(str(row["device_id"]), session_id)
+            with self._guard(f"session:{session_id}"):
+                try:
+                    if row["state"] == "MOVING_TO_TRASH":
+                        if final.is_dir() and not final.is_symlink() and not trash.exists():
+                            trash.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                            os.replace(final, trash)
+                            self._fsync_directory(final.parent)
+                            self._fsync_directory(trash.parent)
+                        if trash.is_dir() and not trash.is_symlink() and not final.exists():
+                            with self.database.immediate() as connection:
+                                connection.execute(
+                                    "UPDATE library_trash SET state='TRASHED', updated_at=? WHERE session_id=? AND state='MOVING_TO_TRASH'",
+                                    (self.timestamp(), session_id),
+                                )
+                    elif row["state"] == "RESTORING":
+                        if trash.is_dir() and not trash.is_symlink() and not final.exists():
+                            final.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                            os.replace(trash, final)
+                            self._fsync_directory(trash.parent)
+                            self._fsync_directory(final.parent)
+                        if final.is_dir() and not final.is_symlink() and not trash.exists():
+                            with self.database.immediate() as connection:
+                                connection.execute(
+                                    "DELETE FROM library_trash WHERE session_id=? AND state='RESTORING'",
+                                    (session_id,),
+                                )
+                except (OSError, sqlite3.Error):
+                    # Leave the transition row in place. Active reads exclude it and
+                    # the next process start retries the same idempotent transition.
+                    continue
 
     def _recover_open_session(self, session: Mapping[str, object]) -> None:
         with self.database.connect() as connection:
@@ -1535,6 +2102,116 @@ class ReceiverService:
         if row["device_id"] != device.device_id:
             raise ReceiverError(403, "Upload session belongs to another device")
         return row
+
+    @staticmethod
+    def _assert_not_trashed(connection: sqlite3.Connection, session_id: str) -> None:
+        if connection.execute(
+            "SELECT 1 FROM library_trash WHERE session_id=?", (session_id,)
+        ).fetchone() is not None:
+            raise ReceiverError(409, "Upload session is in trash")
+
+    def _require_project_grant(self, employee: Employee, project_id: str) -> str:
+        project_id = self.validate_access_id(project_id, "projectId")
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM employee_project_grants
+                JOIN projects USING (project_id)
+                WHERE employee_id=? AND project_id=? AND projects.enabled=1
+                """,
+                (employee.employee_id, project_id),
+            ).fetchone()
+        if row is None:
+            raise ReceiverError(403, "Project access is denied")
+        return project_id
+
+    @staticmethod
+    def _require_role(employee: Employee, minimum_role: str) -> None:
+        ranks = {"VIEWER": 1, "OPERATOR": 2, "ADMIN": 3}
+        if ranks.get(employee.role, 0) < ranks[minimum_role]:
+            raise ReceiverError(403, "Employee role does not permit this operation")
+
+    def _project_session(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        include_trashed: bool,
+    ) -> sqlite3.Row:
+        session_id = self.validate_session_id(session_id)
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT upload_sessions.*
+                FROM upload_sessions JOIN project_devices USING (device_id)
+                WHERE upload_sessions.session_id=? AND project_devices.project_id=?
+                """,
+                (session_id, project_id),
+            ).fetchone()
+            if row is None:
+                raise ReceiverError(404, "Job was not found in the selected project")
+            if not include_trashed:
+                self._assert_not_trashed(connection, session_id)
+            return row
+
+    def _server_job(
+        self,
+        connection: sqlite3.Connection,
+        project_id: str,
+        row: Mapping[str, object],
+    ) -> Dict[str, object]:
+        session_id = str(row["session_id"])
+        root_rows = connection.execute(
+            """
+            SELECT DISTINCT CASE
+                WHEN instr(relative_path, '/') = 0 THEN relative_path
+                ELSE substr(relative_path, 1, instr(relative_path, '/') - 1)
+            END AS root_name
+            FROM upload_files WHERE session_id=?
+            ORDER BY root_name COLLATE NOCASE, root_name LIMIT 6
+            """,
+            (session_id,),
+        ).fetchall()
+        media = connection.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN lower(relative_path) GLOB '*.jpg'
+                    OR lower(relative_path) GLOB '*.jpeg'
+                    OR lower(relative_path) GLOB '*.png'
+                    OR lower(relative_path) GLOB '*.webp'
+                    OR lower(relative_path) GLOB '*.gif' THEN 1 ELSE 0 END), 0)
+                    AS image_count,
+                COALESCE(SUM(CASE WHEN lower(relative_path) GLOB '*.mp4'
+                    OR lower(relative_path) GLOB '*.webm'
+                    OR lower(relative_path) GLOB '*.mov'
+                    OR lower(relative_path) GLOB '*.m4v' THEN 1 ELSE 0 END), 0)
+                    AS video_count
+            FROM upload_files WHERE session_id=?
+            """,
+            (session_id,),
+        ).fetchone()
+        roots = [str(item["root_name"]) for item in root_rows]
+        return {
+            "sessionId": session_id,
+            "clientJobId": row["client_job_id"],
+            "projectId": project_id,
+            "deviceId": row["device_id"],
+            "sourceName": row["source_name"],
+            "state": row["state"],
+            "failureCode": row["failure_code"],
+            "totalBytes": row["total_bytes"],
+            "receivedBytes": row["received_bytes"],
+            "fileCount": row["file_count"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "completedAt": row["completed_at"],
+            "pathSummary": {
+                "rootEntries": roots[:5],
+                "rootEntriesTruncated": len(roots) > 5,
+                "imageCount": media["image_count"],
+                "videoCount": media["video_count"],
+            },
+        }
 
     def _mark_failed(self, session_id: str, failure_code: str) -> None:
         with self.database.immediate() as connection:
@@ -1917,6 +2594,18 @@ class ReceiverService:
     def _final_directory(self, device_id: str, session_id: str) -> Path:
         return self.settings.objects_root / device_id / session_id
 
+    def _trash_directory(self, device_id: str, session_id: str) -> Path:
+        return self.settings.trash_root / device_id / session_id
+
+    @staticmethod
+    def _require_regular_directory(path: Path, detail: str) -> None:
+        try:
+            metadata = path.lstat()
+        except (FileNotFoundError, OSError) as error:
+            raise ReceiverError(503, detail, retry_after=5) from error
+        if not stat.S_ISDIR(metadata.st_mode) or path.is_symlink():
+            raise ReceiverError(503, detail)
+
     @staticmethod
     def _staging_key(device_id: str, session_id: str, file_id: str) -> str:
         return f"storage/staging/{device_id}/{session_id}/{file_id}.blob"
@@ -1947,6 +2636,26 @@ class ReceiverService:
         if value != canonical:
             raise ReceiverError(400, "deviceId must be a canonical lowercase UUID")
         return canonical
+
+    @staticmethod
+    def validate_access_id(value: str, field: str) -> str:
+        if not isinstance(value, str) or not ACCESS_ID_PATTERN.fullmatch(value):
+            raise ReceiverError(400, f"{field} is invalid")
+        return value
+
+    @staticmethod
+    def validate_display_name(value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("display name is invalid")
+        normalized = unicodedata.normalize("NFC", value.strip())
+        if (
+            not normalized
+            or normalized != value.strip()
+            or len(normalized.encode("utf-8")) > 256
+            or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+        ):
+            raise ValueError("display name is invalid")
+        return normalized
 
     @staticmethod
     def validate_session_id(value: str) -> str:
