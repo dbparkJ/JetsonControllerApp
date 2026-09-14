@@ -546,14 +546,19 @@ receipt가 성공을 증명하려면 `state=COMPLETED`, `matched=true`, 화면�
 
 휴지통 이동과 복원은 같은 filesystem 안의 directory rename과 DB transition record를 사용합니다. rename 뒤 `fsync`나 DB commit 결과가 불명확하면 active 목록에서 숨긴 transition을 남기고 시작 시 실제 두 directory 위치를 확인해 완료합니다. 클라이언트는 network timeout이나 `5xx`를 확정 실패로 표시하거나 자동 재시도하지 않고 상태를 새로 조회해야 합니다. 영구 삭제는 이 직접 API에 제공하지 않습니다.
 
-접근 project와 직원 token 구성 예시입니다. token 원문은 지정한 `0600` 파일에만 기록합니다.
+접근 project와 직원 token 구성 예시입니다. 저장소 루트에서 실행하되, 기본 data root를 사용하지 않도록 먼저 배포된 receiver의 기존 environment file을 불러옵니다. token 원문은 지정한 `0600` 파일에만 기록합니다.
 
 ```bash
-upload_receiver/.venv/bin/python -m upload_receiver.admin upsert-project \
+receiver_environment_file="${XDG_CONFIG_HOME:-${HOME}/.config}/jetson-upload-receiver/environment"
+set -a
+. "${receiver_environment_file}"
+set +a
+
+PYTHONPATH=upload_receiver upload_receiver/.venv/bin/python -m upload_receiver.admin upsert-project \
   --project-id road-alpha --display-name "Road Alpha"
-upload_receiver/.venv/bin/python -m upload_receiver.admin assign-device-project \
+PYTHONPATH=upload_receiver upload_receiver/.venv/bin/python -m upload_receiver.admin assign-device-project \
   --device-id <canonical-device-uuid> --project-id road-alpha
-upload_receiver/.venv/bin/python -m upload_receiver.admin issue-employee-token \
+PYTHONPATH=upload_receiver upload_receiver/.venv/bin/python -m upload_receiver.admin issue-employee-token \
   --employee-id employee.one --display-name "Employee One" --role OPERATOR \
   --project-id road-alpha --output /secure/path/employee.one.token
 ```
