@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.components
 
-import com.example.jetsoncontroller.ui.theme.TextButton
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,10 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
@@ -22,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,18 +37,72 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.theme.AppSpacing
-import com.example.jetsoncontroller.ui.theme.LocalCobaltColors
+import com.example.jetsoncontroller.ui.theme.GeoRadius
+import com.example.jetsoncontroller.ui.theme.GeoSize
+import com.example.jetsoncontroller.ui.theme.GeoSpace
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.TextButton
 
+/**
+ * The status vocabulary of the product.
+ *
+ * [PENDING] and [UNKNOWN] are the important additions. The operations brief is explicit
+ * that "시작 결과 미확인", "값이 오래됨", "중지 요청 중" and "캐시 목록" must not be rendered as
+ * either success or failure — an operator who reads a grey "완료" as a green one will
+ * start a duplicate collection or drive away from a section that never recorded.
+ *
+ * - [SUCCESS]  확인됨.      A result the device or server actually reported back.
+ * - [WARNING]  주의.        Possible to proceed, with a limitation the user must see.
+ * - [ERROR]    차단·실패.    The action cannot start, or demonstrably did not happen.
+ * - [INFO]     안내.        Context, not a verdict.
+ * - [PENDING]  처리 중.      A request was accepted; the outcome is still open.
+ * - [UNKNOWN]  미확인.      We do not know. Never a stand-in for success or failure.
+ */
 enum class StatusTone {
     INFO,
     SUCCESS,
     WARNING,
-    ERROR
+    ERROR,
+    PENDING,
+    UNKNOWN
 }
 
+/**
+ * Colour plus icon plus shape for one tone.
+ *
+ * Every consumer takes all three. Colour alone would fail the accessibility bar the
+ * brief sets (색 + 아이콘 또는 형태 + 문구 함께 사용), and it also fails outdoors in
+ * direct sunlight where hue separation collapses long before shape does.
+ */
+@Immutable
+data class GeoToneVisuals(
+    val container: Color,
+    val content: Color,
+    val border: Color,
+    val icon: ImageVector
+)
+
+@Composable
+fun statusVisuals(tone: StatusTone): GeoToneVisuals {
+    val c = LocalGeoColors.current
+    return when (tone) {
+        StatusTone.SUCCESS -> GeoToneVisuals(c.successBg, c.success, c.successBorder, Icons.Default.CheckCircle)
+        StatusTone.WARNING -> GeoToneVisuals(c.warningBg, c.warning, c.warningBorder, Icons.Default.WarningAmber)
+        StatusTone.ERROR -> GeoToneVisuals(c.dangerBg, c.danger, c.dangerBorder, Icons.Default.ErrorOutline)
+        StatusTone.INFO -> GeoToneVisuals(c.infoBg, c.info, c.infoBorder, Icons.Default.Info)
+        StatusTone.PENDING -> GeoToneVisuals(c.pendingBg, c.pending, c.pendingBorder, Icons.Default.HourglassEmpty)
+        StatusTone.UNKNOWN -> GeoToneVisuals(c.unknownBg, c.unknown, c.unknownBorder, Icons.AutoMirrored.Filled.HelpOutline)
+    }
+}
+
+/**
+ * An inline message attached to the thing it is about.
+ *
+ * Deliberately not a toast: the brief requires that a problem needing a decision stays
+ * on screen with its explanation and its next action, rather than disappearing after
+ * three seconds.
+ */
 @Composable
 fun AppBanner(
     message: String,
@@ -52,50 +112,45 @@ fun AppBanner(
     onAction: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null
 ) {
-    val colors = statusColors(tone)
-    val icon = when (tone) {
-        StatusTone.INFO -> Icons.Default.Info
-        StatusTone.SUCCESS -> Icons.Default.Check
-        StatusTone.WARNING -> Icons.Default.WarningAmber
-        StatusTone.ERROR -> Icons.Default.ErrorOutline
-    }
+    val visuals = statusVisuals(tone)
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .semantics { liveRegion = LiveRegionMode.Polite },
-        color = colors.container,
-        contentColor = colors.content,
-        shape = MaterialTheme.shapes.medium
+        color = visuals.container,
+        contentColor = visuals.content,
+        border = BorderStroke(GeoSize.hairline, visuals.border),
+        shape = MaterialTheme.shapes.small
     ) {
         Row(
             modifier = Modifier.padding(
-                start = AppSpacing.large,
-                top = AppSpacing.medium,
-                end = AppSpacing.small,
-                bottom = AppSpacing.medium
+                start = GeoSpace.md,
+                top = GeoSpace.md,
+                end = if (onDismiss != null) GeoSpace.xs else GeoSpace.md,
+                bottom = GeoSpace.md
             ),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(visuals.icon, contentDescription = null, modifier = Modifier.size(GeoSize.iconMd))
             Column(modifier = Modifier.weight(1f)) {
                 Text(message, style = MaterialTheme.typography.bodyMedium)
                 if (actionLabel != null && onAction != null) {
                     TextButton(onClick = onAction) {
-                        Text(actionLabel)
+                        Text(actionLabel, style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
             if (onDismiss != null) {
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(GeoSize.minTouchTarget)
                 ) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "메시지 닫기",
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(GeoSize.iconSm)
                     )
                 }
             }
@@ -103,33 +158,55 @@ fun AppBanner(
     }
 }
 
+/**
+ * A compact status label. Always colour + dot + text, so that the meaning survives a
+ * greyscale screenshot, a colour-blind reader and a sunlit screen.
+ */
 @Composable
 fun StatusBadge(
     label: String,
     tone: StatusTone,
     modifier: Modifier = Modifier
 ) {
-    val colors = statusColors(tone)
+    val visuals = statusVisuals(tone)
     Surface(
         modifier = modifier,
-        color = colors.container,
-        contentColor = colors.content,
-        shape = MaterialTheme.shapes.small
+        color = visuals.container,
+        contentColor = visuals.content,
+        border = BorderStroke(GeoSize.hairline, visuals.border),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(GeoRadius.xs)
     ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelMedium,
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = GeoSpace.sm, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(GeoSize.statusDot)
+                    .background(visuals.content, CircleShape)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
     }
 }
 
+/**
+ * Progress through a fixed, ordered sequence (등록 → 연결 → 준비 → 수집).
+ *
+ * Steps ahead of the cursor are rendered as unknown rather than as info, because the
+ * user has not yet established anything about them.
+ */
 @Composable
 fun ConnectionStepper(
     labels: List<String>,
     currentStep: Int,
     modifier: Modifier = Modifier
 ) {
+    val c = LocalGeoColors.current
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
@@ -138,8 +215,6 @@ fun ConnectionStepper(
         labels.forEachIndexed { index, label ->
             val completed = index < currentStep
             val selected = index == currentStep
-            val tone = if (completed || selected) StatusTone.SUCCESS else StatusTone.INFO
-            val colors = statusColors(tone)
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -147,31 +222,36 @@ fun ConnectionStepper(
             ) {
                 Surface(
                     modifier = Modifier.size(32.dp),
-                    color = if (completed || selected) colors.content else colors.container,
-                    contentColor = if (completed || selected) colors.container else colors.content,
-                    shape = androidx.compose.foundation.shape.CircleShape
+                    color = when {
+                        completed -> c.success
+                        selected -> c.primary
+                        else -> c.unknownBg
+                    },
+                    contentColor = when {
+                        completed -> c.onSuccess
+                        selected -> c.onPrimary
+                        else -> c.unknown
+                    },
+                    border = if (completed || selected) null else BorderStroke(GeoSize.hairline, c.unknownBorder),
+                    shape = CircleShape
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (completed) {
                             Icon(
                                 Icons.Default.Check,
                                 contentDescription = null,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(GeoSize.iconSm)
                             )
                         } else {
                             Text("${index + 1}", style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
-                Spacer(Modifier.height(AppSpacing.small))
+                Spacer(Modifier.height(GeoSpace.sm))
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    color = if (selected) c.ink else c.muted,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 2,
                     textAlign = TextAlign.Center
@@ -183,38 +263,9 @@ fun ConnectionStepper(
                     modifier = Modifier
                         .padding(top = 15.dp)
                         .size(width = 12.dp, height = 2.dp),
-                    color = if (index < currentStep) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant
-                    }
+                    color = if (index < currentStep) c.success else c.border
                 ) {}
             }
         }
     }
-}
-
-private data class StatusColors(
-    val container: Color,
-    val content: Color
-)
-
-@Composable
-private fun statusColors(tone: StatusTone): StatusColors = when (tone) {
-    StatusTone.INFO -> StatusColors(
-        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.infoBg,
-        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.info
-    )
-    StatusTone.SUCCESS -> StatusColors(
-        LocalCobaltColors.current.successBg,
-        LocalCobaltColors.current.success
-    )
-    StatusTone.WARNING -> StatusColors(
-        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warningBg,
-        com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.warning
-    )
-    StatusTone.ERROR -> StatusColors(
-        MaterialTheme.colorScheme.errorContainer,
-        MaterialTheme.colorScheme.onErrorContainer
-    )
 }
