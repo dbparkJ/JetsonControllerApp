@@ -123,7 +123,9 @@ val GeoLight = GeoColors(
 
     border = GeoPalette.N200,
     borderStrong = GeoPalette.N300,
-    controlBorder = GeoPalette.N400,
+    // Tuned to 3.18:1 against the surface — the platform minimum for a non-text
+    // control boundary. GeoPalette.N400 measured 2.95:1 and would have failed.
+    controlBorder = Color(0xFF88919F),
     focusRing = GeoPalette.Brand500,
 
     primary = GeoPalette.Brand500,
@@ -167,7 +169,9 @@ val GeoLight = GeoColors(
     unknownBorder = GeoPalette.UnknownLightBorder,
 
     disabled = GeoPalette.N100,
-    onDisabled = GeoPalette.N500,
+    // 4.63:1 on the disabled surface. A disabled control still has to say what it is,
+    // because this product disables the start button far more often than it enables it.
+    onDisabled = Color(0xFF5F6876),
 
     sectionBase = GeoPalette.N0,
     sectionSoft = GeoPalette.N25,
@@ -238,7 +242,7 @@ val GeoDark = GeoColors(
     unknownBorder = GeoPalette.UnknownDarkBorder,
 
     disabled = Color(0xFF2B313A),
-    onDisabled = Color(0xFF8C95A2),
+    onDisabled = Color(0xFF929BA8), // 4.66:1 on the disabled surface
 
     sectionBase = GeoPalette.N900,
     sectionSoft = GeoPalette.N850,
