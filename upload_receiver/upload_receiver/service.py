@@ -756,8 +756,10 @@ class ReceiverService:
             with self.database.connect() as connection:
                 existing = connection.execute(
                     """
-                    SELECT session_id, manifest_hash, state
+                    SELECT upload_sessions.session_id, manifest_hash,
+                           upload_sessions.state, library_purges.state AS purge_state
                     FROM upload_sessions
+                    LEFT JOIN library_purges USING (session_id)
                     WHERE device_id=? AND client_job_id=?
                     """,
                     (device.device_id, manifest.client_job_id),
@@ -765,6 +767,8 @@ class ReceiverService:
             if existing is not None:
                 if not hmac.compare_digest(existing["manifest_hash"], manifest.digest):
                     raise ReceiverError(409, "clientJobId is already used by another manifest")
+                if existing["purge_state"] in {"PURGING", "PURGED"}:
+                    raise ReceiverError(410, "Upload session payload was permanently purged")
                 if existing["state"] == "FAILED":
                     reactivate_session_id = str(existing["session_id"])
                 else:
@@ -852,6 +856,7 @@ class ReceiverService:
         relative_path = self.validate_relative_path(relative_path)
         with self.database.connect() as connection:
             session = self._owned_session(connection, device, session_id)
+            self._assert_not_trashed(connection, session_id)
             if session["state"] in {"FAILED", "CANCELLED"}:
                 raise ReceiverError(409, "Upload session is not open")
             row = connection.execute(
@@ -882,6 +887,7 @@ class ReceiverService:
         offsets: Dict[str, int] = {}
         with self.database.connect() as connection:
             session = self._owned_session(connection, device, session_id)
+            self._assert_not_trashed(connection, session_id)
             if session["state"] in {"FAILED", "CANCELLED"}:
                 raise ReceiverError(409, "Upload session is not open")
             for relative_path in normalized:
@@ -955,6 +961,7 @@ class ReceiverService:
             rows = []
             with self.database.connect() as connection:
                 session = self._owned_session(connection, device, session_id)
+                self._assert_not_trashed(connection, session_id)
                 if session["state"] != "OPEN":
                     raise ReceiverError(409, "Upload session is not open")
                 for item in files:
@@ -1063,6 +1070,7 @@ class ReceiverService:
         with slot, self._guard(f"session:{session_id}"):
             with self.database.connect() as connection:
                 session = self._owned_session(connection, device, session_id)
+                self._assert_not_trashed(connection, session_id)
                 if session["state"] != "OPEN":
                     raise ReceiverError(409, "Upload session is not open")
                 row = connection.execute(
@@ -1162,6 +1170,7 @@ class ReceiverService:
         with self._guard(f"session:{session_id}"):
             with self.database.connect() as connection:
                 session = self._owned_session(connection, device, session_id)
+                self._assert_not_trashed(connection, session_id)
                 state = session["state"]
                 if state == "COMPLETED":
                     return "COMPLETED"
@@ -1417,28 +1426,52 @@ class ReceiverService:
         self,
         employee: Employee,
         project_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
     ) -> Dict[str, object]:
         self.ensure_storage_available()
         project_id = self._require_project_grant(employee, project_id)
+        if limit < 1 or limit > 200 or offset < 0 or offset > 10_000:
+            raise ReceiverError(400, "Trash pagination is invalid")
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
                 SELECT upload_sessions.session_id, upload_sessions.client_job_id,
                        upload_sessions.source_name, upload_sessions.total_bytes,
                        upload_sessions.file_count, upload_sessions.manifest_json,
-                       library_trash.trashed_at
+                       library_trash.trashed_at,
+                       library_purges.state AS purge_state,
+                       library_purges.error AS purge_error
                 FROM library_trash
                 JOIN upload_sessions USING (session_id)
-                WHERE library_trash.project_id=? AND library_trash.state='TRASHED'
+                LEFT JOIN library_purges USING (session_id)
+                WHERE library_trash.project_id=?
+                  AND (library_trash.state='TRASHED' OR library_purges.state='PURGING')
+                  AND (library_purges.state IS NULL OR library_purges.state!='PURGED')
+                  AND (library_purges.project_id IS NULL OR library_purges.project_id=?)
                 ORDER BY library_trash.trashed_at DESC, upload_sessions.session_id DESC
-                LIMIT 200
+                LIMIT ? OFFSET ?
                 """,
-                (project_id,),
+                (project_id, project_id, limit + 1, offset),
             ).fetchall()
+            total = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM library_trash
+                LEFT JOIN library_purges USING (session_id)
+                WHERE library_trash.project_id=?
+                  AND (library_trash.state='TRASHED' OR library_purges.state='PURGING')
+                  AND (library_purges.state IS NULL OR library_purges.state!='PURGED')
+                  AND (library_purges.project_id IS NULL OR library_purges.project_id=?)
+                """,
+                (project_id, project_id),
+            ).fetchone()["count"]
         return {
             "serverEnvironment": self.settings.server_environment,
             "projectId": project_id,
             "accessProjectId": project_id,
+            "emptySupported": True,
             "jobs": [
                 {
                     "sessionId": row["session_id"],
@@ -1447,13 +1480,211 @@ class ReceiverService:
                     "totalBytes": row["total_bytes"],
                     "fileCount": row["file_count"],
                     "surveyContext": self._stored_context(row["manifest_json"]),
-                    "state": "TRASHED",
+                    "state": row["purge_state"] or "TRASHED",
                     "trashedAt": row["trashed_at"],
+                    "purgeSupported": True,
+                    "restoreSupported": row["purge_state"] is None,
+                    "purgeError": row["purge_error"],
                 }
-                for row in rows
+                for row in rows[:limit]
             ],
+            "total": total,
+            "nextOffset": offset + limit if len(rows) > limit else None,
             "refreshedAt": self.timestamp(),
         }
+
+    def empty_server_trash(
+        self,
+        employee: Employee,
+        project_id: str,
+        session_ids: object,
+    ) -> Dict[str, object]:
+        self.ensure_storage_available()
+        self._require_role(employee, "OPERATOR")
+        project_id = self._require_project_grant(employee, project_id)
+        if (
+            not isinstance(session_ids, list)
+            or not 1 <= len(session_ids) <= 200
+            or any(not isinstance(value, str) for value in session_ids)
+        ):
+            raise ReceiverError(400, "sessionIds must contain 1 to 200 session IDs")
+        canonical_ids = [self.validate_session_id(value) for value in session_ids]
+        if len(set(canonical_ids)) != len(canonical_ids):
+            raise ReceiverError(400, "sessionIds must be unique")
+
+        planned: Dict[str, str] = {}
+        now = self.timestamp()
+        with self.database.immediate() as connection:
+            # Resolve every identifier inside the selected access project before
+            # recording any destructive intent. Cross-project and unknown IDs use
+            # the same response so membership is not disclosed.
+            for session_id in canonical_ids:
+                row = connection.execute(
+                    """
+                    SELECT library_trash.state AS trash_state,
+                           library_trash.project_id AS trash_project_id,
+                           library_purges.state AS purge_state,
+                           library_purges.project_id AS purge_project_id
+                    FROM upload_sessions
+                    JOIN project_devices USING (device_id)
+                    LEFT JOIN library_trash USING (session_id)
+                    LEFT JOIN library_purges USING (session_id)
+                    WHERE upload_sessions.session_id=? AND project_devices.project_id=?
+                    """,
+                    (session_id, project_id),
+                ).fetchone()
+                if row is None:
+                    raise ReceiverError(404, "Trash snapshot contains an unavailable job")
+                if (
+                    row["trash_project_id"] not in {None, project_id}
+                    or row["purge_project_id"] not in {None, project_id}
+                ):
+                    raise ReceiverError(404, "Trash snapshot contains an unavailable job")
+                if row["purge_state"] == "PURGED":
+                    planned[session_id] = "PURGED"
+                elif row["purge_state"] == "PURGING":
+                    planned[session_id] = "PURGING"
+                elif row["trash_state"] == "TRASHED":
+                    connection.execute(
+                        """
+                        INSERT INTO library_purges(
+                            session_id, project_id, employee_id, state,
+                            requested_at, purged_at, updated_at, error
+                        ) VALUES (?, ?, ?, 'PURGING', ?, NULL, ?, NULL)
+                        """,
+                        (session_id, project_id, employee.employee_id, now, now),
+                    )
+                    self._append_audit(
+                        connection, "EMPLOYEE", employee.employee_id,
+                        "SERVER_JOB_PURGE_REQUESTED", "PENDING",
+                        project_id=project_id, session_id=session_id,
+                    )
+                    planned[session_id] = "PURGING"
+                else:
+                    planned[session_id] = "FAILED"
+
+        results = []
+        for session_id in canonical_ids:
+            state = planned[session_id]
+            if state == "PURGED":
+                results.append({"sessionId": session_id, "state": "PURGED"})
+            elif state == "FAILED":
+                results.append({
+                    "sessionId": session_id,
+                    "state": "FAILED",
+                    "error": "Job is no longer available in trash",
+                })
+            else:
+                results.append(
+                    self._purge_server_job(employee.employee_id, project_id, session_id)
+                )
+        return {
+            "serverEnvironment": self.settings.server_environment,
+            "projectId": project_id,
+            "accessProjectId": project_id,
+            "results": results,
+            "refreshedAt": self.timestamp(),
+        }
+
+    def _purge_server_job(
+        self,
+        employee_id: str,
+        project_id: str,
+        session_id: str,
+        *,
+        require_current_grant: bool = True,
+    ) -> Dict[str, object]:
+        with self._guard(f"session:{session_id}"):
+            try:
+                with self.database.connect() as connection:
+                    if require_current_grant:
+                        authorization = connection.execute(
+                            """
+                            SELECT employees.role
+                            FROM employees
+                            JOIN employee_project_grants USING (employee_id)
+                            JOIN projects USING (project_id)
+                            WHERE employees.employee_id=? AND project_id=?
+                              AND employees.enabled=1 AND projects.enabled=1
+                            """,
+                            (employee_id, project_id),
+                        ).fetchone()
+                        if authorization is None:
+                            raise ReceiverError(403, "Project access is denied")
+                        self._require_role(
+                            Employee(employee_id, "", str(authorization["role"])),
+                            "OPERATOR",
+                        )
+                    row = connection.execute(
+                        """
+                        SELECT upload_sessions.device_id,
+                               library_trash.state AS trash_state,
+                               library_purges.state AS purge_state
+                        FROM upload_sessions
+                        JOIN project_devices USING (device_id)
+                        JOIN library_trash USING (session_id)
+                        JOIN library_purges USING (session_id)
+                        JOIN projects ON projects.project_id=project_devices.project_id
+                        WHERE upload_sessions.session_id=?
+                          AND project_devices.project_id=?
+                          AND library_trash.project_id=?
+                          AND library_purges.project_id=?
+                          AND projects.enabled=1
+                        """,
+                        (session_id, project_id, project_id, project_id),
+                    ).fetchone()
+                if row is None:
+                    raise ReceiverError(403, "Project access is denied")
+                if row["purge_state"] == "PURGED":
+                    return {"sessionId": session_id, "state": "PURGED"}
+                if row["purge_state"] != "PURGING" or row["trash_state"] != "TRASHED":
+                    raise ReceiverError(409, "Job is no longer available in trash")
+
+                self._purge_trash_directory(str(row["device_id"]), session_id)
+
+                completed_at = self.timestamp()
+                with self.database.immediate() as connection:
+                    cursor = connection.execute(
+                        """
+                        UPDATE library_purges
+                        SET state='PURGED', purged_at=?, updated_at=?, error=NULL
+                        WHERE session_id=? AND project_id=? AND state='PURGING'
+                        """,
+                        (completed_at, completed_at, session_id, project_id),
+                    )
+                    if cursor.rowcount != 1:
+                        row = connection.execute(
+                            "SELECT state FROM library_purges WHERE session_id=?",
+                            (session_id,),
+                        ).fetchone()
+                        if row is None or row["state"] != "PURGED":
+                            raise sqlite3.IntegrityError("Purge transition was lost")
+                    self._append_audit(
+                        connection, "EMPLOYEE", employee_id,
+                        "SERVER_JOB_PURGED", "SUCCEEDED",
+                        project_id=project_id, session_id=session_id,
+                    )
+                return {"sessionId": session_id, "state": "PURGED"}
+            except (OSError, sqlite3.Error, ReceiverError) as error:
+                message = "Job purge is pending recovery"
+                try:
+                    with self.database.immediate() as connection:
+                        connection.execute(
+                            """
+                            UPDATE library_purges SET error=?, updated_at=?
+                            WHERE session_id=? AND state='PURGING'
+                            """,
+                            (message, self.timestamp(), session_id),
+                        )
+                        self._append_audit(
+                            connection, "EMPLOYEE", employee_id,
+                            "SERVER_JOB_PURGE_FAILED", "FAILED",
+                            project_id=project_id, session_id=session_id,
+                            details={"recoverable": True},
+                        )
+                except sqlite3.Error:
+                    pass
+                return {"sessionId": session_id, "state": "FAILED", "error": message}
 
     def list_server_audit(
         self,
@@ -1604,10 +1835,20 @@ class ReceiverService:
             device_id = str(session["device_id"])
             with self.database.connect() as connection:
                 record = connection.execute(
-                    "SELECT state FROM library_trash WHERE session_id=? AND project_id=?",
+                    """
+                    SELECT library_trash.state,
+                           library_purges.state AS purge_state
+                    FROM library_trash
+                    LEFT JOIN library_purges USING (session_id)
+                    WHERE library_trash.session_id=? AND library_trash.project_id=?
+                    """,
                     (session_id, project_id),
                 ).fetchone()
-            if record is None or record["state"] != "TRASHED":
+            if (
+                record is None
+                or record["state"] != "TRASHED"
+                or record["purge_state"] is not None
+            ):
                 raise ReceiverError(409, "Job is not available to restore")
             final = self._final_directory(device_id, session_id)
             trash = self._trash_directory(device_id, session_id)
@@ -1615,10 +1856,19 @@ class ReceiverService:
             if final.exists() or final.is_symlink():
                 raise ReceiverError(503, "Restore destination is inconsistent")
             with self.database.immediate() as connection:
-                connection.execute(
-                    "UPDATE library_trash SET state='RESTORING', updated_at=? WHERE session_id=?",
+                cursor = connection.execute(
+                    """
+                    UPDATE library_trash SET state='RESTORING', updated_at=?
+                    WHERE session_id=? AND state='TRASHED'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM library_purges
+                          WHERE library_purges.session_id=library_trash.session_id
+                      )
+                    """,
                     (self.timestamp(), session_id),
                 )
+                if cursor.rowcount != 1:
+                    raise ReceiverError(409, "Job is not available to restore")
                 self._append_audit(
                     connection, "EMPLOYEE", employee.employee_id,
                     "SERVER_JOB_RESTORE_REQUESTED", "PENDING",
@@ -1955,6 +2205,8 @@ class ReceiverService:
                 SELECT COALESCE(SUM(next_offset), 0) AS received,
                        COALESCE(SUM(size_bytes), 0) AS declared
                 FROM upload_files
+                LEFT JOIN library_purges USING (session_id)
+                WHERE library_purges.state IS NULL OR library_purges.state!='PURGED'
                 """
             ).fetchone()
         lines = [
@@ -2010,6 +2262,7 @@ class ReceiverService:
                 else:
                     self._recover_open_session(session)
         self._recover_library_trash()
+        self._recover_library_purges()
 
     def _recover_library_trash(self) -> None:
         with self.database.connect() as connection:
@@ -2055,6 +2308,24 @@ class ReceiverService:
                     # Leave the transition row in place. Active reads exclude it and
                     # the next process start retries the same idempotent transition.
                     continue
+
+    def _recover_library_purges(self) -> None:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT session_id, project_id, employee_id
+                FROM library_purges
+                WHERE state='PURGING'
+                ORDER BY requested_at, session_id
+                """
+            ).fetchall()
+        for row in rows:
+            self._purge_server_job(
+                str(row["employee_id"]),
+                str(row["project_id"]),
+                str(row["session_id"]),
+                require_current_grant=False,
+            )
 
     def _recover_open_session(self, session: Mapping[str, object]) -> None:
         with self.database.connect() as connection:
@@ -2197,8 +2468,11 @@ class ReceiverService:
             """
             SELECT COALESCE(SUM(total_bytes), 0) AS total
             FROM upload_sessions
-            WHERE device_id=? AND state IN ('OPEN', 'FINALIZING', 'COMPLETED')
-              AND session_id != ?
+            LEFT JOIN library_purges USING (session_id)
+            WHERE upload_sessions.device_id=?
+              AND upload_sessions.state IN ('OPEN', 'FINALIZING', 'COMPLETED')
+              AND upload_sessions.session_id != ?
+              AND (library_purges.state IS NULL OR library_purges.state!='PURGED')
             """,
             (device.device_id, excluded),
         ).fetchone()["total"]
@@ -2818,6 +3092,69 @@ class ReceiverService:
 
     def _trash_directory(self, device_id: str, session_id: str) -> Path:
         return self.settings.trash_root / device_id / session_id
+
+    def _purge_trash_directory(self, device_id: str, session_id: str) -> None:
+        """Delete one trash payload using directory FDs as the traversal boundary."""
+        device_id = self.validate_device_id(device_id)
+        session_id = self.validate_session_id(session_id)
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            root_descriptor = os.open(self.settings.trash_root, flags)
+        except OSError as error:
+            raise ReceiverError(
+                503, "Trash storage is inconsistent", retry_after=5
+            ) from error
+        try:
+            try:
+                device_descriptor = os.open(
+                    device_id, flags, dir_fd=root_descriptor
+                )
+            except FileNotFoundError:
+                os.fsync(root_descriptor)
+                return
+            except OSError as error:
+                raise ReceiverError(
+                    503, "Trash storage is inconsistent", retry_after=5
+                ) from error
+            try:
+                try:
+                    session_descriptor = os.open(
+                        session_id, flags, dir_fd=device_descriptor
+                    )
+                except FileNotFoundError:
+                    os.fsync(device_descriptor)
+                    return
+                except OSError as error:
+                    raise ReceiverError(
+                        503, "Trash storage is inconsistent", retry_after=5
+                    ) from error
+                try:
+                    self._clear_directory_descriptor(session_descriptor)
+                    os.fsync(session_descriptor)
+                finally:
+                    os.close(session_descriptor)
+                os.rmdir(session_id, dir_fd=device_descriptor)
+                os.fsync(device_descriptor)
+            finally:
+                os.close(device_descriptor)
+        finally:
+            os.close(root_descriptor)
+
+    @classmethod
+    def _clear_directory_descriptor(cls, descriptor: int) -> None:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        for name in os.listdir(descriptor):
+            metadata = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            if stat.S_ISDIR(metadata.st_mode):
+                child = os.open(name, flags, dir_fd=descriptor)
+                try:
+                    cls._clear_directory_descriptor(child)
+                    os.fsync(child)
+                finally:
+                    os.close(child)
+                os.rmdir(name, dir_fd=descriptor)
+            else:
+                os.unlink(name, dir_fd=descriptor)
 
     @staticmethod
     def _require_regular_directory(path: Path, detail: str) -> None:

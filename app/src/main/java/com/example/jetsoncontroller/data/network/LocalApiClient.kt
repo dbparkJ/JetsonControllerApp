@@ -44,6 +44,8 @@ import com.example.jetsoncontroller.model.SurveySectionsResponse
 import com.example.jetsoncontroller.model.UpdatePipelineRunPolicyRequest
 import com.example.jetsoncontroller.model.TrashEntry
 import com.example.jetsoncontroller.model.TrashEntriesResponse
+import com.example.jetsoncontroller.model.EmptyTrashRequest
+import com.example.jetsoncontroller.model.EmptyTrashResponse
 import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -352,6 +354,19 @@ class LocalApiClient(
         "장치 휴지통 복원", query = { getTrash(includeRestored = true) }, serverFailureMayBeApplied = true
     ) {
         requireApi().restoreTrash(trashId, LocalControlApi.ConfirmDeletionRequest())
+    }
+
+    suspend fun emptyTrash(trashIds: List<String>): Result<EmptyTrashResponse> {
+        require(trashIds.isNotEmpty() && trashIds.size <= 200 && trashIds.distinct().size == trashIds.size) {
+            "휴지통 비우기는 중복되지 않은 항목 1~200개가 필요합니다."
+        }
+        return command(
+            "장치 휴지통 비우기",
+            query = { getTrash(includeRestored = true) },
+            serverFailureMayBeApplied = true
+        ) {
+            requireApi().emptyTrash(EmptyTrashRequest(trashIds = trashIds))
+        }
     }
 
     suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> =

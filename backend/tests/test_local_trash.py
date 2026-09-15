@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -174,6 +175,189 @@ class LocalTrashManagerTest(unittest.TestCase):
                 self.trash.restore(str(entry["trashId"]), confirmed=True)
         self.assertEqual(source.read_bytes(), b"new")
         self.assertEqual(self.trash.payload_path(str(entry["trashId"])).read_bytes(), b"old")
+
+    def test_empty_purges_only_explicit_snapshot_and_is_idempotent(self) -> None:
+        for name in ("first.bin", "second.bin", "new.bin"):
+            (self.storage_root / name).write_bytes(name.encode())
+        first = self.trash.trash_storage_entry("data", "first.bin")
+        second = self.trash.trash_storage_entry("data", "second.bin")
+        snapshot = [str(first["trashId"]), str(second["trashId"])]
+        newer = self.trash.trash_storage_entry("data", "new.bin")
+
+        listing = self.trash.list_entries()
+        self.assertTrue(listing["emptySupported"])
+        self.assertTrue(all(item["purgeSupported"] for item in listing["entries"]))
+        emptied = self.trash.empty(snapshot, confirmed=True)
+
+        self.assertEqual([item["state"] for item in emptied["results"]], ["PURGED", "PURGED"])
+        self.assertEqual(
+            [item["trashId"] for item in self.trash.list_entries()["entries"]],
+            [newer["trashId"]],
+        )
+        repeated = self.trash.empty(snapshot, confirmed=True)
+        self.assertEqual([item["state"] for item in repeated["results"]], ["PURGED", "PURGED"])
+
+    def test_empty_validates_confirmation_identifiers_and_state(self) -> None:
+        source = self.storage_root / "restored.bin"
+        source.write_bytes(b"data")
+        entry = self.trash.trash_storage_entry("data", "restored.bin")
+        trash_id = str(entry["trashId"])
+        self.trash.restore(trash_id, confirmed=True)
+
+        with self.assertRaises(TrashConflict):
+            self.trash.empty([trash_id], confirmed=False)
+        for identifiers in (
+            [],
+            [trash_id, trash_id],
+            ["bad"],
+            [f"{index:032x}" for index in range(201)],
+        ):
+            with self.assertRaises(ValueError):
+                self.trash.empty(identifiers, confirmed=True)
+        result = self.trash.empty([trash_id, "0" * 32], confirmed=True)
+        self.assertEqual([item["state"] for item in result["results"]], ["FAILED", "FAILED"])
+        self.assertEqual(source.read_bytes(), b"data")
+
+    def test_purge_unlinks_nested_symlink_without_touching_target(self) -> None:
+        outside = self.base / "outside-data"
+        outside.mkdir()
+        protected = outside / "protected.bin"
+        protected.write_bytes(b"keep")
+        source = self.storage_root / "tree"
+        source.mkdir()
+        (source / "link").symlink_to(outside, target_is_directory=True)
+        (source / "local.bin").write_bytes(b"remove")
+        entry = self.trash.trash_storage_entry("data", "tree")
+
+        result = self.trash.empty([str(entry["trashId"])], confirmed=True)
+
+        self.assertEqual(result["results"][0]["state"], "PURGED")
+        self.assertEqual(protected.read_bytes(), b"keep")
+
+    def test_purge_never_touches_replacement_at_original_path(self) -> None:
+        source = self.storage_root / "replaced.bin"
+        source.write_bytes(b"old")
+        entry = self.trash.trash_storage_entry("data", "replaced.bin")
+        source.write_bytes(b"new")
+
+        result = self.trash.empty([str(entry["trashId"])], confirmed=True)
+
+        self.assertEqual(result["results"][0]["state"], "PURGED")
+        self.assertEqual(source.read_bytes(), b"new")
+
+    def test_purging_journal_recovers_after_final_write_failure(self) -> None:
+        source = self.storage_root / "recover-purge.bin"
+        source.write_bytes(b"remove")
+        entry = self.trash.trash_storage_entry("data", "recover-purge.bin")
+        trash_id = str(entry["trashId"])
+        real_write = self.trash._write_record
+        failed = False
+
+        def fail_final_write(record):
+            nonlocal failed
+            if record.get("state") == "PURGED" and not failed:
+                failed = True
+                raise OSError("simulated final purge journal failure")
+            real_write(record)
+
+        with patch.object(self.trash, "_write_record", side_effect=fail_final_write):
+            result = self.trash.empty([trash_id], confirmed=True)
+        self.assertEqual(result["results"][0]["state"], "PURGING")
+        self.assertFalse((self.storage_root / ".jetson-control-trash" / trash_id).exists())
+
+        recovered = LocalTrashManager(self.storage, self.state, self.logs_root)
+        self.assertEqual(recovered.get_entry(trash_id)["state"], "PURGED")
+        self.assertEqual(recovered.list_entries()["entries"], [])
+
+    def test_empty_reports_partial_failure_and_restart_resumes_it(self) -> None:
+        for name in ("ok.bin", "retry.bin"):
+            (self.storage_root / name).write_bytes(name.encode())
+        ok = self.trash.trash_storage_entry("data", "ok.bin")
+        retry = self.trash.trash_storage_entry("data", "retry.bin")
+        real_purge = self.trash._purge_payload_directory
+
+        def fail_retry(root, trash_id):
+            if trash_id == retry["trashId"]:
+                raise OSError("simulated payload failure")
+            return real_purge(root, trash_id)
+
+        with patch.object(self.trash, "_purge_payload_directory", side_effect=fail_retry):
+            result = self.trash.empty(
+                [str(ok["trashId"]), str(retry["trashId"])], confirmed=True
+            )
+        self.assertEqual([item["state"] for item in result["results"]], ["PURGED", "PURGING"])
+
+        recovered = LocalTrashManager(self.storage, self.state, self.logs_root)
+        self.assertEqual(recovered.get_entry(str(retry["trashId"]))["state"], "PURGED")
+
+    def test_restore_and_purge_race_has_one_consistent_winner(self) -> None:
+        source = self.storage_root / "race-operation.bin"
+        source.write_bytes(b"data")
+        entry = self.trash.trash_storage_entry("data", "race-operation.bin")
+        trash_id = str(entry["trashId"])
+        barrier = threading.Barrier(3)
+        outcomes = []
+
+        def restore():
+            barrier.wait()
+            try:
+                outcomes.append(("restore", self.trash.restore(trash_id, confirmed=True)["state"]))
+            except TrashConflict:
+                outcomes.append(("restore", "FAILED"))
+
+        def purge():
+            barrier.wait()
+            outcomes.append(("purge", self.trash.empty([trash_id], confirmed=True)["results"][0]["state"]))
+
+        threads = [threading.Thread(target=restore), threading.Thread(target=purge)]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+
+        final = self.trash.get_entry(trash_id)["state"]
+        self.assertIn(final, {"RESTORED", "PURGED"})
+        self.assertEqual(source.exists(), final == "RESTORED")
+        if final == "PURGED":
+            self.assertIn(("restore", "FAILED"), outcomes)
+        else:
+            self.assertIn(("purge", "FAILED"), outcomes)
+
+    def test_recovery_rejects_traversal_and_mismatched_journal_ids(self) -> None:
+        for name in ("first-corrupt.bin", "second-safe.bin"):
+            (self.storage_root / name).write_bytes(name.encode())
+        first = self.trash.trash_storage_entry("data", "first-corrupt.bin")
+        second = self.trash.trash_storage_entry("data", "second-safe.bin")
+        first_id = str(first["trashId"])
+        second_id = str(second["trashId"])
+        first_journal = self.trash.journal_dir / f"{first_id}.json"
+        corrupted = json.loads(first_journal.read_text(encoding="utf-8"))
+        corrupted.update(state="PURGING", trashId=second_id)
+        first_journal.write_text(json.dumps(corrupted), encoding="utf-8")
+
+        outside = self.storage_root / "outside"
+        outside.mkdir(mode=0o700)
+        protected = outside / "protected.bin"
+        protected.write_bytes(b"keep")
+        traversal_path = self.trash.journal_dir / f"{'f' * 32}.json"
+        traversal = dict(corrupted, trashId="../outside")
+        traversal_path.write_text(json.dumps(traversal), encoding="utf-8")
+
+        recovered = LocalTrashManager(self.storage, self.state, self.logs_root)
+
+        self.assertEqual(protected.read_bytes(), b"keep")
+        self.assertTrue((self.storage_root / ".jetson-control-trash" / first_id).is_dir())
+        self.assertTrue((self.storage_root / ".jetson-control-trash" / second_id).is_dir())
+        self.assertEqual(recovered.get_entry(second_id)["state"], "TRASHED")
+        self.assertEqual(
+            recovered.empty([first_id], confirmed=True)["results"][0]["state"],
+            "FAILED",
+        )
+        self.assertTrue((self.storage_root / ".jetson-control-trash" / second_id).is_dir())
+        with self.assertRaises(ValueError):
+            recovered._purge_payload_directory(self.storage_root, "../outside")
 
 
 if __name__ == "__main__":

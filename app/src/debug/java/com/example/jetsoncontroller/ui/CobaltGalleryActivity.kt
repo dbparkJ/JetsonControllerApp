@@ -125,6 +125,7 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
                     onSelect = select
                 )
                 Box(Modifier.weight(1f)) { when (screen) {
+                    "welcome" -> com.example.jetsoncontroller.ui.components.GeoWelcomeScene()
                     "tasks", "detail" -> PipelineListScreen(
                         state = PipelineUiState(deviceId = "demo", controlAvailable = true, pipelines = sample,
                             observedAtMillis = now, pendingActions = mapOf("gnss" to "start")),

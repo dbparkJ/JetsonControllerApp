@@ -26,6 +26,7 @@ import com.example.jetsoncontroller.ui.theme.GeoSize
 import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.theme.GeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoDarkTheme
 
 /**
  * The GEO& corporate mark.
@@ -37,7 +38,7 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 @Composable
 fun GeoLogo(modifier: Modifier = Modifier, backgroundColor: Color = MaterialTheme.colorScheme.background) {
     val logo = ImageBitmap.imageResource(R.drawable.geo_logo)
-    val wordmarkFilter = if (backgroundColor.luminance() < 0.3f)
+    val wordmarkFilter = if (LocalGeoDarkTheme.current && backgroundColor.luminance() < 0.3f)
         ColorFilter.tint(MaterialTheme.colorScheme.onSurface) else null
     Canvas(modifier.aspectRatio(1000f / 338f).semantics { contentDescription = "GEO& 로고" }) {
         fun part(x: Int, y: Int, width: Int, height: Int) {
@@ -143,7 +144,17 @@ fun GeoWelcomeScene() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            GeoLogo(Modifier.widthIn(max = 260.dp).fillMaxWidth(), backgroundColor = c.hero)
+            if (LocalGeoDarkTheme.current) {
+                GeoLogo(Modifier.widthIn(max = 260.dp).fillMaxWidth(), backgroundColor = c.hero)
+            } else {
+                Surface(color = c.surface, shape = MaterialTheme.shapes.medium) {
+                    GeoLogo(
+                        Modifier.padding(horizontal = GeoSpace.lg, vertical = GeoSpace.sm)
+                            .widthIn(max = 260.dp).fillMaxWidth(),
+                        backgroundColor = c.surface
+                    )
+                }
+            }
             Spacer(Modifier.height(GeoSpace.md))
             Text("도로관리장치 제어", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(GeoSpace.huge))

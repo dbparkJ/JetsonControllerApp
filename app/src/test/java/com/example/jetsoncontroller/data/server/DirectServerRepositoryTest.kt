@@ -101,6 +101,54 @@ class DirectServerRepositoryTest {
         assertTrue(cancelled)
     }
 
+    @Test fun `empty trash validates the exact requested scope and receipt`() = runTest {
+        val api = FakeApi({ Response.success(jobsResponse()) }).apply {
+            emptyTrashCall = { projectId, request ->
+                assertEquals("road-alpha", projectId)
+                assertEquals(listOf("session-1", "session-2"), request.sessionIds)
+                Response.success(
+                    ServerEmptyTrashResponse(
+                        serverEnvironment = "production",
+                        projectId = "road-alpha",
+                        accessProjectId = "road-alpha",
+                        results = request.sessionIds.map { ServerEmptyTrashItemResult(it, "PURGED") },
+                        refreshedAt = "now"
+                    )
+                )
+            }
+        }
+        val repository = DirectServerRepository(
+            api, profile, RecentServerJobsCache(temporary.newFolder("empty-cache")), "revision-1"
+        )
+
+        val result = repository.emptyTrash(listOf("session-1", "session-2")).getOrThrow()
+
+        assertEquals(ServerMutationStatus.CONFIRMED, result.status)
+        assertEquals(2, result.response!!.results.size)
+    }
+
+    @Test fun `empty trash rejects missing results and reports availability as unknown`() = runTest {
+        val api = FakeApi({ Response.success(jobsResponse()) })
+        val repository = DirectServerRepository(
+            api, profile, RecentServerJobsCache(temporary.newFolder("invalid-empty-cache")), "revision-1"
+        )
+        api.emptyTrashCall = { _, _ ->
+            Response.success(
+                ServerEmptyTrashResponse(
+                    "production", "road-alpha", "road-alpha",
+                    listOf(ServerEmptyTrashItemResult("wrong", "PURGED")), "now"
+                )
+            )
+        }
+        assertTrue(repository.emptyTrash(listOf("session-1")).isFailure)
+
+        api.emptyTrashCall = { _, _ -> throw IOException("response lost") }
+        assertEquals(
+            ServerMutationStatus.UNKNOWN,
+            repository.emptyTrash(listOf("session-1")).getOrThrow().status
+        )
+    }
+
     private fun jobsResponse() = ServerJobsResponse(
         serverEnvironment = "production",
         employeeId = "employee.one",
@@ -128,6 +176,8 @@ class DirectServerRepositoryTest {
     )
 
     private class FakeApi(var jobsCall: () -> Response<ServerJobsResponse>) : DirectServerApi {
+        var emptyTrashCall: suspend (String, ServerEmptyTrashRequest) -> Response<ServerEmptyTrashResponse> =
+            { _, _ -> error("unused") }
         override suspend fun jobs(projectId: String, limit: Int, offset: Int) = jobsCall()
         override suspend fun capabilities(): Response<ServerCapabilities> = error("unused")
         override suspend fun files(
@@ -139,7 +189,11 @@ class DirectServerRepositoryTest {
         override suspend fun receipt(
             sessionId: String, projectId: String
         ): Response<ServerReceipt> = error("unused")
-        override suspend fun trash(projectId: String): Response<ServerTrashResponse> = error("unused")
+        override suspend fun trash(projectId: String, limit: Int, offset: Int): Response<ServerTrashResponse> = error("unused")
+        override suspend fun emptyTrash(
+            projectId: String,
+            request: ServerEmptyTrashRequest
+        ): Response<ServerEmptyTrashResponse> = emptyTrashCall(projectId, request)
         override suspend fun moveToTrash(
             sessionId: String, projectId: String
         ): Response<ServerLifecycleResponse> = error("unused")

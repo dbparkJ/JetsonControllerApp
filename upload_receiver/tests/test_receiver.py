@@ -17,6 +17,7 @@ from upload_receiver.app import create_app
 from upload_receiver import admin
 from upload_receiver.admin import _write_secret
 from upload_receiver.config import Settings
+from upload_receiver.database import Database
 from upload_receiver.service import FILE_BATCH_MAGIC, ReceiverError, ReceiverService
 
 
@@ -199,6 +200,62 @@ class ReceiverApiTest(unittest.TestCase):
             },
             content=body,
         )
+
+    def complete_and_trash(
+        self,
+        employee_token: str,
+        *,
+        client_job_id: str,
+        body: bytes = b"payload",
+    ) -> tuple[str, dict[str, object]]:
+        manifest = self.manifest(
+            [("payload.bin", body)], client_job_id=client_job_id
+        )
+        created = self.create(manifest)
+        self.assertEqual(created.status_code, 201, created.text)
+        session_id = created.json()["sessionId"]
+        self.assertEqual(self.put(session_id, "payload.bin", body).status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{session_id}/complete",
+                headers=self.auth(),
+                json={},
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/v1/server/jobs/{session_id}",
+                params={"projectId": "road-alpha"},
+                headers=self.employee_auth(employee_token),
+            ).status_code,
+            200,
+        )
+        return session_id, manifest
+
+    def test_existing_database_adds_purge_table_without_rebuilding_trash(self) -> None:
+        database = Database(self.settings.database_path)
+        with database.immediate() as connection:
+            trash_sql = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='library_trash'"
+            ).fetchone()["sql"]
+            connection.execute("DROP TABLE library_purges")
+            connection.execute(
+                "INSERT INTO projects(project_id, display_name, created_at, updated_at) "
+                "VALUES ('migration-marker', 'Marker', 'now', 'now')"
+            )
+
+        database.initialize()
+        with database.connect() as connection:
+            self.assertEqual(connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='library_trash'"
+            ).fetchone()["sql"], trash_sql)
+            self.assertIsNotNone(connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='library_purges'"
+            ).fetchone())
+            self.assertIsNotNone(connection.execute(
+                "SELECT 1 FROM projects WHERE project_id='migration-marker'"
+            ).fetchone())
 
     def test_health_and_authentication(self) -> None:
         self.assertEqual(self.client.get("/health/live").json(), {"state": "LIVE"})
@@ -630,6 +687,262 @@ class ReceiverApiTest(unittest.TestCase):
                 ).fetchone()
             )
         self.assertTrue(recovered_again._final_directory(DEVICE_ID, session_id).is_dir())
+
+    def test_server_trash_empty_is_paginated_durable_and_idempotent(self) -> None:
+        employee_token = self.configure_employee_access()
+        first_id, first_manifest = self.complete_and_trash(
+            employee_token, client_job_id="1" * 32, body=b"12345"
+        )
+        second_id, _ = self.complete_and_trash(
+            employee_token, client_job_id="2" * 32, body=b"second"
+        )
+        headers = self.employee_auth(employee_token)
+
+        page = self.client.get(
+            "/v1/server/trash",
+            params={"projectId": "road-alpha", "limit": 1, "offset": 0},
+            headers=headers,
+        )
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertTrue(page.json()["emptySupported"])
+        self.assertEqual(page.json()["total"], 2)
+        self.assertEqual(page.json()["nextOffset"], 1)
+        self.assertTrue(page.json()["jobs"][0]["purgeSupported"])
+
+        receiver: ReceiverService = self.client.app.state.receiver
+        with receiver.database.immediate() as connection:
+            connection.execute(
+                "UPDATE devices SET quota_bytes=7 WHERE device_id=?", (DEVICE_ID,)
+            )
+        blocked = self.create(
+            self.manifest([( "next.bin", b"x")], client_job_id="3" * 32)
+        )
+        self.assertEqual(blocked.status_code, 413)
+
+        external = self.data_root / "outside-purge"
+        external.mkdir()
+        protected = external / "protected.bin"
+        protected.write_bytes(b"keep")
+        receiver._trash_directory(DEVICE_ID, first_id).joinpath(
+            "outside-link"
+        ).symlink_to(external, target_is_directory=True)
+
+        purged = self.client.post(
+            "/v1/server/trash/empty",
+            params={"projectId": "road-alpha"},
+            headers={**headers, "Content-Type": "application/json"},
+            json={"confirmed": True, "sessionIds": [first_id]},
+        )
+        self.assertEqual(purged.status_code, 200, purged.text)
+        self.assertEqual(
+            purged.json()["results"], [{"sessionId": first_id, "state": "PURGED"}]
+        )
+        self.assertFalse(receiver._trash_directory(DEVICE_ID, first_id).exists())
+        self.assertEqual(protected.read_bytes(), b"keep")
+        with receiver.database.connect() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM library_purges WHERE session_id=?", (first_id,)
+                ).fetchone()["state"],
+                "PURGED",
+            )
+            self.assertIsNotNone(connection.execute(
+                "SELECT 1 FROM upload_sessions WHERE session_id=?", (first_id,)
+            ).fetchone())
+            self.assertIsNotNone(connection.execute(
+                "SELECT 1 FROM upload_files WHERE session_id=?", (first_id,)
+            ).fetchone())
+
+        self.assertEqual(self.create(
+            self.manifest([( "next.bin", b"x")], client_job_id="3" * 32)
+        ).status_code, 201)
+        self.assertEqual(self.create(first_manifest).status_code, 410)
+        self.assertEqual(self.client.post(
+            f"/v1/upload-sessions/{first_id}/complete",
+            headers=self.auth(), json={},
+        ).status_code, 409)
+        self.assertEqual(self.client.get(
+            f"/v1/library/sessions/{first_id}/verification", headers=self.auth()
+        ).status_code, 409)
+
+        repeated = self.client.post(
+            "/v1/server/trash/empty",
+            params={"projectId": "road-alpha"},
+            headers={**headers, "Content-Type": "application/json"},
+            json={"confirmed": True, "sessionIds": [first_id]},
+        )
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+        self.assertEqual(repeated.json()["results"][0]["state"], "PURGED")
+        remaining = self.client.get(
+            "/v1/server/trash", params={"projectId": "road-alpha"}, headers=headers
+        ).json()
+        self.assertEqual([job["sessionId"] for job in remaining["jobs"]], [second_id])
+
+    def test_server_trash_empty_validates_snapshot_before_deleting(self) -> None:
+        operator = self.configure_employee_access()
+        session_id, _ = self.complete_and_trash(
+            operator, client_job_id="4" * 32
+        )
+        viewer = self.client.app.state.receiver.issue_employee_token(
+            "employee.viewer", "Viewer", "VIEWER", project_ids=["road-alpha"]
+        )
+        payload = {"confirmed": True, "sessionIds": [session_id]}
+        denied = self.client.post(
+            "/v1/server/trash/empty",
+            params={"projectId": "road-alpha"},
+            headers={**self.employee_auth(viewer), "Content-Type": "application/json"},
+            json=payload,
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        rejected = self.client.post(
+            "/v1/server/trash/empty",
+            params={"projectId": "road-alpha"},
+            headers={**self.employee_auth(operator), "Content-Type": "application/json"},
+            json={"confirmed": True, "sessionIds": [session_id, "unknown-session"]},
+        )
+        self.assertEqual(rejected.status_code, 404)
+        receiver: ReceiverService = self.client.app.state.receiver
+        self.assertTrue(receiver._trash_directory(DEVICE_ID, session_id).is_dir())
+        with receiver.database.connect() as connection:
+            self.assertIsNone(connection.execute(
+                "SELECT 1 FROM library_purges WHERE session_id=?", (session_id,)
+            ).fetchone())
+
+        receiver.upsert_project("road-beta", "Road Beta")
+        receiver.assign_device_to_project(SECOND_DEVICE_ID, "road-beta")
+        beta_operator = receiver.issue_employee_token(
+            "employee.beta", "Beta", "OPERATOR", project_ids=["road-beta"]
+        )
+        beta_manifest = self.manifest(
+            [("beta.bin", b"beta")],
+            device_id=SECOND_DEVICE_ID,
+            client_job_id="8" * 32,
+        )
+        beta_id = self.create(beta_manifest, self.second_token).json()["sessionId"]
+        self.assertEqual(
+            self.put(
+                beta_id, "beta.bin", b"beta", token=self.second_token
+            ).status_code,
+            200,
+        )
+        self.assertEqual(self.client.post(
+            f"/v1/upload-sessions/{beta_id}/complete",
+            headers=self.auth(self.second_token), json={},
+        ).status_code, 200)
+        self.assertEqual(self.client.delete(
+            f"/v1/server/jobs/{beta_id}", params={"projectId": "road-beta"},
+            headers=self.employee_auth(beta_operator),
+        ).status_code, 200)
+        cross_project = self.client.post(
+            "/v1/server/trash/empty", params={"projectId": "road-alpha"},
+            headers={
+                **self.employee_auth(operator), "Content-Type": "application/json"
+            },
+            json={"confirmed": True, "sessionIds": [session_id, beta_id]},
+        )
+        self.assertEqual(cross_project.status_code, 404)
+        self.assertTrue(receiver._trash_directory(DEVICE_ID, session_id).is_dir())
+        self.assertTrue(receiver._trash_directory(SECOND_DEVICE_ID, beta_id).is_dir())
+
+        invalid_bodies = [
+            {"confirmed": False, "sessionIds": [session_id]},
+            {"confirmed": True, "sessionIds": []},
+            {"confirmed": True, "sessionIds": [session_id, session_id]},
+            {"confirmed": True, "sessionIds": [session_id], "all": True},
+        ]
+        for body in invalid_bodies:
+            response = self.client.post(
+                "/v1/server/trash/empty",
+                params={"projectId": "road-alpha"},
+                headers={
+                    **self.employee_auth(operator),
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            self.assertEqual(response.status_code, 400, response.text)
+
+    def test_server_trash_empty_partial_failure_is_visible_and_recovers(self) -> None:
+        employee_token = self.configure_employee_access()
+        failed_id, _ = self.complete_and_trash(
+            employee_token, client_job_id="5" * 32
+        )
+        success_id, _ = self.complete_and_trash(
+            employee_token, client_job_id="6" * 32
+        )
+        receiver: ReceiverService = self.client.app.state.receiver
+        original = receiver._purge_trash_directory
+
+        def fail_one(device_id: str, session_id: str) -> None:
+            if session_id == failed_id:
+                raise OSError("simulated purge failure")
+            original(device_id, session_id)
+
+        with patch.object(receiver, "_purge_trash_directory", side_effect=fail_one):
+            response = self.client.post(
+                "/v1/server/trash/empty",
+                params={"projectId": "road-alpha"},
+                headers={
+                    **self.employee_auth(employee_token),
+                    "Content-Type": "application/json",
+                },
+                json={"confirmed": True, "sessionIds": [failed_id, success_id]},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            [result["state"] for result in response.json()["results"]],
+            ["FAILED", "PURGED"],
+        )
+        visible = self.client.get(
+            "/v1/server/trash",
+            params={"projectId": "road-alpha"},
+            headers=self.employee_auth(employee_token),
+        ).json()["jobs"]
+        self.assertEqual(visible[0]["sessionId"], failed_id)
+        self.assertEqual(visible[0]["state"], "PURGING")
+        self.assertFalse(visible[0]["restoreSupported"])
+        restore = self.client.post(
+            f"/v1/server/trash/{failed_id}/restore",
+            params={"projectId": "road-alpha"},
+            headers=self.employee_auth(employee_token),
+        )
+        self.assertEqual(restore.status_code, 409)
+
+        recovered = ReceiverService(self.settings)
+        self.assertFalse(recovered._trash_directory(DEVICE_ID, failed_id).exists())
+        with recovered.database.connect() as connection:
+            self.assertEqual(connection.execute(
+                "SELECT state FROM library_purges WHERE session_id=?", (failed_id,)
+            ).fetchone()["state"], "PURGED")
+
+    def test_purge_does_not_follow_trash_parent_symlink(self) -> None:
+        employee_token = self.configure_employee_access()
+        session_id, _ = self.complete_and_trash(
+            employee_token, client_job_id="7" * 32
+        )
+        receiver: ReceiverService = self.client.app.state.receiver
+        device_trash = receiver._trash_directory(DEVICE_ID, session_id).parent
+        displaced = device_trash.with_name(f"{DEVICE_ID}.displaced")
+        os.replace(device_trash, displaced)
+        external = self.data_root / "external"
+        (external / session_id).mkdir(parents=True)
+        protected = external / session_id / "protected.bin"
+        protected.write_bytes(b"keep")
+        device_trash.symlink_to(external, target_is_directory=True)
+
+        response = self.client.post(
+            "/v1/server/trash/empty",
+            params={"projectId": "road-alpha"},
+            headers={
+                **self.employee_auth(employee_token),
+                "Content-Type": "application/json",
+            },
+            json={"confirmed": True, "sessionIds": [session_id]},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["results"][0]["state"], "FAILED")
+        self.assertEqual(protected.read_bytes(), b"keep")
 
     def test_completed_library_session_is_verified_but_device_delete_is_disabled(self) -> None:
         files = [("camera/front.bin", b"front"), ("notes.txt", b"notes")]

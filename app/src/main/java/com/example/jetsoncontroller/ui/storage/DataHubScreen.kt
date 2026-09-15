@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -110,7 +111,7 @@ fun DataHubScreen(
     var selectionMode by rememberSaveable(state.deviceId, locationKey) { mutableStateOf(false) }
     var selectedPath by rememberSaveable(state.deviceId, locationKey) { mutableStateOf<String?>(null) }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
-    var pendingDeletion by rememberSaveable(state.deviceId, locationKey, selectedPath) { mutableStateOf(false) }
+    var pendingDeletion by remember { mutableStateOf<DataDeletionSnapshot?>(null) }
 
     val entries = state.entries
         .filter { entry ->
@@ -128,6 +129,12 @@ fun DataHubScreen(
     LaunchedEffect(state.entries, selectedPath) {
         if (selectedPath != null && selected == null) selectedPath = null
     }
+    LaunchedEffect(state.deviceId, state.currentRoot?.id, state.currentPath) {
+        pendingDeletion = pendingDeletion?.takeIf {
+            it.deviceId == state.deviceId && it.rootId == state.currentRoot?.id &&
+                it.parentPath == state.currentPath
+        }
+    }
     LaunchedEffect(state.preview) {
         if (state.preview != null) {
             selectionMode = false
@@ -136,24 +143,26 @@ fun DataHubScreen(
     }
     BackHandler(enabled = state.preview != null || inDirectory, onBack = onNavigateBack)
 
-    if (pendingDeletion && selected != null) {
+    pendingDeletion?.let { snapshot ->
         AlertDialog(
-            onDismissRequest = { pendingDeletion = false },
+            onDismissRequest = { pendingDeletion = null },
             title = { Text("장치 데이터를 휴지통으로 옮길까요?") },
-            text = { Text("${selected.name} 항목은 휴지통에서 복원할 수 있습니다.") },
+            text = { Text("${snapshot.entry.name} 항목은 휴지통에서 복원할 수 있습니다.") },
             confirmButton = {
                 Button(
                     onClick = {
-                        pendingDeletion = false
+                        pendingDeletion = null
                         selectionMode = false
                         selectedPath = null
-                        onDeleteClick(selected)
+                        onDeleteClick(snapshot.entry)
                     },
-                    enabled = state.controlAvailable
+                    enabled = state.controlAvailable && !state.isDeleting &&
+                        snapshot.deviceId == state.deviceId && snapshot.rootId == state.currentRoot?.id &&
+                        snapshot.parentPath == state.currentPath
                 ) { Text("휴지통으로 이동") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeletion = false }) { Text("취소") }
+                TextButton(onClick = { pendingDeletion = null }) { Text("취소") }
             }
         )
     }
@@ -230,7 +239,10 @@ fun DataHubScreen(
                             DropdownMenuItem(
                                 text = { Text("선택 항목을 휴지통으로 이동") },
                                 leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
-                                onClick = { menuOpen = false; pendingDeletion = true },
+                                onClick = {
+                                    menuOpen = false
+                                    pendingDeletion = dataDeletionSnapshot(state, selected)
+                                },
                                 enabled = state.controlAvailable && !state.isDeleting
                             )
                         }
@@ -283,6 +295,15 @@ fun DataHubScreen(
                                         Spacer(Modifier.padding(horizontal = GeoSpace.xs))
                                         Icon(Icons.Default.Upload, contentDescription = null)
                                     }
+                                    TextButton(
+                                        onClick = { pendingDeletion = dataDeletionSnapshot(state, selected) },
+                                        enabled = state.controlAvailable && !state.isDeleting,
+                                        modifier = Modifier.weight(0.8f).heightIn(min = GeoSize.primaryAction)
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, null)
+                                        Spacer(Modifier.width(GeoSpace.xs))
+                                        Text("휴지통으로 이동")
+                                    }
                                 }
                             } else {
                                 Column(
@@ -319,6 +340,15 @@ fun DataHubScreen(
                                         Text("서버로 전송")
                                         Spacer(Modifier.padding(horizontal = GeoSpace.xs))
                                         Icon(Icons.Default.Upload, contentDescription = null)
+                                    }
+                                    TextButton(
+                                        onClick = { pendingDeletion = dataDeletionSnapshot(state, selected) },
+                                        enabled = state.controlAvailable && !state.isDeleting,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.primaryAction)
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, null)
+                                        Spacer(Modifier.width(GeoSpace.xs))
+                                        Text("휴지통으로 이동")
                                     }
                                 }
                             }
@@ -513,6 +543,8 @@ fun DataHubScreen(
                         onTransfer = {
                             state.currentRoot?.let { root -> onTransfer(root.id, selected.relativePath) }
                         },
+                        canDelete = state.controlAvailable && !state.isDeleting,
+                        onDelete = { pendingDeletion = dataDeletionSnapshot(state, selected) },
                         onClear = {
                             selectedPath = null
                             selectionMode = false
@@ -581,6 +613,8 @@ private fun SelectedTargetPanel(
     entry: RemoteFileEntry,
     canTransfer: Boolean,
     onTransfer: () -> Unit,
+    canDelete: Boolean,
+    onDelete: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -628,9 +662,32 @@ private fun SelectedTargetPanel(
                 Spacer(Modifier.padding(horizontal = GeoSpace.xs))
                 Icon(Icons.Default.Upload, null)
             }
+            TextButton(
+                onClick = onDelete,
+                enabled = canDelete,
+                modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.primaryAction)
+            ) {
+                Icon(Icons.Default.DeleteOutline, null)
+                Spacer(Modifier.width(GeoSpace.xs))
+                Text("휴지통으로 이동")
+            }
             TextButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) { Text("선택 해제") }
         }
     }
+}
+
+internal data class DataDeletionSnapshot(
+    val deviceId: String?,
+    val rootId: String,
+    val parentPath: String,
+    val entry: RemoteFileEntry
+)
+
+internal fun dataDeletionSnapshot(
+    state: DeviceStorageUiState,
+    entry: RemoteFileEntry
+): DataDeletionSnapshot? = state.currentRoot?.id?.let { rootId ->
+    DataDeletionSnapshot(state.deviceId, rootId, state.currentPath, entry)
 }
 
 @Composable

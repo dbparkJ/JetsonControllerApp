@@ -16,10 +16,28 @@ data class TrashEntry(
     val lastError: String? = null,
     val metadata: JsonElement? = null,
     val audit: JsonElement? = null,
-    val restoreSupported: Boolean = false
+    val restoreSupported: Boolean = false,
+    val purgeSupported: Boolean = false
 )
 
 data class TrashEntriesResponse(
     val entries: List<TrashEntry> = emptyList(),
+    val refreshedAt: String? = null,
+    val emptySupported: Boolean = false
+)
+
+data class EmptyTrashRequest(
+    val confirmed: Boolean = true,
+    val trashIds: List<String>
+)
+
+data class EmptyTrashResult(
+    val trashId: String,
+    val state: String,
+    val error: String? = null
+)
+
+data class EmptyTrashResponse(
+    val results: List<EmptyTrashResult>,
     val refreshedAt: String? = null
 )

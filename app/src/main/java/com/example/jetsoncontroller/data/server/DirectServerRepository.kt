@@ -28,6 +28,12 @@ data class ServerMutationResult(
     val detail: String? = null
 )
 
+data class ServerEmptyTrashMutationResult(
+    val status: ServerMutationStatus,
+    val response: ServerEmptyTrashResponse? = null,
+    val detail: String? = null
+)
+
 class DirectServerRepository(
     private val api: DirectServerApi,
     profile: ServerEndpointProfile,
@@ -122,13 +128,46 @@ class DirectServerRepository(
         }
     }
 
-    suspend fun trash(): Result<ServerTrashResponse> = request {
-        api.trash(profile.projectId).requiredBody().also {
-            requireEnvironment(it.serverEnvironment)
-            check(it.projectId == profile.projectId) { "Server project mismatch" }
-            check(it.accessProjectId == null || it.accessProjectId == profile.projectId) {
+    suspend fun trash(offset: Int = 0, limit: Int = 200): Result<ServerTrashResponse> = request {
+        api.trash(profile.projectId, limit, offset).requiredBody().let { response ->
+            requireEnvironment(response.serverEnvironment)
+            check(response.projectId == profile.projectId) { "Server project mismatch" }
+            check(response.accessProjectId == null || response.accessProjectId == profile.projectId) {
                 "Server trash access project mismatch"
             }
+            check(response.total >= 0) { "Server trash total is invalid" }
+            check(response.jobs.map(ServerTrashJob::sessionId).distinct().size == response.jobs.size) {
+                "Server trash contains duplicate sessions"
+            }
+            check(response.jobs.all { job -> job.state in setOf("TRASHED", "PURGING") }) {
+                "Server trash contains an invalid state"
+            }
+            response.copy(total = response.total.coerceAtLeast(response.jobs.size))
+        }
+    }
+
+    suspend fun emptyTrash(sessionIds: List<String>): Result<ServerEmptyTrashMutationResult> {
+        val requested = sessionIds.toList()
+        require(requested.isNotEmpty() && requested.size <= 200 && requested.distinct().size == requested.size) {
+            "Server trash empty requires 1..200 unique session IDs"
+        }
+        cache.invalidate(cacheKey)
+        return try {
+            val response = api.emptyTrash(
+                profile.projectId,
+                ServerEmptyTrashRequest(sessionIds = requested)
+            ).requiredBody()
+            validateEmptyTrash(response, requested)
+            Result.success(ServerEmptyTrashMutationResult(ServerMutationStatus.CONFIRMED, response))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            if (isAvailabilityFailure(error)) Result.success(
+                ServerEmptyTrashMutationResult(
+                    ServerMutationStatus.UNKNOWN,
+                    detail = error.message ?: "Server trash empty result is unknown"
+                )
+            ) else Result.failure(error)
         }
     }
 
@@ -170,6 +209,24 @@ class DirectServerRepository(
             "Server lifecycle response scope mismatch"
         }
         check(response.state == state) { "Server lifecycle state mismatch" }
+    }
+
+    private fun validateEmptyTrash(response: ServerEmptyTrashResponse, requested: List<String>) {
+        requireEnvironment(response.serverEnvironment)
+        check(response.projectId == profile.projectId) { "Server trash empty project mismatch" }
+        check(response.accessProjectId == profile.projectId) {
+            "Server trash empty access project mismatch"
+        }
+        check(response.results.size == requested.size) { "Server trash empty result count mismatch" }
+        check(response.results.map(ServerEmptyTrashItemResult::sessionId).toSet() == requested.toSet()) {
+            "Server trash empty result IDs mismatch"
+        }
+        check(response.results.map(ServerEmptyTrashItemResult::sessionId).distinct().size == response.results.size) {
+            "Server trash empty contains duplicate results"
+        }
+        check(response.results.all { it.state in setOf("PURGED", "PURGING", "FAILED") }) {
+            "Server trash empty result state mismatch"
+        }
     }
 
     private fun requireEnvironment(actual: String?) {

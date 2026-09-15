@@ -606,6 +606,42 @@ class ApiContractTest(unittest.TestCase):
         self.assertEqual(rejected_root.status_code, 409, rejected_root.text)
         self.assertTrue((self.base / "source").is_dir())
 
+    def test_empty_trash_requires_auth_strict_confirmation_and_explicit_ids(self) -> None:
+        delete_path = "/v1/fs/entry?root=data&path=hello%20world.txt"
+        confirmed = json.dumps({"confirmed": True}, separators=(",", ":")).encode()
+        deleted = self.signed_request("DELETE", delete_path, confirmed)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        trash_id = deleted.json()["trashId"]
+
+        listing = self.signed_request("GET", "/v1/trash")
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertTrue(listing.json()["emptySupported"])
+        self.assertTrue(listing.json()["entries"][0]["purgeSupported"])
+
+        body = json.dumps({"confirmed": True, "trashIds": [trash_id]}, separators=(",", ":")).encode()
+        self.assertEqual(self.client.post("/v1/trash/empty", content=body).status_code, 401)
+        unconfirmed = self.signed_request(
+            "POST", "/v1/trash/empty",
+            json.dumps({"confirmed": False, "trashIds": [trash_id]}).encode(),
+        )
+        self.assertEqual(unconfirmed.status_code, 409, unconfirmed.text)
+        coerced = self.signed_request(
+            "POST", "/v1/trash/empty",
+            json.dumps({"confirmed": "true", "trashIds": [trash_id]}).encode(),
+        )
+        self.assertEqual(coerced.status_code, 422, coerced.text)
+        for ids in ([], [trash_id, trash_id], ["not-a-trash-id"]):
+            invalid = self.signed_request(
+                "POST", "/v1/trash/empty",
+                json.dumps({"confirmed": True, "trashIds": ids}).encode(),
+            )
+            self.assertEqual(invalid.status_code, 422, invalid.text)
+
+        emptied = self.signed_request("POST", "/v1/trash/empty", body)
+        self.assertEqual(emptied.status_code, 200, emptied.text)
+        self.assertEqual(emptied.json()["results"], [{"trashId": trash_id, "state": "PURGED"}])
+        self.assertEqual(self.signed_request("GET", "/v1/trash").json()["entries"], [])
+
     def test_wifi_direct_status_requires_authentication(self) -> None:
         path = "/v1/network/wifi-direct/status"
         self.assertEqual(self.client.get(path).status_code, 401)

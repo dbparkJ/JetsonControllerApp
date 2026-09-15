@@ -1583,14 +1583,15 @@ class JetsonRepository(
 
     suspend fun deleteStorageEntry(
         rootId: String,
-        relativePath: String
+        relativePath: String,
+        expectedDeviceId: String
     ): Result<TrashEntry> {
         if (rootId == WORKSPACE_ROOT_ID) {
             return Result.failure(
                 IllegalArgumentException("작업공간 데이터는 이 화면에서 삭제할 수 없습니다.")
             )
         }
-        return withIpSession { client -> client.deleteStorageEntry(rootId, relativePath) }
+        return withExpectedIpSession(expectedDeviceId) { client -> client.deleteStorageEntry(rootId, relativePath) }
     }
 
     suspend fun getTrash(includeRestored: Boolean = false): Result<TrashEntriesResponse> =
@@ -1598,6 +1599,9 @@ class JetsonRepository(
 
     suspend fun restoreTrash(trashId: String): Result<TrashEntry> =
         withIpSession { it.restoreTrash(trashId) }
+
+    suspend fun emptyTrash(expectedDeviceId: String, trashIds: List<String>): Result<EmptyTrashResponse> =
+        withExpectedIpSession(expectedDeviceId) { it.emptyTrash(trashIds) }
 
     suspend fun getWorkspaceRoots(): Result<List<RemoteRoot>> {
         return withIpSession { client -> client.getWorkspaceRoots() }
@@ -1912,6 +1916,23 @@ class JetsonRepository(
         val request = transportCoordinator.beginRequest("feature") ?: return missingIpConnection()
         val result = call(client)
         if (client !== activeIpClient || !transportCoordinator.isCurrent(request)) {
+            throw CancellationException("장비 연결이 변경되어 이전 응답을 폐기했습니다.")
+        }
+        return result
+    }
+
+    private suspend fun <T> withExpectedIpSession(
+        expectedDeviceId: String,
+        call: suspend (LocalApiClient) -> Result<T>
+    ): Result<T> {
+        val client = activeIpClient ?: return missingIpConnection()
+        val request = transportCoordinator.beginRequest("feature") ?: return missingIpConnection()
+        if (!request.deviceId.equals(expectedDeviceId, ignoreCase = true)) {
+            return Result.failure(IllegalStateException("선택한 장비 연결이 변경되었습니다. 휴지통을 다시 확인하세요."))
+        }
+        val result = call(client)
+        if (client !== activeIpClient || !transportCoordinator.isCurrent(request) ||
+            !request.deviceId.equals(expectedDeviceId, ignoreCase = true)) {
             throw CancellationException("장비 연결이 변경되어 이전 응답을 폐기했습니다.")
         }
         return result

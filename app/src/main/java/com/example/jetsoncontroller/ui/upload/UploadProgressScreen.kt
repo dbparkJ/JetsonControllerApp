@@ -324,11 +324,7 @@ fun UploadProgressScreen(
                                 color = LocalGeoColors.current.muted
                             )
                             Text(
-                                when {
-                                    job.sourceRecoverable -> "장치 원본을 휴지통에서 복원할 수 있습니다"
-                                    job.sourceDeleted -> "장치 원본을 휴지통으로 옮겼습니다"
-                                    else -> "장치 원본 보관 중"
-                                },
+                                uploadSourceLifecycleLabel(job),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = LocalGeoColors.current.muted
                             )
@@ -355,6 +351,10 @@ fun UploadProgressScreen(
                 if (job.sourceDeleted) {
                     Spacer(Modifier.height(12.dp))
                     InlineMessage(message = "장치의 업로드 원본이 삭제되었습니다.", isError = false)
+                }
+                if (job.sourceDeletionState == "PURGING") {
+                    Spacer(Modifier.height(12.dp))
+                    InlineMessage(message = "장치 원본을 영구 삭제하는 중입니다. 완료될 때까지 복원할 수 없습니다.", isError = false)
                 }
                 if (job.sourceRecoverable && job.sourceTrashId != null) {
                     Spacer(Modifier.height(12.dp))
@@ -432,7 +432,8 @@ fun UploadProgressScreen(
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !isLoading && deviceDeletionEnabled
                         ) { Text("장치 원본 복원") }
-                    } else if (verification?.matched == true && verification.deletionAllowed && job.deletionEligible) {
+                    } else if (verification?.matched == true && verification.deletionAllowed && job.deletionEligible &&
+                        job.sourceDeletionState !in setOf("PURGING", "PURGED")) {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
                             onClick = { showDeleteDialog = true },
@@ -454,6 +455,18 @@ fun UploadProgressScreen(
             }
         }
         }
+    }
+}
+
+internal fun uploadSourceLifecycleLabel(job: UploadJob): String = when (job.sourceDeletionState) {
+    "PURGING" -> "장치 원본 영구 삭제 처리 중"
+    "PURGED" -> "장치 원본이 영구 삭제되었습니다"
+    "TRASHED" -> if (job.sourceRecoverable) "장치 원본을 휴지통에서 복원할 수 있습니다" else "장치 원본 휴지통 상태 확인 필요"
+    "UNKNOWN" -> "장치 원본 상태 확인 필요"
+    else -> when {
+        job.sourceRecoverable -> "장치 원본을 휴지통에서 복원할 수 있습니다"
+        job.sourceDeleted -> "장치 원본이 삭제되었습니다"
+        else -> "장치 원본 보관 중"
     }
 }
 

@@ -114,6 +114,9 @@ interface LocalControlApi {
         @Body request: ConfirmDeletionRequest
     ): Response<TrashEntry>
 
+    @POST("v1/trash/empty")
+    suspend fun emptyTrash(@Body request: com.example.jetsoncontroller.model.EmptyTrashRequest): Response<com.example.jetsoncontroller.model.EmptyTrashResponse>
+
     @GET("/v1/fs/workspaces")
     suspend fun getWorkspaceRoots(): Response<List<RemoteRoot>>
 

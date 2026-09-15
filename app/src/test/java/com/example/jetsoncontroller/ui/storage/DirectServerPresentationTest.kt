@@ -6,6 +6,11 @@ import com.example.jetsoncontroller.data.server.ServerJob
 import com.example.jetsoncontroller.data.server.ServerPathSummary
 import com.example.jetsoncontroller.data.server.ServerJobsSnapshot
 import com.example.jetsoncontroller.data.server.ServerJobsResponse
+import com.example.jetsoncontroller.data.server.ServerTrashJob
+import com.example.jetsoncontroller.model.RemoteEntryType
+import com.example.jetsoncontroller.model.RemoteFileEntry
+import com.example.jetsoncontroller.model.RemoteRoot
+import com.example.jetsoncontroller.model.TrashEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -114,5 +119,61 @@ class DirectServerPresentationTest {
 
         assertTrue(!generation.isCurrent(oldProfileRequest))
         assertTrue(generation.isCurrent(newProfileRequest))
+    }
+
+    @Test fun `local empty snapshot is capability and device scoped`() {
+        val eligible = TrashEntry(
+            trashId = "trash-a", category = "STORAGE", state = "TRASHED", name = "capture",
+            purgeSupported = true
+        )
+        val legacy = LocalTrashUiState(
+            deviceId = "device-a", online = true, entries = listOf(eligible), emptySupported = false
+        )
+        assertEquals(null, localTrashEmptySnapshot(legacy))
+
+        val snapshot = localTrashEmptySnapshot(legacy.copy(emptySupported = true))!!
+        val afterArrival = legacy.copy(
+            emptySupported = true,
+            entries = listOf(eligible, eligible.copy(trashId = "trash-new"))
+        )
+        assertEquals("device-a", snapshot.deviceId)
+        assertEquals(listOf("trash-a"), snapshot.trashIds)
+        assertEquals(listOf("trash-a", "trash-new"), localTrashEmptySnapshot(afterArrival)!!.trashIds)
+    }
+
+    @Test fun `server empty snapshot contains only visible eligible entries and original profile`() {
+        val entries = (1..205).map { index ->
+            ServerTrashJob(
+                sessionId = "session-$index", clientJobId = "client-$index", sourceName = "capture-$index",
+                totalBytes = 1, fileCount = 1, state = if (index == 205) "PURGING" else "TRASHED",
+                trashedAt = "now", purgeSupported = index != 204, restoreSupported = index < 204
+            )
+        }
+        val snapshot = serverTrashEmptySnapshot(
+            DirectServerUiState(
+                selectedProfileId = "profile-a", trash = entries, trashEmptySupported = true,
+                trashTotal = 250, trashNextOffset = 205
+            )
+        )!!
+
+        assertEquals("profile-a", snapshot.profileId)
+        assertEquals(200, snapshot.sessionIds.size)
+        assertFalse(snapshot.sessionIds.contains("session-204"))
+    }
+
+    @Test fun `data deletion snapshot keeps the original device root path and entry`() {
+        val entry = RemoteFileEntry("capture", "runs/capture", RemoteEntryType.DIRECTORY, null, null)
+        val snapshot = dataDeletionSnapshot(
+            DeviceStorageUiState(
+                deviceId = "device-a", currentRoot = RemoteRoot("collections", "수집", null),
+                currentPath = "runs", entries = listOf(entry)
+            ),
+            entry
+        )!!
+
+        assertEquals("device-a", snapshot.deviceId)
+        assertEquals("collections", snapshot.rootId)
+        assertEquals("runs", snapshot.parentPath)
+        assertEquals("runs/capture", snapshot.entry.relativePath)
     }
 }

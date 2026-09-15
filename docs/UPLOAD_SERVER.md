@@ -550,16 +550,32 @@ X-Expected-Server-Environment: production
 | `GET` | `/v1/server/jobs/{sessionId}/files?projectId=...&path=...` | `VIEWER` | 가상 폴더 조회 |
 | `GET` | `/v1/server/jobs/{sessionId}/preview?projectId=...&path=...` | `VIEWER` | 크기 제한 이미지·영상 preview |
 | `GET` | `/v1/server/jobs/{sessionId}/receipt?projectId=...` | `VIEWER` | 완료 객체를 다시 검증한 receipt |
-| `GET` | `/v1/server/trash?projectId=...` | `VIEWER` | 복원 가능한 보관 목록 |
+| `GET` | `/v1/server/trash?projectId=...&limit=...&offset=...` | `VIEWER` | 휴지통과 purge 진행 상태의 페이지 조회 |
 | `DELETE` | `/v1/server/jobs/{sessionId}?projectId=...` | `OPERATOR` | 완료 session을 휴지통으로 이동 |
 | `POST` | `/v1/server/trash/{sessionId}/restore?projectId=...` | `OPERATOR` | session 복원 |
+| `POST` | `/v1/server/trash/empty?projectId=...` | `OPERATOR` | 화면에서 확인한 휴지통 snapshot을 영구 삭제 |
 | `GET` | `/v1/server/audit?projectId=...&limit=...&offset=...` | `ADMIN` | project 범위 mutation·권한 lifecycle 감사 조회 |
 
 job 응답은 `OPEN`, `FINALIZING`, `COMPLETED`, `CANCELLED`, `FAILED` 상태와 `receivedBytes`, `updatedAt`을 포함합니다. `pathSummary`에는 최대 5개의 `rootEntries`, 생략 여부, image/video 개수가 포함됩니다. 목록 응답의 `refreshedAt`은 서버가 실제 조회한 시각입니다. Android의 최근 목록 cache는 환경+base URL+직원 identity+project+credential revision으로 격리하며 cache 응답은 항상 stale로 표시하고 저장된 `refreshedAt`을 함께 보여야 합니다. `401`, `403`, 환경/identity/project 불일치에서는 cache를 폐기하고 표시하지 않습니다.
 
 receipt가 성공을 증명하려면 `state=COMPLETED`, `matched=true`, 화면이 요청한 같은 `sessionId`여야 합니다. `matched`는 receiver가 최종 객체의 크기와 SHA-256을 독립적으로 다시 읽어 검증했다는 뜻입니다. 업로드 접수만 된 상태는 성공 receipt가 아닙니다.
 
-휴지통 이동과 복원은 같은 filesystem 안의 directory rename과 DB transition record를 사용합니다. rename 뒤 `fsync`나 DB commit 결과가 불명확하면 active 목록에서 숨긴 transition을 남기고 시작 시 실제 두 directory 위치를 확인해 완료합니다. 요청과 완료는 actor, access project, session, outcome과 함께 `audit_events`에 남는다. 클라이언트는 network timeout이나 `5xx`를 확정 실패로 표시하거나 자동 재시도하지 않고 상태를 새로 조회해야 합니다. 영구 삭제와 자동 purge는 제공하지 않습니다. 운영 서버의 별도 original-name hardlink view가 같은 inode를 유지할 수 있으므로 향후 purge가 추가되더라도 별도 view 정리·검증 없이는 disk byte 회수나 완전 삭제를 보장할 수 없다.
+휴지통 이동과 복원은 같은 filesystem 안의 directory rename과 DB transition record를 사용합니다. rename 뒤 `fsync`나 DB commit 결과가 불명확하면 active 목록에서 숨긴 transition을 남기고 시작 시 실제 두 directory 위치를 확인해 완료합니다. 요청과 완료는 actor, access project, session, outcome과 함께 `audit_events`에 남는다. 클라이언트는 network timeout이나 `5xx`를 확정 실패로 표시하거나 자동 재시도하지 않고 상태를 새로 조회해야 합니다.
+
+휴지통 목록은 한 페이지에 최대 200개이며 `total`, `nextOffset`, `emptySupported=true`를 반환합니다. 각 항목은 `purgeSupported`, `restoreSupported`를 포함합니다. `PURGING`은 삭제가 끝나거나 재시작 복구가 완료될 때까지 목록에 남고 복원할 수 없습니다. 화면은 현재 페이지의 명시적인 session ID만 확인 대상으로 사용해야 하며 다음 페이지까지 자동으로 반복 삭제하면 안 됩니다.
+
+영구 삭제 요청 body는 다른 필드 없이 다음 형식이어야 합니다. `sessionIds`는 중복 없는 1~200개 ID이며, 요청이 시작된 뒤 새로 휴지통에 들어온 항목은 삭제 대상이 아닙니다.
+
+```json
+{
+  "confirmed": true,
+  "sessionIds": ["confirmed-session-id"]
+}
+```
+
+서버는 파일을 지우기 전에 모든 ID가 선택한 access project에 속하는지 검증합니다. 알 수 없거나 다른 project의 ID가 하나라도 있으면 파일을 하나도 지우지 않고 요청 전체를 거부합니다. 유효한 project 항목의 상태가 그 사이 바뀐 경우에는 해당 항목만 `FAILED`가 될 수 있으며 응답의 `results`는 각 ID에 `PURGED`, `PURGING`, `FAILED` 중 하나를 반환합니다. 이미 `PURGED`인 같은 snapshot 재요청은 멱등하게 `PURGED`입니다.
+
+삭제 의도와 결과는 별도 `library_purges` tombstone과 감사 이벤트로 유지합니다. 파일 payload가 삭제된 뒤에도 upload receipt metadata와 `(deviceId, clientJobId)` 소유권을 보존하므로 같은 작업 ID가 새 완료 데이터로 나타나지 않습니다. 장비 token의 legacy `DELETE /v1/library/sessions/{sessionId}`는 계속 비활성화되어 있으며, 영구 삭제는 직원 범위 endpoint만 허용합니다. quota는 `PURGING` 동안 유지되고 payload 삭제와 `PURGED` 기록이 끝난 뒤 반환됩니다. 삭제는 휴지통 root에 고정한 directory descriptor 아래에서만 수행하며 symlink 대상은 따라가지 않습니다.
 
 접근 project와 직원 token 구성 예시입니다. 저장소 루트에서 실행하되, 기본 data root를 사용하지 않도록 먼저 배포된 receiver의 기존 environment file을 불러옵니다. token 원문은 지정한 `0600` 파일에만 기록합니다.
 

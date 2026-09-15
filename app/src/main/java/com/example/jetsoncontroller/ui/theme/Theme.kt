@@ -25,6 +25,7 @@ private const val TABLET_UI_SCALE = 1.10f
 
 /** The visual scale applied by the root theme. Breakpoint code can recover physical dp with it. */
 val LocalGeoUiScale = compositionLocalOf { 1f }
+val LocalGeoDarkTheme = compositionLocalOf { false }
 
 internal fun geoUiScaleForSmallestWidth(smallestScreenWidthDp: Int): Float =
     if (smallestScreenWidthDp >= 600) TABLET_UI_SCALE else 1f
@@ -111,6 +112,7 @@ fun JetsonControllerTheme(
 
     CompositionLocalProvider(
         LocalGeoColors provides if (darkTheme) GeoDark else GeoLight,
+        LocalGeoDarkTheme provides darkTheme,
         LocalGeoUiScale provides uiScale,
         LocalDensity provides scaledDensity,
         // Separation comes from borders and explicit surface roles, not from tonal

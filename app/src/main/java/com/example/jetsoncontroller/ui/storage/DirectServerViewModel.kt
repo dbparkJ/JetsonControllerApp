@@ -55,6 +55,10 @@ internal data class DirectServerUiState(
     val preview: DirectServerPreview? = null,
     val receipt: ServerReceipt? = null,
     val trash: List<ServerTrashJob> = emptyList(),
+    val trashEmptySupported: Boolean = false,
+    val trashTotal: Int = 0,
+    val trashNextOffset: Int? = null,
+    val isEmptyingTrash: Boolean = false,
     val undoSessionId: String? = null,
     val mutationMessage: String? = null,
     val isConnecting: Boolean = false,
@@ -103,6 +107,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             section = section,
             isLoading = false,
             isConnecting = false,
+            isEmptyingTrash = false,
             message = null
         )
         if (section == DirectServerSection.TRASH && repository != null) refreshTrash()
@@ -354,6 +359,52 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         }
     }
 
+    fun emptyTrash(expectedProfileId: String, sessionIds: List<String>) {
+        val source = repository ?: return
+        val current = _uiState.value
+        val requested = sessionIds.toList()
+        val eligible = current.trash.filter(::isServerPurgeEligible).map(ServerTrashJob::sessionId).toSet()
+        if (current.selectedProfileId != expectedProfileId || !current.trashEmptySupported ||
+            current.isLoading || current.isConnecting || requested.isEmpty() || requested.size > 200 ||
+            requested.distinct().size != requested.size || requested.any { it !in eligible }) return
+        launchOperation { generation ->
+            if (_uiState.value.selectedProfileId != expectedProfileId) return@launchOperation
+            _uiState.value = _uiState.value.copy(isEmptyingTrash = true)
+            source.emptyTrash(requested).onSuccess { result ->
+                if (!requestGeneration.isCurrent(generation) ||
+                    _uiState.value.selectedProfileId != expectedProfileId) return@onSuccess
+                when (result.status) {
+                    ServerMutationStatus.UNKNOWN -> showUnknownMutation(result.detail)
+                    ServerMutationStatus.CONFIRMED -> {
+                        val results = result.response!!.results
+                        val purged = results.count { it.state == "PURGED" }
+                        val purging = results.count { it.state == "PURGING" }
+                        val failed = results.count { it.state == "FAILED" }
+                        val complete = purged == requested.size
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isEmptyingTrash = false,
+                            message = if (complete) {
+                                "표시된 ${requested.size}개 서버 항목을 영구 삭제했습니다."
+                            } else buildString {
+                                append("${requested.size}개 중 ${purged}개 삭제를 확인했습니다.")
+                                if (purging > 0) append(" ${purging}개는 삭제 처리 중입니다.")
+                                if (failed > 0) append(" ${failed}개는 삭제하지 못했습니다.")
+                                append(" 서버 휴지통을 다시 확인하세요.")
+                            },
+                            messageIsError = !complete,
+                            errorActionLabel = if (complete) null else "휴지통 다시 불러오기"
+                        )
+                    }
+                }
+                if (requestGeneration.isCurrent(generation)) refreshTrashNow(generation)
+            }.onFailure {
+                showError(it, directServerRecoveryAction(it), generation)
+                if (requestGeneration.isCurrent(generation)) refreshTrashNow(generation)
+            }
+        }
+    }
+
     fun refreshTrash() = launchOperation { generation -> refreshTrashNow(generation) }
 
     private suspend fun refreshTrashNow(generation: Long) {
@@ -362,8 +413,12 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             if (!requestGeneration.isCurrent(generation)) return@onSuccess
             _uiState.value = _uiState.value.copy(
                 trash = response.jobs,
+                trashEmptySupported = response.emptySupported,
+                trashTotal = response.total,
+                trashNextOffset = response.nextOffset,
                 refreshedAt = response.refreshedAt,
-                isLoading = false
+                isLoading = false,
+                isEmptyingTrash = false
             )
         }.onFailure { showError(it, "휴지통 다시 불러오기", generation) }
     }
@@ -429,6 +484,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
                 _uiState.value = _uiState.value.copy(
                     isConnecting = connecting,
                     isLoading = !connecting,
+                    isEmptyingTrash = false,
                     message = null,
                     errorActionLabel = null
                 )
@@ -441,11 +497,11 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         }
     }
 
-    private fun showUnknownMutation(detail: String?) {
+    private fun showUnknownMutation(@Suppress("UNUSED_PARAMETER") detail: String?) {
         _uiState.value = _uiState.value.copy(
             isLoading = false,
-            message = "서버 응답을 확인하지 못해 처리 결과를 알 수 없습니다. 같은 작업을 반복하지 말고 목록과 휴지통을 새로고침하세요." +
-                detail?.let { " ($it)" }.orEmpty(),
+            isEmptyingTrash = false,
+            message = "서버 응답을 확인하지 못해 처리 결과를 알 수 없습니다. 같은 작업을 반복하지 말고 목록과 휴지통을 새로고침하세요.",
             messageIsError = true,
             errorActionLabel = "상태 새로고침"
         )
@@ -457,6 +513,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         _uiState.value = _uiState.value.copy(
             isConnecting = false,
             isLoading = false,
+            isEmptyingTrash = false,
             capabilities = if (clearSensitiveViews) null else _uiState.value.capabilities,
             jobs = if (clearSensitiveViews) emptyList() else _uiState.value.jobs,
             nextOffset = if (clearSensitiveViews) null else _uiState.value.nextOffset,
@@ -469,6 +526,9 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             preview = if (clearSensitiveViews) null else _uiState.value.preview,
             receipt = if (clearSensitiveViews) null else _uiState.value.receipt,
             trash = if (clearSensitiveViews) emptyList() else _uiState.value.trash,
+            trashEmptySupported = if (clearSensitiveViews) false else _uiState.value.trashEmptySupported,
+            trashTotal = if (clearSensitiveViews) 0 else _uiState.value.trashTotal,
+            trashNextOffset = if (clearSensitiveViews) null else _uiState.value.trashNextOffset,
             undoSessionId = if (clearSensitiveViews) null else _uiState.value.undoSessionId,
             mutationMessage = if (clearSensitiveViews) null else _uiState.value.mutationMessage,
             message = directServerErrorMessage(error),
@@ -483,6 +543,9 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             DirectServerViewModel(context.applicationContext) as T
     }
 }
+
+internal fun isServerPurgeEligible(job: ServerTrashJob): Boolean =
+    job.purgeSupported == true && job.state in setOf("TRASHED", "PURGING")
 
 internal fun DirectServerUiState.forProfile(profileId: String): DirectServerUiState =
     DirectServerUiState(

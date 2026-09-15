@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.data.server
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.DELETE
+import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -40,7 +41,17 @@ interface DirectServerApi {
     ): Response<ServerReceipt>
 
     @GET("v1/server/trash")
-    suspend fun trash(@Query("projectId") projectId: String): Response<ServerTrashResponse>
+    suspend fun trash(
+        @Query("projectId") projectId: String,
+        @Query("limit") limit: Int = 200,
+        @Query("offset") offset: Int = 0
+    ): Response<ServerTrashResponse>
+
+    @POST("v1/server/trash/empty")
+    suspend fun emptyTrash(
+        @Query("projectId") projectId: String,
+        @Body request: ServerEmptyTrashRequest
+    ): Response<ServerEmptyTrashResponse>
 
     @DELETE("v1/server/jobs/{sessionId}")
     suspend fun moveToTrash(

@@ -11,10 +11,10 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from fastapi import HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from .filesystem import StorageRegistry
@@ -41,7 +41,23 @@ class TrashConflict(RuntimeError):
 class RestoreTrashRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    confirmed: bool = False
+    confirmed: StrictBool = False
+
+
+class EmptyTrashRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    confirmed: StrictBool = False
+    trash_ids: List[str] = Field(alias="trashIds", min_length=1, max_length=200)
+
+    @field_validator("trash_ids")
+    @classmethod
+    def validate_trash_ids(cls, value: List[str]) -> List[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("Trash identifiers must be unique")
+        if any(not TRASH_ID.fullmatch(trash_id) for trash_id in value):
+            raise ValueError("Invalid trash identifier")
+        return value
 
 
 def _timestamp() -> str:
@@ -61,8 +77,8 @@ class LocalTrashManager:
 
     The journal lives in the service state directory. Payloads stay below a hidden
     directory inside their safe root so each source-to-trash and trash-to-source
-    transition uses ``os.replace`` on one filesystem. Nothing in this class purges
-    payloads or journal history.
+    transition uses ``os.replace`` on one filesystem. Purge removes only an
+    explicitly confirmed snapshot of payload identifiers and retains journals.
     """
 
     def __init__(
@@ -144,11 +160,32 @@ class LocalTrashManager:
                     record = self._read_record(path)
                 except (OSError, ValueError, json.JSONDecodeError):
                     continue
+                if record.get("state") == "PURGED":
+                    continue
                 if record.get("state") == "RESTORED" and not include_restored:
                     continue
                 entries.append(self._public(record))
             entries.sort(key=lambda item: str(item.get("trashedAt", "")), reverse=True)
-            return {"entries": entries, "refreshedAt": _timestamp()}
+            return {
+                "entries": entries,
+                "refreshedAt": _timestamp(),
+                "emptySupported": True,
+            }
+
+    def empty(self, trash_ids: Sequence[str], *, confirmed: bool) -> Dict[str, object]:
+        """Purge only the caller's explicit trash snapshot, reporting each result."""
+        if not confirmed:
+            raise TrashConflict("Empty trash requires explicit user confirmation")
+        if isinstance(trash_ids, (str, bytes)) or not 1 <= len(trash_ids) <= 200:
+            raise ValueError("Trash identifiers must contain between 1 and 200 items")
+        if len(set(trash_ids)) != len(trash_ids):
+            raise ValueError("Trash identifiers must be unique")
+        if any(not isinstance(trash_id, str) or not TRASH_ID.fullmatch(trash_id)
+               for trash_id in trash_ids):
+            raise ValueError("Invalid trash identifier")
+        with self._lock:
+            results = [self._purge_one(trash_id) for trash_id in trash_ids]
+        return {"results": results, "refreshedAt": _timestamp()}
 
     def restore(self, trash_id: str, *, confirmed: bool) -> Dict[str, object]:
         if not confirmed:
@@ -202,18 +239,40 @@ class LocalTrashManager:
         with self._lock:
             for path in sorted(self.journal_dir.glob("*.json")):
                 record: Optional[Dict[str, object]] = None
+                recovery_state: Optional[object] = None
                 try:
-                    record = self._read_record(path)
+                    loaded = self._read_record(path)
+                    loaded_id = str(loaded.get("trashId", ""))
+                    if not TRASH_ID.fullmatch(loaded_id) or loaded_id != path.stem:
+                        continue
+                    record = loaded
+                    recovery_state = record.get("state")
                     if record.get("state") == "MOVING_TO_TRASH":
                         self._complete_trash(record)
                     elif record.get("state") == "RESTORING":
                         self._complete_restore(record)
+                    elif record.get("state") == "PURGING":
+                        self._complete_purge(record)
                 except (OSError, ValueError, TrashConflict, json.JSONDecodeError) as error:
                     if record is None:
                         continue
                     try:
-                        record["lastError"] = str(error)[:512]
-                        self._transition(record, "RECOVERY_REQUIRED", "RECOVERY_FAILED")
+                        if recovery_state == "PURGING":
+                            try:
+                                persisted = self._read_record(path)
+                            except (OSError, ValueError, json.JSONDecodeError):
+                                persisted = record
+                            persisted_id = str(persisted.get("trashId", ""))
+                            if not TRASH_ID.fullmatch(persisted_id) or persisted_id != path.stem:
+                                continue
+                            if persisted.get("state") == "PURGED":
+                                continue
+                            record = persisted
+                            record["lastError"] = str(error)[:512]
+                            self._transition(record, "PURGING", "PURGE_RECOVERY_FAILED")
+                        else:
+                            record["lastError"] = str(error)[:512]
+                            self._transition(record, "RECOVERY_REQUIRED", "RECOVERY_FAILED")
                         self._write_record(record)
                     except Exception:
                         continue
@@ -287,6 +346,61 @@ class LocalTrashManager:
             )
         record["restoredAt"] = _timestamp()
         self._transition(record, "RESTORED", "RESTORED")
+        record["lastError"] = None
+        self._write_record(record)
+
+    def _purge_one(self, trash_id: str) -> Dict[str, object]:
+        path = self.journal_dir / f"{trash_id}.json"
+        if not path.exists():
+            return {"trashId": trash_id, "state": "FAILED", "error": "Trash entry was not found"}
+        try:
+            record = self._read_record(path)
+            if record.get("trashId") != trash_id:
+                raise ValueError("Trash journal identifier does not match its file")
+            state = record.get("state")
+            if state == "PURGED":
+                return {"trashId": trash_id, "state": "PURGED"}
+            if state not in {"TRASHED", "PURGING"}:
+                return {
+                    "trashId": trash_id,
+                    "state": "FAILED",
+                    "error": "Trash entry is not ready to purge",
+                }
+            if state == "TRASHED":
+                self._transition(record, "PURGING", "PURGE_REQUESTED")
+                record["lastError"] = None
+                self._write_record(record)
+            self._complete_purge(record)
+            return {"trashId": trash_id, "state": "PURGED"}
+        except (OSError, ValueError, TrashConflict, json.JSONDecodeError) as error:
+            try:
+                persisted = self._read_record(path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                persisted = None
+            if persisted is not None and persisted.get("trashId") != trash_id:
+                persisted = None
+            if persisted is not None and persisted.get("state") == "PURGED":
+                return {"trashId": trash_id, "state": "PURGED"}
+            if persisted is not None and persisted.get("state") == "PURGING":
+                persisted["lastError"] = str(error)[:512]
+                self._transition(persisted, "PURGING", "PURGE_FAILED")
+                try:
+                    self._write_record(persisted)
+                except OSError:
+                    pass
+                return {"trashId": trash_id, "state": "PURGING", "error": str(error)[:512]}
+            return {"trashId": trash_id, "state": "FAILED", "error": str(error)[:512]}
+
+    def _complete_purge(self, record: Dict[str, object]) -> None:
+        if record.get("state") != "PURGING":
+            raise TrashConflict("Trash entry is not ready to purge")
+        trash_id = str(record.get("trashId", ""))
+        if not TRASH_ID.fullmatch(trash_id):
+            raise ValueError("Trash record identifier is invalid")
+        root = self._record_root(record)
+        self._purge_payload_directory(root, trash_id)
+        record["purgedAt"] = _timestamp()
+        self._transition(record, "PURGED", "PURGED")
         record["lastError"] = None
         self._write_record(record)
 
@@ -455,6 +569,72 @@ class LocalTrashManager:
             os.close(trash_fd)
         finally:
             os.close(root_fd)
+
+    @classmethod
+    def _purge_payload_directory(cls, root: Path, trash_id: str) -> None:
+        """Remove one private payload tree without following any symbolic link."""
+        if not TRASH_ID.fullmatch(trash_id):
+            raise ValueError("Trash identifier is invalid")
+        root_fd = cls._open_directory(root)
+        trash_fd = payload_fd = None
+        try:
+            try:
+                trash_fd = os.open(
+                    TRASH_DIRECTORY_NAME,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=root_fd,
+                )
+            except FileNotFoundError:
+                os.fsync(root_fd)
+                return
+            cls._require_private_owned_directory(trash_fd)
+            metadata = cls._entry_metadata(trash_fd, trash_id)
+            if metadata is None:
+                os.fsync(trash_fd)
+                return
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise TrashConflict("Trash payload directory is unsafe")
+            payload_fd = os.open(
+                trash_id,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=trash_fd,
+            )
+            cls._require_private_owned_directory(payload_fd)
+            for name in os.listdir(payload_fd):
+                cls._purge_entry(payload_fd, name)
+            os.fsync(payload_fd)
+            os.close(payload_fd)
+            payload_fd = None
+            os.rmdir(trash_id, dir_fd=trash_fd)
+            os.fsync(trash_fd)
+        finally:
+            for descriptor in (payload_fd, trash_fd, root_fd):
+                if descriptor is not None:
+                    os.close(descriptor)
+
+    @classmethod
+    def _purge_entry(cls, parent_fd: int, name: str) -> None:
+        if not name or name in {".", ".."} or "/" in name:
+            raise TrashConflict("Trash payload entry is unsafe")
+        metadata = cls._entry_metadata(parent_fd, name)
+        if metadata is None:
+            return
+        if stat.S_ISDIR(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode):
+            child_fd = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=parent_fd,
+            )
+            try:
+                for child_name in os.listdir(child_fd):
+                    cls._purge_entry(child_fd, child_name)
+                os.fsync(child_fd)
+            finally:
+                os.close(child_fd)
+            os.rmdir(name, dir_fd=parent_fd)
+        else:
+            os.unlink(name, dir_fd=parent_fd)
+        os.fsync(parent_fd)
 
     @staticmethod
     def _entry_metadata(descriptor: int, name: str):
@@ -636,6 +816,7 @@ class LocalTrashManager:
                 "entryType",
                 "trashedAt",
                 "restoredAt",
+                "purgedAt",
                 "updatedAt",
                 "lastError",
                 "metadata",
@@ -643,6 +824,7 @@ class LocalTrashManager:
             )
         }
         result["restoreSupported"] = record.get("state") in {"TRASHED", "RESTORED"}
+        result["purgeSupported"] = record.get("state") in {"TRASHED", "PURGING"}
         return result
 
 
@@ -667,3 +849,16 @@ def register_local_trash_routes(app, authenticated, trash: LocalTrashManager) ->
             raise HTTPException(409, str(error)) from error
         except OSError as error:
             raise HTTPException(503, "Trash entry could not be restored") from error
+
+    @app.post("/v1/trash/empty", dependencies=authenticated)
+    async def empty_local_trash(request: EmptyTrashRequest):
+        try:
+            return await run_in_threadpool(
+                trash.empty, request.trash_ids, confirmed=request.confirmed
+            )
+        except TrashConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        except OSError as error:
+            raise HTTPException(503, "Trash could not be emptied") from error

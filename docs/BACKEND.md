@@ -185,6 +185,7 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `DELETE` | `/v1/fs/entry?root=&path=` | HMAC + 확인 | 장치 저장소의 선택 파일·폴더를 복구 가능한 휴지통으로 이동 |
 | `GET` | `/v1/trash?includeRestored=false` | HMAC | 로컬 휴지통과 전이·감사 상태 조회 |
 | `POST` | `/v1/trash/{trashId}/restore` | HMAC + 확인 | 파일·폴더 또는 실행 이력과 sidecar 복원 |
+| `POST` | `/v1/trash/empty` | HMAC + 확인 | 확인 시점의 명시적 `trashIds`(1~200개)만 영구 삭제하고 항목별 결과 반환 |
 | `GET` | `/v1/upload/targets` | HMAC | 외부 업로드 대상 |
 | `PUT` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 HTTPS 업로드 서버 추가·수정 |
 | `DELETE` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 업로드 서버 삭제 |
@@ -427,7 +428,7 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - 새 실행 결과 업로드는 `PipelineRun.uploadContext`를 `/v1/uploads`의 `context`로 그대로 보낸다. backend는 선택 경로가 root 소유 runtime record의 `resultsDirectory`와 일치하는지 확인하고, 해당 record·`.jetson-output-context.json`·요청의 10개 필드가 모두 같을 때만 linked job을 만든다. runtime record가 없는 legacy source는 context를 생략할 때만 허용한다.
 - job의 `sourceIdentity`는 시작 시 파일 경로·크기·inode·mtime/ctime inventory를 고정한다. retry 또는 전송 완료 전 source가 바뀌면 성공으로 표시하지 않는다. `context`는 receiver manifest hash에도 포함되어 동일 client job ID에 다른 조사 context를 붙일 수 없다.
 - receiver 완료 처리에서 수 TiB 전체 SHA-256 검증을 기다릴 수 있도록 완료 응답 read timeout만 24시간이며, 세션/offset/청크 요청은 기존 60초 timeout을 유지한다.
-- 로컬 삭제는 설정 root 안의 `.jetson-control-trash`로 동일 filesystem rename하고 전이 journal을 `/var/lib/jetson-control/local-trash`에 fsync한다. 예약 경로는 목록·읽기·upload에서 숨기며 symlink parent를 따르지 않는다. 복원은 기존 목적지를 덮어쓰지 않는다. 자동 purge와 영구 삭제 API는 없다.
+- 로컬 삭제는 설정 root 안의 `.jetson-control-trash`로 동일 filesystem rename하고 전이 journal을 `/var/lib/jetson-control/local-trash`에 fsync한다. 예약 경로는 목록·읽기·upload에서 숨기며 symlink parent를 따르지 않는다. 복원은 기존 목적지를 덮어쓰지 않는다. `GET /v1/trash`는 `emptySupported: true`와 항목별 `purgeSupported`를 제공한다. 비우기는 `{confirmed:true, trashIds:[...]}`의 명시적 스냅샷만 처리하며 새로 들어온 항목은 삭제하지 않는다. `PURGING` journal은 재시작 시 반복 가능하게 재개되고 `PURGED` 항목은 기본 목록에서 숨긴다. 자동 purge는 없다.
 
 ## Python 수집 작업
 

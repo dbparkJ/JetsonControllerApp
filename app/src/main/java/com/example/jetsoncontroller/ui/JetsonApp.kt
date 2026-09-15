@@ -1157,6 +1157,7 @@ fun JetsonApp(
                 onRestore = directServerViewModel::restore,
                 onUndoTrash = directServerViewModel::undoTrash,
                 onRefreshTrash = directServerViewModel::refreshTrash,
+                onEmptyTrash = directServerViewModel::emptyTrash,
                 onRemoveProfile = directServerViewModel::removeSelectedProfile,
                 onDismissMessage = directServerViewModel::dismissMessage,
                 developerModeEnabled = developerModeEnabled,
@@ -1770,6 +1771,7 @@ fun JetsonApp(
                 onBack = { navController.popBackStack() },
                 onRefresh = localTrashViewModel::refresh,
                 onRestore = localTrashViewModel::restore,
+                onEmptyTrash = localTrashViewModel::emptyTrash,
                 onDismissMessage = localTrashViewModel::dismissMessage
             )
         }

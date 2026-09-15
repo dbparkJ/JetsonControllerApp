@@ -646,8 +646,9 @@ def create_app(
             "localTrash": {
                 "version": 1,
                 "restore": True,
+                "empty": True,
                 "automaticPurge": False,
-                "permanentDelete": False,
+                "permanentDelete": True,
             },
         }
 

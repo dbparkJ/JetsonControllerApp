@@ -38,11 +38,13 @@ class CobaltFieldScreenTest {
         }
         val folder = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null), InstrumentationRegistry.getArguments().getString("captureFolder") ?: "cobalt-captures").apply { mkdirs() }
         for (theme in listOf(false, true)) for (font in listOf(1f, 2f)) {
-            for (page in listOf("home", "tasks", "data", "settings", "offline", "detail")) {
+            for (page in listOf("welcome", "home", "tasks", "data", "settings", "offline", "detail")) {
                 compose.runOnIdle { screen = page; dark = theme; scale = font }
                 compose.waitForIdle()
-                compose.onNodeWithContentDescription("홈", useUnmergedTree = true).assertIsDisplayed()
-                compose.onNodeWithContentDescription("장치와 서버 파일", useUnmergedTree = true).assertIsDisplayed()
+                if (page != "welcome") {
+                    compose.onNodeWithContentDescription("홈", useUnmergedTree = true).assertIsDisplayed()
+                    compose.onNodeWithContentDescription("장치와 서버 파일", useUnmergedTree = true).assertIsDisplayed()
+                }
                 if (page == "data") {
                     compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("야간 라인 검사"))
                     compose.onNodeWithText("선택").performClick()

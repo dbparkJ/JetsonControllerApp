@@ -381,6 +381,11 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             self.uploads.delete_storage_entry("data", "", confirmed=True)
         self.assertTrue(self.source.is_dir())
 
+        with patch.object(self.uploads, "_source_overlaps_active_upload", return_value=True):
+            with self.assertRaises(UploadConflict):
+                self.uploads.delete_storage_entry("data", "note.txt", confirmed=True)
+        self.assertTrue((self.source / "note.txt").is_file())
+
     def test_workspace_is_limited_to_configured_home(self) -> None:
         workspace = WorkspaceRegistry(self.source)
         self.assertEqual(workspace.roots_response()[0]["pathHint"], "~/")
@@ -707,6 +712,32 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             self.assertIsNone(restored_job["sourceTrashedAt"])
             self.assertFalse(restored_job["sourceRecoverable"])
             self.assertFalse(restored_job["deletionEligible"])
+
+            source_file.write_bytes(original)
+            self.assertEqual(uploads.verify_completed_source(str(job["id"]))["state"], "MATCHED")
+            retrash = uploads.delete_completed_source(str(job["id"]), confirmed=True)
+            retrash_id = str(retrash["sourceTrashId"])
+            journal_path = uploads.trash.journal_dir / f"{retrash_id}.json"
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+            journal["state"] = "PURGING"
+            uploads.trash._write_record(journal)
+            purging_job = uploads.get(str(job["id"]))
+            self.assertEqual(purging_job["sourceDeletionState"], "PURGING")
+            self.assertFalse(purging_job["sourceDeleted"])
+            self.assertFalse(purging_job["sourceRecoverable"])
+            self.assertEqual(
+                uploads.verify_completed_source(str(job["id"]))["state"],
+                "SOURCE_PURGING",
+            )
+            uploads.trash.empty([retrash_id], confirmed=True)
+            purged_job = uploads.get(str(job["id"]))
+            self.assertEqual(purged_job["sourceDeletionState"], "PURGED")
+            self.assertTrue(purged_job["sourceDeleted"])
+            self.assertFalse(purged_job["sourceRecoverable"])
+            self.assertEqual(
+                uploads.verify_completed_source(str(job["id"]))["state"],
+                "SOURCE_PURGED",
+            )
 
             with self.assertRaises(UploadConflict):
                 uploads.delete_library_session(

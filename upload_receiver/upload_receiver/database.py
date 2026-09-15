@@ -103,6 +103,23 @@ CREATE TABLE IF NOT EXISTS library_trash (
     updated_at TEXT NOT NULL
 );
 
+-- Permanent deletion is tracked separately so existing library_trash tables do
+-- not need a destructive CHECK-constraint migration. The upload session and file
+-- rows remain as an ownership/idempotency tombstone after the payload is removed.
+CREATE TABLE IF NOT EXISTS library_purges (
+    session_id TEXT PRIMARY KEY REFERENCES upload_sessions(session_id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(project_id),
+    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+    state TEXT NOT NULL CHECK (state IN ('PURGING', 'PURGED')),
+    requested_at TEXT NOT NULL,
+    purged_at TEXT,
+    updated_at TEXT NOT NULL,
+    error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS library_purges_project_state_idx
+ON library_purges(project_id, state, updated_at DESC);
+
 CREATE INDEX IF NOT EXISTS project_devices_project_idx
 ON project_devices(project_id, device_id);
 

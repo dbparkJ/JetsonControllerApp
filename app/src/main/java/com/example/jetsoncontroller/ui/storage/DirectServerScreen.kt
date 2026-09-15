@@ -20,6 +20,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
@@ -61,13 +64,16 @@ internal fun DirectServerScreen(
     onRestore: (String) -> Unit,
     onUndoTrash: () -> Unit,
     onRefreshTrash: () -> Unit,
+    onEmptyTrash: (String, List<String>) -> Unit,
     onRemoveProfile: () -> Unit,
     onDismissMessage: () -> Unit,
     developerModeEnabled: Boolean = false,
     onDeviceData: () -> Unit = {}
 ) {
     BackHandler(onBack = onBack)
+    val dialogDensity = LocalDensity.current
     var trashCandidate by remember(state.selectedProfileId) { mutableStateOf<ServerJob?>(null) }
+    var emptyTrashCandidate by remember(state.selectedProfileId) { mutableStateOf<ServerTrashEmptySnapshot?>(null) }
     var removeProfile by remember(state.selectedProfileId) { mutableStateOf(false) }
     trashCandidate?.let { job ->
         AlertDialog(
@@ -76,6 +82,41 @@ internal fun DirectServerScreen(
             text = { Text("${job.sourceName}\n\n휴지통에서 복원할 수 있습니다. 서버가 이동을 확인한 뒤에만 목록에서 제거됩니다.") },
             confirmButton = { Button(onClick = { trashCandidate = null; onMoveToTrash(job) }) { Text("휴지통으로 이동") } },
             dismissButton = { TextButton(onClick = { trashCandidate = null }) { Text("취소") } }
+        )
+    }
+    emptyTrashCandidate?.let { snapshot ->
+        AlertDialog(
+            onDismissRequest = { if (!state.isEmptyingTrash) emptyTrashCandidate = null },
+            title = { CompositionLocalProvider(LocalDensity provides dialogDensity) {
+                val slotFontScale = LocalDensity.current.fontScale
+                Text(
+                    "서버 휴지통을 비울까요?",
+                    Modifier.testTag("server-trash-empty-dialog-title").semantics {
+                        this[TrashDialogFontScaleKey] = slotFontScale
+                    }
+                )
+            } },
+            text = {
+                CompositionLocalProvider(LocalDensity provides dialogDensity) {
+                    Text("표시된 ${snapshot.sessionIds.size}개 항목을 영구 삭제합니다. 삭제한 서버 데이터는 복원할 수 없습니다.")
+                }
+            },
+            confirmButton = {
+                CompositionLocalProvider(LocalDensity provides dialogDensity) {
+                    Button(
+                        onClick = {
+                            emptyTrashCandidate = null
+                            onEmptyTrash(snapshot.profileId, snapshot.sessionIds)
+                        },
+                        enabled = !state.isLoading && state.selectedProfileId == snapshot.profileId
+                    ) { Text("영구 삭제") }
+                }
+            },
+            dismissButton = {
+                CompositionLocalProvider(LocalDensity provides dialogDensity) {
+                    TextButton(onClick = { emptyTrashCandidate = null }, enabled = !state.isLoading) { Text("취소") }
+                }
+            }
         )
     }
     if (removeProfile) {
@@ -148,8 +189,9 @@ internal fun DirectServerScreen(
                     "프로젝트 권한 확인", "서버 환경 확인", "서버 인증서 확인"
                 )
                 val profileSettingsAction = state.errorActionLabel in profileSettingsActions
+                val operatorSafeStatus = state.errorActionLabel in setOf("휴지통 다시 불러오기", "상태 새로고침")
                 AppBanner(
-                    if (developerModeEnabled || !state.messageIsError) message
+                    if (developerModeEnabled || !state.messageIsError || operatorSafeStatus) message
                     else directServerOperatorMessage(message),
                     if (state.messageIsError) StatusTone.WARNING else StatusTone.SUCCESS,
                     actionLabel = when {
@@ -180,7 +222,9 @@ internal fun DirectServerScreen(
                     developerModeEnabled
                 )
                 DirectServerSection.TRASH -> TrashPane(
-                    state, onRestore, onRefreshTrash, canMutate, developerModeEnabled
+                    state, onRestore, onRefreshTrash,
+                    onRequestEmpty = { emptyTrashCandidate = serverTrashEmptySnapshot(state) },
+                    canMutate, developerModeEnabled
                 )
                 DirectServerSection.PROFILES -> ProfilesPane(
                     state, onSelectProfile, onSaveProfile, onConnect, { removeProfile = true },
@@ -421,15 +465,42 @@ private fun TrashPane(
     state: DirectServerUiState,
     onRestore: (String) -> Unit,
     onRefresh: () -> Unit,
+    onRequestEmpty: () -> Unit,
     canMutate: Boolean,
     developerModeEnabled: Boolean
 ) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             DismissibleNoticeBanner(
-                noticeKey = "storage.server-trash-retention.v1",
-                message = "휴지통 항목은 서버 정책에 따라 보관됩니다. 영구 삭제 기능은 이 앱에서 제공하지 않습니다.",
-                tone = StatusTone.INFO
+                noticeKey = "storage.server-trash-retention.v2",
+                message = if (state.trashEmptySupported) {
+                    "복원 가능한 서버 작업은 되돌릴 수 있습니다. 휴지통을 비우면 표시된 항목이 영구 삭제됩니다."
+                } else {
+                    "이 서버는 휴지통 비우기를 지원하지 않습니다. 서버를 업데이트하면 영구 삭제할 수 있습니다."
+                },
+                tone = if (state.trashEmptySupported) StatusTone.WARNING else StatusTone.INFO
+            )
+        }
+        val snapshot = serverTrashEmptySnapshot(state)
+        item {
+            Button(
+                onClick = onRequestEmpty,
+                enabled = canMutate && snapshot != null && !state.isLoading && !state.isConnecting,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.DeleteForever, null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (state.trashNextOffset != null || state.trashTotal > state.trash.size) {
+                        "표시된 ${snapshot?.sessionIds?.size ?: 0}개 비우기"
+                    } else "휴지통 비우기 (${snapshot?.sessionIds?.size ?: 0}개)"
+                )
+            }
+        }
+        if (state.trashTotal > state.trash.size) item {
+            InlineMessage(
+                "전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다. 이 작업은 표시된 항목만 삭제하며 ${state.trashTotal - state.trash.size}개는 남습니다.",
+                false
             )
         }
         if (state.trash.isEmpty() && !state.isLoading) item {
@@ -455,12 +526,27 @@ private fun TrashPane(
                     }
                     Text("${job.fileCount}개 파일 · ${formatBytes(job.totalBytes)}", style = MaterialTheme.typography.bodySmall)
                     Text("이동 · ${localDateTimeLabel(job.trashedAt)}", style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton(onClick = { onRestore(job.sessionId) }, enabled = canMutate && !state.isLoading,
-                        modifier = Modifier.fillMaxWidth()) { Text("서버 작업 복원") }
+                    if (job.state == "PURGING") {
+                        StatusBadge("삭제 처리 중", StatusTone.WARNING)
+                    }
+                    OutlinedButton(
+                        onClick = { onRestore(job.sessionId) },
+                        enabled = canMutate && job.restoreSupported != false && job.state == "TRASHED" && !state.isLoading,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(if (job.restoreSupported != false) "서버 작업 복원" else "복원할 수 없음") }
                 }
             }
         }
     }
+}
+
+internal data class ServerTrashEmptySnapshot(val profileId: String, val sessionIds: List<String>)
+
+internal fun serverTrashEmptySnapshot(state: DirectServerUiState): ServerTrashEmptySnapshot? {
+    val profileId = state.selectedProfileId ?: return null
+    if (!state.trashEmptySupported) return null
+    val ids = state.trash.filter(::isServerPurgeEligible).map(ServerTrashJob::sessionId).distinct().take(200)
+    return ids.takeIf { it.isNotEmpty() }?.let { ServerTrashEmptySnapshot(profileId, it) }
 }
 
 @Composable
@@ -583,6 +669,7 @@ private fun String.serverStateLabel(): String = when (uppercase(Locale.ROOT)) {
     "COMPLETED" -> "수신 완료"
     "FAILED" -> "실패"
     "TRASHED" -> "휴지통"
+    "PURGING" -> "삭제 처리 중"
     "UPLOADING" -> "전송 중"
     else -> "상태 확인 필요"
 }

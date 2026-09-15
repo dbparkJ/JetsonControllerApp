@@ -318,6 +318,24 @@ class UploadManager:
                     "verifiedAt": job.get("verifiedAt"),
                     "trashId": trash_id,
                 }
+            if trash_state == "PURGING":
+                return {
+                    "jobId": job_id,
+                    "state": "SOURCE_PURGING",
+                    "matched": True,
+                    "deletionAllowed": False,
+                    "verifiedAt": job.get("verifiedAt"),
+                    "trashId": trash_id,
+                }
+            if trash_state == "PURGED":
+                return {
+                    "jobId": job_id,
+                    "state": "SOURCE_PURGED",
+                    "matched": True,
+                    "deletionAllowed": False,
+                    "verifiedAt": job.get("verifiedAt"),
+                    "trashId": trash_id,
+                }
             if trash_state != "RESTORED":
                 raise UploadConflict(
                     "Recoverable upload source is still transitioning"
@@ -327,6 +345,7 @@ class UploadManager:
                 sourceTrashId=None,
                 sourceTrashedAt=None,
                 sourceRecoverable=False,
+                sourceDeletionState="AVAILABLE",
                 deletionEligible=False,
             )
         root_id, relative_path, target_id = self._job_parameters(job)
@@ -358,13 +377,32 @@ class UploadManager:
             existing_trash_id = job.get("sourceTrashId")
             if isinstance(existing_trash_id, str):
                 try:
-                    trash_state = self.trash.get_entry(existing_trash_id).get("state")
+                    trash_entry = self.trash.get_entry(existing_trash_id)
+                    trash_state = trash_entry.get("state")
                 except (KeyError, OSError, ValueError) as error:
                     raise UploadConflict(
                         "Recoverable upload source state is unavailable"
                     ) from error
                 if trash_state == "TRASHED":
                     return job
+                if trash_state == "PURGING":
+                    return self._update(
+                        job_id,
+                        sourceDeleted=False,
+                        sourceDeletedAt=None,
+                        sourceRecoverable=False,
+                        sourceDeletionState="PURGING",
+                        deletionEligible=False,
+                    )
+                if trash_state == "PURGED":
+                    return self._update(
+                        job_id,
+                        sourceDeleted=True,
+                        sourceDeletedAt=trash_entry.get("purgedAt") or trash_entry.get("updatedAt"),
+                        sourceRecoverable=False,
+                        sourceDeletionState="PURGED",
+                        deletionEligible=False,
+                    )
                 if trash_state != "RESTORED":
                     raise UploadConflict(
                         "Recoverable upload source is still transitioning"
@@ -374,6 +412,7 @@ class UploadManager:
                     sourceTrashId=None,
                     sourceTrashedAt=None,
                     sourceRecoverable=False,
+                    sourceDeletionState="AVAILABLE",
                     deletionEligible=False,
                 )
             root_id, relative_path, target_id = self._job_parameters(job)
@@ -429,6 +468,7 @@ class UploadManager:
             sourceTrashId=trash_id,
             sourceTrashedAt=trashed_at,
             sourceRecoverable=True,
+            sourceDeletionState="TRASHED",
             deletionEligible=False,
         )
 
@@ -1084,7 +1124,7 @@ class UploadManager:
         jobs = []
         for path in self.jobs_dir.glob("*.json"):
             try:
-                job = self._load_path(path)
+                job = self._reconcile_source_trash(self._load_path(path))
                 if not active_only or job.get("state") in ACTIVE_STATES:
                     jobs.append(job)
             except (OSError, ValueError, json.JSONDecodeError):
@@ -1097,7 +1137,50 @@ class UploadManager:
         path = self.jobs_dir / f"{job_id}.json"
         if not path.exists():
             raise KeyError(job_id)
-        return self._load_path(path)
+        return self._reconcile_source_trash(self._load_path(path))
+
+    def _reconcile_source_trash(self, job: Dict[str, object]) -> Dict[str, object]:
+        """Project durable trash state into upload source lifecycle fields."""
+        result = dict(job)
+        trash_id = result.get("sourceTrashId")
+        if not isinstance(trash_id, str):
+            result.setdefault(
+                "sourceDeletionState",
+                "PURGED" if result.get("sourceDeleted") is True else "AVAILABLE",
+            )
+            return result
+        try:
+            trash_entry = self.trash.get_entry(trash_id)
+        except (KeyError, OSError, ValueError):
+            result["sourceDeletionState"] = "UNKNOWN"
+            result["sourceRecoverable"] = False
+            return result
+        state = trash_entry.get("state")
+        result["sourceDeletionState"] = state
+        if state == "TRASHED":
+            result.update(sourceDeleted=False, sourceDeletedAt=None, sourceRecoverable=True)
+        elif state == "PURGING":
+            result.update(sourceDeleted=False, sourceDeletedAt=None, sourceRecoverable=False)
+        elif state == "PURGED":
+            result.update(
+                sourceDeleted=True,
+                sourceDeletedAt=trash_entry.get("purgedAt") or trash_entry.get("updatedAt"),
+                sourceRecoverable=False,
+                deletionEligible=False,
+            )
+        elif state == "RESTORED":
+            result.update(
+                sourceTrashId=None,
+                sourceTrashedAt=None,
+                sourceDeleted=False,
+                sourceDeletedAt=None,
+                sourceRecoverable=False,
+                sourceDeletionState="AVAILABLE",
+                deletionEligible=False,
+            )
+        else:
+            result["sourceRecoverable"] = False
+        return result
 
     def delete_job(self, job_id: str, *, confirmed: bool) -> Dict[str, object]:
         """Delete one terminal queue record without touching uploaded data.
@@ -2287,6 +2370,7 @@ class UploadManager:
             "sourceTrashId": None,
             "sourceTrashedAt": None,
             "sourceRecoverable": False,
+            "sourceDeletionState": "AVAILABLE",
             "context": None,
             "sourceIdentity": None,
             "currentFile": None,

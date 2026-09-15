@@ -103,7 +103,9 @@ data class ServerTrashJob(
     val fileCount: Int,
     val state: String,
     val trashedAt: String,
-    val surveyContext: UploadContext? = null
+    val surveyContext: UploadContext? = null,
+    val purgeSupported: Boolean? = null,
+    val restoreSupported: Boolean? = null
 )
 
 data class ServerTrashResponse(
@@ -111,7 +113,29 @@ data class ServerTrashResponse(
     val projectId: String,
     val jobs: List<ServerTrashJob>,
     val refreshedAt: String,
-    val accessProjectId: String? = null
+    val accessProjectId: String? = null,
+    val emptySupported: Boolean = false,
+    val total: Int = jobs.size,
+    val nextOffset: Int? = null
+)
+
+data class ServerEmptyTrashRequest(
+    val confirmed: Boolean = true,
+    val sessionIds: List<String>
+)
+
+data class ServerEmptyTrashItemResult(
+    val sessionId: String,
+    val state: String,
+    val error: String? = null
+)
+
+data class ServerEmptyTrashResponse(
+    val serverEnvironment: String,
+    val projectId: String,
+    val accessProjectId: String? = null,
+    val results: List<ServerEmptyTrashItemResult>,
+    val refreshedAt: String
 )
 
 data class ServerLifecycleResponse(

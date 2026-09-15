@@ -2,7 +2,9 @@ package com.example.jetsoncontroller.data.network
 
 import com.example.jetsoncontroller.data.server.ServerJob
 import com.example.jetsoncontroller.data.server.ServerReceipt
+import com.example.jetsoncontroller.data.server.ServerTrashResponse
 import com.example.jetsoncontroller.model.TrashEntriesResponse
+import com.example.jetsoncontroller.model.EmptyTrashResponse
 import com.example.jetsoncontroller.model.UploadJob
 import com.google.gson.Gson
 import org.junit.Assert.assertEquals
@@ -36,18 +38,43 @@ class P0StorageContractTest {
           "state":"TRASHED","rootId":"pipeline-logs","relativePath":"capture/run.log","name":"run.log",
           "entryType":"BUNDLE","trashedAt":"time","restoredAt":null,"updatedAt":"time","lastError":null,
           "metadata":{"pipelineId":"capture"},"audit":[{"event":"TRASH_CONFIRMED"}],
-          "restoreSupported":true}],"refreshedAt":"now"}""", TrashEntriesResponse::class.java)
+          "restoreSupported":true,"purgeSupported":true}],"refreshedAt":"now","emptySupported":true}""", TrashEntriesResponse::class.java)
         val upload = gson.fromJson("""{"id":"job","rootId":"collections","relativePath":"output",
           "targetId":"server","state":"COMPLETED","sourceDeleted":false,"deletionEligible":false,
-          "sourceTrashId":"trash-source","sourceTrashedAt":"time","sourceRecoverable":true,
+          "sourceTrashId":"trash-source","sourceTrashedAt":"time","sourceRecoverable":true,"sourceDeletionState":"TRASHED",
           "sourceIdentity":"identity-sha256","context":$CONTEXT}""", UploadJob::class.java)
 
         assertTrue(trash.entries.single().restoreSupported)
+        assertTrue(trash.entries.single().purgeSupported)
+        assertTrue(trash.emptySupported)
         assertEquals("RUN_HISTORY", trash.entries.single().category)
         assertFalse(upload.sourceDeleted)
         assertTrue(upload.sourceRecoverable)
+        assertEquals("TRASHED", upload.sourceDeletionState)
         assertEquals("identity-sha256", upload.sourceIdentity)
         assertEquals("run-a", upload.context!!.runId)
+    }
+
+    @Test fun `local empty trash receipt decodes per item states`() {
+        val response = gson.fromJson(
+            """{"results":[{"trashId":"a","state":"PURGED"},{"trashId":"b","state":"FAILED","error":"busy"}],"refreshedAt":"now"}""",
+            EmptyTrashResponse::class.java
+        )
+
+        assertEquals(listOf("PURGED", "FAILED"), response.results.map { it.state })
+        assertEquals("busy", response.results.last().error)
+    }
+
+    @Test fun `legacy server trash keeps restore compatible and empty unavailable`() {
+        val response = gson.fromJson(
+            """{"serverEnvironment":"production","projectId":"project","jobs":[{"sessionId":"s","clientJobId":"j","sourceName":"capture","totalBytes":1,"fileCount":1,"state":"TRASHED","trashedAt":"now"}],"refreshedAt":"now"}""",
+            ServerTrashResponse::class.java
+        )
+
+        assertEquals(null, response.jobs.single().restoreSupported)
+        assertEquals(null, response.jobs.single().purgeSupported)
+        assertFalse(response.emptySupported)
+        assertEquals(0, response.total)
     }
 
     private companion object {

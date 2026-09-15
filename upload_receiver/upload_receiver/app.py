@@ -210,13 +210,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @application.get("/v1/server/trash")
-    async def server_trash(request: Request, projectId: str):
+    async def server_trash(
+        request: Request,
+        projectId: str,
+        limit: int = 200,
+        offset: int = 0,
+    ):
         receiver = service(request)
         principal = await employee(request)
         return await run_in_threadpool(
             receiver.list_server_trash,
             principal,
             projectId,
+            limit=limit,
+            offset=offset,
+        )
+
+    @application.post("/v1/server/trash/empty")
+    async def empty_server_trash(request: Request, projectId: str):
+        _require_content_type(request, "application/json")
+        raw = await _bounded_body(request, 32 * 1024)
+        try:
+            body = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ReceiverError(400, "Request body is invalid") from error
+        if (
+            not isinstance(body, dict)
+            or set(body) != {"confirmed", "sessionIds"}
+            or body.get("confirmed") is not True
+            or not isinstance(body.get("sessionIds"), list)
+        ):
+            raise ReceiverError(400, "Trash empty confirmation is invalid")
+        receiver = service(request)
+        principal = await employee(request)
+        return await run_in_threadpool(
+            receiver.empty_server_trash,
+            principal,
+            projectId,
+            body["sessionIds"],
         )
 
     @application.get("/v1/server/audit")

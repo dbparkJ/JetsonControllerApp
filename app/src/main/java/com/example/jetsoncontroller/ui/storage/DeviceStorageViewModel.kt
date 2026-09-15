@@ -199,6 +199,7 @@ class DeviceStorageViewModel(
     fun deleteEntry(entry: RemoteFileEntry) {
         if (!_uiState.value.controlAvailable) return
         val root = _uiState.value.currentRoot ?: return
+        val expectedDeviceId = _uiState.value.deviceId ?: return
         val generation = connectionGeneration
         deleteJob?.cancel()
         deleteJob = viewModelScope.launch {
@@ -207,7 +208,7 @@ class DeviceStorageViewModel(
                 message = null,
                 error = null
             )
-            repository.deleteStorageEntry(root.id, entry.relativePath)
+            repository.deleteStorageEntry(root.id, entry.relativePath, expectedDeviceId)
                 .onSuccess { trashed ->
                     if (
                         generation == connectionGeneration &&
