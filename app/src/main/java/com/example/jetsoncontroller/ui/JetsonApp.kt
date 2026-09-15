@@ -34,6 +34,7 @@ import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
 import com.example.jetsoncontroller.ui.alerts.AlertCenterViewModel
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
+import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.devices.DeviceListScreen
 import com.example.jetsoncontroller.ui.devices.DeviceListViewModel
 import com.example.jetsoncontroller.ui.pairing.PairingScreen
@@ -148,6 +149,12 @@ private object Routes {
     const val PIPELINE_DETAIL = "pipeline_detail/{pipelineId}"
     const val SURVEY_RUN = "survey_run/{pipelineId}"
 
+    // 업무 단계형 IA에서 새로 생긴 두 목적지.
+    // 이전 구조에는 '진행 중인 수집' 과 '종료 후 결과 요약' 에 해당하는 라우트가 없어서,
+    // 시작을 누른 직원이 갈 곳이 작업 목록밖에 없었습니다.
+    const val ACTIVE_RUN = "active_run"
+    const val RUN_RESULT = "run_result"
+
     const val DIAGNOSTICS = "connection_diagnostics"
 
     const val ALERTS = "alerts"
@@ -166,9 +173,12 @@ private val routesRequiringDeviceConnection = setOf(
     Routes.PIPELINE_LOGS,
     Routes.PIPELINE_CONFIG,
     Routes.SURVEY_RUN,
+    Routes.ACTIVE_RUN,
     Routes.LOCAL_TRASH,
     Routes.CAMERA_PREVIEW
 )
+// RUN_RESULT 은 의도적으로 제외합니다. 연결이 끊겨도 마지막으로 확인한 저장 결과는
+// 볼 수 있어야 하고, 그 화면이 스스로 "마지막으로 확인한 값" 이라고 말합니다.
 
 
 @Composable
@@ -405,8 +415,15 @@ fun JetsonApp(
             navigateToDashboard(navController)
             return@onSectionSelected
         }
+        // 두 번째 탭은 '이력' 입니다. 이전에는 이 탭이 수집 프로그램 목록(작업 시작)으로
+        // 갔는데, 조사를 시작하려는 직원이 프로그램을 고르는 화면을 만나는 구조였습니다.
+        // 시작은 현장 홈의 단계 카드가 책임지고, 이 탭은 지나간 조사를 봅니다.
         if (section == ControlSection.PIPELINES) {
-            navigateToTaskStart(navController)
+            navController.navigate(Routes.TASK_HISTORY) {
+                popUpTo(Routes.DASHBOARD) { inclusive = false; saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
             return@onSectionSelected
         }
         val route = when (section) {
@@ -747,6 +764,49 @@ fun JetsonApp(
                     pipelineState.controlAvailable, pipelineState.observedAtMillis, System.currentTimeMillis()),
                 taskObservedAt = pipelineState.observedAtMillis,
                 pendingTaskActions = pipelineState.pendingActions,
+
+                // 업무 단계 판정. 조사 선택·점검 상태는 SurveyRunViewModel에, 연결·실행 상태는
+                // Dashboard/Pipeline 쪽에 있으므로 두 상태를 모두 보는 이 계층에서 계산합니다.
+                stagePlan = com.example.jetsoncontroller.ui.field.fieldStagePlan(
+                    com.example.jetsoncontroller.ui.field.FieldStageInput(
+                        connected = deviceDashboardState.isOnline,
+                        runStateConfirmed = com.example.jetsoncontroller.ui.pipelines.tasksAreFresh(
+                            pipelineState.controlAvailable,
+                            pipelineState.observedAtMillis,
+                            System.currentTimeMillis()
+                        ),
+                        activeRunId = surveyRunState.activeRun?.runId?.takeIf {
+                            surveyRunState.activeRun?.active == true
+                        },
+                        pendingStartRequestId = surveyRunState.pendingStart?.let { "pending" },
+                        unconfirmedRunId = surveyRunState.unconfirmedRunId,
+                        runAwaitingResultId = surveyRunState.activeRun
+                            ?.takeIf { it.active != true && it.output.manifestState.uppercase() == "PENDING" }
+                            ?.runId,
+                        surveySelected = surveyRunState.selectionComplete,
+                        preflightReady = surveyRunState.preflight?.ready == true,
+                        surveyLabel = surveyRunState.selectedProject?.let { project ->
+                            surveyRunState.selectedSection?.let { "${project.label} · ${it.label}" }
+                        },
+                        lastObservedLabel = pipelineState.observedAtMillis?.let {
+                            java.text.DateFormat.getTimeInstance().format(java.util.Date(it))
+                        },
+                        registeredDeviceCount = deviceState.registeredDevices.size
+                    )
+                ),
+                onStageAction = { destination ->
+                    when (destination) {
+                        com.example.jetsoncontroller.ui.field.FieldDestination.CONNECT ->
+                            navController.navigate(Routes.CONNECTION_HUB) { launchSingleTop = true }
+                        com.example.jetsoncontroller.ui.field.FieldDestination.SURVEY_PREP,
+                        com.example.jetsoncontroller.ui.field.FieldDestination.PREFLIGHT ->
+                            navigateToTaskStart(navController)
+                        com.example.jetsoncontroller.ui.field.FieldDestination.ACTIVE_RUN ->
+                            navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
+                        com.example.jetsoncontroller.ui.field.FieldDestination.RUN_RESULT ->
+                            navController.navigate(Routes.RUN_RESULT) { launchSingleTop = true }
+                    }
+                },
 
                 onDisconnect = {
 
@@ -1146,9 +1206,78 @@ fun JetsonApp(
                 onOutputPath = surveyRunViewModel::setOutputPath,
                 onSavePolicy = surveyRunViewModel::savePolicy,
                 onPreflight = surveyRunViewModel::runPreflight,
-                onStart = surveyRunViewModel::start,
+                // 시작 직후 갈 곳이 있다는 것이 이번 재편의 핵심입니다. 시작 요청의 결과가
+                // 아직 없어도 수집 중 화면으로 보냅니다 — 그 화면이 '결과 대기' 를 정직하게
+                // 표시하므로, 목록으로 돌려보내 같은 버튼을 다시 누르게 하는 것보다 안전합니다.
+                onStart = {
+                    surveyRunViewModel.start()
+                    navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
+                },
                 onRetryPendingStart = surveyRunViewModel::retryPendingStart,
                 onDismissMessage = surveyRunViewModel::clearMessage
+            )
+        }
+
+        composable(Routes.ACTIVE_RUN) {
+            val status = deviceDashboardState.status
+            val statusFresh = deviceDashboardState.isOnline &&
+                deviceDashboardState.statusFreshness == StatusFreshness.CURRENT
+            val activeRun = surveyRunState.activeRun
+            val stopTarget = activeRun?.let { r ->
+                pipelineState.pipelines.firstOrNull { it.id == r.pipelineId }
+            }
+            com.example.jetsoncontroller.ui.field.ActiveRunScreen(
+                deviceName = selectedDeviceName,
+                connectionLabel = com.example.jetsoncontroller.ui.connection
+                    .userConnectionStage(deviceDashboardState.isOnline, deviceDashboardState.transportType).label,
+                connectionTone = com.example.jetsoncontroller.ui.connection
+                    .userConnectionStage(deviceDashboardState.isOnline, deviceDashboardState.transportType).tone,
+                run = activeRun,
+                // 장비가 경과 시간을 제공하지 않으므로 앱이 만들어내지 않습니다.
+                elapsedLabel = null,
+                lastObservedLabel = null,
+                sensorSummary = if (!deviceDashboardState.isOnline || !status.sensorTelemetryAvailable) null
+                    else listOf(
+                        status.cameraSensor.active,
+                        status.gnssSensor.active,
+                        status.imuSensor.active
+                    ).count { it }.let { "${it}개 수신" },
+                storageSummary = if (statusFresh) "${status.storagePercent}% 사용" else null,
+                stopInProgress = pipelineState.busyPipelineId != null,
+                online = deviceDashboardState.isOnline,
+                unreadCount = alertCenterState.unreadCount,
+                onDevices = { navController.navigate(Routes.CONNECTION_HUB) },
+                onAlerts = { navController.navigate(Routes.ALERTS) },
+                onBack = { navController.popBackStack() },
+                onRefresh = { surveyRunViewModel.refresh(); pipelineViewModel.refresh() },
+                onStop = { stopTarget?.let { pipelineViewModel.control(it, "stop") } },
+                onCamera = { navController.navigate(Routes.CAMERA_PREVIEW) },
+                onMap = { navController.navigate(Routes.GNSS_MAP) }
+            )
+        }
+
+        composable(Routes.RUN_RESULT) {
+            com.example.jetsoncontroller.ui.field.RunResultScreen(
+                deviceName = selectedDeviceName,
+                connectionLabel = com.example.jetsoncontroller.ui.connection
+                    .userConnectionStage(deviceDashboardState.isOnline, deviceDashboardState.transportType).label,
+                connectionTone = com.example.jetsoncontroller.ui.connection
+                    .userConnectionStage(deviceDashboardState.isOnline, deviceDashboardState.transportType).tone,
+                run = surveyRunState.activeRun,
+                uploadEnabled = serverUploadEnabled,
+                uploadDisabledReason = serverUploadDisabledReason,
+                // 이 실행의 서버 수신 결과를 조회하는 경로는 아직 연결하지 않았습니다.
+                // null 은 '전송하지 않음' 이 아니라 '앱이 아직 모른다' 로 표시됩니다.
+                serverReceiptLabel = null,
+                online = deviceDashboardState.isOnline,
+                unreadCount = alertCenterState.unreadCount,
+                onDevices = { navController.navigate(Routes.CONNECTION_HUB) },
+                onAlerts = { navController.navigate(Routes.ALERTS) },
+                onBack = { navController.navigate(Routes.TASK_HISTORY) },
+                onRefresh = surveyRunViewModel::refresh,
+                onPrepareUpload = { navController.navigate(Routes.DATA) },
+                onOpenFiles = { navController.navigate(Routes.STORAGE) },
+                onNewSurvey = { navigateToDashboard(navController) }
             )
         }
 

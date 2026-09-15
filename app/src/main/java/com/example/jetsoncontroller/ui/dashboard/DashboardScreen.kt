@@ -129,7 +129,14 @@ fun DashboardScreen(
     onConnectionClick: () -> Unit = onBack,
     tasksConfirmed: Boolean = false,
     taskObservedAt: Long? = null,
-    pendingTaskActions: Map<String, String> = emptyMap()
+    pendingTaskActions: Map<String, String> = emptyMap(),
+    /**
+     * 현재 업무 단계. 조사 선택·점검 상태는 이 화면이 받지 않는 다른 ViewModel에 있으므로,
+     * 판정은 두 상태를 모두 가진 내비게이션 계층에서 하고 여기서는 그리기만 합니다.
+     * null이면 기존 next-action 카드로 되돌아갑니다.
+     */
+    stagePlan: com.example.jetsoncontroller.ui.field.FieldStagePlan? = null,
+    onStageAction: (com.example.jetsoncontroller.ui.field.FieldDestination) -> Unit = {}
 ) {
     val c = LocalGeoColors.current
     val health = assessDashboardHealth(
@@ -181,7 +188,13 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(GeoSpace.section)
         ) {
             // ---- 1. 다음 행동 ---------------------------------------------------------
-            item { NextActionCard(nextAction, onNextAction) }
+            item {
+                if (stagePlan != null) {
+                    StageCard(stagePlan) { onStageAction(stagePlan.destination) }
+                } else {
+                    NextActionCard(nextAction, onNextAction)
+                }
+            }
 
             // ---- 2. 지금 상태 (독립 축) -------------------------------------------------
             item {
@@ -277,6 +290,59 @@ fun DashboardScreen(
 // =====================================================================================
 // Next action
 // =====================================================================================
+
+/**
+ * 업무 단계 카드 — 현장 홈에서 가장 눈에 띄는 단 하나의 요소.
+ *
+ * 홈이 여러 화면으로 나뉘지 않고 단계에 따라 이 카드 하나가 바뀝니다. 브랜드 색은 이
+ * 화면에서 여기에만 쓰이므로, "지금 뭘 해야 하나" 가 색을 쓸 자격이 있는 유일한 정보가
+ * 됩니다. 단계가 '미확인' 이나 '결과 대기' 일 때는 배지로 그 사실을 함께 말합니다 —
+ * 모르는 상태에서 사용자를 '시작' 으로 밀지 않기 위해서입니다.
+ */
+@Composable
+private fun StageCard(
+    plan: com.example.jetsoncontroller.ui.field.FieldStagePlan,
+    onClick: () -> Unit
+) {
+    val c = LocalGeoColors.current
+    Surface(
+        color = c.hero,
+        contentColor = c.heroText,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier.padding(GeoSpace.xl),
+            verticalArrangement = Arrangement.spacedBy(GeoSpace.md)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(plan.eyebrow, style = GeoType.eyebrow, color = c.heroMuted)
+                if (plan.tone == StatusTone.UNKNOWN || plan.tone == StatusTone.PENDING) {
+                    StatusBadge(
+                        if (plan.tone == StatusTone.UNKNOWN) "미확인" else "결과 대기",
+                        plan.tone
+                    )
+                }
+            }
+            Text(plan.title, style = MaterialTheme.typography.headlineSmall)
+            Text(plan.detail, style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
+            Spacer(Modifier.height(GeoSpace.xs))
+            Button(
+                shape = MaterialTheme.shapes.small,
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.primaryAction),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = c.heroText,
+                    contentColor = c.hero
+                )
+            ) { Text(plan.actionLabel, style = MaterialTheme.typography.labelLarge) }
+        }
+    }
+}
 
 /**
  * The single most prominent element on the home screen.

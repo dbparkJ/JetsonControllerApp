@@ -44,29 +44,9 @@ import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.TextButton
 
-/**
- * The status vocabulary of the product.
- *
- * [PENDING] and [UNKNOWN] are the important additions. The operations brief is explicit
- * that "시작 결과 미확인", "값이 오래됨", "중지 요청 중" and "캐시 목록" must not be rendered as
- * either success or failure — an operator who reads a grey "완료" as a green one will
- * start a duplicate collection or drive away from a section that never recorded.
- *
- * - [SUCCESS]  확인됨.      A result the device or server actually reported back.
- * - [WARNING]  주의.        Possible to proceed, with a limitation the user must see.
- * - [ERROR]    차단·실패.    The action cannot start, or demonstrably did not happen.
- * - [INFO]     안내.        Context, not a verdict.
- * - [PENDING]  처리 중.      A request was accepted; the outcome is still open.
- * - [UNKNOWN]  미확인.      We do not know. Never a stand-in for success or failure.
- */
-enum class StatusTone {
-    INFO,
-    SUCCESS,
-    WARNING,
-    ERROR,
-    PENDING,
-    UNKNOWN
-}
+// StatusTone은 Compose를 참조하지 않는 StatusTone.kt로 옮겼습니다. 같은 패키지라
+// 호출부는 그대로입니다. 순수 로직(FieldStage 등)이 상태 어휘를 쓰면서도 UI 없이
+// 단위 테스트될 수 있어야 하기 때문입니다.
 
 /**
  * Colour plus icon plus shape for one tone.
