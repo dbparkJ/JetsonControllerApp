@@ -141,7 +141,7 @@ fun PipelineListScreen(
                     IconButton(onClick = onRefresh, enabled = !state.isLoading && state.busyPipelineId == null) { Icon(Icons.Default.Refresh, "상태 새로고침") }
                 })
         },
-        bottomBar = { ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected) }
+        bottomBar = { ControlNavigationBar(ControlSection.COLLECTION, onSectionSelected) }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         LazyColumn(Modifier.widthIn(max = 760.dp).fillMaxSize(), contentPadding = PaddingValues(20.dp),

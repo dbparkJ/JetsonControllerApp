@@ -76,12 +76,14 @@ import com.example.jetsoncontroller.ui.components.ControlNavigationRail
 import com.example.jetsoncontroller.ui.components.LocalControlNavigationRailVisible
 import com.example.jetsoncontroller.ui.components.NoticeDismissalProvider
 import com.example.jetsoncontroller.ui.settings.rememberDeveloperModePreference
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 private object Routes {
 
@@ -452,6 +454,12 @@ fun JetsonApp(
     }?.deviceName ?: if (selectedDeviceId == null) "선택된 장비 없음" else selectedDeviceId.orEmpty()
     val deviceDashboardState = dashboardState.copy(deviceName = selectedDeviceName)
     val deviceUiState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    var requestedMapHistoryEntryId by androidx.compose.runtime.saveable.rememberSaveable(selectedDeviceId) {
+        mutableStateOf<String?>(null)
+    }
+    var requestedMapActiveRunId by androidx.compose.runtime.saveable.rememberSaveable(selectedDeviceId) {
+        mutableStateOf<String?>(null)
+    }
 
     LaunchedEffect(developerModeEnabled, currentRoute) {
         developerRevocationDestination(currentRoute, developerModeEnabled)?.let { destination ->
@@ -467,8 +475,44 @@ fun JetsonApp(
             navigateToDashboard(navController)
             return@onSectionSelected
         }
+        if (section == ControlSection.COLLECTION || section == ControlSection.PIPELINES) {
+            when (collectionOpenDecision(surveyRunState)) {
+                SurveyOpenDecision.CURRENT_ACTIVE,
+                SurveyOpenDecision.WAIT_FOR_RESTORE -> navController.navigate(Routes.ACTIVE_RUN) {
+                    popUpTo(Routes.DASHBOARD) { inclusive = false }
+                    launchSingleTop = true
+                }
+                SurveyOpenDecision.CURRENT_RESULT -> navController.navigate(Routes.RUN_RESULT) {
+                    popUpTo(Routes.DASHBOARD) { inclusive = false }
+                    launchSingleTop = true
+                }
+                SurveyOpenDecision.REQUESTED_PIPELINE -> {
+                    val pipelineId = surveyRunState.pipelineId?.takeIf(String::isNotBlank)
+                    if (pipelineId == null) {
+                        navigateToTaskStart(navController)
+                    } else {
+                        navController.navigate("survey_run/${Uri.encode(pipelineId)}") {
+                            popUpTo(Routes.DASHBOARD) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+            }
+            return@onSectionSelected
+        }
+        if (section == ControlSection.SETTINGS) {
+            // A tab selection is a request for its root. This deliberately clears a restored
+            // Settings child so tapping Settings again never appears to do nothing.
+            navController.navigate(Routes.SETTINGS) {
+                popUpTo(Routes.DASHBOARD) { inclusive = false; saveState = false }
+                launchSingleTop = true
+                restoreState = false
+            }
+            return@onSectionSelected
+        }
         val route = when (section) {
             ControlSection.OVERVIEW -> Routes.DASHBOARD
+            ControlSection.COLLECTION -> Routes.PIPELINES
             ControlSection.DATA -> Routes.DATA
             ControlSection.PIPELINES -> Routes.DASHBOARD
             ControlSection.SENSORS -> Routes.SETTINGS
@@ -560,9 +604,10 @@ fun JetsonApp(
         }
     }
 
-    LaunchedEffect(currentRoute, pipelineState.observedAtMillis) {
-        if (currentRoute == Routes.ACTIVE_RUN && surveyRunState.online) {
-            surveyRunViewModel.refresh()
+    LaunchedEffect(currentRoute, surveyRunState.activeRun?.runId, surveyRunState.online) {
+        while (currentRoute == Routes.ACTIVE_RUN && surveyRunState.activeRun?.active == true && surveyRunState.online) {
+            surveyRunViewModel.refreshRunTelemetry()
+            delay(5_000L)
         }
     }
 
@@ -607,8 +652,9 @@ fun JetsonApp(
             navController.navigate(Routes.CONNECTION_HUB) { launchSingleTop = true }
         }
     ) { screenModifier ->
-    BoxWithConstraints(screenModifier.fillMaxSize()) {
-    val useRail = maxWidth >= 840.dp && currentRoute in routesWithPrimaryNavigation
+    Box(screenModifier.fillMaxSize()) {
+    val useRail = LocalConfiguration.current.screenWidthDp >= 840 &&
+        currentRoute in routesWithPrimaryNavigation
     CompositionLocalProvider(LocalControlNavigationRailVisible provides useRail) {
     Row(Modifier.fillMaxSize()) {
     if (useRail) ControlNavigationRail(
@@ -641,7 +687,10 @@ fun JetsonApp(
                 lanEndpoints = lanEndpoints,
                 registeredDevices = deviceState.registeredDevices,
                 transportState = transportState,
-                lanError = lanConnectionError ?: lanDiscoveryError,
+                lanError = userFacingConnectionMessage(
+                    lanConnectionError ?: lanDiscoveryError,
+                    developerModeEnabled
+                ),
                 connectingLanDeviceId = connectingLanDeviceId,
                 localNetworkPermissionGranted = localNetworkPermissionGranted,
                 onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
@@ -865,7 +914,11 @@ fun JetsonApp(
                 onAlertsClick = { navController.navigate(Routes.ALERTS) },
                 onSensorsClick = { navController.navigate(Routes.SENSORS) },
                 onCameraClick = { navController.navigate(Routes.CAMERA_PREVIEW) },
-                onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
+                onGnssClick = {
+                    requestedMapHistoryEntryId = null
+                    requestedMapActiveRunId = null
+                    navController.navigate(Routes.GNSS_MAP)
+                },
                 onConnectionClick = {
                     navController.navigate(Routes.CONNECTION_HUB) { launchSingleTop = true }
                 },
@@ -956,6 +1009,11 @@ fun JetsonApp(
 
                 onUploadQueueClick = {
                     navController.navigate(Routes.UPLOAD_QUEUE)
+                },
+
+                onUploadJobClick = { job ->
+                    uploadViewModel.openJob(job)
+                    navController.navigate(Routes.UPLOAD_PROGRESS) { launchSingleTop = true }
                 },
 
                 onPipelinesClick = {
@@ -1073,8 +1131,7 @@ fun JetsonApp(
                     navController.navigate(Routes.SERVER_STORAGE) {
                         launchSingleTop = true
                     }
-                },
-                deviceName = selectedDeviceName
+                }
             )
         }
 
@@ -1216,7 +1273,9 @@ fun JetsonApp(
                 onServerData = {
                     navController.navigate(Routes.SERVER_STORAGE) { launchSingleTop = true }
                 },
-                onHome = { navigateToDashboard(navController) }
+                onHome = { navigateToDashboard(navController) },
+                onFiles = { navController.navigate(Routes.DATA) { launchSingleTop = true } },
+                onDismissMessage = uploadViewModel::dismissMessage
             )
         }
 
@@ -1239,7 +1298,10 @@ fun JetsonApp(
                 mutationEnabled = fullControlConnected,
                 deviceId = uploadState.deviceId,
                 onBack = { navController.popBackStack() },
-                developerModeEnabled = developerModeEnabled
+                developerModeEnabled = developerModeEnabled,
+                onHome = { navigateToDashboard(navController) },
+                onFiles = { navController.navigate(Routes.DATA) { launchSingleTop = true } },
+                onDismissMessage = uploadViewModel::dismissMessage
             )
         }
 
@@ -1370,6 +1432,7 @@ fun JetsonApp(
                 connectionTone = com.example.jetsoncontroller.ui.connection
                     .userConnectionStage(deviceDashboardState.isOnline, deviceDashboardState.transportType).tone,
                 run = activeRun ?: surveyRunState.latestRun?.takeIf { it.active },
+                telemetryReceivedAtElapsedRealtime = surveyRunState.telemetryReceivedAtElapsedRealtime,
                 // 장비가 경과 시간을 제공하지 않으므로 앱이 만들어내지 않습니다.
                 elapsedLabel = null,
                 lastObservedLabel = pipelineState.observedAtMillis?.let {
@@ -1406,7 +1469,15 @@ fun JetsonApp(
                     }
                 },
                 onCamera = { navController.navigate(Routes.CAMERA_PREVIEW) },
-                onMap = { navController.navigate(Routes.GNSS_MAP) }
+                onMap = {
+                    requestedMapHistoryEntryId = null
+                    requestedMapActiveRunId = (
+                        activeRun ?: surveyRunState.latestRun?.takeIf { it.active }
+                    )?.runId
+                    fieldToolsViewModel.refresh(retainLoaded = true)
+                    navController.navigate(Routes.GNSS_MAP)
+                },
+                onHome = { navigateToDashboard(navController) }
             )
         }
 
@@ -1431,7 +1502,12 @@ fun JetsonApp(
                 unreadCount = alertCenterState.unreadCount,
                 onDevices = { navController.navigate(Routes.CONNECTION_HUB) },
                 onAlerts = { navController.navigate(Routes.ALERTS) },
-                onBack = { navController.navigate(Routes.TASK_HISTORY) },
+                onBack = {
+                    navController.navigate(Routes.TASK_HISTORY) {
+                        popUpTo(Routes.RUN_RESULT) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
                 onRefresh = surveyRunViewModel::refresh,
                 onPrepareUpload = {
                     surveyRunState.latestRun?.takeIf {
@@ -1462,20 +1538,23 @@ fun JetsonApp(
         composable(Routes.TASK_HISTORY) {
             LaunchedEffect(Unit) { fieldToolsViewModel.refresh() }
             com.example.jetsoncontroller.ui.field.GeoRunDashboard(
-                state = fieldState, pipelines = pipelineState.pipelines, deviceName = selectedDeviceName,
-                unreadCount = alertCenterState.unreadCount,
-                onBack = { navController.popBackStack() }, onAlerts = { navController.navigate(Routes.ALERTS) },
-                onSection = onSectionSelected, onNew = { navigateToTaskStart(navController) },
+                state = fieldState, pipelines = pipelineState.pipelines,
+                onBack = { navController.popBackStack() }, onNew = { navigateToTaskStart(navController) },
                 onRefresh = { fieldToolsViewModel.refresh() }, onMore = { fieldToolsViewModel.refresh(true) },
                 onLog = fieldToolsViewModel::openLog,
-                onRoute = { fieldToolsViewModel.selectRun(it); navController.navigate(Routes.GNSS_MAP) },
+                onRoute = {
+                    requestedMapHistoryEntryId = it.id
+                    requestedMapActiveRunId = null
+                    navController.navigate(Routes.GNSS_MAP)
+                },
                 onDismissLog = fieldToolsViewModel::dismissLog,
                 onPipeline = { navController.navigate("pipeline_detail/${Uri.encode(it.id)}") },
                 onDeleteRun = fieldToolsViewModel::deleteRun,
                 onUndoDelete = fieldToolsViewModel::undoDeleteRun,
+                onTrash = { navController.navigate(Routes.LOCAL_TRASH) },
                 onUploadOutput = { run ->
                     val output = run.output
-                    val runId = run.runId ?: run.id.takeIf { run.contextSnapshot != null }
+                    val runId = com.example.jetsoncontroller.ui.field.canonicalHistoryRunId(run)
                     if (output != null && runId != null) {
                         navController.navigate(
                             "upload_confirm/${Uri.encode(output.rootId)}?path=${Uri.encode(output.path)}&runId=${Uri.encode(runId)}"
@@ -1573,7 +1652,11 @@ fun JetsonApp(
                 deviceOnline = transportState is TransportState.Connected,
                 fullControlAvailable = fullControlConnected,
                 onCameraClick = { navController.navigate(Routes.CAMERA_PREVIEW) },
-                onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
+                onGnssClick = {
+                    requestedMapHistoryEntryId = null
+                    requestedMapActiveRunId = null
+                    navController.navigate(Routes.GNSS_MAP)
+                },
                 onSectionSelected = onSectionSelected
             )
         }
@@ -1616,8 +1699,31 @@ fun JetsonApp(
         }
 
         composable(Routes.GNSS_MAP) {
-            DisposableEffect(selectedDeviceId) {
-                fieldToolsViewModel.selectRun(fieldState.selectedRun ?: fieldState.runs.firstOrNull { it.state == "RUNNING" } ?: fieldState.runs.firstOrNull())
+            val mapReturnLabel = when (navController.previousBackStackEntry?.destination?.route) {
+                Routes.ACTIVE_RUN -> "수집 화면으로"
+                Routes.TASK_HISTORY -> "수집 이력으로"
+                Routes.DASHBOARD -> "홈으로"
+                Routes.SENSORS -> "센서 화면으로"
+                else -> "이전 화면으로"
+            }
+            val requestedMapRun = if (requestedMapActiveRunId != null) {
+                activeCollectionHistoryRun(
+                    (surveyRunState.activeRun ?: surveyRunState.latestRun?.takeIf { it.active })
+                        ?.takeIf { it.runId == requestedMapActiveRunId },
+                    fieldState.runs
+                )
+            } else {
+                fieldState.runs.firstOrNull { it.id == requestedMapHistoryEntryId }
+            }
+            LaunchedEffect(
+                selectedDeviceId,
+                requestedMapHistoryEntryId,
+                requestedMapActiveRunId,
+                requestedMapRun
+            ) {
+                fieldToolsViewModel.selectRun(requestedMapRun)
+            }
+            DisposableEffect(selectedDeviceId, requestedMapHistoryEntryId, requestedMapActiveRunId) {
                 onDispose { fieldToolsViewModel.stopRoutePolling() }
             }
             StatusPollingLifecycleEffect(dashboardViewModel)
@@ -1625,6 +1731,7 @@ fun JetsonApp(
                 route = fieldState.route,
                 quality = fieldState.routeQuality,
                 routeLabel = fieldState.selectedRun?.label,
+                returnLabel = mapReturnLabel,
                 gnss = dashboardState.status.gnssSensor,
                 telemetryFresh = dashboardState.status.sensorTelemetryFresh,
                 deviceOnline = transportState is TransportState.Connected,
@@ -1635,7 +1742,6 @@ fun JetsonApp(
         composable(Routes.DATA) {
             deviceUiState.SaveableStateProvider("data-${selectedDeviceId}") {
                 com.example.jetsoncontroller.ui.storage.DataHubScreen(
-                    deviceName = selectedDeviceName,
                     state = storageState,
                     serverUploadEnabled = serverUploadEnabled && dashboardState.capabilities.uploads,
                     unavailableReason = if (!serverUploadEnabled) serverUploadDisabledReason
@@ -1825,6 +1931,10 @@ internal fun surveyOpenDecision(
     else -> SurveyOpenDecision.REQUESTED_PIPELINE
 }
 
+internal fun collectionOpenDecision(
+    state: com.example.jetsoncontroller.ui.survey.SurveyRunUiState
+): SurveyOpenDecision = surveyOpenDecision(state, state.pipelineId.orEmpty())
+
 internal fun matchingStopTarget(
     run: com.example.jetsoncontroller.model.PipelineRun?,
     pipelines: List<com.example.jetsoncontroller.model.ManagedPipeline>
@@ -1835,6 +1945,18 @@ internal fun matchingStopTarget(
             pipeline.state == com.example.jetsoncontroller.model.PipelineState.RUNNING &&
             (pipeline.activeRunId == run.runId ||
                 (pipeline.execution?.runId == run.runId && pipeline.execution.active))
+    }
+}
+
+/** Finds route history only when it belongs to the exact live contextual run. */
+internal fun activeCollectionHistoryRun(
+    activeRun: com.example.jetsoncontroller.model.PipelineRun?,
+    history: List<com.example.jetsoncontroller.model.TaskRun>
+): com.example.jetsoncontroller.model.TaskRun? {
+    if (activeRun?.active != true || activeRun.runId.isBlank()) return null
+    return history.firstOrNull { run ->
+        run.runId == activeRun.runId && run.pipelineId == activeRun.pipelineId &&
+            (run.deviceId == null || run.deviceId.equals(activeRun.deviceId, ignoreCase = true))
     }
 }
 
@@ -1936,6 +2058,8 @@ internal fun serverReceiptPresentation(
 }
 
 private fun controlSectionForRoute(route: String?): ControlSection = when (route) {
+    Routes.PIPELINES, Routes.SURVEY_RUN, Routes.ACTIVE_RUN, Routes.RUN_RESULT ->
+        ControlSection.COLLECTION
     Routes.DATA -> ControlSection.DATA
     Routes.SETTINGS, Routes.SENSORS -> ControlSection.SETTINGS
     else -> ControlSection.OVERVIEW

@@ -134,13 +134,24 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
                         onDetails = { screen = "detail" }, detailId = if (screen == "detail") "inspection" else null,
                         startCapability = true, nowMillis = now)
                     "data" -> DataHubScreen(
-                        state.deviceName,
-                        DeviceStorageUiState(
+                        state = DeviceStorageUiState(
                             deviceId = "demo", controlAvailable = true,
                             currentRoot = RemoteRoot("recordings", "수집 자료", null),
                             entries = sampleFiles
                         ),
-                        true, "", 0, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, select
+                        serverUploadEnabled = true,
+                        unavailableReason = "",
+                        unreadCount = 0,
+                        onDevices = {},
+                        onAlerts = {},
+                        onRefresh = {},
+                        onNavigateBack = {},
+                        onDirectoryClick = {},
+                        onFileClick = {},
+                        onDeleteClick = {},
+                        onHistory = {},
+                        onTransfer = { _, _ -> },
+                        onSection = select
                     )
                     "settings" -> SettingsHubScreen(state, "demo", 0, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, select)
                     else -> DashboardScreen(state, sample, emptyList(), 0, {}, {}, {}, {}, {}, {}, {},

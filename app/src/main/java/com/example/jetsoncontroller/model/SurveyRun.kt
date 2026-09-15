@@ -212,6 +212,19 @@ data class ContextualStartReceipt(
     val statusUrl: String
 )
 
+data class RunTelemetry(
+    val schemaVersion: Int = 1,
+    val runId: String,
+    val outputId: String,
+    val sourceRevision: String,
+    val observedAtEpochMillis: Long,
+    val bytesObservedAtEpochMillis: Long,
+    val durationMillis: Long? = null,
+    val collectedBytes: Long? = null,
+    val collectedFileCount: Int? = null,
+    val collectionBytesState: String = "UNAVAILABLE"
+)
+
 data class PipelineRun(
     val schemaVersion: Int = 1,
     val runId: String,
@@ -232,5 +245,7 @@ data class PipelineRun(
     val uploadContext: UploadContext,
     val active: Boolean = false,
     val sourceDirty: Boolean? = null,
-    val release: String? = null
+    val release: String? = null,
+    val telemetry: RunTelemetry? = null,
+    val quality: RunQuality? = null
 )

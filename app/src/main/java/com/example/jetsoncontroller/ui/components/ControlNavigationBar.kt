@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,9 +35,10 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 enum class ControlSection {
     OVERVIEW,
+    COLLECTION,
     DATA,
     SETTINGS,
-    /** Legacy task destinations now belong to Home. */
+    /** Legacy task destinations now belong to Collection. */
     PIPELINES,
     /** Sensor detail is reached from Home or Settings. */
     SENSORS
@@ -50,7 +52,8 @@ private data class NavEntry(
 )
 
 private val controlEntries = listOf(
-    NavEntry(ControlSection.OVERVIEW, Icons.Default.Home, "홈", "현장 홈"),
+    NavEntry(ControlSection.OVERVIEW, Icons.Default.Home, "홈", "홈"),
+    NavEntry(ControlSection.COLLECTION, Icons.Default.PlayCircle, "수집", "수집 시작 또는 현재 수집 확인"),
     NavEntry(ControlSection.DATA, Icons.Default.FolderOpen, "파일", "장치와 서버 파일"),
     NavEntry(ControlSection.SETTINGS, Icons.Default.Settings, "설정", "앱과 장치 설정")
 )
@@ -59,12 +62,12 @@ private val controlEntries = listOf(
 val LocalControlNavigationRailVisible = compositionLocalOf { false }
 
 private fun normalized(section: ControlSection): ControlSection = when (section) {
-    ControlSection.PIPELINES -> ControlSection.OVERVIEW
+    ControlSection.PIPELINES -> ControlSection.COLLECTION
     ControlSection.SENSORS -> ControlSection.SETTINGS
     else -> section
 }
 
-/** Three short destinations from the approved Figma shell. */
+/** Four short destinations from the approved Figma shell. */
 @Composable
 fun ControlNavigationBar(
     selected: ControlSection,
@@ -91,7 +94,8 @@ fun ControlNavigationBar(
 fun ControlNavigationRail(selected: ControlSection, onSelect: (ControlSection) -> Unit) {
     val c = LocalGeoColors.current
     NavigationRail(
-        modifier = Modifier.width(88.dp),
+        // The tablet root scale turns the Material 80dp rail into the approved 88dp rail.
+        modifier = Modifier.width(80.dp),
         containerColor = c.surface,
         header = {
             GeoLogo(Modifier.width(64.dp), backgroundColor = c.surface)

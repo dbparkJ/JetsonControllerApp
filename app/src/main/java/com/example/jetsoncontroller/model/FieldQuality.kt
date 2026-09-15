@@ -14,8 +14,15 @@ data class RunQuality(
     val rtkFixRatio: Double? = null,
     val observationCount: Int = 0,
     val truncated: Boolean = false,
+    val locationPrecision: List<LocationPrecisionDuration> = emptyList(),
     val problemIntervals: List<QualityProblemInterval> = emptyList(),
     val sensors: List<SensorQualitySummary> = emptyList()
+)
+
+data class LocationPrecisionDuration(
+    val fixState: String,
+    val durationMillis: Long,
+    val ratio: Double
 )
 
 data class QualityProblemInterval(

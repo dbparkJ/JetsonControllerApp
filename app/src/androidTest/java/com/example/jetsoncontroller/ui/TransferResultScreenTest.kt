@@ -78,6 +78,38 @@ class TransferResultScreenTest {
         capture("transfer-receipt-unverified")
     }
 
+    @Test fun activeUploadCanLeaveForHomeOrFilesWithoutCancelling() {
+        var home = 0
+        var files = 0
+        var cancelled = 0
+        compose.setContent {
+            JetsonControllerTheme {
+                UploadProgressScreen(
+                    job = completedJob(files = 12, bytes = 2_400_000_000).copy(
+                        state = UploadJobState.UPLOADING,
+                        bytesTransferred = 1_200_000_000
+                    ),
+                    verification = null,
+                    isLoading = false,
+                    message = null,
+                    error = null,
+                    onCancel = { cancelled++ },
+                    onRetry = {}, onVerify = {}, onDeleteSource = {}, onRestoreSource = {}, onBack = {},
+                    onHome = { home++ },
+                    onFiles = { files++ }
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("홈으로").performClick()
+        compose.onNodeWithContentDescription("파일로").performClick()
+        compose.runOnIdle {
+            assertEquals(1, home)
+            assertEquals(1, files)
+            assertEquals(0, cancelled)
+        }
+    }
+
     private fun completedJob(files: Int?, bytes: Long?) = UploadJob(
         id = "job-1",
         rootId = "recordings",

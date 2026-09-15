@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.ui.components.AdaptiveContent
@@ -33,6 +34,9 @@ import com.example.jetsoncontroller.ui.components.GeoSection
 import com.example.jetsoncontroller.ui.components.GeoSectionHeader
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.theme.*
+import kotlinx.coroutines.delay
+
+private val SystemElapsedRealtimeMillis: () -> Long = { System.nanoTime() / 1_000_000L }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,6 +45,7 @@ internal fun ActiveRunScreen(
     connectionLabel: String,
     connectionTone: StatusTone,
     run: PipelineRun?,
+    telemetryReceivedAtElapsedRealtime: Long? = null,
     elapsedLabel: String?,
     lastObservedLabel: String?,
     sensorSummary: String?,
@@ -59,11 +64,54 @@ internal fun ActiveRunScreen(
     onRefresh: () -> Unit,
     onStop: () -> Unit,
     onCamera: () -> Unit,
-    onMap: () -> Unit
+    onMap: () -> Unit,
+    onHome: () -> Unit = {},
+    elapsedRealtimeMillis: () -> Long = SystemElapsedRealtimeMillis
 ) {
     val c = LocalGeoColors.current
     val awaitingStart = pendingStart || unconfirmedRunId != null
-    val confirmedActive = run?.active == true && online && !awaitingStart && stopAvailable
+    val confirmedActive = run?.active == true && online && !awaitingStart
+    val telemetry = verifiedRunTelemetry(run)
+    var displayedDuration by remember(run?.runId) { mutableStateOf(telemetry?.durationMillis) }
+    var nowElapsed by remember(run?.runId) {
+        mutableLongStateOf(telemetryReceivedAtElapsedRealtime ?: 0L)
+    }
+    LaunchedEffect(
+        run?.runId, telemetry?.observedAtEpochMillis, telemetry?.durationMillis,
+        telemetryReceivedAtElapsedRealtime
+    ) {
+        displayedDuration = telemetry?.durationMillis
+        nowElapsed = telemetryReceivedAtElapsedRealtime ?: 0L
+    }
+    LaunchedEffect(
+        run?.runId, telemetry?.observedAtEpochMillis, telemetryReceivedAtElapsedRealtime,
+        confirmedActive, online
+    ) {
+        while (telemetry != null && telemetryReceivedAtElapsedRealtime != null) {
+            nowElapsed = elapsedRealtimeMillis()
+            if (confirmedActive && online && nowElapsed - telemetryReceivedAtElapsedRealtime <= RunTelemetryFreshMillis) {
+                displayedDuration = smoothedDurationMillis(
+                    telemetry.durationMillis, telemetryReceivedAtElapsedRealtime, nowElapsed, mayAdvance = true
+                )
+            }
+            delay(1_000L)
+        }
+    }
+    val telemetryAge = telemetry?.let {
+        telemetryReceivedAtElapsedRealtime?.let { receipt -> (nowElapsed - receipt).coerceAtLeast(0L) }
+    }
+    val elapsedValue = telemetry?.let { runDurationLabel(displayedDuration) } ?: elapsedLabel ?: "—"
+    val bytesValue = telemetry?.let {
+        when {
+            it.collectedBytes != null -> runBytesLabel(it.collectedBytes)
+            it.collectionBytesState.equals("TRUNCATED", true) ||
+                it.collectionBytesState.equals("UNAVAILABLE", true) -> "용량 미확인"
+            else -> "확인 중"
+        }
+    } ?: "확인 중"
+    val observedValue = telemetry?.takeIf { telemetryAge != null }
+        ?.let { telemetryObservationLabel(it, telemetryAge!!) }
+        ?: lastObservedLabel ?: "미확인"
     var confirmStop by remember(run?.runId) { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -156,16 +204,13 @@ internal fun ActiveRunScreen(
             )
         },
         bottomBar = {
-            BoxWithConstraints {
-                val tabletPanelAction = maxWidth >= 600.dp && LocalDensity.current.fontScale <= 1.3f &&
-                    run?.active == true && online && !awaitingStart && stopAvailable
-                if (!tabletPanelAction) {
-                    Surface(color = c.surface) {
-                        Column(
-                            Modifier.fillMaxWidth().navigationBarsPadding()
-                                .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.md)
-                        ) {
-                            when {
+            Surface(color = c.surface) {
+                Column(
+                    Modifier.fillMaxWidth().navigationBarsPadding()
+                        .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.md),
+                    verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)
+                ) {
+                    when {
                                 pendingStart && online -> GeoPrimaryAction(
                                     label = "시작 상태 확인",
                                     onClick = onRetryPendingStart,
@@ -183,14 +228,18 @@ internal fun ActiveRunScreen(
                                     "수집 상태 다시 확인", onRefresh, enabled = online && !stopInProgress,
                                     icon = Icons.Default.Refresh
                                 )
-                                else -> DangerPrimaryAction(
+                                else -> {
+                                    com.example.jetsoncontroller.ui.theme.TextButton(
+                                        onClick = onHome,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.secondaryAction)
+                                    ) { Text("홈으로") }
+                                    DangerPrimaryAction(
                                     label = if (stopInProgress) "수집 종료 확인 중" else "수집 종료",
                                     onClick = { if (confirmedActive && stopAvailable) confirmStop = true },
                                     enabled = confirmedActive && stopAvailable && !stopInProgress
-                                )
+                                    )
+                                }
                             }
-                        }
-                    }
                 }
             }
         }
@@ -212,7 +261,7 @@ internal fun ActiveRunScreen(
                     }
                     else -> item {
                         ActiveWorkspace(
-                            run, deviceName, connectionLabel, elapsedLabel, lastObservedLabel,
+                            run, deviceName, connectionLabel, elapsedValue, bytesValue, observedValue,
                             sensorSummary, storageSummary, online, stopInProgress,
                             stopAvailable, developerModeEnabled, onCamera, onMap,
                             onRequestStop = { if (confirmedActive && stopAvailable) confirmStop = true }
@@ -302,8 +351,9 @@ private fun ActiveWorkspace(
     run: PipelineRun,
     deviceName: String,
     connectionLabel: String,
-    elapsedLabel: String?,
-    lastObservedLabel: String?,
+    elapsedLabel: String,
+    bytesLabel: String,
+    lastObservedLabel: String,
     sensorSummary: String?,
     storageSummary: String?,
     online: Boolean,
@@ -321,7 +371,7 @@ private fun ActiveWorkspace(
             Text(run.contextSnapshot.surveyProjectLabel, style = MaterialTheme.typography.bodySmall, color = c.muted)
             Text(run.contextSnapshot.surveySectionLabel, style = MaterialTheme.typography.headlineMedium, color = c.ink)
             Text(
-                "$deviceName · ${if (online) connectionLabel else "연결 끊김"}",
+                if (online) deviceName else "$deviceName · 연결 끊김",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (confirmedActive) c.success else c.unknown
             )
@@ -335,24 +385,15 @@ private fun ActiveWorkspace(
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val stack = maxWidth < 600.dp || LocalDensity.current.fontScale > 1.3f
             val wideWorkspace = maxWidth >= 1000.dp
-            val tabletPanelAction = !stack && confirmedActive && stopAvailable
             val statusPane: @Composable ColumnScope.() -> Unit = {
-                LiveStatusCard(confirmedActive, stopInProgress, elapsedLabel, lastObservedLabel)
+                LiveStatusCard(confirmedActive, stopInProgress, elapsedLabel, bytesLabel, lastObservedLabel)
                 Spacer(Modifier.height(GeoSpace.lg))
-                ObservationRow(Icons.Default.Storage, "장치 저장", storageSummary ?: "확인 중")
+                ObservationRow(Icons.Default.Storage, "저장 폴더", run.output.path.substringAfterLast('/').ifBlank { "확인 중" })
                 Spacer(Modifier.height(GeoSpace.md))
-                ObservationRow(Icons.Default.Map, "위치 정보", sensorSummary ?: "관찰 중")
+                ObservationRow(Icons.Default.Map, "위치 품질", runQualityPresentation(run.quality).headline)
             }
             val controlsPane: @Composable ColumnScope.() -> Unit = {
                 CameraAction(onCamera, enabled = confirmedActive)
-                if (tabletPanelAction) {
-                    Spacer(Modifier.height(GeoSpace.xl))
-                    DangerPrimaryAction(
-                        label = if (stopInProgress) "수집 종료 확인 중" else "수집 종료",
-                        onClick = onRequestStop,
-                        enabled = !stopInProgress
-                    )
-                }
             }
             if (stack) {
                 Column {
@@ -390,8 +431,9 @@ private fun ActiveWorkspace(
 private fun LiveStatusCard(
     confirmedActive: Boolean,
     stopInProgress: Boolean,
-    elapsedLabel: String?,
-    lastObservedLabel: String?
+    elapsedLabel: String,
+    bytesLabel: String,
+    lastObservedLabel: String
 ) {
     val c = LocalGeoColors.current
     Surface(color = c.surface, shape = RoundedCornerShape(20.dp)) {
@@ -408,9 +450,21 @@ private fun LiveStatusCard(
                 )
             }
             HorizontalDivider(color = c.border)
-            Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.xl)) {
-                Metric("경과 시간", elapsedLabel ?: "—", Modifier.weight(1f), large = true)
-                Metric("마지막 상태 확인", lastObservedLabel ?: "미확인", Modifier.weight(1f))
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val stack = maxWidth < 420.dp || LocalDensity.current.fontScale > 1.3f
+                if (stack) {
+                    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                        Metric("경과 시간", elapsedLabel, Modifier.fillMaxWidth(), large = true)
+                        Metric("수집 용량", bytesLabel, Modifier.fillMaxWidth())
+                        Metric("최근 확인", lastObservedLabel, Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                        Metric("경과 시간", elapsedLabel, Modifier.weight(1f), large = true)
+                        Metric("수집 용량", bytesLabel, Modifier.weight(1f))
+                        Metric("최근 확인", lastObservedLabel, Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
@@ -428,10 +482,29 @@ private fun Metric(label: String, value: String, modifier: Modifier, large: Bool
 @Composable
 private fun ObservationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
     val c = LocalGeoColors.current
-    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = c.primary, modifier = Modifier.size(GeoSize.iconMd))
-        Text(label, Modifier.padding(start = GeoSpace.md).weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Text(value, style = MaterialTheme.typography.labelMedium, color = c.muted)
+    BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 40.dp)) {
+        val stack = maxWidth < 360.dp || LocalDensity.current.fontScale > 1.3f
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Icon(icon, null, tint = c.primary, modifier = Modifier.size(GeoSize.iconMd))
+            if (stack) {
+                Column(
+                    Modifier.padding(start = GeoSpace.md).weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)
+                ) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Text(value, style = MaterialTheme.typography.labelMedium, color = c.muted)
+                }
+            } else {
+                Text(label, Modifier.padding(start = GeoSpace.md), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    value,
+                    Modifier.padding(start = GeoSpace.md).weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.muted,
+                    textAlign = TextAlign.End
+                )
+            }
+        }
     }
 }
 

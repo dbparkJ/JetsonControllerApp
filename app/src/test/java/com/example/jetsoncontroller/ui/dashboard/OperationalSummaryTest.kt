@@ -106,6 +106,17 @@ class OperationalSummaryTest {
     }
 
     @Test
+    fun `home upload summary prioritizes active transfer then newest completed or failed`() {
+        val completed = upload("completed", UploadJobState.COMPLETED)
+        val failed = upload("failed", UploadJobState.FAILED)
+        val active = upload("active", UploadJobState.UPLOADING)
+
+        assertEquals("active", homeUploadSummaryJob(listOf(completed, active, failed))?.id)
+        assertEquals("failed", homeUploadSummaryJob(listOf(failed, completed))?.id)
+        assertEquals(null, homeUploadSummaryJob(listOf(upload("cancelled", UploadJobState.CANCELLED))))
+    }
+
+    @Test
     fun `rtk label reports observation without inventing a pass threshold`() {
         val summary = operationalSummary(
             DashboardUiState(
@@ -138,5 +149,19 @@ class OperationalSummaryTest {
         entrypoint = "run.py",
         config = "config.yaml",
         virtualenv = "venv"
+    )
+
+    private fun upload(id: String, state: UploadJobState) = UploadJob(
+        id = id,
+        rootId = "recordings",
+        relativePath = id,
+        targetId = "server",
+        state = state,
+        bytesTotal = null,
+        bytesTransferred = null,
+        filesTotal = null,
+        filesTransferred = null,
+        currentFile = null,
+        errorMessage = null
     )
 }

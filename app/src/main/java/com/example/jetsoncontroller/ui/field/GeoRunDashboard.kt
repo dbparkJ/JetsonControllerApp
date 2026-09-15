@@ -1,6 +1,9 @@
 package com.example.jetsoncontroller.ui.field
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,13 +11,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -22,18 +28,19 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.*
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceName: String,
-    unreadCount: Int, onBack: () -> Unit, onAlerts: () -> Unit, onSection: (ControlSection) -> Unit,
-    onNew: () -> Unit, onRefresh: () -> Unit, onMore: () -> Unit,
+fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
+    onBack: () -> Unit, onNew: () -> Unit, onRefresh: () -> Unit, onMore: () -> Unit,
     onLog: (TaskRun) -> Unit, onRoute: (TaskRun) -> Unit, onDismissLog: () -> Unit,
     onPipeline: (ManagedPipeline) -> Unit,
     onDeleteRun: (TaskRun) -> Unit = {},
     onDismissMessage: (String) -> Unit = {},
     onUploadOutput: (TaskRun) -> Unit = {},
     onUndoDelete: () -> Unit = {},
+    onTrash: () -> Unit = {},
     developerModeEnabled: Boolean = false
 ) {
     var tab by rememberSaveable(state.deviceId) { mutableStateOf("전체") }
@@ -43,13 +50,13 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
         "완료" -> it.state in listOf("COMPLETED", "STOPPED", "FAILED", "UNKNOWN")
         else -> true
     } }
-    var deleting by remember(state.deviceId, state.online) { mutableStateOf<TaskRun?>(null) }
-    deleting?.let { run -> AlertDialog(onDismissRequest = { deleting = null },
-        title = { Text("작업 이력을 휴지통으로 옮길까요?") },
-        text = { Text("${run.label}\n${com.example.jetsoncontroller.ui.storage.localDateTimeLabel(run.startedAt)}\n\n이 실행의 기록·로그·경로·품질·조사 컨텍스트를 함께 옮깁니다. 수집 원본 데이터와 작업 등록은 유지됩니다.") },
-        confirmButton = { TextButton(onClick = { deleting = null; onDeleteRun(run) },
-            enabled = state.online && state.deletingRunId == null && !run.isActiveRun()) { Text("휴지통으로 이동") } },
-        dismissButton = { TextButton(onClick = { deleting = null }) { Text("취소") } }) }
+    var revealedRunId by rememberSaveable(state.deviceId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(revealedRunId, state.deviceId, state.online, state.deletingRunId, state.runs) {
+        val revealed = state.runs.firstOrNull { it.id == revealedRunId }
+        if (revealed == null || !state.online || state.deletingRunId != null || revealed.isActiveRun()) {
+            revealedRunId = null
+        }
+    }
     state.log?.takeIf { developerModeEnabled }?.let { text -> AlertDialog(onDismissRequest = onDismissLog,
         title = { Text("저장된 로그 · 최근 64KB") },
         text = { SelectionContainer { Text(text, Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) } },
@@ -59,13 +66,32 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
         actionLabel = "실행 취소".takeIf { state.undoTrashId != null },
         onAction = onUndoDelete.takeIf { state.undoTrashId != null }
     ) },
-        topBar = { DeviceContextHeader("수집 이력", deviceName, if (state.online) "연결됨" else "오프라인",
-        onBack, unreadCount, onAlerts, actions = {
-            IconButton(onClick = onRefresh, enabled = state.online && !state.loading) { Icon(Icons.Default.Refresh, "기록 새로고침") }
-        }) }, bottomBar = {
-            Surface(color = c.surface) {
-                Box(Modifier.fillMaxWidth().padding(20.dp)) {
-                    ControlNavigationBar(ControlSection.OVERVIEW, onSection)
+        topBar = {
+            TopAppBar(
+                title = { Text("수집 이력") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onTrash) {
+                        Icon(Icons.Default.DeleteOutline, "휴지통")
+                    }
+                    if (developerModeEnabled) {
+                        IconButton(onClick = onRefresh, enabled = state.online && !state.loading) {
+                            Icon(Icons.Default.Refresh, "기록 새로고침")
+                        }
+                    }
+                }
+            )
+        }, bottomBar = {
+            Surface(color = c.surface, tonalElevation = 2.dp) {
+                Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp)) {
+                    Button(
+                        onClick = onNew,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    ) { Text("새 수집 준비") }
                 }
             }
         }) { padding ->
@@ -89,34 +115,21 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
             if (developerModeEnabled) state.technicalError?.let { detail ->
                 item { SelectionContainer { Text(detail, style = MaterialTheme.typography.bodySmall) } }
             }
-            item {
-                DismissibleNoticeBanner(
-                    noticeKey = "history.swipe-to-trash.v1",
-                    message = "기록을 오른쪽으로 밀면 장치 휴지통으로 옮길 수 있습니다."
-                )
-            }
             items(runs, key = { it.id }) { run ->
                 val runPresentation = historyRunPresentation(run, state.online, state.historyCurrent)
                 val canDelete = state.online && state.deletingRunId == null && !run.isActiveRun()
-                val swipe = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
-                    if (value == SwipeToDismissBoxValue.StartToEnd && canDelete) deleting = run
-                    false
-                })
-                SwipeToDismissBox(state = swipe, enableDismissFromStartToEnd = canDelete,
-                    enableDismissFromEndToStart = false,
-                    modifier = Modifier.testTag("task-run-${run.id}").semantics {
-                        if (canDelete) customActions = listOf(CustomAccessibilityAction("작업 이력 삭제") { deleting = run; true })
-                    },
-                    backgroundContent = {
-                        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer, shape = MaterialTheme.shapes.large) {
-                            Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Icon(Icons.Default.DeleteOutline, null)
-                                Text("삭제", style = MaterialTheme.typography.titleMedium)
-                            }
+                TwoStageHistorySwipe(
+                    runId = run.id,
+                    enabled = canDelete,
+                    revealed = revealedRunId == run.id,
+                    onRevealChange = { reveal -> revealedRunId = run.id.takeIf { reveal } },
+                    onTrash = {
+                        if (canDelete) {
+                            revealedRunId = null
+                            onDeleteRun(run)
                         }
-                    }) {
+                    }
+                ) {
                     Surface(color = c.sectionSoft, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -125,7 +138,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
                                 StatusBadge(runPresentation.first, runPresentation.second)
                             }
                             Text(com.example.jetsoncontroller.ui.storage.localDateTimeLabel(run.startedAt), style = MaterialTheme.typography.bodySmall, color = c.muted)
-                            RunQualityEvidence(run.quality, compact = true)
+                            RunQualityEvidence(run.quality, compact = true, title = "수집 요약")
                             run.contextSnapshot?.let { context ->
                                 Text("${context.surveyProjectLabel} · ${context.surveySectionLabel}",
                                     style = MaterialTheme.typography.bodyMedium)
@@ -133,12 +146,25 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
                             run.output?.let { output ->
                                 val manifest = output.manifest
                                 Text(
-                                    if (manifest != null) {
-                                        "결과 ${manifest.fileCount}개 · ${outputBytesLabel(manifest.bytesTotal)} · 기대 결과 ${outputExpectationLabel(manifest.expectationState)}"
-                                    } else "결과 manifest ${output.manifestState}",
+                                    when {
+                                        manifest != null -> "저장 파일 ${manifest.fileCount}개 · ${outputBytesLabel(manifest.bytesTotal)}"
+                                        output.manifestState.equals("PENDING", true) ||
+                                            output.manifestState.equals("RUNNING", true) -> "저장 결과 확인 중"
+                                        output.manifestState.equals("FAILED", true) ||
+                                            output.manifestState.equals("ERROR", true) -> "저장 결과 확인 필요"
+                                        else -> "저장 결과 미확인"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = c.muted
                                 )
+                                if (developerModeEnabled) {
+                                    Text(
+                                        "manifest ${output.manifestState}" +
+                                            (manifest?.let { " · expectation ${it.expectationState}" } ?: ""),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = c.muted
+                                    )
+                                }
                             }
                             OutlinedButton(onClick = { onRoute(run) }, modifier = Modifier.fillMaxWidth()) {
                                 Text("수집 경로")
@@ -147,7 +173,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
                                 OutlinedButton(onClick = { onLog(run) }, enabled = state.online,
                                     modifier = Modifier.fillMaxWidth()) { Text("실행 로그") }
                             }
-                            if ((run.runId != null || run.contextSnapshot != null) && run.output?.manifestState == "FINAL") {
+                            if (canonicalHistoryRunId(run) != null) {
                                 Button(onClick = { onUploadOutput(run) }, modifier = Modifier.fillMaxWidth()) {
                                     Icon(Icons.Default.CloudUpload, null)
                                     Spacer(Modifier.width(8.dp))
@@ -161,23 +187,103 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>, deviceN
                     }
                 }
             }
-            if (runs.isEmpty() && !state.loading) item { EmptyState("표시할 수집 기록 없음", "수집을 시작하면 시간, 결과와 수집 경로가 여기에 남습니다.") }
-            if (state.nextOffset != null) item { OutlinedButton(onClick = onMore, enabled = state.online && !state.loading && state.deletingRunId == null, modifier = Modifier.fillMaxWidth()) { Text("이전 기록 더 불러오기") } }
-            item { Surface(onClick = onNew, color = c.sectionRaised, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Icon(Icons.Default.AddCircle, "새 수집", Modifier.size(42.dp), tint = c.primary)
-                    Column { Text("새 수집 준비", style = MaterialTheme.typography.titleMedium); Text("프로젝트·구간과 수집 작업 선택", style = MaterialTheme.typography.bodySmall) }
+            if (runs.isEmpty() && !state.loading) item {
+                Box(Modifier.fillMaxWidth().padding(vertical = 56.dp), contentAlignment = Alignment.Center) {
+                    Text("수집 이력이 없습니다", style = MaterialTheme.typography.titleMedium, color = c.muted)
                 }
-            } }
+            }
+            if (state.nextOffset != null) item { OutlinedButton(onClick = onMore, enabled = state.online && !state.loading && state.deletingRunId == null, modifier = Modifier.fillMaxWidth()) { Text("이전 기록 더 불러오기") } }
         }
         }
     }
 }
 
-private fun outputExpectationLabel(state: String): String = when (state.uppercase()) {
-    "SATISFIED" -> "충족"
-    "NOT_SATISFIED" -> "미충족"
-    else -> "확인 중"
+@Composable
+private fun TwoStageHistorySwipe(
+    runId: String,
+    enabled: Boolean,
+    revealed: Boolean,
+    onRevealChange: (Boolean) -> Unit,
+    onTrash: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val density = LocalDensity.current
+    val revealPx = with(density) { 84.dp.toPx() }
+    var offsetPx by remember(runId, revealed) { mutableFloatStateOf(if (revealed) revealPx else 0f) }
+    var sent by remember(runId, revealed) { mutableStateOf(false) }
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            offsetPx = 0f
+            onRevealChange(false)
+        }
+    }
+    Box(
+        Modifier.fillMaxWidth().testTag("task-run-$runId").semantics {
+            if (enabled) customActions = listOf(
+                CustomAccessibilityAction("작업 이력을 휴지통으로 이동") {
+                    if (!sent) {
+                        sent = true
+                        onTrash()
+                    }
+                    true
+                }
+            )
+        }
+    ) {
+        Surface(
+            onClick = {
+                if (enabled && !sent) {
+                    sent = true
+                    onTrash()
+                }
+            },
+            color = LocalGeoColors.current.danger,
+            contentColor = LocalGeoColors.current.onDanger,
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier.matchParentSize().testTag("task-run-trash-$runId")
+        ) {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Icon(Icons.Default.DeleteOutline, null)
+                Spacer(Modifier.width(8.dp))
+                Text("휴지통", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        Box(
+            Modifier.fillMaxWidth()
+                .offset { IntOffset(offsetPx.roundToInt(), 0) }
+                // The tag follows the layout modifier so instrumentation observes the
+                // translated card bounds after the first-stage reveal.
+                .testTag("task-run-content-$runId")
+                .draggable(
+                    enabled = enabled,
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { delta ->
+                        offsetPx = (offsetPx + delta).coerceIn(0f, revealPx * 2f)
+                    },
+                    onDragStopped = {
+                        if (!enabled) {
+                            offsetPx = 0f
+                            onRevealChange(false)
+                        } else if (revealed && offsetPx >= revealPx * 1.65f) {
+                            if (!sent) {
+                                sent = true
+                                onTrash()
+                            }
+                        } else if (offsetPx >= revealPx * 0.55f) {
+                            offsetPx = revealPx
+                            onRevealChange(true)
+                        } else {
+                            offsetPx = 0f
+                            onRevealChange(false)
+                        }
+                    }
+                )
+        ) { content() }
+    }
 }
 
 private fun outputBytesLabel(bytes: Long): String = when {
@@ -194,4 +300,10 @@ internal fun historyRunPresentation(run: TaskRun, online: Boolean, historyCurren
     run.state == "STOPPED" -> "중지" to StatusTone.INFO
     run.state == "FAILED" -> "실패" to StatusTone.ERROR
     else -> "결과 미확인" to StatusTone.WARNING
+}
+
+internal fun canonicalHistoryRunId(run: TaskRun): String? {
+    if (run.contextSnapshot == null || !run.output?.manifestState.equals("FINAL", true)) return null
+    val manifestId = run.output?.manifest?.runId?.takeIf(String::isNotBlank) ?: return null
+    return run.runId?.takeIf { it == manifestId } ?: manifestId.takeIf { run.runId == null }
 }

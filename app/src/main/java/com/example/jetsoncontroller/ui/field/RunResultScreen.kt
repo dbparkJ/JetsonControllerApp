@@ -147,6 +147,10 @@ internal fun RunResultScreen(
                         val summary: @Composable ColumnScope.() -> Unit = {
                             ResultHero(run, finishedTone, deviceName)
                             Spacer(Modifier.height(GeoSpace.xl))
+                            ResultMetrics(run)
+                            Spacer(Modifier.height(GeoSpace.lg))
+                            RunQualityEvidence(run.quality)
+                            Spacer(Modifier.height(GeoSpace.lg))
                             ReceiptCard(
                                 run = run,
                                 manifest = manifest,
@@ -158,7 +162,7 @@ internal fun RunResultScreen(
                             )
                         }
                         val actions: @Composable ColumnScope.() -> Unit = {
-                            CollectedFilesAction(onOpenFiles)
+                            CollectedFilesAction(run, stored, onOpenFiles)
                             if (!online) {
                                 Spacer(Modifier.height(GeoSpace.lg))
                                 AppBanner(
@@ -201,6 +205,43 @@ internal fun RunResultScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ResultMetrics(run: PipelineRun) {
+    val telemetry = verifiedRunTelemetry(run)
+    val manifest = run.output.manifest?.takeIf { runOutputStored(run) }
+    val duration = runDurationLabel(telemetry?.durationMillis)
+    val bytes = runBytesLabel(telemetry?.collectedBytes ?: manifest?.bytesTotal)
+    val precision = precisionMetricLabel(run.quality)
+    val c = LocalGeoColors.current
+    Surface(color = c.surface, shape = RoundedCornerShape(20.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(GeoSpace.xl)) {
+            val stack = maxWidth < 320.dp || LocalDensity.current.fontScale > 1.3f
+            if (stack) {
+                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                    ResultMetric("수집 시간", duration, Modifier.fillMaxWidth())
+                    ResultMetric("수집 용량", bytes, Modifier.fillMaxWidth())
+                    ResultMetric("정밀 위치", precision, Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                    ResultMetric("수집 시간", duration, Modifier.weight(1f))
+                    ResultMetric("수집 용량", bytes, Modifier.weight(1f))
+                    ResultMetric("정밀 위치", precision, Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    val c = LocalGeoColors.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        Text(value, style = GeoType.numeric, color = c.ink)
     }
 }
 
@@ -303,16 +344,25 @@ private fun ReceiptRow(
 }
 
 @Composable
-private fun CollectedFilesAction(onClick: () -> Unit) {
+private fun CollectedFilesAction(run: PipelineRun, stored: Boolean, onClick: () -> Unit) {
     val c = LocalGeoColors.current
-    Surface(onClick = onClick, color = c.canvas, contentColor = c.primary, shape = RoundedCornerShape(12.dp)) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = GeoSize.secondaryAction).padding(vertical = GeoSpace.sm),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Default.FolderOpen, null)
-            Text("수집한 파일 보기", Modifier.padding(start = GeoSpace.md).weight(1f), style = MaterialTheme.typography.labelLarge)
-            Icon(Icons.Default.ChevronRight, null)
+    Surface(onClick = onClick, enabled = stored, color = c.surface, contentColor = c.ink, shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(GeoSpace.lg), verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+            Text("저장 폴더", style = MaterialTheme.typography.bodySmall, color = c.muted)
+            Text(
+                if (stored) run.output.path.substringAfterLast('/').ifBlank { "폴더 확인 중" } else "저장 확인 중",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.FolderOpen, null, tint = c.primary)
+                Text(
+                    if (stored) "수집한 파일 보기" else "파일 목록 확인 대기",
+                    Modifier.padding(start = GeoSpace.md).weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (stored) c.primary else c.muted
+                )
+                Icon(Icons.Default.ChevronRight, null, tint = if (stored) c.primary else c.muted)
+            }
         }
     }
 }
@@ -354,8 +404,8 @@ private fun ExpectationSection(manifest: PipelineOutputManifest) {
 }
 
 private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000.0)
-    bytes >= 1_000_000L -> "%.1f MB".format(bytes / 1_000_000.0)
-    bytes >= 1_000L -> "%.0f KB".format(bytes / 1_000.0)
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1_024L -> "%.0f KB".format(bytes / 1_024.0)
     else -> "$bytes B"
 }

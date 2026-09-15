@@ -146,8 +146,8 @@ fun deviceLocationAvailabilityLabel(availability: DeviceLocationAvailability): S
     when (availability) {
         DeviceLocationAvailability.OFFLINE -> "장치가 오프라인입니다"
         DeviceLocationAvailability.STALE -> "장치 위치 데이터가 지연되고 있습니다"
-        DeviceLocationAvailability.OFF -> "GNSS 수신 상태 미확인"
-        DeviceLocationAvailability.NO_FIX -> "장치 위치 수신 대기 중"
+        DeviceLocationAvailability.OFF -> "위치 상태 미확인"
+        DeviceLocationAvailability.NO_FIX -> "위치 없음"
         DeviceLocationAvailability.ACTIVE -> "장치 위치 수신 중"
     }
 

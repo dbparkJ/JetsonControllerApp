@@ -64,7 +64,8 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         val g = generation
         val offset = if (more) _state.value.nextOffset ?: return else 0
         historyJob = viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null, technicalError = null)
+            val showLoading = historyRefreshShowsLoading(more, retainLoaded, _state.value.runs.isNotEmpty())
+            _state.value = _state.value.copy(loading = showLoading, error = null, technicalError = null)
             repository.taskRuns(offset).onSuccess { result ->
                 if (g == generation) {
                     val previous = _state.value
@@ -257,6 +258,12 @@ internal fun routeResponseIsCurrent(
     responseRunId: String
 ): Boolean = expectedDeviceGeneration == currentDeviceGeneration &&
     expectedRequestGeneration == currentRequestGeneration && selectedRunId == responseRunId
+
+internal fun historyRefreshShowsLoading(
+    more: Boolean,
+    retainLoaded: Boolean,
+    hasLoadedRuns: Boolean
+): Boolean = more || !retainLoaded || !hasLoadedRuns
 
 internal fun TaskRun.isActiveRun(): Boolean = active || state in setOf("STARTING", "RUNNING", "STOPPING")
 

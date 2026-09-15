@@ -5,6 +5,7 @@ import fnmatch
 import grp
 import hashlib
 import json
+import math
 import os
 import pwd
 import re
@@ -16,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from .field_quality import FieldQualitySampler
+from .field_quality import FIELD_QUALITY_SCHEMA_VERSION, FieldQualitySampler
 from .system_control import read_time_sync_marker
 
 
@@ -34,6 +35,9 @@ MAX_PREFLIGHTS = 512
 MAX_START_REQUESTS = 1024
 MAX_REQUEST_STORE_BYTES = 512 * 1024
 MAX_OUTPUT_FILES = 100_000
+MAX_QUALITY_SUMMARY_BYTES = 256 * 1024
+LIVE_OUTPUT_SCAN_BUDGET_SECONDS = 0.05
+LIVE_OUTPUT_USAGE_REFRESH_MILLIS = 5_000
 PREFLIGHT_MAX_AGE_MILLIS = 120_000
 
 
@@ -197,6 +201,9 @@ class RunContextService:
         self.clock = clock
         self.boot_id = boot_id
         self._lock = threading.RLock()
+        self._live_output_usage_cache: Dict[
+            Tuple[str, str, str, str], Dict[str, object]
+        ] = {}
         self.records_dir = self.state_dir / "pipeline-runs"
         self.preflights_dir = self.state_dir / "pipeline-preflights"
         self.start_requests_path = self.state_dir / "pipeline-start-requests.json"
@@ -933,6 +940,283 @@ class RunContextService:
             "stopSignal": None,
         }
 
+    def _read_quality_summary(self, record: Mapping[str, object]) -> Optional[Dict[str, object]]:
+        path = (
+            self.logs_root
+            / str(record["pipelineId"])
+            / (str(record["logId"]) + ".quality.json")
+        )
+        descriptor = None
+        try:
+            descriptor = os.open(
+                path,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            )
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_size <= 0
+                or metadata.st_size > MAX_QUALITY_SUMMARY_BYTES
+            ):
+                return None
+            encoded = os.pread(descriptor, metadata.st_size, 0)
+            if len(encoded) != metadata.st_size:
+                return None
+        except OSError:
+            return None
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+        try:
+            value = json.loads(encoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if (
+            not isinstance(value, dict)
+            or value.get("schemaVersion") != FIELD_QUALITY_SCHEMA_VERSION
+            or value.get("sampleState")
+            not in {"NO_SAMPLES", "UNKNOWN", "INSUFFICIENT_TIMING", "OBSERVED"}
+            or not isinstance(value.get("problemIntervals"), list)
+            or not isinstance(value.get("sensors"), list)
+        ):
+            return None
+        precision = value.get("locationPrecision", [])
+        known_precision = {"FIXED", "FLOAT", "DIFFERENTIAL", "STANDALONE", "NO_FIX"}
+        if not isinstance(precision, list) or len(precision) > len(known_precision):
+            return None
+        seen_precision = set()
+        for item in precision:
+            if not isinstance(item, dict):
+                return None
+            state = item.get("fixState")
+            duration = item.get("durationMillis")
+            ratio = item.get("ratio")
+            if (
+                state not in known_precision
+                or state in seen_precision
+                or not isinstance(duration, int)
+                or isinstance(duration, bool)
+                or duration <= 0
+                or not isinstance(ratio, (int, float))
+                or isinstance(ratio, bool)
+                or not math.isfinite(float(ratio))
+                or not 0 <= float(ratio) <= 1
+            ):
+                return None
+            seen_precision.add(state)
+        return value
+
+    def _scan_live_output_usage(self, directory: Path) -> Dict[str, object]:
+        deadline = time.monotonic() + LIVE_OUTPUT_SCAN_BUDGET_SECONDS
+        file_count = 0
+        bytes_total = 0
+        entry_count = 0
+        pending: List[Tuple[int, bool]] = []
+        try:
+            root_metadata = os.lstat(directory)
+            if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
+                return {"state": "UNAVAILABLE", "fileCount": None, "bytesTotal": None}
+            root_descriptor = os.open(
+                directory,
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
+            pending.append((root_descriptor, True))
+            while pending:
+                descriptor, is_root = pending.pop()
+                try:
+                    with os.scandir(descriptor) as entries:
+                        for entry in entries:
+                            entry_count += 1
+                            if (
+                                entry_count > MAX_OUTPUT_FILES
+                                or time.monotonic() >= deadline
+                            ):
+                                return {
+                                    "state": "TRUNCATED",
+                                    "fileCount": None,
+                                    "bytesTotal": None,
+                                }
+                            try:
+                                metadata = entry.stat(follow_symlinks=False)
+                            except OSError:
+                                return {
+                                    "state": "UNAVAILABLE",
+                                    "fileCount": None,
+                                    "bytesTotal": None,
+                                }
+                            if stat.S_ISDIR(metadata.st_mode):
+                                child = os.open(
+                                    entry.name,
+                                    os.O_RDONLY
+                                    | os.O_DIRECTORY
+                                    | getattr(os, "O_CLOEXEC", 0)
+                                    | getattr(os, "O_NOFOLLOW", 0),
+                                    dir_fd=descriptor,
+                                )
+                                pending.append((child, False))
+                            elif stat.S_ISREG(metadata.st_mode):
+                                if is_root and entry.name in {
+                                    ".jetson-output-context.json",
+                                    ".jetson-output-manifest.json",
+                                }:
+                                    continue
+                                file_count += 1
+                                bytes_total += metadata.st_size
+                finally:
+                    os.close(descriptor)
+                if time.monotonic() >= deadline:
+                    return {"state": "TRUNCATED", "fileCount": None, "bytesTotal": None}
+        except OSError:
+            return {"state": "UNAVAILABLE", "fileCount": None, "bytesTotal": None}
+        finally:
+            for descriptor, _ in pending:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+        return {"state": "OBSERVED", "fileCount": file_count, "bytesTotal": bytes_total}
+
+    @staticmethod
+    def _timestamp_epoch_millis(value: object) -> Optional[int]:
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return None
+            return int(parsed.timestamp() * 1000)
+        except ValueError:
+            return None
+
+    def _run_telemetry(self, record: Mapping[str, object]) -> Dict[str, object]:
+        observed_at = int(self.clock() * 1000)
+        started_at = record.get("startedAtEpochMillis")
+        if not isinstance(started_at, int) or isinstance(started_at, bool):
+            started_at = self._timestamp_epoch_millis(record.get("startedAt"))
+        finished_at = self._timestamp_epoch_millis(record.get("finishedAt"))
+        terminal_state = record.get("state") in TERMINAL_STATES
+        duration_end = finished_at if terminal_state else observed_at
+        duration = (
+            max(0, duration_end - started_at)
+            if (
+                isinstance(started_at, int)
+                and not isinstance(started_at, bool)
+                and isinstance(duration_end, int)
+                and duration_end >= started_at
+            )
+            else None
+        )
+        output = record.get("output") if isinstance(record.get("output"), dict) else {}
+        assert isinstance(output, dict)
+        run_id = str(record.get("runId", ""))
+        output_id = str(output.get("outputId", ""))
+        source_revision = str(record.get("sourceRevision", ""))
+        config_revision = str(record.get("configRevision", ""))
+        cache_key = (run_id, output_id, source_revision, config_revision)
+        if terminal_state:
+            self._live_output_usage_cache.pop(cache_key, None)
+            manifest = output.get("manifest") if isinstance(output.get("manifest"), dict) else None
+            output_context = (
+                record.get("outputContext")
+                if isinstance(record.get("outputContext"), dict)
+                else {}
+            )
+            assert isinstance(output_context, dict)
+            context_matches = all((
+                output.get("manifestState") == "FINAL",
+                manifest is not None,
+                manifest.get("runId") == run_id if manifest is not None else False,
+                output_context.get("runId") == run_id,
+                output_context.get("outputId") == output_id,
+                output_context.get("deviceId") == record.get("deviceId"),
+                output_context.get("pipelineId") == record.get("pipelineId"),
+                output_context.get("sourceRevision") == record.get("sourceRevision"),
+                output_context.get("configSha256") == record.get("configRevision"),
+            ))
+            if not context_matches:
+                usage = {"state": "UNAVAILABLE", "fileCount": None, "bytesTotal": None}
+            elif manifest is not None and manifest.get("truncated") is not True:
+                file_count = manifest.get("fileCount")
+                bytes_total = manifest.get("bytesTotal")
+                if (
+                    isinstance(file_count, int)
+                    and not isinstance(file_count, bool)
+                    and file_count >= 0
+                    and isinstance(bytes_total, int)
+                    and not isinstance(bytes_total, bool)
+                    and bytes_total >= 0
+                ):
+                    usage = {
+                        "state": "FINAL",
+                        "fileCount": file_count,
+                        "bytesTotal": bytes_total,
+                        "observedAtEpochMillis": (
+                            self._timestamp_epoch_millis(manifest.get("generatedAt"))
+                            or observed_at
+                        ),
+                    }
+                else:
+                    usage = {"state": "UNAVAILABLE", "fileCount": None, "bytesTotal": None}
+            elif manifest is not None:
+                usage = {"state": "TRUNCATED", "fileCount": None, "bytesTotal": None}
+            else:
+                usage = {"state": "UNAVAILABLE", "fileCount": None, "bytesTotal": None}
+        else:
+            cached = self._live_output_usage_cache.get(cache_key)
+            attempted_at = cached.get("attemptedAtEpochMillis") if cached is not None else None
+            if (
+                cached is not None
+                and isinstance(attempted_at, int)
+                and 0 <= observed_at - attempted_at < LIVE_OUTPUT_USAGE_REFRESH_MILLIS
+            ):
+                usage = cached
+            else:
+                sampled = {"state": "UNAVAILABLE", "fileCount": None, "bytesTotal": None}
+                try:
+                    _, expected_directory = self.storage.resolve(
+                        str(output["rootId"]), str(output["path"])
+                    )
+                    if expected_directory == Path(str(record["outputDirectory"])):
+                        sampled = self._scan_live_output_usage(expected_directory)
+                except (KeyError, OSError, RunContextError, ValueError):
+                    pass
+                if (
+                    sampled["state"] != "OBSERVED"
+                    and cached is not None
+                    and isinstance(cached.get("bytesTotal"), int)
+                    and isinstance(cached.get("fileCount"), int)
+                ):
+                    usage = {
+                        **cached,
+                        "state": "STALE",
+                        "attemptedAtEpochMillis": observed_at,
+                    }
+                else:
+                    usage = {
+                        **sampled,
+                        "observedAtEpochMillis": observed_at,
+                        "attemptedAtEpochMillis": observed_at,
+                    }
+                self._live_output_usage_cache[cache_key] = usage
+        usage_observed_at = usage.get("observedAtEpochMillis")
+        if not isinstance(usage_observed_at, int):
+            usage_observed_at = observed_at
+        return {
+            "schemaVersion": 1,
+            "runId": run_id,
+            "outputId": output_id,
+            "sourceRevision": source_revision,
+            "observedAtEpochMillis": observed_at,
+            "bytesObservedAtEpochMillis": usage_observed_at,
+            "durationMillis": duration,
+            "collectedBytes": usage.get("bytesTotal"),
+            "collectedFileCount": usage.get("fileCount"),
+            "collectionBytesState": usage["state"],
+        }
+
     def _scan_output(self, record: Mapping[str, object]) -> Dict[str, object]:
         directory = Path(str(record["outputDirectory"]))
         expected = record["policySnapshot"]["expectedOutput"]  # type: ignore[index]
@@ -1055,6 +1339,8 @@ class RunContextService:
             if record.get("state") in TERMINAL_STATES:
                 self._tombstone_launch(record)
             response = dict(record)
+            response["telemetry"] = self._run_telemetry(record)
+            response["quality"] = self._read_quality_summary(record)
             response.pop("outputDirectory", None)
             response["uploadContext"] = response.pop("outputContext")
             return response

@@ -63,7 +63,7 @@ fun SensorScreen(
             connectionTone = if (deviceOnline) StatusTone.SUCCESS else StatusTone.UNKNOWN) },
         bottomBar = {
             ControlNavigationBar(
-                selected = ControlSection.OVERVIEW,
+                selected = ControlSection.SETTINGS,
                 onSelect = onSectionSelected,
                 enabledSections = if (fullControlAvailable) {
                     ControlSection.entries.toSet()

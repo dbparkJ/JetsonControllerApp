@@ -41,7 +41,7 @@ class SlateHarmonyScreenTest {
         compose.setContent {
             JetsonControllerTheme(darkTheme = dark) {
                 Box(Modifier.width(360.dp).fillMaxHeight()) {
-                    DataHubScreen("테스트 장비", storage, true, "", 0,
+                    DataHubScreen(storage, true, "", 0,
                         {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> transfers++ }, {})
                 }
             }

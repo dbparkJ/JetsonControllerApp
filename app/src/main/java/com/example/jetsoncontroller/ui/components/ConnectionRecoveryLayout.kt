@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -62,8 +63,10 @@ internal fun ConnectionRecoveryLayout(
 
     Surface(color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
-            // Each screen keeps its full height and its own bottom system inset.
-            content(Modifier.fillMaxSize())
+            // The activity already uses adjustResize. Explicitly consuming the Compose IME
+            // inset also keeps edge-to-edge Android versions from covering focused controls
+            // and lifts each screen's action/navigation bar with the keyboard.
+            content(Modifier.fillMaxSize().imePadding())
             val colors = LocalCobaltColors.current
             SnackbarHost(
                 hostState = snackbarHost,

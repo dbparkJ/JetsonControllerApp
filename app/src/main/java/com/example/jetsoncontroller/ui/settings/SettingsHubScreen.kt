@@ -16,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,7 +48,18 @@ fun SettingsHubScreen(
     val (theme, setTheme) = rememberThemePreference()
     var themePickerOpen by rememberSaveable { mutableStateOf(false) }
     var aboutOpen by rememberSaveable { mutableStateOf(false) }
+    var developerUnlockTaps by rememberSaveable { mutableIntStateOf(0) }
     var helpOpen by rememberSaveable { mutableStateOf(false) }
+    val registerDeveloperUnlockTap = {
+        if (!developerModeEnabled) {
+            developerUnlockTaps += 1
+            if (developerUnlockTaps >= 7) {
+                developerUnlockTaps = 0
+                aboutOpen = false
+                onDeveloperModeChange(true)
+            }
+        }
+    }
 
     if (themePickerOpen) {
         AlertDialog(
@@ -85,10 +97,22 @@ fun SettingsHubScreen(
     if (aboutOpen) {
         AlertDialog(
             onDismissRequest = { aboutOpen = false },
-            title = { Text("앱 정보") },
+            title = {
+                Text(
+                    "앱 정보",
+                    modifier = Modifier.testTag("developer-unlock").clickable(
+                        enabled = !developerModeEnabled,
+                        onClick = registerDeveloperUnlockTap
+                    )
+                )
+            },
             text = {
                 Text(
-                    "GEO& Jetson Controller\n버전 ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}"
+                    "GEO& Jetson Controller\n버전 ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}",
+                    modifier = Modifier.clickable(
+                        enabled = !developerModeEnabled,
+                        onClick = registerDeveloperUnlockTap
+                    )
                 )
             },
             confirmButton = {
@@ -181,16 +205,19 @@ fun SettingsHubScreen(
                                     icon = null,
                                     title = "앱 정보",
                                     value = "GEO& ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}",
-                                    onClick = { aboutOpen = true },
+                                    onClick = {
+                                        developerUnlockTaps = if (developerModeEnabled) 0 else 1
+                                        aboutOpen = true
+                                    },
                                     standalone = true
                                 )
-                                SettingsSection("고급") {
-                                    DeveloperModeRow(
-                                        enabled = developerModeEnabled,
-                                        onEnabledChange = onDeveloperModeChange
-                                    )
-                                }
                                 if (developerModeEnabled) {
+                                    SettingsSection("고급") {
+                                        DeveloperModeRow(
+                                            enabled = true,
+                                            onEnabledChange = onDeveloperModeChange
+                                        )
+                                    }
                                     SettingsSection("개발자 도구") {
                                         SettingsPreferenceRow(
                                             icon = Icons.Default.Terminal,

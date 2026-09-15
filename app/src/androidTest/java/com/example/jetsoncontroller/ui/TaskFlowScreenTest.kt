@@ -18,6 +18,7 @@ import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineUiState
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -69,24 +70,29 @@ class TaskFlowScreenTest {
         compose.onNodeWithText(state.technicalError!!).assertIsDisplayed()
     }
 
-    @Test fun historyDeletionRequiresConfirmationAndRunningRunsCannotBeDeleted() {
+    @Test fun historyRequiresTwoRightSwipesAndRunningRunsCannotBeDeleted() {
         val run = TaskRun("capture/log", "capture", "완료된 수집", "log", "2026-09-14T01:00:00Z", state = "COMPLETED")
         var state by mutableStateOf(FieldState(deviceId = "A", online = true, runs = listOf(run)))
         var deleted = 0
         compose.setContent { JetsonControllerTheme {
-            GeoRunDashboard(state, emptyList(), "테스트 장비", 0, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
-                onDeleteRun = { deleted++; state = state.copy(runs = emptyList()) })
+            GeoRunDashboard(
+                state = state, pipelines = emptyList(), onNew = {}, onRefresh = {}, onMore = {}, onBack = {},
+                onLog = {}, onRoute = {}, onDismissLog = {}, onPipeline = {},
+                onDeleteRun = { deleted++; state = state.copy(runs = emptyList()) }
+            )
         } }
+        val initialLeft = compose.onNodeWithTag("task-run-content-capture/log")
+            .fetchSemanticsNode().boundsInRoot.left
         compose.onNodeWithTag("task-run-capture/log").performScrollTo().performTouchInput { swipeRight() }
-        compose.onNodeWithText("취소").performClick()
         compose.runOnIdle { assertEquals(0, deleted) }
+        val revealedLeft = compose.onNodeWithTag("task-run-content-capture/log")
+            .fetchSemanticsNode().boundsInRoot.left
+        assertTrue(revealedLeft > initialLeft)
         compose.onNodeWithTag("task-run-capture/log").performTouchInput { swipeRight() }
-        compose.onNode(hasText("휴지통으로 이동") and hasAnyAncestor(isDialog())).performClick()
         compose.onNodeWithText("완료된 수집").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, deleted); state = state.copy(runs = listOf(run.copy(state = "RUNNING"))) }
         compose.onNodeWithTag("task-run-capture/log").performScrollTo().performTouchInput { swipeRight() }
-        compose.onNodeWithText("작업 이력을 휴지통으로 옮길까요?").assertDoesNotExist()
-        compose.onNodeWithText("휴지통으로 이동").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, deleted) }
     }
 
     @Test fun taskTabClearsSavedDetailsAndAlwaysReturnsToFreshTaskSelection() {

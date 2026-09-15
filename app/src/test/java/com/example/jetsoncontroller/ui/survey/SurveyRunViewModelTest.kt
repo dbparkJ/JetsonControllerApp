@@ -32,6 +32,62 @@ class SurveyRunViewModelTest {
     @After fun resetMain() = Dispatchers.resetMain()
 
     @Test
+    fun `late telemetry from predecessor cannot replace successor in same pipeline`() {
+        val project = project("project")
+        val section = section(project, "section")
+        val predecessor = run("run-a", true, project, section)
+        val successor = run("run-b", true, project, section)
+        val current = SurveyRunUiState(
+            deviceId = "device-a", online = true, pipelineId = "pipe",
+            latestRun = successor, activeRun = successor
+        )
+
+        assertFalse(telemetryPollMatchesScope(current, "run-a", "device-a", "pipe", predecessor, 4, 4))
+        assertFalse(telemetryPollMatchesScope(current, "run-b", "device-a", "pipe", successor, 4, 5))
+        assertTrue(telemetryPollMatchesScope(current, "run-b", "device-a", "pipe", successor, 4, 4))
+    }
+
+    @Test
+    fun `telemetry receipt time is recorded only when the exact packet is accepted`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        var clock = 1_234L
+        val active = run("run-1", true, project, section).let { candidate ->
+            candidate.copy(telemetry = RunTelemetry(
+                runId = candidate.runId,
+                outputId = candidate.output.outputId,
+                sourceRevision = candidate.sourceRevision,
+                observedAtEpochMillis = 10_000L,
+                bytesObservedAtEpochMillis = 9_000L,
+                durationMillis = 5_000L,
+                collectionBytesState = "OBSERVED"
+            ))
+        }
+        val source = FakeSource(project, section, configuredPolicy = policy()).apply {
+            runResult = Result.success(active)
+        }
+        val persistence = FakePersistence(states = mapOf(
+            "device-a" to SurveyRunLocalState(lastPipelineId = "pipe", lastRunId = "run-1")
+        ))
+        val viewModel = SurveyRunViewModel(source, persistence) { clock }
+        advanceUntilIdle()
+        source.connection.value = SurveyDeviceConnection("device-a", true)
+        advanceUntilIdle()
+
+        assertEquals(1_234L, viewModel.uiState.value.telemetryReceivedAtElapsedRealtime)
+
+        clock = 5_678L
+        source.runResult = Result.success(active.copy(telemetry = active.telemetry!!.copy(
+            observedAtEpochMillis = 15_000L,
+            bytesObservedAtEpochMillis = 14_000L
+        )))
+        viewModel.refreshRunTelemetry()
+        advanceUntilIdle()
+        assertEquals(5_678L, viewModel.uiState.value.telemetryReceivedAtElapsedRealtime)
+    }
+
+    @Test
     fun `late non cooperative persistence result from old device cannot replace new scope`() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val oldGate = CompletableDeferred<Unit>()

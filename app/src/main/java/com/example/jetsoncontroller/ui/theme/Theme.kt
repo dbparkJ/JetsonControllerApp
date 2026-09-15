@@ -12,9 +12,22 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
+
+private const val TABLET_UI_SCALE = 1.10f
+
+/** The visual scale applied by the root theme. Breakpoint code can recover physical dp with it. */
+val LocalGeoUiScale = compositionLocalOf { 1f }
+
+internal fun geoUiScaleForSmallestWidth(smallestScreenWidthDp: Int): Float =
+    if (smallestScreenWidthDp >= 600) TABLET_UI_SCALE else 1f
 
 /**
  * Bridges the GEO& semantic roles onto Material 3's scheme so that stock components
@@ -73,6 +86,15 @@ fun JetsonControllerTheme(
 ) {
     val colorScheme = geoScheme(darkTheme)
     val view = LocalView.current
+    val configuration = LocalConfiguration.current
+    val baseDensity = LocalDensity.current
+    val uiScale = geoUiScaleForSmallestWidth(configuration.smallestScreenWidthDp)
+    val scaledDensity = remember(baseDensity.density, baseDensity.fontScale, uiScale) {
+        Density(
+            density = baseDensity.density * uiScale,
+            fontScale = baseDensity.fontScale
+        )
+    }
 
     if (!view.isInEditMode) {
         SideEffect {
@@ -89,6 +111,8 @@ fun JetsonControllerTheme(
 
     CompositionLocalProvider(
         LocalGeoColors provides if (darkTheme) GeoDark else GeoLight,
+        LocalGeoUiScale provides uiScale,
+        LocalDensity provides scaledDensity,
         // Separation comes from borders and explicit surface roles, not from tonal
         // tinting. Tonal elevation made "raised" surfaces drift toward the primary
         // hue, which fought the status colours.

@@ -60,11 +60,9 @@ fun DeviceStorageScreen(
     onTransferQueue: () -> Unit = {},
     thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
     onDismissMessage: (String) -> Unit = {},
-    onUndoDelete: () -> Unit = {},
-    deviceName: String = "선택한 장치"
+    onUndoDelete: () -> Unit = {}
 ) {
     DataHubScreen(
-        deviceName = deviceName,
         state = state,
         serverUploadEnabled = serverUploadEnabled,
         unavailableReason = serverUploadDisabledReason.orEmpty(),

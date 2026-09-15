@@ -110,6 +110,13 @@ class FieldQualitySummaryTest(unittest.TestCase):
         self.assertEqual(summary["rtkUnknownDurationMillis"], 4_000)
         self.assertEqual(summary["rtkFixDurationMillis"], 4_000)
         self.assertAlmostEqual(summary["rtkFixRatio"], 2 / 3, places=6)
+        self.assertEqual(
+            summary["locationPrecision"],
+            [
+                {"fixState": "FIXED", "durationMillis": 4_000, "ratio": 0.666667},
+                {"fixState": "FLOAT", "durationMillis": 2_000, "ratio": 0.333333},
+            ],
+        )
         self.assertNotIn("passed", summary)
         self.assertEqual(
             [(item["kind"], item["durationMillis"]) for item in summary["problemIntervals"]
@@ -127,6 +134,7 @@ class FieldQualitySummaryTest(unittest.TestCase):
         self.assertIsNone(summary["rtkObservedDurationMillis"])
         self.assertIsNone(summary["rtkFixDurationMillis"])
         self.assertIsNone(summary["rtkFixRatio"])
+        self.assertEqual(summary["locationPrecision"], [])
         self.assertEqual(summary["rtkUnknownDurationMillis"], 2_000)
         self.assertIn("GNSS_LOST", [item["kind"] for item in summary["problemIntervals"]])
 

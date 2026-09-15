@@ -169,7 +169,9 @@ class FieldStageScreenTest {
         } }
 
         compose.onNodeWithText("수집 종료 확인").assertIsDisplayed()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("장치 저장 완료"))
         compose.onNodeWithText("장치 저장 완료").assertIsDisplayed()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("서버 수신 미확인"))
         compose.onNodeWithText("서버 수신 미확인").assertIsDisplayed()
         capture("result-terminal")
         compose.onNodeWithText("파일 전송 준비").assertIsEnabled().performClick()
@@ -191,7 +193,9 @@ class FieldStageScreenTest {
         } }
 
         compose.onNodeWithText("수집이 진행 중입니다").assertIsDisplayed()
-        compose.onNodeWithText("—").assertIsDisplayed()
+        compose.onNodeWithText("00:31").assertIsDisplayed()
+        compose.onNodeWithText("2.1 GB").assertIsDisplayed()
+        compose.onNodeWithText("홈으로").assertIsDisplayed()
         compose.onNodeWithText("위치 정보 확인").assertIsDisplayed()
         capture("active-running")
         compose.onNodeWithText("수집 종료").assertIsEnabled().performClick()
@@ -290,7 +294,24 @@ class FieldStageScreenTest {
             state = "FINISHED", startedAt = "13:00", finishedAt = "13:24", exitCode = 0,
             contextSnapshot = context, policySnapshot = policy, preflightSnapshot = preflight,
             sourceRevision = "source-r1", configRevision = "config-r1", output = output,
-            uploadContext = upload, active = false
+            uploadContext = upload, active = false,
+            telemetry = RunTelemetry(
+                runId = "run-1", outputId = "output-1", sourceRevision = "source-r1",
+                observedAtEpochMillis = 1_700_000_000_000L,
+                bytesObservedAtEpochMillis = 1_700_000_000_000L,
+                durationMillis = 31_000L, collectedBytes = 2_232_703_765L,
+                collectedFileCount = 779, collectionBytesState = "FINAL"
+            ),
+            quality = RunQuality(
+                sampleState = "OBSERVED", rtkObservedDurationMillis = 26_000L,
+                rtkUnknownDurationMillis = 4_000L, rtkFixDurationMillis = 20_000L,
+                rtkFixRatio = 20.0 / 26.0,
+                observationCount = 16,
+                locationPrecision = listOf(
+                    LocationPrecisionDuration("FIXED", 20_000L, 20.0 / 26.0),
+                    LocationPrecisionDuration("FLOAT", 6_000L, 6.0 / 26.0)
+                )
+            )
         )
     }
 

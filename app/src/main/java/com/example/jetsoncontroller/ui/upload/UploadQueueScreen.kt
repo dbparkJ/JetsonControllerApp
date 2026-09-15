@@ -16,6 +16,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +44,7 @@ import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.ui.components.EmptyState
 import com.example.jetsoncontroller.ui.components.InlineMessage
+import com.example.jetsoncontroller.ui.components.OperationMessageHost
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,7 +61,10 @@ fun UploadQueueScreen(
     onBack: () -> Unit,
     mutationEnabled: Boolean = true,
     deviceId: String? = null,
-    developerModeEnabled: Boolean = false
+    developerModeEnabled: Boolean = false,
+    onHome: () -> Unit = onBack,
+    onFiles: () -> Unit = onBack,
+    onDismissMessage: (String) -> Unit = {}
 ) {
     val targetLabels = targets.associate { it.id to it.label }
     var pendingDeletion by remember(deviceId, mutationEnabled) { mutableStateOf<UploadJob?>(null) }
@@ -87,6 +93,7 @@ fun UploadQueueScreen(
         )
     }
     Scaffold(
+        snackbarHost = { OperationMessageHost(message, onDismissMessage) },
         topBar = {
             TopAppBar(
                 title = { Text("업로드 확인") },
@@ -96,6 +103,12 @@ fun UploadQueueScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onHome) {
+                        Icon(Icons.Default.Home, contentDescription = "홈으로")
+                    }
+                    IconButton(onClick = onFiles) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "파일로")
+                    }
                     if (developerModeEnabled) {
                         IconButton(onClick = onManageTargets) {
                             Icon(Icons.Default.Dns, contentDescription = "업로드 서버 관리")
@@ -116,15 +129,6 @@ fun UploadQueueScreen(
                             message = it,
                             isError = true,
                             modifier = Modifier.padding(20.dp)
-                        )
-                    }
-                }
-                message?.let {
-                    item {
-                        InlineMessage(
-                            message = it,
-                            isError = false,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                         )
                     }
                 }

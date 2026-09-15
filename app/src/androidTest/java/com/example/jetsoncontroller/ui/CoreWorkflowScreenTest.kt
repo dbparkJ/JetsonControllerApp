@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
@@ -198,7 +199,7 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("현장 홈").assertIsDisplayed()
+        composeRule.onNodeWithTag("home-title").assertTextEquals("홈").assertIsDisplayed()
         composeRule.onNodeWithText("장치 저장 공간").assertIsDisplayed()
         composeRule.onNodeWithText("현재 수집").assertIsDisplayed()
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("최근 수집"))

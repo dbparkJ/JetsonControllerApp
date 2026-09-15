@@ -666,7 +666,7 @@ private fun VideoPreview(preview: DirectServerPreview) {
     }
     failure?.let { error ->
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            InlineMessage("영상 미리보기를 준비하지 못했습니다. $error", true)
+            InlineMessage(error, true)
             OutlinedButton(onClick = { retry += 1 }, modifier = Modifier.fillMaxWidth()) {
                 Text("영상 미리보기 다시 준비")
             }

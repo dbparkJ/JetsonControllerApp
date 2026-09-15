@@ -41,8 +41,8 @@ class CobaltFieldScreenTest {
             for (page in listOf("home", "tasks", "data", "settings", "offline", "detail")) {
                 compose.runOnIdle { screen = page; dark = theme; scale = font }
                 compose.waitForIdle()
-                compose.onNodeWithText("홈", useUnmergedTree = true).assertIsDisplayed()
-                org.junit.Assert.assertTrue(compose.onAllNodesWithText("파일", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+                compose.onNodeWithContentDescription("홈", useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithContentDescription("장치와 서버 파일", useUnmergedTree = true).assertIsDisplayed()
                 if (page == "data") {
                     compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("야간 라인 검사"))
                     compose.onNodeWithText("선택").performClick()
@@ -70,7 +70,6 @@ class CobaltFieldScreenTest {
         restoration.setContent {
             JetsonControllerTheme {
                 com.example.jetsoncontroller.ui.storage.DataHubScreen(
-                    device,
                     com.example.jetsoncontroller.ui.storage.DeviceStorageUiState(
                         deviceId = device,
                         controlAvailable = true,
@@ -107,6 +106,7 @@ class CobaltFieldScreenTest {
 
     @Test fun cachedFilesExplainOfflineStateAndRouteOpenToReconnect() {
         var reconnects = 0
+        var uploadQueueOpens = 0
         val cached = RemoteFileEntry(
             "최근 수집",
             "latest",
@@ -117,7 +117,6 @@ class CobaltFieldScreenTest {
         compose.setContent {
             JetsonControllerTheme {
                 com.example.jetsoncontroller.ui.storage.DataHubScreen(
-                    deviceName = "MMS-4DE0",
                     state = com.example.jetsoncontroller.ui.storage.DeviceStorageUiState(
                         deviceId = "A",
                         controlAvailable = false,
@@ -134,7 +133,7 @@ class CobaltFieldScreenTest {
                     onDirectoryClick = { error("offline folder must not be opened remotely") },
                     onFileClick = { error("offline file must not be opened remotely") },
                     onDeleteClick = {},
-                    onHistory = {},
+                    onHistory = { uploadQueueOpens++ },
                     onTransfer = { _, _ -> },
                     onSection = {}
                 )
@@ -142,6 +141,8 @@ class CobaltFieldScreenTest {
         }
 
         compose.onNodeWithText("연결 끊김 · 마지막으로 확인한 파일 목록입니다.").assertIsDisplayed()
+        compose.onNodeWithText("업로드 목록").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, uploadQueueOpens) }
         compose.onNodeWithText("최근 수집").performClick()
         compose.runOnIdle { assertEquals(1, reconnects) }
         compose.onNodeWithText("선택").performClick()

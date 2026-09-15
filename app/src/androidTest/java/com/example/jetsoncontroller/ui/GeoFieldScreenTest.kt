@@ -37,15 +37,18 @@ class GeoFieldScreenTest {
         val runs = listOf(TaskRun("a", "capture", "진행 화면 예시", "a.log", "2026-09-12T01:00:00Z", state = "RUNNING"),
             TaskRun("b", "capture", "완료 화면 예시", "b.log", "2026-09-11T01:00:00Z", state = "COMPLETED"))
         compose.setContent { JetsonControllerTheme {
-            GeoRunDashboard(FieldState(deviceId = "fixture", runs = runs), emptyList(), "GEO& UI 테스트",
-                0, {}, {}, {}, { newRequests++ }, {}, {}, {}, {}, {}, {})
+            GeoRunDashboard(
+                state = FieldState(deviceId = "fixture", runs = runs),
+                pipelines = emptyList(),
+                onNew = { newRequests++ }, onRefresh = {}, onMore = {}, onBack = {},
+                onLog = {}, onRoute = {}, onDismissLog = {}, onPipeline = {}
+            )
         } }
-        compose.onNodeWithText("기록을 오른쪽으로 밀면 장치 휴지통으로 옮길 수 있습니다.").assertIsDisplayed()
         capture("tasks-all")
         compose.onAllNodesWithText("완료")[0].performClick()
         compose.onNodeWithText("진행 화면 예시").assertDoesNotExist()
         compose.onNodeWithText("완료 화면 예시").assertIsDisplayed()
-        compose.onNodeWithContentDescription("새 수집").performClick()
+        compose.onNodeWithText("새 수집 준비").performClick()
         compose.runOnIdle { assertEquals(1, newRequests) }
     }
 

@@ -266,6 +266,8 @@ Contextual start 요청은 같은 survey ID/revision과 policy revision, `prefli
 
 `GET /v1/pipeline-runs/{runId}`는 root 소유 실행 record를 기준으로 `STARTING`, `RUNNING`, `STOPPING`, `STOPPED`, `COMPLETED`, `FAILED`와 실제 종료 evidence를 반환한다. 자연 종료 코드 0은 `COMPLETED`, operator 중지는 `STOPPED`, 실행 실패나 종료 footer 유실은 `FAILED`다. 일시적인 systemd `UNKNOWN`은 종료 증거가 아니므로 실행 잠금을 풀지 않는다. 완료 시 고유 실행 디렉터리만 재귀 검사하여 기존 파일을 제외한 file count, byte count, pattern별 count를 manifest에 기록한다.
 
+같은 응답의 `telemetry`는 서버가 확인한 실행 시간과 수집 파일 수·용량을 제공한다. 실행 중 용량은 5초 cache, 10만 entry, 50 ms 제한 안에서 고유 output 경로만 `O_NOFOLLOW`로 집계한다. 제한이나 일시 오류가 생기면 이전의 정확한 값은 `STALE`로 유지하고, 정확한 값이 없으면 `TRUNCATED` 또는 `UNAVAILABLE`과 `null`을 반환한다. `observedAtEpochMillis`는 실행 상태 확인 시각이고 `bytesObservedAtEpochMillis`는 용량을 실제 확인한 시각이다. 종료 실행의 `FINAL` 용량은 run·output context가 모두 일치하는 final manifest만 사용한다. `quality.locationPrecision`은 장비가 관찰한 `FIXED`, `FLOAT`, `DIFFERENTIAL`, `STANDALONE`, `NO_FIX`별 시간과 관찰 시간 내 비율이며, 임계값이나 합격 판정을 추가하지 않는다.
+
 운영 화면의 종료 요청은 `POST /v1/pipelines/{pipelineId}/contextual-stop`에 `{ "expectedRunId": "..." }`를 보낸다. 서버는 run-context 잠금 안에서 현재 contextual run과 pipeline runtime의 `activeRunId`가 모두 이 값과 일치할 때만 stop intent를 기록하고 systemd stop을 실행한다. 실행이 바뀌었거나 확인할 수 없으면 `409 ACTIVE_RUN_MISMATCH`로 거부한다. `expectedRunId`가 없는 기존 `/stop`은 개발자·legacy 제어용으로 유지된다. 이 endpoint가 없는 구버전 서버는 요청을 `404`로 거부하므로 Android는 안전하지 않은 `/stop`으로 fallback하지 않는다.
 
 `uploadContext`는 `schemaVersion`, survey project/section ID, `runId`, 장치·pipeline ID, source revision, config SHA-256, `outputId`, 생성 시각을 가진다. Android는 이를 다시 계산하지 않고 그대로 upload 요청에 넣는다. 결과 디렉터리의 `.jetson-output-context.json`은 pipeline 사용자가 교체할 수 있으므로 단독 신뢰 근거가 아니다. API는 선택한 upload source가 root 소유 run record의 정확한 output 경로와 일치할 때만 연결된 upload를 허용한다.

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -21,7 +22,7 @@ import org.junit.Test
 class SettingsDeveloperModeScreenTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun settingsShowsExplicitSwitchAndOnlyRevealsDeveloperToolsWhenEnabled() {
+    @Test fun appInfoSevenTapsUnlocksDeveloperToolsAndDisablingRelocksThem() {
         var enabled by mutableStateOf(false)
         compose.setContent {
             JetsonControllerTheme {
@@ -29,15 +30,28 @@ class SettingsDeveloperModeScreenTest {
             }
         }
 
-        compose.onNodeWithText("개발자 모드").assertIsDisplayed()
+        compose.onNodeWithText("개발자 모드").assertDoesNotExist()
         compose.onNodeWithText("개발자 도구").assertDoesNotExist()
-        compose.onNodeWithText("개발자 모드").performClick()
-        compose.onNodeWithText("개발자 도구").assertIsDisplayed()
+        compose.onNodeWithText("앱 정보").performScrollTo().performClick()
+        repeat(5) { compose.onNodeWithTag("developer-unlock").performClick() }
+        compose.onNodeWithText("개발자 모드").assertDoesNotExist()
+        compose.onNodeWithTag("developer-unlock").performClick()
+        compose.onNodeWithText("개발자 도구").performScrollTo().assertIsDisplayed()
         compose.runOnIdle { assertTrue(enabled) }
 
-        compose.onNodeWithText("개발자 모드").performClick()
+        compose.onNodeWithText("개발자 모드").performScrollTo().performClick()
         compose.onNodeWithText("개발자 도구").assertDoesNotExist()
         compose.runOnIdle { assertFalse(enabled) }
+        compose.onNodeWithText("개발자 모드").assertDoesNotExist()
+    }
+
+    @Test fun previouslyEnabledPreferenceStillShowsItsDisableControl() {
+        compose.setContent {
+            JetsonControllerTheme { SettingsFixture(true) {} }
+        }
+
+        compose.onNodeWithText("개발자 모드").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("개발자 도구").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun disablingModeInsideDeveloperScreenImmediatelyRequestsExit() {

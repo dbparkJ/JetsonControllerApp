@@ -90,7 +90,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 현장 홈.
+ * 홈.
  *
  * The screen answers four questions, in this order, and nothing else competes for the
  * top of the page:
@@ -148,7 +148,8 @@ fun DashboardScreen(
     recentRuns: List<TaskRun> = emptyList(),
     latestRun: PipelineRun? = null,
     recentHistoryCurrent: Boolean = tasksConfirmed,
-    onRecentRunsClick: () -> Unit = onPipelinesClick
+    onRecentRunsClick: () -> Unit = onPipelinesClick,
+    onUploadJobClick: (UploadJob) -> Unit = {}
 ) {
     val c = LocalGeoColors.current
     val statusFresh = state.isOnline && state.statusFreshness == StatusFreshness.CURRENT
@@ -175,6 +176,7 @@ fun DashboardScreen(
     }
     val connectionStage = userConnectionStage(state.isOnline, state.transportType)
     val latestRuns = homeRecentRuns(latestRun, recentRuns, uploads)
+    val summaryUpload = homeUploadSummaryJob(uploads)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tabletLayout = maxWidth >= GeoBreakpoint.medium && LocalDensity.current.fontScale <= 1.3f
@@ -254,6 +256,9 @@ fun DashboardScreen(
                                         storageLabel = storageAvailableLabel(state, statusFresh),
                                         collectionLabel = collectionFactLabel(tasksConfirmed, active)
                                     )
+                                    summaryUpload?.let {
+                                        HomeUploadSummary(it, onUploadQueueClick, onUploadJobClick)
+                                    }
                                     if (showHealth) {
                                         SwipeDismissibleHealthOverview(
                                             state, health, onDismiss = dismissHealth, showCloseButton = true
@@ -297,6 +302,9 @@ fun DashboardScreen(
                                     collectionLabel = collectionFactLabel(tasksConfirmed, active)
                                 )
                             }
+                            summaryUpload?.let { job ->
+                                item { HomeUploadSummary(job, onUploadQueueClick, onUploadJobClick) }
+                            }
                             if (showHealth) item {
                                 SwipeDismissibleHealthOverview(
                                     state, health, onDismiss = dismissHealth, showCloseButton = true
@@ -332,6 +340,9 @@ fun DashboardScreen(
                                     storageLabel = storageAvailableLabel(state, statusFresh),
                                     collectionLabel = collectionFactLabel(tasksConfirmed, active)
                                 )
+                            }
+                            summaryUpload?.let { job ->
+                                item { HomeUploadSummary(job, onUploadQueueClick, onUploadJobClick) }
                             }
                             if (showHealth) item {
                                 SwipeDismissibleHealthOverview(
@@ -391,7 +402,7 @@ private fun HomeTabletBar(deviceName: String, unreadCount: Int, onAlertsClick: (
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
         ) {
-            Text("현장 홈", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+            Text("홈", Modifier.weight(1f).testTag("home-title"), style = MaterialTheme.typography.headlineMedium)
             Text(
                 deviceName,
                 modifier = Modifier.widthIn(max = 174.dp),
@@ -411,12 +422,12 @@ private fun HomeHeading() {
     val date = SimpleDateFormat("M월 d일 EEEE", Locale.KOREAN).format(Date())
     if (LocalDensity.current.fontScale > 1.3f) {
         Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
-            Text("현장 홈", style = MaterialTheme.typography.headlineMedium)
+            Text("홈", Modifier.testTag("home-title"), style = MaterialTheme.typography.headlineMedium)
             Text(date, style = MaterialTheme.typography.bodySmall, color = c.muted)
         }
     } else {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("현장 홈", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+            Text("홈", Modifier.weight(1f).testTag("home-title"), style = MaterialTheme.typography.headlineMedium)
             Text(date, style = MaterialTheme.typography.bodySmall, color = c.muted)
         }
     }
@@ -483,9 +494,81 @@ private fun HomeFacts(storageLabel: String, collectionLabel: String) {
 @Composable
 private fun HomeFact(label: String, value: String, modifier: Modifier = Modifier) {
     val c = LocalGeoColors.current
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = c.muted)
-        Text(value, style = GeoType.numeric)
+    val icon = if (label == "장치 저장 공간") Icons.Default.Storage else Icons.Default.Explore
+    Surface(
+        color = c.surface,
+        contentColor = c.ink,
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier
+    ) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(GeoSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+        ) {
+            Icon(icon, contentDescription = null, tint = c.primary, modifier = Modifier.size(GeoSize.iconMd))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+                Text(label, style = MaterialTheme.typography.bodySmall, color = c.muted)
+                Text(value, style = GeoType.numeric)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeUploadSummary(
+    job: UploadJob,
+    onQueueClick: () -> Unit,
+    onJobClick: (UploadJob) -> Unit
+) {
+    val c = LocalGeoColors.current
+    val active = job.state in setOf(
+        com.example.jetsoncontroller.model.UploadJobState.QUEUED,
+        com.example.jetsoncontroller.model.UploadJobState.SCANNING,
+        com.example.jetsoncontroller.model.UploadJobState.UPLOADING
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+        Surface(
+            onClick = { onJobClick(job) },
+            color = c.surface,
+            contentColor = c.ink,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth().testTag("home-upload-summary")
+        ) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(GeoSpace.md),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null, tint = c.primary)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+                    Text("업로드", style = MaterialTheme.typography.bodySmall, color = c.muted)
+                    Text(
+                        when (job.state) {
+                            com.example.jetsoncontroller.model.UploadJobState.QUEUED -> "업로드 대기 중"
+                            com.example.jetsoncontroller.model.UploadJobState.SCANNING -> "파일 확인 중"
+                            com.example.jetsoncontroller.model.UploadJobState.UPLOADING -> "업로드 중"
+                            com.example.jetsoncontroller.model.UploadJobState.COMPLETED -> "최근 업로드 완료"
+                            com.example.jetsoncontroller.model.UploadJobState.FAILED -> "업로드 확인 필요"
+                            com.example.jetsoncontroller.model.UploadJobState.CANCELLED -> "업로드 취소됨"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (job.state == com.example.jetsoncontroller.model.UploadJobState.FAILED) c.danger else c.ink
+                    )
+                    if (active && job.bytesTransferred != null) {
+                        Text(
+                            formatHomeBytes(job.bytesTransferred),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = c.muted
+                        )
+                    }
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = "업로드 상태 열기", tint = c.muted)
+            }
+        }
+        TextButton(onClick = onQueueClick, modifier = Modifier.align(Alignment.End)) {
+            Text("업로드 목록")
+        }
     }
 }
 
@@ -645,10 +728,21 @@ private fun homeRecentRuns(
     return listOfNotNull(latest).plus(historyItems).distinctBy { it.id }.take(3)
 }
 
+/** The queue API is ordered newest first. An in-flight transfer always outranks history. */
+internal fun homeUploadSummaryJob(jobs: List<UploadJob>): UploadJob? =
+    jobs.firstOrNull {
+        it.state == com.example.jetsoncontroller.model.UploadJobState.QUEUED ||
+            it.state == com.example.jetsoncontroller.model.UploadJobState.SCANNING ||
+            it.state == com.example.jetsoncontroller.model.UploadJobState.UPLOADING
+    } ?: jobs.firstOrNull {
+        it.state == com.example.jetsoncontroller.model.UploadJobState.COMPLETED ||
+            it.state == com.example.jetsoncontroller.model.UploadJobState.FAILED
+    }
+
 private fun formatHomeBytes(bytes: Long): String = when {
-    bytes >= 1_000_000_000L -> "%.1f GB".format(Locale.US, bytes / 1_000_000_000.0)
-    bytes >= 1_000_000L -> "%.1f MB".format(Locale.US, bytes / 1_000_000.0)
-    bytes >= 1_000L -> "%.0f KB".format(Locale.US, bytes / 1_000.0)
+    bytes >= 1_073_741_824L -> "%.1f GB".format(Locale.US, bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.1f MB".format(Locale.US, bytes / 1_048_576.0)
+    bytes >= 1_024L -> "%.0f KB".format(Locale.US, bytes / 1_024.0)
     else -> "$bytes B"
 }
 
@@ -680,7 +774,7 @@ private fun storageAvailableLabel(state: DashboardUiState, current: Boolean): St
 // =====================================================================================
 
 /**
- * 업무 단계 카드 — 현장 홈에서 가장 눈에 띄는 단 하나의 요소.
+ * 업무 단계 카드 — 홈에서 가장 눈에 띄는 단 하나의 요소.
  *
  * 홈이 여러 화면으로 나뉘지 않고 단계에 따라 이 카드 하나가 바뀝니다. 브랜드 색은 이
  * 화면에서 여기에만 쓰이므로, "지금 뭘 해야 하나" 가 색을 쓸 자격이 있는 유일한 정보가

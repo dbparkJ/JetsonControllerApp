@@ -122,6 +122,8 @@ internal data class SurveyRunUiState(
     val acceptedStart: ContextualStartReceipt? = null,
     /** Last run observed for this device and pipeline, including terminal evidence. */
     val latestRun: PipelineRun? = null,
+    /** Monotonic receipt time for [latestRun]'s identity-verified telemetry packet. */
+    val telemetryReceivedAtElapsedRealtime: Long? = null,
     val resultAcknowledged: Boolean = false,
     val activeRun: PipelineRun? = null,
     val unconfirmedRunId: String? = null,
@@ -148,13 +150,15 @@ internal data class SurveyRunUiState(
 
 internal class SurveyRunViewModel(
     private val source: SurveyRunDataSource,
-    private val persistence: SurveyRunPersistence
+    private val persistence: SurveyRunPersistence,
+    private val elapsedRealtimeMillis: () -> Long = { System.nanoTime() / 1_000_000L }
 ) : ViewModel() {
     private val _uiState = kotlinx.coroutines.flow.MutableStateFlow(SurveyRunUiState())
     val uiState = _uiState
     private var generation = 0L
     private var operationJob: Job? = null
     private var deviceLoadJob: Job? = null
+    private var telemetryJob: Job? = null
     private var localState = SurveyRunLocalState()
 
     init {
@@ -163,6 +167,7 @@ internal class SurveyRunViewModel(
                 val expected = ++generation
                 operationJob?.cancel()
                 deviceLoadJob?.cancel()
+                telemetryJob?.cancel()
                 val previous = _uiState.value
                 val sameDevice = previous.deviceId.equals(connection.deviceId, ignoreCase = true)
                 val pipelineId = previous.pipelineId.takeIf { sameDevice }
@@ -202,6 +207,7 @@ internal class SurveyRunViewModel(
         generation += 1
         operationJob?.cancel()
         deviceLoadJob?.cancel()
+        telemetryJob?.cancel()
         localState = SurveyRunLocalState()
         _uiState.value = _uiState.value.copy(
             pipelineId = pipelineId,
@@ -215,6 +221,7 @@ internal class SurveyRunViewModel(
             preflight = null,
             acceptedStart = null,
             latestRun = null,
+            telemetryReceivedAtElapsedRealtime = null,
             resultAcknowledged = false,
             activeRun = null,
             unconfirmedRunId = null,
@@ -251,6 +258,38 @@ internal class SurveyRunViewModel(
     }
 
     fun refresh() = refreshInternal(generation)
+
+    /** Refreshes only the exact accepted run used by the active screen's lightweight poll. */
+    fun refreshRunTelemetry() {
+        val state = _uiState.value
+        val run = state.activeRun ?: state.latestRun?.takeIf { it.active } ?: return
+        val deviceId = state.deviceId ?: return
+        val pipelineId = state.pipelineId ?: return
+        val expectedGeneration = generation
+        if (!state.online || telemetryJob?.isActive == true) return
+        telemetryJob = viewModelScope.launch {
+            source.pipelineRun(run.runId).onSuccess { observed ->
+                val current = _uiState.value
+                if (!telemetryPollMatchesScope(
+                        current, run.runId, deviceId, pipelineId, observed,
+                        expectedGeneration, generation
+                    )) return@onSuccess
+                val telemetry = observed.telemetry
+                if (telemetry != null && (telemetry.runId != observed.runId ||
+                        telemetry.outputId != observed.output.outputId ||
+                        telemetry.sourceRevision != observed.sourceRevision)
+                ) return@onSuccess
+                _uiState.value = current.copy(
+                    latestRun = observed,
+                    telemetryReceivedAtElapsedRealtime = telemetryReceiptTime(
+                        observed, elapsedRealtimeMillis()
+                    ),
+                    activeRun = observed.takeIf { it.active },
+                    acceptedStart = current.acceptedStart?.takeIf { observed.active }
+                )
+            }
+        }
+    }
 
     private fun refreshInternal(expectedGeneration: Long) {
         val pipelineId = _uiState.value.pipelineId ?: return
@@ -350,6 +389,9 @@ internal class SurveyRunViewModel(
                 ),
                 acceptedStart = receipt?.takeIf { observedRun?.active == true || unconfirmedRunId != null },
                 latestRun = observedRun ?: _uiState.value.latestRun,
+                telemetryReceivedAtElapsedRealtime = if (observedRun != null) {
+                    telemetryReceiptTime(observedRun, elapsedRealtimeMillis())
+                } else _uiState.value.telemetryReceivedAtElapsedRealtime,
                 resultAcknowledged = observedRun?.let {
                     !it.active && localState.acknowledgedRunId == it.runId
                 } ?: _uiState.value.resultAcknowledged,
@@ -579,6 +621,9 @@ internal class SurveyRunViewModel(
                 if (current(expected, pipelineId)) _uiState.value = _uiState.value.copy(
                     acceptedStart = receipt.takeIf { run?.active != false },
                     latestRun = run ?: _uiState.value.latestRun,
+                    telemetryReceivedAtElapsedRealtime = if (run != null) {
+                        telemetryReceiptTime(run, elapsedRealtimeMillis())
+                    } else _uiState.value.telemetryReceivedAtElapsedRealtime,
                     resultAcknowledged = false,
                     activeRun = run?.takeIf { it.active },
                     unconfirmedRunId = receipt.runId.takeIf { run == null },
@@ -679,6 +724,32 @@ internal class SurveyRunViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T = SurveyRunViewModel(
             RepositorySurveyRunDataSource(repository), persistence
         ) as T
+    }
+}
+
+internal fun telemetryPollMatchesScope(
+    current: SurveyRunUiState,
+    requestedRunId: String,
+    requestedDeviceId: String,
+    requestedPipelineId: String,
+    observed: PipelineRun,
+    expectedGeneration: Long,
+    currentGeneration: Long
+): Boolean = expectedGeneration == currentGeneration &&
+    current.deviceId?.equals(requestedDeviceId, true) == true &&
+    current.pipelineId == requestedPipelineId && observed.runId == requestedRunId &&
+    observed.deviceId.equals(requestedDeviceId, true) && observed.pipelineId == requestedPipelineId &&
+    current.pendingStart == null && current.unconfirmedRunId == null &&
+    (current.activeRun ?: current.latestRun?.takeIf { it.active })?.runId == requestedRunId &&
+    current.acceptedStart?.runId?.let { it == requestedRunId } != false
+
+internal fun telemetryReceiptTime(run: PipelineRun, receivedAtElapsedRealtime: Long): Long? {
+    val telemetry = run.telemetry ?: return null
+    return receivedAtElapsedRealtime.takeIf {
+        it >= 0L && telemetry.schemaVersion == 1 &&
+            telemetry.runId == run.runId && telemetry.outputId == run.output.outputId &&
+            telemetry.sourceRevision == run.sourceRevision &&
+            telemetry.observedAtEpochMillis > 0L && telemetry.bytesObservedAtEpochMillis > 0L
     }
 }
 

@@ -6,6 +6,7 @@ import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineState
+import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.UploadContext
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
@@ -22,6 +23,26 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
 
 class NavigationWorkflowTest {
+    @Test
+    fun `collection tab resumes protected work before offering a new task`() {
+        val pending = PendingContextualStart(
+            "pipe", "project", 1, "section", 1, "policy", "preflight", "request"
+        )
+
+        assertEquals(
+            SurveyOpenDecision.CURRENT_ACTIVE,
+            collectionOpenDecision(SurveyRunUiState(pipelineId = "pipe", pendingStart = pending))
+        )
+        assertEquals(
+            SurveyOpenDecision.WAIT_FOR_RESTORE,
+            collectionOpenDecision(SurveyRunUiState(restoringLocalState = true))
+        )
+        assertEquals(
+            SurveyOpenDecision.REQUESTED_PIPELINE,
+            collectionOpenDecision(SurveyRunUiState())
+        )
+    }
+
     @Test
     fun `only the transport requested by the user completes connection navigation`() {
         val ble = TransportState.Connected(type = TransportType.BLE)
@@ -105,6 +126,26 @@ class NavigationWorkflowTest {
         assertNull(matchingStopTarget(run, listOf(stale)))
         assertEquals(exact, matchingStopTarget(run, listOf(stale, exact)))
         assertNull(matchingStopTarget(run, listOf(exact.copy(state = PipelineState.STOPPING))))
+    }
+
+    @Test
+    fun `live collection map never reuses a different history route`() {
+        val active = pipelineRun("run-1", "device", "pipe", active = true)
+        val stale = TaskRun(
+            id = "stale", pipelineId = "pipe", label = "이전 수집", logId = "old-log",
+            startedAt = "2026-09-14T01:00:00Z", state = "COMPLETED", runId = "old-run",
+            deviceId = "device"
+        )
+        val exact = TaskRun(
+            id = "exact", pipelineId = "pipe", label = "현재 수집", logId = "live-log",
+            startedAt = "2026-09-15T01:00:00Z", state = "RUNNING", runId = "run-1",
+            deviceId = "device", active = true
+        )
+
+        assertEquals(exact, activeCollectionHistoryRun(active, listOf(stale, exact)))
+        assertNull(activeCollectionHistoryRun(active, listOf(exact.copy(pipelineId = "other"))))
+        assertNull(activeCollectionHistoryRun(active, listOf(exact.copy(deviceId = "other"))))
+        assertNull(activeCollectionHistoryRun(pipelineRun("run-1", "device", "pipe", false), listOf(exact)))
     }
 
     @Test

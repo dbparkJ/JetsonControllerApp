@@ -18,6 +18,34 @@ data class UserFacingFailure(
     val technicalDetail: String
 )
 
+private val technicalConnectionAddress = Regex(
+    "(?:/)?(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?"
+)
+
+/**
+ * Repository discovery callbacks predate [UserFacingFailure] and expose text rather than a
+ * Throwable. Keep their useful Korean guidance, while removing socket addresses, error codes,
+ * exception names and stack fragments from the operator shell.
+ */
+fun userFacingConnectionMessage(
+    raw: String?,
+    developerModeEnabled: Boolean
+): String? {
+    val message = raw?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    if (developerModeEnabled) return message
+    val technical = technicalConnectionAddress.containsMatchIn(message) ||
+        message.contains("Exception", ignoreCase = true) ||
+        message.contains("http://", ignoreCase = true) ||
+        message.contains("https://", ignoreCase = true) ||
+        message.contains("\n\tat ") ||
+        Regex("실패\\s*:\\s*-?\\d+").containsMatchIn(message)
+    return if (technical) {
+        "장비 연결을 완료하지 못했습니다. 같은 네트워크인지 확인하고 다시 시도하세요."
+    } else {
+        message
+    }
+}
+
 fun userFacingFailure(
     error: Throwable,
     fallback: String = "요청을 처리하지 못했습니다. 잠시 후 다시 시도하세요."

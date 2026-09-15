@@ -4,8 +4,9 @@ import pwd
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -456,6 +457,221 @@ class ContextualApiContractTest(unittest.TestCase):
         self.assertEqual(current_stop.status_code, 200, current_stop.text)
         self.assertEqual(self.pipelines.stop_observed_state, "STOPPING")
         self.assertEqual(self.pipelines.control_calls, ["start", "start", "stop"])
+
+    def test_run_telemetry_caches_live_exact_bytes_and_uses_terminal_evidence(self):
+        project, section = self.create_context()
+        policy = self.configure_policy()
+        request = {
+            "surveyProjectId": project["surveyProjectId"],
+            "surveySectionId": section["surveySectionId"],
+            "surveyProjectRevision": project["revision"],
+            "surveySectionRevision": section["revision"],
+            "policyRevision": policy["revision"],
+        }
+        preflight = self.signed(
+            "POST", "/v1/pipelines/capture/preflight", request
+        ).json()
+        started = self.signed(
+            "POST",
+            "/v1/pipelines/capture/contextual-start",
+            {
+                **request,
+                "preflightId": preflight["preflightId"],
+                "clientRequestId": "start-request-telemetry-0001",
+            },
+        ).json()["contextualStart"]
+        output = self.output / started["output"]["path"]
+
+        initial = self.signed("GET", started["statusUrl"]).json()
+        self.assertEqual(initial["telemetry"]["runId"], started["runId"])
+        self.assertEqual(initial["telemetry"]["outputId"], started["output"]["outputId"])
+        self.assertEqual(initial["telemetry"]["collectionBytesState"], "OBSERVED")
+        self.assertEqual(initial["telemetry"]["collectedBytes"], 0)
+        self.assertEqual(initial["telemetry"]["collectedFileCount"], 0)
+
+        (output / "capture.bin").write_bytes(b"12345")
+        external = self.base / "outside.bin"
+        external.write_bytes(b"not collection data")
+        (output / "outside-link").symlink_to(external)
+        self.now += 1
+        cached = self.signed("GET", started["statusUrl"]).json()
+        self.assertEqual(cached["telemetry"]["collectedBytes"], 0)
+        self.assertEqual(
+            cached["telemetry"]["bytesObservedAtEpochMillis"],
+            initial["telemetry"]["bytesObservedAtEpochMillis"],
+        )
+        self.assertGreater(
+            cached["telemetry"]["observedAtEpochMillis"],
+            initial["telemetry"]["observedAtEpochMillis"],
+        )
+
+        self.now += 5
+        refreshed = self.signed("GET", started["statusUrl"]).json()
+        self.assertEqual(refreshed["telemetry"]["collectedBytes"], 5)
+        self.assertEqual(refreshed["telemetry"]["collectedFileCount"], 1)
+        self.assertEqual(refreshed["telemetry"]["durationMillis"], 6_000)
+
+        pipeline_id, log_id = started["runId"].split("/", 1)
+        log_directory = self.logs / pipeline_id
+        log_directory.mkdir(exist_ok=True)
+        quality = {
+            "schemaVersion": 1,
+            "sampleState": "OBSERVED",
+            "observationCount": 2,
+            "locationPrecision": [
+                {"fixState": "FIXED", "durationMillis": 2_000, "ratio": 1.0}
+            ],
+            "problemIntervals": [],
+            "sensors": [],
+        }
+        (log_directory / (log_id + ".quality.json")).write_text(
+            json.dumps(quality), encoding="utf-8"
+        )
+        live_quality = self.signed("GET", started["statusUrl"]).json()
+        self.assertEqual(live_quality["quality"]["locationPrecision"], quality["locationPrecision"])
+
+        invalid_quality = {**quality, "locationPrecision": [
+            {"fixState": "FIXED", "durationMillis": 2_000, "ratio": 2.0}
+        ]}
+        (log_directory / (log_id + ".quality.json")).write_text(
+            json.dumps(invalid_quality), encoding="utf-8"
+        )
+        self.assertIsNone(self.signed("GET", started["statusUrl"]).json()["quality"])
+        (log_directory / (log_id + ".quality.json")).write_text(
+            json.dumps(quality), encoding="utf-8"
+        )
+
+        self.now += 5
+        with patch.object(
+            self.run_context,
+            "_scan_live_output_usage",
+            return_value={"state": "TRUNCATED", "fileCount": None, "bytesTotal": None},
+        ):
+            stale = self.signed("GET", started["statusUrl"]).json()
+        self.assertEqual(stale["telemetry"]["collectionBytesState"], "STALE")
+        self.assertEqual(stale["telemetry"]["collectedBytes"], 5)
+        self.assertEqual(
+            stale["telemetry"]["bytesObservedAtEpochMillis"],
+            refreshed["telemetry"]["bytesObservedAtEpochMillis"],
+        )
+
+        finished_at = datetime.fromtimestamp(self.now, timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        )
+        (log_directory / log_id).write_text(
+            "=== Jetson pipeline run finished ===\n"
+            f"finished_at={finished_at}\n"
+            "exit_code=0\nterminal_state=COMPLETED\nstop_signal=\n",
+            encoding="utf-8",
+        )
+        self.pipelines.state = "STOPPED"
+        self.pipelines.active_run_id = None
+        terminal = self.signed("GET", started["statusUrl"]).json()
+        self.assertEqual(terminal["telemetry"]["collectionBytesState"], "FINAL")
+        self.assertEqual(terminal["telemetry"]["collectedBytes"], 5)
+        self.assertEqual(terminal["telemetry"]["collectedFileCount"], 1)
+        self.assertEqual(terminal["telemetry"]["durationMillis"], 11_000)
+        self.assertEqual(terminal["quality"], quality)
+
+    def test_live_output_usage_is_bounded_and_rejects_symlink_root(self):
+        directory = self.base / "live-usage"
+        directory.mkdir()
+        (directory / "one.bin").write_bytes(b"1")
+        (directory / "two.bin").write_bytes(b"22")
+
+        with patch("jetson_control.run_context.MAX_OUTPUT_FILES", 1):
+            capped = self.run_context._scan_live_output_usage(directory)
+        self.assertEqual(capped, {
+            "state": "TRUNCATED", "fileCount": None, "bytesTotal": None,
+        })
+
+        with patch(
+            "jetson_control.run_context.time.monotonic", side_effect=[0.0, 0.1]
+        ):
+            timed_out = self.run_context._scan_live_output_usage(directory)
+        self.assertEqual(timed_out, {
+            "state": "TRUNCATED", "fileCount": None, "bytesTotal": None,
+        })
+
+        linked = self.base / "linked-live-usage"
+        linked.symlink_to(directory, target_is_directory=True)
+        unavailable = self.run_context._scan_live_output_usage(linked)
+        self.assertEqual(unavailable, {
+            "state": "UNAVAILABLE", "fileCount": None, "bytesTotal": None,
+        })
+
+        terminal_record = {
+            "runId": "capture/run-test.log",
+            "pipelineId": "capture",
+            "deviceId": self.config.device_id,
+            "sourceRevision": "a" * 40,
+            "configRevision": "b" * 64,
+            "state": "COMPLETED",
+            "active": False,
+            "startedAtEpochMillis": 1_000,
+            "finishedAt": "1970-01-01T00:00:02Z",
+            "outputDirectory": str(directory),
+            "output": {
+                "rootId": "collections",
+                "path": "live-usage",
+                "outputId": "output-test",
+                "manifestState": "FINAL",
+                "manifest": {
+                    "runId": "capture/run-test.log",
+                    "fileCount": 100_000,
+                    "bytesTotal": 123,
+                    "truncated": True,
+                },
+            },
+            "outputContext": {
+                "runId": "capture/run-test.log",
+                "outputId": "output-test",
+                "deviceId": self.config.device_id,
+                "pipelineId": "capture",
+                "sourceRevision": "a" * 40,
+                "configSha256": "b" * 64,
+            },
+        }
+        terminal = self.run_context._run_telemetry(terminal_record)
+        self.assertEqual(terminal["collectionBytesState"], "TRUNCATED")
+        self.assertIsNone(terminal["collectedBytes"])
+        self.assertIsNone(terminal["collectedFileCount"])
+
+        terminal_record["finishedAt"] = None
+        missing_finish = self.run_context._run_telemetry(terminal_record)
+        self.assertIsNone(missing_finish["durationMillis"])
+
+        cache_directory = self.output / "cache-key"
+        cache_directory.mkdir()
+        (cache_directory / "first.bin").write_bytes(b"1")
+        active_record = {
+            **terminal_record,
+            "state": "RUNNING",
+            "active": True,
+            "finishedAt": None,
+            "outputDirectory": str(cache_directory),
+            "output": {
+                **terminal_record["output"],
+                "path": "cache-key",
+                "manifestState": "PENDING",
+                "manifest": None,
+            },
+        }
+        first_run = self.run_context._run_telemetry(active_record)
+        self.assertEqual(first_run["collectedBytes"], 1)
+        (cache_directory / "second.bin").write_bytes(b"22")
+        successor_record = {**active_record, "runId": "capture/run-successor.log"}
+        successor = self.run_context._run_telemetry(successor_record)
+        self.assertEqual(successor["collectedBytes"], 3)
+
+        escaped_record = {
+            **successor_record,
+            "runId": "capture/run-escaped.log",
+            "outputDirectory": str(directory),
+        }
+        escaped = self.run_context._run_telemetry(escaped_record)
+        self.assertEqual(escaped["collectionBytesState"], "UNAVAILABLE")
+        self.assertIsNone(escaped["collectedBytes"])
 
     def test_linked_upload_requires_terminal_run_and_trusted_source(self):
         project, section = self.create_context()

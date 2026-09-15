@@ -6,8 +6,12 @@ import math
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .mobile_rtk import (
+    RTK_FIX_DIFFERENTIAL,
     RTK_FIX_FIXED,
+    RTK_FIX_FLOAT,
+    RTK_FIX_NONE,
     RTK_FIX_NO_SAMPLE,
+    RTK_FIX_STANDALONE,
     RTK_FIX_UNKNOWN,
     classify_rtk_fix,
 )
@@ -294,6 +298,14 @@ def summarize_quality(
     observed = 0
     rtk_observed = 0
     fixed = 0
+    precision_states = (
+        RTK_FIX_FIXED,
+        RTK_FIX_FLOAT,
+        RTK_FIX_DIFFERENTIAL,
+        RTK_FIX_STANDALONE,
+        RTK_FIX_NONE,
+    )
+    precision_durations = {state: 0 for state in precision_states}
     problems: List[Dict[str, object]] = []
     high_watermark = int(values[0]["observedAtEpochMillis"]) if values else None
 
@@ -327,7 +339,10 @@ def summarize_quality(
         gnss_measured = gnss_sample and current.get("rtkFixState") != RTK_FIX_UNKNOWN
         if gnss_measured:
             rtk_observed += covered
-            if current.get("rtkFixState") == RTK_FIX_FIXED:
+            fix_state = current.get("rtkFixState")
+            if fix_state in precision_durations:
+                precision_durations[str(fix_state)] += covered
+            if fix_state == RTK_FIX_FIXED:
                 fixed += covered
         if gnss_measured and current.get("rtkFixState") != RTK_FIX_FIXED:
             _append_problem(
@@ -435,6 +450,15 @@ def summarize_quality(
         "rtkUnknownDurationMillis": elapsed - rtk_observed if observed > 0 else None,
         "rtkFixDurationMillis": fixed if rtk_observed > 0 else None,
         "rtkFixRatio": round(fixed / rtk_observed, 6) if rtk_observed > 0 else None,
+        "locationPrecision": [
+            {
+                "fixState": state,
+                "durationMillis": precision_durations[state],
+                "ratio": round(precision_durations[state] / rtk_observed, 6),
+            }
+            for state in precision_states
+            if rtk_observed > 0 and precision_durations[state] > 0
+        ],
         "observationCount": len(values),
         "truncated": bool(truncated or problem_total > len(clipped_problems)),
         "problemIntervals": clipped_problems,

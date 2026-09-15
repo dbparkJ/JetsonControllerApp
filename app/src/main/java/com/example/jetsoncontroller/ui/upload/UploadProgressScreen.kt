@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +50,7 @@ import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.AdaptiveContent
+import com.example.jetsoncontroller.ui.components.OperationMessageHost
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,7 +73,9 @@ fun UploadProgressScreen(
     developerModeEnabled: Boolean = false,
     targetLabel: String? = null,
     onServerData: () -> Unit = onBack,
-    onHome: () -> Unit = onBack
+    onHome: () -> Unit = onBack,
+    onFiles: () -> Unit = onBack,
+    onDismissMessage: (String) -> Unit = {}
 ) {
     var showCancelDialog by remember(job?.id, deviceDeletionEnabled) { mutableStateOf(false) }
     var showDeleteDialog by remember(job?.id, deviceDeletionEnabled) { mutableStateOf(false) }
@@ -116,12 +121,21 @@ fun UploadProgressScreen(
     }
 
     Scaffold(
+        snackbarHost = { OperationMessageHost(message, onDismissMessage) },
         topBar = {
             TopAppBar(
                 title = { Text(if (job?.state == UploadJobState.COMPLETED) "전송 결과" else "전송") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onHome) {
+                        Icon(Icons.Default.Home, contentDescription = "홈으로")
+                    }
+                    IconButton(onClick = onFiles) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "파일로")
                     }
                 }
             )
@@ -338,10 +352,6 @@ fun UploadProgressScreen(
                         isError = true
                     )
                 }
-                message?.let {
-                    Spacer(Modifier.height(12.dp))
-                    InlineMessage(message = it, isError = false)
-                }
                 if (job.sourceDeleted) {
                     Spacer(Modifier.height(12.dp))
                     InlineMessage(message = "장치의 업로드 원본이 삭제되었습니다.", isError = false)
@@ -435,10 +445,6 @@ fun UploadProgressScreen(
                         ) {
                             Text("확인된 장치 원본 휴지통 이동")
                         }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onHome, modifier = Modifier.fillMaxWidth()) {
-                        Text("홈으로")
                     }
                 } else {
                     Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {

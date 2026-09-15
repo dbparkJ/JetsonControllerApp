@@ -81,7 +81,6 @@ import com.example.jetsoncontroller.ui.theme.slateTextFieldColors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DataHubScreen(
-    deviceName: String,
     state: DeviceStorageUiState,
     serverUploadEnabled: Boolean,
     unavailableReason: String,
@@ -183,17 +182,7 @@ fun DataHubScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
-                        ) {
-                            Text("파일", style = MaterialTheme.typography.headlineMedium)
-                            TextButton(onClick = onDevices) {
-                                Text(deviceName, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
+                    } else Text("파일", style = MaterialTheme.typography.headlineMedium)
                 },
                 navigationIcon = {
                     if (state.preview != null || state.currentPath.isNotBlank()) {
@@ -214,15 +203,15 @@ fun DataHubScreen(
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
+                            text = { Text("업로드 목록") },
+                            leadingIcon = { Icon(Icons.Default.Upload, null) },
+                            onClick = { menuOpen = false; onHistory() }
+                        )
+                        DropdownMenuItem(
                             text = { Text("새로고침") },
                             leadingIcon = { Icon(Icons.Default.Refresh, null) },
                             onClick = { menuOpen = false; onRefresh() },
                             enabled = state.controlAvailable && !state.isLoading
-                        )
-                        DropdownMenuItem(
-                            text = { Text("전송 이력") },
-                            leadingIcon = { Icon(Icons.Default.Upload, null) },
-                            onClick = { menuOpen = false; onHistory() }
                         )
                         if (onTrash != null) {
                             DropdownMenuItem(
@@ -251,9 +240,8 @@ fun DataHubScreen(
         },
         bottomBar = {
             Column {
-                if ((selected != null && !expandedWorkspace) ||
-                    (inDirectory && !selectionMode && state.preview == null)) {
-                    val transferPath = selected?.relativePath ?: state.currentPath
+                if (selected != null && !expandedWorkspace) {
+                    val transferPath = selected.relativePath
                     Surface(
                         color = colors.surface,
                         contentColor = colors.ink,
@@ -304,20 +292,18 @@ fun DataHubScreen(
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text(
-                                                selected?.let { "${it.name} 선택" } ?: "현재 폴더",
+                                                "${selected.name} 선택",
                                                 style = MaterialTheme.typography.labelLarge,
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
                                             )
-                                            selected?.let {
-                                                Text(
-                                                    if (it.type == RemoteEntryType.DIRECTORY) "폴더" else mediaCategory(it),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = colors.muted
-                                                )
-                                            }
+                                            Text(
+                                                if (selected.type == RemoteEntryType.DIRECTORY) "폴더" else mediaCategory(selected),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = colors.muted
+                                            )
                                         }
-                                        selected?.sizeBytes?.let {
+                                        selected.sizeBytes?.let {
                                             Text(formatSize(it), style = MaterialTheme.typography.titleMedium, color = colors.muted)
                                         }
                                     }
@@ -330,7 +316,7 @@ fun DataHubScreen(
                                         modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.primaryAction),
                                         shape = MaterialTheme.shapes.small
                                     ) {
-                                        Text(if (selected != null) "서버로 전송" else "이 폴더 전송")
+                                        Text("서버로 전송")
                                         Spacer(Modifier.padding(horizontal = GeoSpace.xs))
                                         Icon(Icons.Default.Upload, contentDescription = null)
                                     }
@@ -364,6 +350,25 @@ fun DataHubScreen(
                             onDeviceClick = {},
                             onServerClick = onServerData
                         )
+                    }
+                    if (showLocationTabs) item {
+                        Surface(
+                            onClick = onHistory,
+                            color = colors.surface,
+                            contentColor = colors.ink,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth().testTag("upload-queue-entry")
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = GeoSize.minTouchTarget).padding(GeoSpace.md),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = null, tint = colors.primary)
+                                Text("업로드 목록", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = colors.muted)
+                            }
+                        }
                     }
                     item {
                         OutlinedTextField(
@@ -555,7 +560,7 @@ private fun DataLocationSidebar(
         }
         GeoRowDivider()
         Text(
-            "전송 이력",
+            "업로드 목록",
             modifier = Modifier.fillMaxWidth().clickable(onClick = onHistory).padding(vertical = GeoSpace.sm),
             style = MaterialTheme.typography.bodyMedium,
             color = colors.muted

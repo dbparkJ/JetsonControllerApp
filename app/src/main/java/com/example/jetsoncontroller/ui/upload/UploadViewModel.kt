@@ -743,6 +743,12 @@ class UploadViewModel(
         _uiState.value = _uiState.value.copy(message = null, error = null)
     }
 
+    fun dismissMessage(shown: String) {
+        if (_uiState.value.message == shown) {
+            _uiState.value = _uiState.value.copy(message = null)
+        }
+    }
+
     private fun rememberCurrentJobId(jobId: String?) {
         if (jobId == null) {
             savedStateHandle.remove<String>(currentUploadJobIdKey())

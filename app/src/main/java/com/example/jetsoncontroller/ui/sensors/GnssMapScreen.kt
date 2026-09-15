@@ -13,15 +13,9 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,6 +23,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -37,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +43,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -60,6 +60,12 @@ import com.example.jetsoncontroller.model.GnssSensorStatus
 import com.example.jetsoncontroller.model.RunQuality
 import com.example.jetsoncontroller.ui.field.LocatedQualityProblem
 import com.example.jetsoncontroller.ui.field.RunQualityEvidence
+import com.example.jetsoncontroller.ui.field.LocationQualityBand
+import com.example.jetsoncontroller.ui.field.PrecisionBar
+import com.example.jetsoncontroller.ui.field.locationQualityBand
+import com.example.jetsoncontroller.ui.field.locationQualityLabel
+import com.example.jetsoncontroller.ui.field.runQualityPresentation
+import com.example.jetsoncontroller.ui.field.validRoutePoint
 import com.example.jetsoncontroller.ui.field.locatedQualityProblems
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Icon as MapMarkerIcon
@@ -87,7 +93,53 @@ private val JetsonMarkerColor = com.example.jetsoncontroller.ui.theme.CobaltLigh
 private val MobileMarkerColor = com.example.jetsoncontroller.ui.theme.CobaltLight.warning
 private val JetsonMarkerArgb = JetsonMarkerColor.toArgb()
 private val MobileMarkerArgb = MobileMarkerColor.toArgb()
+private val PreciseRouteArgb = com.example.jetsoncontroller.ui.theme.CobaltLight.primary.toArgb()
+private val ApproximateRouteArgb = com.example.jetsoncontroller.ui.theme.CobaltLight.warning.toArgb()
+private val UnknownRouteArgb = com.example.jetsoncontroller.ui.theme.CobaltLight.unknown.toArgb()
+private val NoLocationRouteArgb = com.example.jetsoncontroller.ui.theme.CobaltLight.danger.toArgb()
 private const val MaxQualityMarkers = 50
+
+internal fun mapUsesSidePanel(
+    smallestScreenWidthDp: Int,
+    widthDp: Float,
+    heightDp: Float,
+    fontScale: Float
+): Boolean = smallestScreenWidthDp >= 600 && widthDp >= 840f && widthDp > heightDp && fontScale <= 1.3f
+
+internal data class QualityRouteStroke(
+    val points: List<com.example.jetsoncontroller.model.RoutePoint>,
+    val band: LocationQualityBand
+)
+
+internal fun qualityRouteStrokes(route: List<com.example.jetsoncontroller.model.RoutePoint>): List<QualityRouteStroke> {
+    val strokes = mutableListOf<QualityRouteStroke>()
+    var current: MutableList<com.example.jetsoncontroller.model.RoutePoint>? = null
+    var currentBand: LocationQualityBand? = null
+    route.zipWithNext().forEach { (start, end) ->
+        if (start.segment != end.segment || !validRoutePoint(start) || !validRoutePoint(end)) {
+            current = null
+            currentBand = null
+            return@forEach
+        }
+        val band = worseLocationBand(locationQualityBand(start.fixState, start.sensorState), locationQualityBand(end.fixState, end.sensorState))
+        if (band == LocationQualityBand.NONE) {
+            current = null
+            currentBand = null
+            return@forEach
+        }
+        if (current == null || currentBand != band || current?.lastOrNull() != start) {
+            current = mutableListOf(start, end).also { strokes += QualityRouteStroke(it, band) }
+            currentBand = band
+        } else current?.add(end)
+    }
+    return strokes
+}
+
+private fun worseLocationBand(first: LocationQualityBand, second: LocationQualityBand): LocationQualityBand {
+    val order = listOf(LocationQualityBand.PRECISE, LocationQualityBand.APPROXIMATE,
+        LocationQualityBand.LEGACY_OTHER, LocationQualityBand.UNKNOWN, LocationQualityBand.NONE)
+    return if (order.indexOf(first) >= order.indexOf(second)) first else second
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,6 +150,7 @@ fun GnssMapScreen(
     route: List<com.example.jetsoncontroller.model.RoutePoint> = emptyList(),
     quality: RunQuality? = null,
     routeLabel: String? = null,
+    returnLabel: String = "이전 화면으로",
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -115,7 +168,6 @@ fun GnssMapScreen(
         mobileLocationViewModel.refresh()
     }
     var layer by remember { mutableStateOf(VWorldLayer.BASE) }
-    val gnssActive = deviceOnline && telemetryFresh && gnss.active
     val gnssAvailable = deviceOnline && telemetryFresh && (gnss.connected || gnss.active)
     val deviceAvailability = deviceLocationAvailability(
         deviceOnline = deviceOnline,
@@ -124,53 +176,47 @@ fun GnssMapScreen(
         hasValidLocation = gnss.hasValidLocation()
     )
     val mobileAvailability = mobileLocationAvailability(mobileLocation)
-    val receptionLabel = gnssReceptionLabel(
-        gnssAvailable = gnssAvailable,
-        fixType = gnss.fixType,
-        rtkStatus = gnss.rtkStatus
-    )
     val locatedProblems = remember(route, quality) { locatedQualityProblems(route, quality) }
+    var showDetails by remember { mutableStateOf(false) }
+    val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val contentDensity = LocalDensity.current
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Column {
-                    Text(routeLabel?.let { "$it · 수집 경로" } ?: "GNSS 위치")
-                    Text(if (route.isEmpty()) "경로 없음 · 유효한 GPS 수신 대기" else "기록된 GPS ${route.size}개", style = MaterialTheme.typography.bodySmall)
-                } },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            GnssStatusBand(
-                gnss = gnss,
-                telemetryFresh = telemetryFresh,
-                deviceOnline = deviceOnline,
-                mobileLocation = mobileLocation,
-                onRequestPermission = {
-                    permissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                            Manifest.permission.ACCESS_FINE_LOCATION
-                        )
+    if (showDetails) {
+        ModalBottomSheet(
+            onDismissRequest = { showDetails = false },
+            sheetState = detailSheetState
+        ) {
+            CompositionLocalProvider(LocalDensity provides contentDensity) {
+                Column(
+                    Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 20.dp)
+                ) {
+                    Text(
+                        "위치 품질 상세",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.titleLarge
                     )
-                },
-                onOpenLocationSettings = {
-                    runCatching {
-                        context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                    }
+                    RunQualityEvidence(quality, Modifier.padding(horizontal = 16.dp))
+                    GnssStatusBand(
+                        gnss, telemetryFresh, deviceOnline, mobileLocation,
+                        onRequestPermission = {
+                            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+                        },
+                        onOpenLocationSettings = { runCatching { context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) } }
+                    )
+                    TextButton(
+                        onClick = { showDetails = false },
+                        modifier = Modifier.align(Alignment.End).padding(horizontal = 16.dp)
+                    ) { Text("닫기") }
                 }
-            )
+            }
         }
-    ) { paddingValues ->
-        Box(Modifier.fillMaxSize().padding(paddingValues)) {
+    }
+
+    val mapContent: @Composable (Modifier) -> Unit = { modifier ->
+        Box(modifier) {
             if (BuildConfig.VWORLD_API_KEY.isBlank()) {
                 Text(
-                    "VWorld API 키가 설정되지 않았습니다.",
+                    "지도를 불러올 수 없습니다. 설정을 확인해 주세요.",
                     modifier = Modifier.align(Alignment.Center).padding(24.dp)
                 )
             } else {
@@ -184,54 +230,175 @@ fun GnssMapScreen(
                     showMobileMarker = mobileAvailability == MobileLocationAvailability.ACTIVE,
                     layer = layer,
                     apiKey = BuildConfig.VWORLD_API_KEY,
-                    deviceMarkerTitle = "Jetson · $receptionLabel"
+                    deviceMarkerTitle = "장비 위치 · ${locationQualityLabel(locationQualityBand(gnss.rtkStatus ?: gnss.fixType))}"
                 )
             }
 
-            Column(
-                modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).widthIn(max = 600.dp).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            Surface(
+                modifier = Modifier.align(Alignment.TopCenter).padding(12.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shape = MaterialTheme.shapes.small,
+                tonalElevation = 2.dp
             ) {
-                Surface(
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = MaterialTheme.shapes.small,
-                    tonalElevation = 2.dp
-                ) {
-                    SingleChoiceSegmentedButtonRow(Modifier.padding(4.dp)) {
-                        VWorldLayer.entries.forEachIndexed { index, option ->
-                            SegmentedButton(
-                                selected = layer == option,
-                                onClick = { layer = option },
-                                shape = SegmentedButtonDefaults.itemShape(
-                                    index = index,
-                                    count = VWorldLayer.entries.size
-                                )
-                            ) {
-                                Text(option.title)
-                            }
-                        }
-                    }
-                }
-                if (routeLabel != null || quality != null) {
-                    RunQualityEvidence(quality, compact = true)
-                    if (locatedProblems.size > MaxQualityMarkers) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface,
-                            shape = MaterialTheme.shapes.small,
-                            tonalElevation = 2.dp
-                        ) {
-                            Text(
-                                "지도에는 위치가 확인된 관찰 ${locatedProblems.size}건 중 ${MaxQualityMarkers}건을 표시합니다. 전체 시각은 품질 관찰에서 확인하세요.",
-                                Modifier.padding(10.dp),
-                                style = MaterialTheme.typography.bodySmall
+                SingleChoiceSegmentedButtonRow(Modifier.padding(4.dp)) {
+                    VWorldLayer.entries.forEachIndexed { index, option ->
+                        SegmentedButton(
+                            selected = layer == option,
+                            onClick = { layer = option },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = VWorldLayer.entries.size
                             )
+                        ) {
+                            Text(option.title)
                         }
                     }
                 }
             }
-
         }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("수집 경로") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        BoxWithConstraints(Modifier.fillMaxSize().padding(paddingValues)) {
+            val fontScale = LocalDensity.current.fontScale
+            val landscapeTablet = mapUsesSidePanel(
+                LocalConfiguration.current.smallestScreenWidthDp,
+                maxWidth.value,
+                maxHeight.value,
+                fontScale
+            )
+            if (landscapeTablet) {
+                Row(
+                    Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    mapContent(Modifier.weight(1f).fillMaxHeight().testTag("gnss-map-pane"))
+                    MapQualityBand(
+                        quality = quality,
+                        routeLabel = routeLabel,
+                        routeCount = route.count(::validRoutePoint),
+                        onDetails = { showDetails = true },
+                        returnLabel = returnLabel,
+                        onReturn = onBack,
+                        modifier = Modifier.widthIn(min = 310.dp, max = 340.dp).fillMaxHeight()
+                            .verticalScroll(rememberScrollState()).navigationBarsPadding()
+                    )
+                }
+            } else {
+                val panelMaxHeight = (maxHeight * if (fontScale > 1.3f) 0.48f else 0.42f)
+                    .coerceIn(180.dp, 300.dp)
+                Column(Modifier.fillMaxSize()) {
+                    mapContent(
+                        Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp)
+                            .testTag("gnss-map-pane")
+                    )
+                    MapQualityBand(
+                        quality = quality,
+                        routeLabel = routeLabel,
+                        routeCount = route.count(::validRoutePoint),
+                        onDetails = { showDetails = true },
+                        returnLabel = returnLabel,
+                        onReturn = onBack,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = panelMaxHeight)
+                            .verticalScroll(rememberScrollState()).navigationBarsPadding()
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapQualityBand(
+    quality: RunQuality?,
+    routeLabel: String?,
+    routeCount: Int,
+    onDetails: () -> Unit,
+    returnLabel: String,
+    onReturn: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val presentation = runQualityPresentation(quality)
+    val colors = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
+    val largeFont = LocalDensity.current.fontScale > 1.3f
+    Surface(modifier.testTag("map-quality-panel"), color = colors.surface, tonalElevation = 3.dp) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(routeLabel?.takeIf { it.isNotBlank() } ?: "현재 수집", style = MaterialTheme.typography.labelLarge)
+            Text(
+                if (routeCount == 0) "기록된 경로 없음" else "기록된 위치 ${routeCount}개",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.muted
+            )
+            if (largeFont) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MapQualityHeadline(presentation.headline, presentation.detail, colors.muted)
+                    TextButton(onClick = onDetails) { Text("위치 상세") }
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        MapQualityHeadline(presentation.headline, presentation.detail, colors.muted)
+                    }
+                    TextButton(onClick = onDetails) { Text("위치 상세") }
+                }
+            }
+            PrecisionBar(presentation.slices)
+            if (largeFont) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MapLegendDot(colors.primary, "정밀 위치")
+                    MapLegendDot(colors.warning, "대략 위치")
+                    MapLegendDot(colors.danger, "위치 없음")
+                    MapLegendDot(colors.unknown, "미확인")
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MapLegendDot(colors.primary, "정밀 위치")
+                    MapLegendDot(colors.warning, "대략 위치")
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MapLegendDot(colors.danger, "위치 없음")
+                    MapLegendDot(colors.unknown, "미확인")
+                }
+            }
+            com.example.jetsoncontroller.ui.theme.Button(
+                onClick = onReturn,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            ) {
+                Text(returnLabel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapQualityHeadline(headline: String, detail: String, muted: Color) {
+    Text(headline, style = MaterialTheme.typography.titleMedium)
+    Text(detail, style = MaterialTheme.typography.bodySmall, color = muted)
+}
+
+@Composable
+private fun MapLegendDot(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(7.dp).background(color, CircleShape))
+        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -267,11 +434,6 @@ private fun GnssStatusBand(
 ) {
     val gnssActive = deviceOnline && telemetryFresh && gnss.active
     val gnssAvailable = deviceOnline && telemetryFresh && (gnss.connected || gnss.active)
-    val receptionLabel = gnssReceptionLabel(
-        gnssAvailable = gnssAvailable,
-        fixType = gnss.fixType,
-        rtkStatus = gnss.rtkStatus
-    )
     val deviceAvailability = deviceLocationAvailability(
         deviceOnline = deviceOnline,
         telemetryFresh = telemetryFresh,
@@ -282,7 +444,11 @@ private fun GnssStatusBand(
     val headline = when (deviceAvailability) {
         DeviceLocationAvailability.OFFLINE,
         DeviceLocationAvailability.STALE -> deviceLocationAvailabilityLabel(deviceAvailability)
-        else -> receptionLabel
+        DeviceLocationAvailability.OFF -> "위치 상태 미확인"
+        DeviceLocationAvailability.NO_FIX -> "위치 없음"
+        DeviceLocationAvailability.ACTIVE -> locationQualityLabel(
+            locationQualityBand(gnss.rtkStatus ?: gnss.fixType)
+        )
     }
 
     Surface(
@@ -320,17 +486,15 @@ private fun GnssStatusBand(
 
             PositionStatusRow(
                 markerColor = JetsonMarkerColor,
-                title = "Jetson 장치 위치",
+                title = "장비 위치",
                 stateText = deviceLocationAvailabilityLabel(deviceAvailability),
                 coordinateText = gnssCoordinateText(
                     gnss,
                     isCurrent = deviceAvailability == DeviceLocationAvailability.ACTIVE
                 ),
                 detailText = listOfNotNull(
-                    gnss.satellites?.let { "위성 ${it}개" },
-                    gnss.hdop?.let { "HDOP ${formatNumber(it, 1)}" },
-                    gnss.altitudeM?.let { "고도 ${formatNumber(it, 1)} m" },
-                    gnss.ntripMountpoint?.takeIf { gnss.ntripConnected }?.let { "NTRIP $it" }
+                        gnss.satellites?.let { "수신 위성 ${it}개" },
+                        gnss.altitudeM?.let { "고도 ${formatNumber(it, 1)} m" }
                 ).joinToString(" · ").ifBlank { null }
             )
             PositionStatusRow(
@@ -655,8 +819,9 @@ private class VWorldMapController {
             val firstRoute = renderedRoute.isEmpty()
             routeMarkers.forEach(targetMap::removeMarker)
             routeMarkers.clear()
-            pendingRoute.firstOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("수집 시작")) }
-            if (pendingRoute.size > 1) pendingRoute.lastOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("마지막 수집 위치")) }
+            val validRoute = pendingRoute.filter(::validRoutePoint)
+            validRoute.firstOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("수집 시작")) }
+            if (validRoute.size > 1) validRoute.lastOrNull()?.let { point -> routeMarkers += targetMap.addMarker(MarkerOptions().position(LatLng(point.latitude, point.longitude)).title("마지막 수집 위치")) }
             qualityMarkers.forEach(targetMap::removeMarker)
             qualityMarkers.clear()
             pendingQualityProblems.forEach { problem ->
@@ -668,15 +833,21 @@ private class VWorldMapController {
             }
             routeLines.forEach(targetMap::removePolyline)
             routeLines.clear()
-            pendingRoute.groupBy { it.segment }.values.forEach { segment ->
-                val points = segment.map { LatLng(it.latitude, it.longitude) }
-                if (points.size >= 2) routeLines += targetMap.addPolyline(
-                    org.maplibre.android.annotations.PolylineOptions().addAll(points).color(JetsonMarkerArgb).width(5f))
+            qualityRouteStrokes(pendingRoute).forEach { stroke ->
+                val points = stroke.points.map { LatLng(it.latitude, it.longitude) }
+                val color = when (stroke.band) {
+                    LocationQualityBand.PRECISE -> PreciseRouteArgb
+                    LocationQualityBand.APPROXIMATE -> ApproximateRouteArgb
+                    LocationQualityBand.LEGACY_OTHER, LocationQualityBand.UNKNOWN -> UnknownRouteArgb
+                    LocationQualityBand.NONE -> NoLocationRouteArgb
+                }
+                routeLines += targetMap.addPolyline(
+                    org.maplibre.android.annotations.PolylineOptions().addAll(points).color(color).width(5f))
             }
             renderedRoute = pendingRoute
             renderedQualityProblems = pendingQualityProblems
-            if (firstRoute && pendingRoute.isNotEmpty()) {
-                val points = pendingRoute.map { LatLng(it.latitude, it.longitude) }.distinct()
+            if (firstRoute && validRoute.isNotEmpty()) {
+                val points = validRoute.map { LatLng(it.latitude, it.longitude) }.distinct()
                 if (points.size >= 2) {
                     val bounds = LatLngBounds.Builder()
                     points.forEach { bounds.include(it) }
