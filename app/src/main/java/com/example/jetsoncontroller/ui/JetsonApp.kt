@@ -1235,7 +1235,9 @@ fun JetsonApp(
                 run = activeRun,
                 // 장비가 경과 시간을 제공하지 않으므로 앱이 만들어내지 않습니다.
                 elapsedLabel = null,
-                lastObservedLabel = null,
+                lastObservedLabel = pipelineState.observedAtMillis?.let {
+                    java.text.DateFormat.getTimeInstance().format(java.util.Date(it))
+                },
                 sensorSummary = if (!deviceDashboardState.isOnline || !status.sensorTelemetryAvailable) null
                     else listOf(
                         status.cameraSensor.active,

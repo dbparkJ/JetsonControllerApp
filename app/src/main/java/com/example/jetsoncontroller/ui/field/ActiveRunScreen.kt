@@ -205,13 +205,25 @@ internal fun ActiveRunScreen(
                             )
                         }
                     )
-                    Text(
-                        elapsedLabel ?: "경과 시간 미제공",
-                        style = if (elapsedLabel != null) GeoType.numericLarge else MaterialTheme.typography.titleMedium,
-                        color = if (elapsedLabel != null) c.ink else c.unknown
-                    )
-                    run?.startedAt?.let {
-                        Text("시작 $it", style = MaterialTheme.typography.bodySmall, color = c.muted)
+                    // 경과 시간은 장비가 줄 때만 표시합니다. 없으면 장비가 보고한 시작
+                    // 시각을 같은 크기로 세웁니다 — 화면의 무게를 유지하되 앱이 만들어낸
+                    // 숫자를 올리지는 않습니다.
+                    if (elapsedLabel != null) {
+                        Text(elapsedLabel, style = GeoType.numericLarge, color = c.ink)
+                        run?.startedAt?.let {
+                            Text("$it 시작", style = MaterialTheme.typography.bodySmall, color = c.muted)
+                        }
+                    } else {
+                        Text(
+                            run?.startedAt ?: "시작 시각 미확인",
+                            style = GeoType.numericLarge,
+                            color = if (run?.startedAt != null) c.ink else c.unknown
+                        )
+                        Text(
+                            "시작 시각 · 경과 시간은 장비가 제공하지 않습니다",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = c.muted
+                        )
                     }
                     lastObservedLabel?.let {
                         GeoFreshnessLabel("마지막 확인 · $it", stale = !online)
@@ -227,10 +239,16 @@ internal fun ActiveRunScreen(
                             title = "실행에 고정된 범위",
                             eyebrow = "끝날 때까지 바꿀 수 없습니다"
                         )
-                        GeoIdentifier("Run", run.runId)
-                        GeoIdentifier("결과 경로", "${run.output.rootId}/${run.output.path}")
-                        GeoIdentifier("정책", "v${run.policySnapshot.policyVersion} · ${run.policySnapshot.revision}")
-                        GeoIdentifier("점검", run.preflightSnapshot.preflightId)
+                        // 식별자는 왼쪽 정렬 한 줄보다 label/value 행이 훑기 쉽습니다.
+                        // 현장에서 이 값들은 읽는 것이 아니라 대조하는 대상입니다.
+                        GeoDataRow(label = "Run", value = run.runId.takeLast(8))
+                        GeoRowDivider()
+                        GeoDataRow(label = "결과 경로", value = "${run.output.rootId}/${run.output.path}")
+                        GeoRowDivider()
+                        GeoDataRow(label = "정책", value = "v${run.policySnapshot.policyVersion}")
+                        GeoRowDivider()
+                        GeoDataRow(label = "점검", value = run.preflightSnapshot.preflightId.takeLast(8))
+                        GeoIdentifier("전체 Run ID", run.runId)
                     }
                 }
             }
