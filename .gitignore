@@ -34,6 +34,12 @@ local.properties
 .artifacts/
 /artifacts/
 
+# Local import bundles and visual references
+/file/
+/images/*
+!/images/logo.png
+!/images/ChatGPT Image 2026년 9월 12일 오후 07_21_48.png
+
 # System files
 .DS_Store
 Thumbs.db
