@@ -6,6 +6,7 @@ import hashlib
 import ipaddress
 import math
 import os
+import re
 import shutil
 import ssl
 import stat
@@ -16,11 +17,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 from urllib.parse import urlencode, urlsplit
 
 from .config import load_json_object, validate_config_id
 from .filesystem import FileTooLarge, StorageRegistry
+from .local_trash import LocalTrashManager, TrashConflict
 
 
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
@@ -39,6 +41,21 @@ HASH_PROGRESS_INTERVAL_SECONDS = 0.5
 HTTP_JSON_MAX_RESPONSE_BYTES = 1024 * 1024
 HTTP_LIBRARY_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 CONTENT_DIGEST_MAGIC = b"JETSON-UPLOAD-CONTENT-V1\x00"
+SOURCE_IDENTITY_MAGIC = b"JETSON-UPLOAD-SOURCE-IDENTITY-V1\x00"
+OUTPUT_CONTEXT_FILE = ".jetson-output-context.json"
+CONTEXT_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}")
+SHA256_PATTERN = re.compile(r"[a-f0-9]{64}")
+OUTPUT_CONTEXT_FIELDS = (
+    "surveyProjectId",
+    "surveySectionId",
+    "runId",
+    "deviceId",
+    "pipelineId",
+    "sourceRevision",
+    "configSha256",
+    "outputId",
+    "createdAt",
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +91,7 @@ class UploadManager:
         device_id: str = "unknown",
         allow_local_targets: bool = False,
         max_concurrent_jobs: int = DEFAULT_MAX_CONCURRENT_JOBS,
+        trash: Optional[LocalTrashManager] = None,
     ) -> None:
         if max_concurrent_jobs < 1:
             raise ValueError("max_concurrent_jobs must be at least 1")
@@ -85,6 +103,7 @@ class UploadManager:
         self.device_id = device_id
         self.allow_local_targets = allow_local_targets
         self.max_concurrent_jobs = max_concurrent_jobs
+        self.trash = trash or LocalTrashManager(storage, state_dir / "local-trash")
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._cancellations: Dict[str, threading.Event] = {}
@@ -281,14 +300,35 @@ class UploadManager:
         job = self.get(job_id)
         if job.get("state") != "COMPLETED":
             raise UploadConflict("Only completed uploads can be verified")
-        if job.get("sourceDeletedAt") is not None:
-            return {
-                "jobId": job_id,
-                "state": "SOURCE_DELETED",
-                "matched": True,
-                "deletionAllowed": False,
-                "verifiedAt": job.get("verifiedAt"),
-            }
+        trash_id = job.get("sourceTrashId")
+        if isinstance(trash_id, str):
+            try:
+                trash_entry = self.trash.get_entry(trash_id)
+            except (KeyError, OSError, ValueError) as error:
+                raise UploadConflict(
+                    "Recoverable upload source state is unavailable"
+                ) from error
+            trash_state = trash_entry.get("state")
+            if trash_state == "TRASHED":
+                return {
+                    "jobId": job_id,
+                    "state": "SOURCE_TRASHED",
+                    "matched": True,
+                    "deletionAllowed": False,
+                    "verifiedAt": job.get("verifiedAt"),
+                    "trashId": trash_id,
+                }
+            if trash_state != "RESTORED":
+                raise UploadConflict(
+                    "Recoverable upload source is still transitioning"
+                )
+            job = self._update(
+                job_id,
+                sourceTrashId=None,
+                sourceTrashedAt=None,
+                sourceRecoverable=False,
+                deletionEligible=False,
+            )
         root_id, relative_path, target_id = self._job_parameters(job)
         source, target = self._resolve_source_and_target(
             root_id,
@@ -315,6 +355,27 @@ class UploadManager:
                 raise UploadConflict("Only completed uploads can delete their source")
             if job.get("sourceDeletedAt") is not None:
                 return job
+            existing_trash_id = job.get("sourceTrashId")
+            if isinstance(existing_trash_id, str):
+                try:
+                    trash_state = self.trash.get_entry(existing_trash_id).get("state")
+                except (KeyError, OSError, ValueError) as error:
+                    raise UploadConflict(
+                        "Recoverable upload source state is unavailable"
+                    ) from error
+                if trash_state == "TRASHED":
+                    return job
+                if trash_state != "RESTORED":
+                    raise UploadConflict(
+                        "Recoverable upload source is still transitioning"
+                    )
+                job = self._update(
+                    job_id,
+                    sourceTrashId=None,
+                    sourceTrashedAt=None,
+                    sourceRecoverable=False,
+                    deletionEligible=False,
+                )
             root_id, relative_path, target_id = self._job_parameters(job)
             root, resolved_source = self.storage.resolve(root_id, relative_path)
             source = self._resolve_deletion_source(
@@ -338,31 +399,36 @@ class UploadManager:
             if self._source_overlaps_active_upload(source, excluding_job_id=job_id):
                 raise UploadConflict("Source is being used by another active upload")
 
-            tombstone = source.with_name(
-                f".{source.name}.uploaded-{job_id[:8]}-{uuid.uuid4().hex}.deleting"
+            trashed = self.trash.trash_storage_entry(
+                root_id,
+                relative_path,
+                category="UPLOADED_SOURCE",
+                metadata={"uploadJobId": job_id},
             )
-            os.replace(source, tombstone)
-
+            trash_id = str(trashed["trashId"])
         try:
-            verification = self._verify_completed_source_at(job, tombstone, target)
+            verification = self._verify_completed_source_at(
+                job, self.trash.payload_path(trash_id), target
+            )
             if not verification["matched"]:
                 raise UploadVerificationMismatch(
                     "Local source no longer matches the completed remote upload"
                 )
-            self._remove_local_source(tombstone)
         except Exception:
-            if tombstone.exists() and not source.exists():
-                try:
-                    os.replace(tombstone, source)
-                except OSError:
-                    pass
+            try:
+                self.trash.restore(trash_id, confirmed=True)
+            except (OSError, TrashConflict, ValueError, KeyError):
+                pass
             raise
 
-        deleted_at = self._timestamp()
+        trashed_at = str(trashed["trashedAt"])
         return self._update(
             job_id,
-            sourceDeleted=True,
-            sourceDeletedAt=deleted_at,
+            sourceDeleted=False,
+            sourceDeletedAt=None,
+            sourceTrashId=trash_id,
+            sourceTrashedAt=trashed_at,
+            sourceRecoverable=True,
             deletionEligible=False,
         )
 
@@ -393,18 +459,7 @@ class UploadManager:
             if self._source_overlaps_active_upload(source):
                 raise UploadConflict("Storage entry is being used by an active upload")
 
-            entry_type = "DIRECTORY" if source.is_dir() else "FILE"
-            entry_name = source.name
-            self._remove_local_source(source)
-
-        return {
-            "rootId": root_id,
-            "relativePath": relative_path,
-            "name": entry_name,
-            "type": entry_type,
-            "state": "DELETED",
-            "deletedAt": self._timestamp(),
-        }
+            return self.trash.trash_storage_entry(root_id, relative_path)
 
     def delete_library_session(
         self,
@@ -893,7 +948,14 @@ class UploadManager:
             except FileNotFoundError:
                 pass
 
-    def start(self, root_id: str, relative_path: str, target_id: str) -> Dict[str, object]:
+    def start(
+        self,
+        root_id: str,
+        relative_path: str,
+        target_id: str,
+        context: Optional[Mapping[str, object]] = None,
+        expected_context: Optional[Mapping[str, object]] = None,
+    ) -> Dict[str, object]:
         job_id = uuid.uuid4().hex
         job = self._new_job(job_id, root_id, relative_path, target_id)
         cancellation = threading.Event()
@@ -903,6 +965,28 @@ class UploadManager:
             )
             job["sourceName"] = source.name or "root"
             job["folderName"] = source.name or "root"
+            canonical_context = self._source_context(source)
+            supplied_context = self._validate_context(context) if context is not None else None
+            route_context = (
+                self._validate_context(expected_context)
+                if expected_context is not None
+                else None
+            )
+            if canonical_context is not None and route_context is None:
+                raise UploadConflict(
+                    "Canonical output context has no trusted runtime record"
+                )
+            if route_context is not None and canonical_context != route_context:
+                raise UploadConflict("Runtime output context does not match its source")
+            authoritative_context = route_context
+            if supplied_context is not None and authoritative_context is None:
+                raise UploadConflict("Upload source has no canonical output context")
+            if supplied_context is not None and supplied_context != authoritative_context:
+                raise UploadConflict("Upload context does not match the selected source")
+            if authoritative_context is not None and authoritative_context["deviceId"] != self.device_id:
+                raise UploadConflict("Upload context belongs to another device")
+            job["context"] = authoritative_context
+            job["sourceIdentity"] = self._source_identity(source)
             self._reserve_and_save(job_id, cancellation, job)
 
         self._launch_worker(job_id, source, target, cancellation)
@@ -918,6 +1002,10 @@ class UploadManager:
             source, target = self._resolve_source_and_target(
                 root_id, relative_path, target_id
             )
+            self._assert_source_identity(job, source)
+            current_context = self._source_context(source)
+            if job.get("context") is not None and current_context != job.get("context"):
+                raise UploadConflict("Upload source context changed after the job was created")
             cancellation = threading.Event()
             self._reset_for_retry(job)
             self._reserve_and_save(job_id, cancellation, job)
@@ -1073,6 +1161,7 @@ class UploadManager:
     ) -> None:
         try:
             self._raise_if_cancelled(job_id, cancellation)
+            self._assert_source_identity(self.get(job_id), source)
             self._update(
                 job_id,
                 state="SCANNING",
@@ -1102,6 +1191,7 @@ class UploadManager:
                     job_id, source, files, target, cancellation
                 )
 
+            self._assert_source_identity(self.get(job_id), source)
             self._finish_success(
                 job_id,
                 cancellation,
@@ -1202,6 +1292,9 @@ class UploadManager:
             "sourceName": source.name or "root",
             "files": manifest_files,
         }
+        context = self.get(job_id).get("context")
+        if isinstance(context, dict):
+            manifest["context"] = context
         if deferred_hashes:
             manifest["hashMode"] = DEFERRED_FILE_HASH_MODE
         response = self._http_json_with_retry(
@@ -2191,6 +2284,11 @@ class UploadManager:
             "deletionEligible": False,
             "sourceDeleted": False,
             "sourceDeletedAt": None,
+            "sourceTrashId": None,
+            "sourceTrashedAt": None,
+            "sourceRecoverable": False,
+            "context": None,
+            "sourceIdentity": None,
             "currentFile": None,
             "errorMessage": None,
             "createdAt": now,
@@ -2201,6 +2299,62 @@ class UploadManager:
     def _destination_name(source: Path, job_id: str) -> str:
         name = source.name or "root"
         return f"{name}-{job_id[:8]}"
+
+    def _source_context(self, source: Path) -> Optional[Dict[str, object]]:
+        if not source.is_dir():
+            return None
+        path = source / OUTPUT_CONTEXT_FILE
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            return None
+        if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 64 * 1024:
+            raise UploadConflict("Canonical output context file is unsafe")
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise UploadConflict("Canonical output context file is invalid") from error
+        return self._validate_context(value)
+
+    def _validate_context(self, value: Mapping[str, object]) -> Dict[str, object]:
+        if not isinstance(value, Mapping) or set(value) != {"schemaVersion", *OUTPUT_CONTEXT_FIELDS}:
+            raise UploadConflict("Upload context fields are invalid")
+        if value.get("schemaVersion") != 1:
+            raise UploadConflict("Upload context schema version is unsupported")
+        result: Dict[str, object] = {"schemaVersion": 1}
+        for field in OUTPUT_CONTEXT_FIELDS:
+            item = value.get(field)
+            if not isinstance(item, str) or not CONTEXT_ID_PATTERN.fullmatch(item):
+                raise UploadConflict(f"Upload context {field} is invalid")
+            result[field] = item
+        if not SHA256_PATTERN.fullmatch(str(result["configSha256"])):
+            raise UploadConflict("Upload context configSha256 is invalid")
+        if str(result["runId"]) != f"{result['pipelineId']}/{str(result['runId']).rsplit('/', 1)[-1]}":
+            raise UploadConflict("Upload context runId does not match pipelineId")
+        try:
+            datetime.fromisoformat(str(result["createdAt"]).replace("Z", "+00:00"))
+        except ValueError as error:
+            raise UploadConflict("Upload context createdAt is invalid") from error
+        return result
+
+    def _source_identity(self, source: Path) -> str:
+        digest = hashlib.sha256(SOURCE_IDENTITY_MAGIC)
+        files = list(self.storage.iter_regular_files(source))
+        for path in files:
+            metadata = path.stat()
+            relative = self._relative_file_path(source, path).as_posix().encode("utf-8")
+            digest.update(struct.pack(">I", len(relative)))
+            digest.update(relative)
+            digest.update(struct.pack(">QQQQ", metadata.st_size, metadata.st_mtime_ns,
+                                      metadata.st_ctime_ns, metadata.st_ino))
+        return digest.hexdigest()
+
+    def _assert_source_identity(self, job: Mapping[str, object], source: Path) -> None:
+        expected = job.get("sourceIdentity")
+        if expected is None:
+            return
+        if not isinstance(expected, str) or expected != self._source_identity(source):
+            raise UploadConflict("Upload source changed after the job was created")
 
     @staticmethod
     def _timestamp() -> str:

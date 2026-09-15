@@ -56,6 +56,74 @@ CREATE TABLE IF NOT EXISTS upload_files (
 
 CREATE INDEX IF NOT EXISTS upload_sessions_device_state_idx
 ON upload_sessions(device_id, state);
+
+CREATE TABLE IF NOT EXISTS projects (
+    project_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- A device belongs to one server-side access project. This access grouping is
+-- deliberately separate from the survey/project metadata produced by a pipeline.
+CREATE TABLE IF NOT EXISTS project_devices (
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL UNIQUE REFERENCES devices(device_id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, device_id)
+);
+
+CREATE TABLE IF NOT EXISTS employees (
+    employee_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('VIEWER', 'OPERATOR', 'ADMIN')),
+    token_digest TEXT UNIQUE NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    token_expires_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS employee_project_grants (
+    employee_id TEXT NOT NULL REFERENCES employees(employee_id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (employee_id, project_id)
+);
+
+CREATE TABLE IF NOT EXISTS library_trash (
+    session_id TEXT PRIMARY KEY REFERENCES upload_sessions(session_id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(project_id),
+    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+    state TEXT NOT NULL CHECK (
+        state IN ('MOVING_TO_TRASH', 'TRASHED', 'RESTORING')
+    ),
+    trashed_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS project_devices_project_idx
+ON project_devices(project_id, device_id);
+
+CREATE INDEX IF NOT EXISTS employee_project_grants_project_idx
+ON employee_project_grants(project_id, employee_id);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    event_id TEXT PRIMARY KEY,
+    actor_kind TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    project_id TEXT,
+    session_id TEXT,
+    target_id TEXT,
+    details_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS audit_events_project_created_idx
+ON audit_events(project_id, created_at DESC, event_id DESC);
 """
 
 

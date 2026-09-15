@@ -4,6 +4,7 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -19,13 +20,24 @@ import androidx.compose.ui.platform.testTag
 
 /** Consume on timeout, dismissal, or navigation so completed operations never replay. */
 @Composable
-fun OperationMessageHost(message: String?, onDismissMessage: (String) -> Unit) {
+fun OperationMessageHost(
+    message: String?,
+    onDismissMessage: (String) -> Unit,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
+) {
     val host = remember { SnackbarHostState() }
     val dismissMessage by rememberUpdatedState(onDismissMessage)
     LaunchedEffect(message) {
         val shown = message ?: return@LaunchedEffect
         try {
-            host.showSnackbar(shown, withDismissAction = true, duration = SnackbarDuration.Short)
+            val result = host.showSnackbar(
+                shown,
+                actionLabel = actionLabel.takeIf { onAction != null },
+                withDismissAction = true,
+                duration = if (onAction != null) SnackbarDuration.Long else SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
         } finally {
             dismissMessage(shown)
         }

@@ -86,7 +86,8 @@ fun DeviceStorageScreen(
     onServerDataClick: () -> Unit = {},
     onTransferQueue: () -> Unit = {},
     thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
-    onDismissMessage: (String) -> Unit = {}
+    onDismissMessage: (String) -> Unit = {},
+    onUndoDelete: () -> Unit = {}
 ) {
     var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<RemoteFileEntry?>(null) }
     pendingDeletion?.let { entry ->
@@ -99,13 +100,13 @@ fun DeviceStorageScreen(
                 } else {
                     "${entry.name} 파일을"
                 }
-                Text("$target 장치에서 영구 삭제합니다.")
+                Text("$target 장치 휴지통으로 옮깁니다. 이동이 확인되면 잠시 동안 되돌릴 수 있습니다.")
             },
             confirmButton = {
                 Button(enabled = state.controlAvailable, onClick = {
                     pendingDeletion = null
                     onDeleteClick(entry)
-                }) { Text("삭제") }
+                }) { Text("휴지통으로 이동") }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeletion = null }) { Text("취소") }
@@ -114,7 +115,11 @@ fun DeviceStorageScreen(
     }
     BackHandler(onBack = onBack)
     Scaffold(
-        snackbarHost = { com.example.jetsoncontroller.ui.components.OperationMessageHost(state.message, onDismissMessage) },
+        snackbarHost = { com.example.jetsoncontroller.ui.components.OperationMessageHost(
+            state.message, onDismissMessage,
+            actionLabel = "실행 취소".takeIf { state.undoTrashId != null },
+            onAction = onUndoDelete.takeIf { state.undoTrashId != null }
+        ) },
         topBar = {
             TopAppBar(
                 title = {
@@ -302,7 +307,7 @@ private fun DirectoryList(
                             onClick = { onDeleteClick(entry) },
                             enabled = state.controlAvailable && !state.isLoading && !state.isDeleting
                         ) {
-                            Icon(Icons.Default.Delete, contentDescription = "장치 데이터 삭제")
+                            Icon(Icons.Default.Delete, contentDescription = "장치 데이터를 휴지통으로 이동")
                         }
                         if (directory) {
                             Icon(Icons.Default.ChevronRight, contentDescription = null)

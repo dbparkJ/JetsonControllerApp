@@ -61,6 +61,8 @@ import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineLogScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelinePickerScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineViewModel
+import com.example.jetsoncontroller.ui.survey.SurveyRunScreen
+import com.example.jetsoncontroller.ui.survey.SurveyRunViewModel
 import com.example.jetsoncontroller.ui.sensors.SensorScreen
 import com.example.jetsoncontroller.ui.sensors.CameraPreviewScreen
 import com.example.jetsoncontroller.ui.sensors.CameraPreviewViewModel
@@ -99,12 +101,13 @@ private object Routes {
     const val STORAGE = "storage"
 
     const val SERVER_STORAGE = "server_storage"
+    const val SERVER_PROXY_STORAGE = "server_proxy_storage"
 
     const val STORAGE_ROUTE =
         "storage?rootId={rootId}&path={path}"
 
     const val UPLOAD_CONFIRM =
-        "upload_confirm/{rootId}?path={path}"
+        "upload_confirm/{rootId}?path={path}&runId={runId}"
         
     const val UPLOAD_PROGRESS =
         "upload_progress"
@@ -138,9 +141,12 @@ private object Routes {
     const val GNSS_MAP = "gnss_map"
 
     const val SETTINGS = "settings"
+    const val ADMIN_TOOLS = "admin_tools"
     const val ALERT_SETTINGS = "alert_settings"
     const val DATA = "data_hub"
+    const val LOCAL_TRASH = "local_trash"
     const val PIPELINE_DETAIL = "pipeline_detail/{pipelineId}"
+    const val SURVEY_RUN = "survey_run/{pipelineId}"
 
     const val DIAGNOSTICS = "connection_diagnostics"
 
@@ -150,7 +156,7 @@ private object Routes {
 private val routesRequiringDeviceConnection = setOf(
     Routes.NETWORK_SETTINGS,
     Routes.STORAGE_ROUTE,
-    Routes.SERVER_STORAGE,
+    Routes.SERVER_PROXY_STORAGE,
     Routes.UPLOAD_CONFIRM,
     Routes.UPLOAD_PROGRESS,
     Routes.UPLOAD_SERVERS,
@@ -159,6 +165,8 @@ private val routesRequiringDeviceConnection = setOf(
     Routes.PIPELINE_PICKER,
     Routes.PIPELINE_LOGS,
     Routes.PIPELINE_CONFIG,
+    Routes.SURVEY_RUN,
+    Routes.LOCAL_TRASH,
     Routes.CAMERA_PREVIEW
 )
 
@@ -257,14 +265,12 @@ fun JetsonApp(
         factory = com.example.jetsoncontroller.ui.field.FieldToolsViewModel.Factory(repository))
     val fieldState by fieldToolsViewModel.state.collectAsStateWithLifecycle()
 
-    val serverStorageViewModel:
-        ServerStorageViewModel =
-        viewModel(
-            factory =
-                ServerStorageViewModel.Factory(
-                    repository
-                )
-        )
+    val directServerViewModel: com.example.jetsoncontroller.ui.storage.DirectServerViewModel =
+        viewModel(factory = com.example.jetsoncontroller.ui.storage.DirectServerViewModel.Factory(fieldContext))
+    val serverStorageViewModel: ServerStorageViewModel =
+        viewModel(factory = ServerStorageViewModel.Factory(repository))
+    val localTrashViewModel: com.example.jetsoncontroller.ui.storage.LocalTrashViewModel =
+        viewModel(factory = com.example.jetsoncontroller.ui.storage.LocalTrashViewModel.Factory(repository))
         
     val uploadViewModel:
         UploadViewModel =
@@ -283,6 +289,10 @@ fun JetsonApp(
                     repository
                 )
         )
+
+    val surveyRunViewModel: SurveyRunViewModel = viewModel(
+        factory = SurveyRunViewModel.Factory(repository, fieldContext)
+    )
 
     val cameraPreviewViewModel: CameraPreviewViewModel =
         viewModel(factory = CameraPreviewViewModel.Factory(repository))
@@ -323,10 +333,9 @@ fun JetsonApp(
             .uiState
             .collectAsStateWithLifecycle()
 
-    val serverStorageState by
-        serverStorageViewModel
-            .uiState
-            .collectAsStateWithLifecycle()
+    val directServerState by directServerViewModel.uiState.collectAsStateWithLifecycle()
+    val serverStorageState by serverStorageViewModel.uiState.collectAsStateWithLifecycle()
+    val localTrashState by localTrashViewModel.state.collectAsStateWithLifecycle()
             
     val rawUploadState by
         uploadViewModel
@@ -337,6 +346,8 @@ fun JetsonApp(
         pipelineViewModel
             .uiState
             .collectAsStateWithLifecycle()
+
+    val surveyRunState by surveyRunViewModel.uiState.collectAsStateWithLifecycle()
 
     val cameraPreviewState by
         cameraPreviewViewModel
@@ -400,7 +411,7 @@ fun JetsonApp(
         }
         val route = when (section) {
             ControlSection.OVERVIEW -> Routes.DASHBOARD
-            ControlSection.DATA -> Routes.STORAGE
+            ControlSection.DATA -> Routes.DATA
             ControlSection.PIPELINES -> Routes.PIPELINES
             ControlSection.SENSORS -> Routes.SENSORS
             ControlSection.SETTINGS -> Routes.SETTINGS
@@ -472,10 +483,11 @@ fun JetsonApp(
         }
     }
 
-    LaunchedEffect(deviceState.connectionState) {
+    LaunchedEffect(deviceState.connectionState, currentRoute) {
         if (
             deviceState.connectionState
-            is ConnectionState.RegistrationRequired
+            is ConnectionState.RegistrationRequired &&
+            deviceRegistrationRedirectAllowed(currentRoute)
         ) {
             navController.navigate(Routes.ONBOARDING) {
                 launchSingleTop = true
@@ -526,6 +538,7 @@ fun JetsonApp(
                 },
                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                 onUploadHistoryClick = { navController.navigate(Routes.UPLOAD_QUEUE) },
+                onServerDataClick = { navController.navigate(Routes.SERVER_STORAGE) },
                 onOpenDashboard = { navController.navigate(Routes.DASHBOARD) },
                 unreadAlertCount = alertCenterState.unreadCount,
                 onAlertsClick = { navController.navigate(Routes.ALERTS) },
@@ -727,6 +740,9 @@ fun JetsonApp(
                 onSensorsClick = { navController.navigate(Routes.SENSORS) },
                 onCameraClick = { navController.navigate(Routes.CAMERA_PREVIEW) },
                 onGnssClick = { navController.navigate(Routes.GNSS_MAP) },
+                onConnectionClick = {
+                    navController.navigate(Routes.CONNECTION_HUB) { launchSingleTop = true }
+                },
                 tasksConfirmed = com.example.jetsoncontroller.ui.pipelines.tasksAreFresh(
                     pipelineState.controlAvailable, pipelineState.observedAtMillis, System.currentTimeMillis()),
                 taskObservedAt = pipelineState.observedAtMillis,
@@ -877,6 +893,7 @@ fun JetsonApp(
                 onDirectoryClick = { storageViewModel.selectDirectory(it) },
                 onFileClick = storageViewModel::openFile,
                 onDeleteClick = storageViewModel::deleteEntry,
+                onUndoDelete = storageViewModel::undoDelete,
                 onUploadClick = { rootId, path ->
                     navController.navigate(
                         "upload_confirm/${Uri.encode(rootId)}?path=${Uri.encode(path)}"
@@ -892,23 +909,46 @@ fun JetsonApp(
         }
 
         composable(Routes.SERVER_STORAGE) {
-            LaunchedEffect(Unit) {
-                serverStorageViewModel.refresh()
-            }
-            ServerStorageScreen(
-                onDismissMessage = serverStorageViewModel::dismissMessage,
-                thumbnailLoader = { entry -> repository.getUploadLibraryFile(serverStorageState.selectedTarget!!.id, serverStorageState.selectedSession!!.sessionId, entry.relativePath) },
-                state = serverStorageState,
+            com.example.jetsoncontroller.ui.storage.DirectServerScreen(
+                state = directServerState,
                 onBack = {
-                    if (!serverStorageViewModel.navigateBack()) {
+                    if (!directServerViewModel.navigateBack()) {
                         navController.popBackStack()
                     }
                 },
-                onDeviceDataClick = {
-                    navController.navigate(Routes.STORAGE) {
-                        launchSingleTop = true
-                    }
+                onSection = directServerViewModel::selectSection,
+                onSelectProfile = directServerViewModel::selectProfile,
+                onSaveProfile = directServerViewModel::saveProfile,
+                onConnect = directServerViewModel::connect,
+                onRefreshJobs = directServerViewModel::refreshJobs,
+                onLoadMoreJobs = directServerViewModel::loadMoreJobs,
+                onOpenJob = directServerViewModel::openJob,
+                onOpenDirectory = directServerViewModel::openDirectory,
+                onOpenFile = directServerViewModel::openFile,
+                onReceipt = directServerViewModel::loadReceipt,
+                onMoveToTrash = directServerViewModel::moveToTrash,
+                onRestore = directServerViewModel::restore,
+                onUndoTrash = directServerViewModel::undoTrash,
+                onRefreshTrash = directServerViewModel::refreshTrash,
+                onRemoveProfile = directServerViewModel::removeSelectedProfile,
+                onDismissMessage = directServerViewModel::dismissMessage
+            )
+        }
+
+        composable(Routes.SERVER_PROXY_STORAGE) {
+            LaunchedEffect(Unit) { serverStorageViewModel.refresh() }
+            ServerStorageScreen(
+                onDismissMessage = serverStorageViewModel::dismissMessage,
+                thumbnailLoader = { entry -> repository.getUploadLibraryFile(
+                    serverStorageState.selectedTarget!!.id,
+                    serverStorageState.selectedSession!!.sessionId,
+                    entry.relativePath
+                ) },
+                state = serverStorageState,
+                onBack = {
+                    if (!serverStorageViewModel.navigateBack()) navController.popBackStack()
                 },
+                onDeviceDataClick = { navController.navigate(Routes.STORAGE) { launchSingleTop = true } },
                 onRefresh = serverStorageViewModel::refresh,
                 onTargetSelected = serverStorageViewModel::selectTarget,
                 onSessionClick = serverStorageViewModel::openSession,
@@ -917,7 +957,7 @@ fun JetsonApp(
                 onFileClick = serverStorageViewModel::openFile,
                 onLoadMore = serverStorageViewModel::loadMoreSessions,
                 onSectionSelected = onSectionSelected,
-                deletionEnabled = fullControlConnected
+                deletionEnabled = false
             )
         }
 
@@ -928,17 +968,23 @@ fun JetsonApp(
                 navArgument("path") {
                     type = NavType.StringType
                     defaultValue = ""
+                },
+                navArgument("runId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
             val rootId = backStackEntry.arguments?.getString("rootId").orEmpty()
             val path = backStackEntry.arguments?.getString("path").orEmpty()
+            val linkedRunId = backStackEntry.arguments?.getString("runId")?.takeIf(String::isNotBlank)
             val confirmationDevice = androidx.compose.runtime.saveable.rememberSaveable { selectedDeviceId.orEmpty() }
             LaunchedEffect(selectedDeviceId) {
                 if (confirmationDevice != selectedDeviceId.orEmpty()) navController.popBackStack()
             }
-            LaunchedEffect(rootId, path, selectedDeviceId) {
-                uploadViewModel.loadSourceSummary(rootId, path)
+            LaunchedEffect(rootId, path, linkedRunId, selectedDeviceId) {
+                uploadViewModel.loadSourceSummary(rootId, path, linkedRunId = linkedRunId)
             }
             UploadConfirmScreen(
                 deviceId = selectedDeviceId,
@@ -947,6 +993,8 @@ fun JetsonApp(
                 path = path,
                 targets = uploadState.targets,
                 sourceSummary = uploadState.sourceSummary,
+                linkedRunId = linkedRunId,
+                linkedRun = uploadState.linkedRun,
                 isCalculatingSource = uploadState.isCalculatingSource,
                 serverUploadEnabled = serverUploadEnabled && dashboardState.capabilities.uploads && confirmationDevice == selectedDeviceId.orEmpty(),
                 serverUploadDisabledReason = serverUploadDisabledReason,
@@ -955,7 +1003,7 @@ fun JetsonApp(
                 onBack = { navController.popBackStack() },
                 onRefresh = {
                     uploadViewModel.refresh()
-                    uploadViewModel.loadSourceSummary(rootId, path, force = true)
+                    uploadViewModel.loadSourceSummary(rootId, path, force = true, linkedRunId = linkedRunId)
                 },
                 onManageTargets = {
                     navController.navigate(Routes.UPLOAD_SERVERS)
@@ -980,6 +1028,7 @@ fun JetsonApp(
                 onRetry = uploadViewModel::retryCurrentUpload,
                 onVerify = uploadViewModel::verifyCurrentUpload,
                 onDeleteSource = uploadViewModel::deleteCurrentSource,
+                onRestoreSource = uploadViewModel::restoreCurrentSource,
                 onBack = { navController.popBackStack() },
                 serverMutationEnabled = serverUploadEnabled,
                 serverMutationDisabledReason = serverUploadDisabledReason,
@@ -1042,6 +1091,9 @@ fun JetsonApp(
                     navController.navigate(Routes.PIPELINE_EDITOR)
                 },
                 onControl = pipelineViewModel::control,
+                onPrepareRun = { pipeline ->
+                    navController.navigate("survey_run/${Uri.encode(pipeline.id)}")
+                },
                 onRemove = pipelineViewModel::remove,
                 onLogs = { pipeline ->
                     navController.navigate("pipeline_logs/${Uri.encode(pipeline.id)}")
@@ -1068,6 +1120,38 @@ fun JetsonApp(
         }
         }
 
+        composable(
+            route = Routes.SURVEY_RUN,
+            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
+        ) { entry ->
+            val pipelineId = entry.arguments?.getString("pipelineId").orEmpty()
+            val pipelineLabel = pipelineState.pipelines.firstOrNull { it.id == pipelineId }?.label ?: pipelineId
+            LaunchedEffect(selectedDeviceId, pipelineId, pipelineLabel) {
+                surveyRunViewModel.open(pipelineId, pipelineLabel)
+            }
+            SurveyRunScreen(
+                state = surveyRunState,
+                onBack = { pipelineViewModel.refresh(); navController.popBackStack() },
+                onRefresh = surveyRunViewModel::refresh,
+                onSelectProject = surveyRunViewModel::selectProject,
+                onSelectSection = surveyRunViewModel::selectSection,
+                onCreateProject = surveyRunViewModel::createProject,
+                onCreateSection = surveyRunViewModel::createSection,
+                onSensorRequirement = surveyRunViewModel::setSensorRequirement,
+                onMinFreeBytes = surveyRunViewModel::setMinFreeBytes,
+                onOutputMinFiles = surveyRunViewModel::setOutputMinFiles,
+                onOutputMinBytes = surveyRunViewModel::setOutputMinBytes,
+                onOutputPatterns = surveyRunViewModel::setOutputPatterns,
+                onOutputRoot = surveyRunViewModel::setOutputRoot,
+                onOutputPath = surveyRunViewModel::setOutputPath,
+                onSavePolicy = surveyRunViewModel::savePolicy,
+                onPreflight = surveyRunViewModel::runPreflight,
+                onStart = surveyRunViewModel::start,
+                onRetryPendingStart = surveyRunViewModel::retryPendingStart,
+                onDismissMessage = surveyRunViewModel::clearMessage
+            )
+        }
+
         composable(Routes.TASK_HISTORY) {
             LaunchedEffect(Unit) { fieldToolsViewModel.refresh() }
             com.example.jetsoncontroller.ui.field.GeoRunDashboard(
@@ -1081,6 +1165,16 @@ fun JetsonApp(
                 onDismissLog = fieldToolsViewModel::dismissLog,
                 onPipeline = { navController.navigate("pipeline_detail/${Uri.encode(it.id)}") },
                 onDeleteRun = fieldToolsViewModel::deleteRun,
+                onUndoDelete = fieldToolsViewModel::undoDeleteRun,
+                onUploadOutput = { run ->
+                    val output = run.output
+                    val runId = run.runId ?: run.id.takeIf { run.contextSnapshot != null }
+                    if (output != null && runId != null) {
+                        navController.navigate(
+                            "upload_confirm/${Uri.encode(output.rootId)}?path=${Uri.encode(output.path)}&runId=${Uri.encode(runId)}"
+                        )
+                    }
+                },
                 onDismissMessage = fieldToolsViewModel::dismissMessage
             )
         }
@@ -1215,6 +1309,7 @@ fun JetsonApp(
             StatusPollingLifecycleEffect(dashboardViewModel)
             GnssMapScreen(
                 route = fieldState.route,
+                quality = fieldState.routeQuality,
                 routeLabel = fieldState.selectedRun?.label,
                 gnss = dashboardState.status.gnssSensor,
                 telemetryFresh = dashboardState.status.sensorTelemetryFresh,
@@ -1236,8 +1331,19 @@ fun JetsonApp(
                     onHistory = { navController.navigate(Routes.UPLOAD_QUEUE) },
                     onTargets = { navController.navigate(Routes.UPLOAD_SERVERS) },
                     onTransfer = { root, path -> navController.navigate("upload_confirm/${Uri.encode(root)}?path=${Uri.encode(path)}") },
-                    onSection = onSectionSelected)
+                    onSection = onSectionSelected,
+                    onServerData = { navController.navigate(Routes.SERVER_STORAGE) },
+                    onTrash = { navController.navigate(Routes.LOCAL_TRASH) })
             }
+        }
+        composable(Routes.LOCAL_TRASH) {
+            com.example.jetsoncontroller.ui.storage.LocalTrashScreen(
+                state = localTrashState,
+                onBack = { navController.popBackStack() },
+                onRefresh = localTrashViewModel::refresh,
+                onRestore = localTrashViewModel::restore,
+                onDismissMessage = localTrashViewModel::dismissMessage
+            )
         }
         composable(Routes.SETTINGS) {
             StatusPollingLifecycleEffect(dashboardViewModel)
@@ -1256,8 +1362,28 @@ fun JetsonApp(
                     onFanManual = dashboardViewModel::setFanManual, onReboot = dashboardViewModel::reboot,
                     onShutdown = dashboardViewModel::shutdown, onDismissMessage = dashboardViewModel::clearOperationMessage,
                     onSection = onSectionSelected,
-                    onDeveloper = { navController.navigate("developer") })
+                    onDeveloper = { navController.navigate("developer") },
+                    onAdminTools = { navController.navigate(Routes.ADMIN_TOOLS) })
             }
+        }
+        composable(Routes.ADMIN_TOOLS) {
+            StatusPollingLifecycleEffect(dashboardViewModel)
+            com.example.jetsoncontroller.ui.settings.AdminToolsScreen(
+                state = deviceDashboardState,
+                deviceId = selectedDeviceId,
+                onBack = { navController.popBackStack() },
+                onNetwork = { navController.navigate(Routes.NETWORK_SETTINGS) },
+                onTargets = { navController.navigate(Routes.UPLOAD_SERVERS) },
+                onDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                onJetsonServerProxy = { navController.navigate(Routes.SERVER_PROXY_STORAGE) },
+                onDeviceRegistration = { navController.navigate(Routes.CONNECTION_HUB) },
+                onRefreshFan = dashboardViewModel::refreshFan,
+                onFanAuto = dashboardViewModel::setFanAuto,
+                onFanManual = dashboardViewModel::setFanManual,
+                onReboot = dashboardViewModel::reboot,
+                onShutdown = dashboardViewModel::shutdown,
+                onDismissMessage = dashboardViewModel::clearOperationMessage
+            )
         }
         composable("developer") {
             com.example.jetsoncontroller.ui.field.DeveloperScreen(fieldState,
@@ -1347,3 +1473,6 @@ private fun alertDestinationRoute(destination: AlertDestination): String = when 
     AlertDestination.PIPELINES -> Routes.PIPELINES
     AlertDestination.UPLOAD_QUEUE -> Routes.UPLOAD_QUEUE
 }
+
+internal fun deviceRegistrationRedirectAllowed(currentRoute: String?): Boolean =
+    currentRoute != "server_storage"

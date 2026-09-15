@@ -181,8 +181,10 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `GET` | `/v1/upload/library/sessions?target=&offset=` | HMAC | 외부 서버 완료 upload 목록 프록시 |
 | `GET` | `/v1/upload/library/files?target=&session=&path=` | HMAC | 외부 서버 upload의 가상 폴더 목록 프록시 |
 | `GET` | `/v1/upload/library/file?target=&session=&path=` | HMAC | 외부 서버 파일의 12 MiB 제한 미리보기 프록시 |
-| `DELETE` | `/v1/upload/library/sessions/{sessionId}?target=` | HMAC + 확인 | 외부 서버의 완료 업로드 삭제 |
-| `DELETE` | `/v1/fs/entry?root=&path=` | HMAC + 확인 | 장치 저장소의 선택 파일·폴더 삭제 |
+| `DELETE` | `/v1/upload/library/sessions/{sessionId}?target=` | HMAC + 확인 | legacy 장비-token 영구 삭제는 거부하며 직원 범위 휴지통 사용 안내 |
+| `DELETE` | `/v1/fs/entry?root=&path=` | HMAC + 확인 | 장치 저장소의 선택 파일·폴더를 복구 가능한 휴지통으로 이동 |
+| `GET` | `/v1/trash?includeRestored=false` | HMAC | 로컬 휴지통과 전이·감사 상태 조회 |
+| `POST` | `/v1/trash/{trashId}/restore` | HMAC + 확인 | 파일·폴더 또는 실행 이력과 sidecar 복원 |
 | `GET` | `/v1/upload/targets` | HMAC | 외부 업로드 대상 |
 | `PUT` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 HTTPS 업로드 서버 추가·수정 |
 | `DELETE` | `/v1/upload/targets/{id}` | HMAC | 앱 관리 업로드 서버 삭제 |
@@ -204,6 +206,68 @@ API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설
 | `GET`, `PUT` | `/v1/pipelines/{id}/config` | HMAC | 현재 release의 YAML 읽기와 원자 저장 |
 | `GET` | `/v1/pipelines/{id}/config/fields` | HMAC | 편집 가능한 scalar key/value와 revision 조회 |
 | `PATCH` | `/v1/pipelines/{id}/config/fields` | HMAC | revision 확인 후 선택한 value만 원자 저장 |
+| `GET`, `POST` | `/v1/survey/projects` | HMAC | 조사 프로젝트 목록과 멱등 생성 |
+| `GET`, `PUT`, `DELETE` | `/v1/survey/projects/{projectId}` | HMAC | 프로젝트 조회, revision 기반 수정·삭제 |
+| `GET`, `POST` | `/v1/survey/projects/{projectId}/sections` | HMAC | 프로젝트 구간 목록과 멱등 생성 |
+| `GET`, `PUT`, `DELETE` | `/v1/survey/projects/{projectId}/sections/{sectionId}` | HMAC | 구간 조회, revision 기반 수정·삭제 |
+| `GET`, `PUT` | `/v1/pipelines/{id}/run-policy` | HMAC | 명시적 센서·저장 공간·출력 증거 정책 조회·버전 갱신 |
+| `POST` | `/v1/pipelines/{id}/preflight` | HMAC | 선택한 조사 context와 정책에 대한 시작 전 증거 snapshot |
+| `POST` | `/v1/pipelines/{id}/contextual-start` | HMAC | 성공한 preflight를 고정한 멱등 실행 시작 |
+| `GET` | `/v1/pipeline-runs/{runId}` | HMAC | root 소유 canonical 실행·출력·upload context 조회 |
+
+### 조사 context와 실행 정책
+
+조사 프로젝트와 구간은 Jetson이 원본이다. 프로젝트 ID와 구간 ID는 upload receiver 접근 권한에 사용하는 `accessProjectId`와 별개다. 생성 요청은 `clientRequestId`를 사용하며 같은 body의 응답 손실 재시도는 같은 ID와 revision을 돌려준다. 수정·삭제는 현재 정수 `expectedRevision`이 필요하다. 실행 중인 context의 프로젝트, 구간, 정책, pipeline 등록과 설정은 `409 CONTEXT_LOCKED`로 보호된다.
+
+새 contextual 실행에는 먼저 명시적으로 설정한 version 1 정책이 필요하다. 정책 입력은 다음 값이다.
+
+```json
+{
+  "requiredSensors": ["camera", "gnss"],
+  "optionalSensors": ["imu"],
+  "minFreeBytes": 1073741824,
+  "outputRootId": "collections",
+  "outputPath": "",
+  "expectedOutput": {
+    "minFiles": 1,
+    "minBytes": 1,
+    "patterns": ["*.jsonl"]
+  },
+  "expectedRevision": null,
+  "clientRequestId": "policy-unique-request-id"
+}
+```
+
+위 숫자와 센서 목록은 형식 예시다. 서버가 합격 기준을 임의로 넣지 않으며 운영자가 장비와 작업에 맞는 값을 입력한다. `requiredSensors`만 실행을 차단하고 optional 센서 문제는 증거에 남는다. RTK FIX 비율 임계값은 이 정책에 없다. 첫 저장은 `expectedRevision: null`이고 서버가 `policyVersion: 1`과 64자리 `revision`을 만든다. 이후 저장은 현재 revision을 보내며 서버가 version을 증가시킨다. `clientRequestId` replay 기록은 크기와 개수가 제한된 root 상태에 보존된다.
+
+Preflight 요청은 `surveyProjectId`, `surveySectionId`, 두 정수 revision, 정책의 문자열 `policyRevision`을 보낸다. 응답은 장치 ID, 프로젝트·구간 label/revision, source revision/dirty 상태/release, config SHA-256, 인증된 시간 상태, pipeline 사용자 기준 저장 경로·여유 공간, required/optional 센서의 실제 sample timestamp와 상태를 함께 고정한다. `ready`는 인증 시간, 저장 공간, required 센서가 모두 준비됐을 때만 true다. optional 센서 문제도 `problems`에 남지만 ready를 false로 만들지 않는다.
+
+Contextual start 요청은 같은 survey ID/revision과 policy revision, `preflightId`, 새 `clientRequestId`를 보낸다. 서버는 preflight 시점 뒤의 label/revision, release, source dirty 상태, config hash 변경과 오래되거나 다른 boot의 요청을 거부한다. 응답 손실 뒤 같은 요청 ID와 body를 재전송하면 새 실행을 만들지 않고 기존 `runId`를 반환한다. 응답의 `contextualStart`에는 고정 context/preflight/output과 다음 조회 경로가 들어간다.
+
+```json
+{
+  "runId": "capture/run-20260914T000000.000001Z-123.log",
+  "clientRequestId": "start-unique-request-id",
+  "outcome": "START_ACCEPTED",
+  "contextSnapshot": {},
+  "preflightSnapshot": {},
+  "output": {
+    "outputId": "...",
+    "rootId": "collections",
+    "path": "capture/run-20260914T000000.000001Z-123",
+    "manifestState": "PENDING",
+    "manifest": null
+  },
+  "uploadContext": {},
+  "statusUrl": "/v1/pipeline-runs/capture/run-20260914T000000.000001Z-123.log"
+}
+```
+
+`GET /v1/pipeline-runs/{runId}`는 root 소유 실행 record를 기준으로 `STARTING`, `RUNNING`, `STOPPING`, `STOPPED`, `COMPLETED`, `FAILED`와 실제 종료 evidence를 반환한다. 자연 종료 코드 0은 `COMPLETED`, operator 중지는 `STOPPED`, 실행 실패나 종료 footer 유실은 `FAILED`다. 일시적인 systemd `UNKNOWN`은 종료 증거가 아니므로 실행 잠금을 풀지 않는다. 완료 시 고유 실행 디렉터리만 재귀 검사하여 기존 파일을 제외한 file count, byte count, pattern별 count를 manifest에 기록한다.
+
+`uploadContext`는 `schemaVersion`, survey project/section ID, `runId`, 장치·pipeline ID, source revision, config SHA-256, `outputId`, 생성 시각을 가진다. Android는 이를 다시 계산하지 않고 그대로 upload 요청에 넣는다. 결과 디렉터리의 `.jetson-output-context.json`은 pipeline 사용자가 교체할 수 있으므로 단독 신뢰 근거가 아니다. API는 선택한 upload source가 root 소유 run record의 정확한 output 경로와 일치할 때만 연결된 upload를 허용한다.
+
+정책이 설정된 pipeline은 기존 `start`, `restart`, `enable` endpoint로 시작할 수 없으며 `409 CONTEXT_REQUIRED`를 반환한다. runner도 fresh one-shot launch가 없거나 이미 소비된 launch, 다른 boot의 launch를 거부한다. 따라서 기존에 enable된 unit은 contextual 운영으로 전환하기 전에 disable 상태를 확인한다. `stop`과 `disable`은 계속 사용할 수 있다. 정책이 없는 기존 pipeline API와 기록 parsing은 그대로 유지된다.
 
 ### TLS bootstrap
 
@@ -355,7 +419,10 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - 앱이 등록한 서버와 token은 `/var/lib/jetson-control` 아래 root 전용 파일로 원자 저장한다. `/etc`의 관리자 대상은 앱에서 수정할 수 없다.
 - 재부팅 또는 API 재시작 후 진행 중 작업은 영속 상태에서 자동 재개한다.
 - 실패 작업의 retry는 같은 job ID와 receiver session을 재사용해 offset부터 이어간다.
+- 새 실행 결과 업로드는 `PipelineRun.uploadContext`를 `/v1/uploads`의 `context`로 그대로 보낸다. backend는 선택 경로가 root 소유 runtime record의 `resultsDirectory`와 일치하는지 확인하고, 해당 record·`.jetson-output-context.json`·요청의 10개 필드가 모두 같을 때만 linked job을 만든다. runtime record가 없는 legacy source는 context를 생략할 때만 허용한다.
+- job의 `sourceIdentity`는 시작 시 파일 경로·크기·inode·mtime/ctime inventory를 고정한다. retry 또는 전송 완료 전 source가 바뀌면 성공으로 표시하지 않는다. `context`는 receiver manifest hash에도 포함되어 동일 client job ID에 다른 조사 context를 붙일 수 없다.
 - receiver 완료 처리에서 수 TiB 전체 SHA-256 검증을 기다릴 수 있도록 완료 응답 read timeout만 24시간이며, 세션/offset/청크 요청은 기존 60초 timeout을 유지한다.
+- 로컬 삭제는 설정 root 안의 `.jetson-control-trash`로 동일 filesystem rename하고 전이 journal을 `/var/lib/jetson-control/local-trash`에 fsync한다. 예약 경로는 목록·읽기·upload에서 숨기며 symlink parent를 따르지 않는다. 복원은 기존 목적지를 덮어쓰지 않는다. 자동 purge와 영구 삭제 API는 없다.
 
 ## Python 수집 작업
 

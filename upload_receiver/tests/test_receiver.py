@@ -95,12 +95,55 @@ class ReceiverApiTest(unittest.TestCase):
     def auth(self, token: str | None = None) -> dict[str, str]:
         return {"Authorization": f"Bearer {token or self.token}"}
 
+    def employee_auth(
+        self, token: str, environment: str = "development"
+    ) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {token}",
+            "X-Expected-Server-Environment": environment,
+        }
+
+    def configure_employee_access(
+        self,
+        *,
+        employee_id: str = "employee.one",
+        role: str = "OPERATOR",
+        project_id: str = "road-alpha",
+        device_id: str = DEVICE_ID,
+    ) -> str:
+        receiver: ReceiverService = self.client.app.state.receiver
+        receiver.upsert_project(project_id, f"Project {project_id}")
+        receiver.assign_device_to_project(device_id, project_id)
+        return receiver.issue_employee_token(
+            employee_id,
+            f"Employee {employee_id}",
+            role,
+            project_ids=[project_id],
+        )
+
     def create(self, manifest: dict[str, object], token: str | None = None):
         return self.client.post(
             "/v1/upload-sessions",
             headers={**self.auth(token), "Content-Type": "application/json"},
             content=json.dumps(manifest, ensure_ascii=False).encode("utf-8"),
         )
+
+    @staticmethod
+    def survey_context(**changes: object) -> dict[str, object]:
+        value: dict[str, object] = {
+            "schemaVersion": 1,
+            "surveyProjectId": "survey-alpha",
+            "surveySectionId": "section-01",
+            "runId": "capture/run-20260914T010203.000004Z-123.log",
+            "deviceId": DEVICE_ID,
+            "pipelineId": "capture",
+            "sourceRevision": "1234567890abcdef1234567890abcdef12345678",
+            "configSha256": "a" * 64,
+            "outputId": "output-0123456789abcdef",
+            "createdAt": "2026-09-14T01:02:03Z",
+        }
+        value.update(changes)
+        return value
 
     def put(
         self,
@@ -243,7 +286,352 @@ class ReceiverApiTest(unittest.TestCase):
         )
         self.assertEqual(foreign.status_code, 403)
 
-    def test_completed_library_session_can_be_verified_and_securely_deleted(self) -> None:
+    def test_survey_context_is_immutable_and_propagates_to_jobs_receipt_and_trash(self) -> None:
+        body = b"contextual output"
+        manifest = self.manifest([("output.bin", body)], client_job_id="6" * 32)
+        manifest["context"] = self.survey_context()
+        created = self.create(manifest)
+        self.assertEqual(created.status_code, 201, created.text)
+        session_id = created.json()["sessionId"]
+
+        changed = dict(manifest)
+        changed["context"] = self.survey_context(surveySectionId="section-02")
+        conflict = self.create(changed)
+        self.assertEqual(conflict.status_code, 409)
+        self.assertIn("another manifest", conflict.json()["detail"])
+
+        self.assertEqual(self.put(session_id, "output.bin", body).status_code, 200)
+        self.assertEqual(self.client.post(
+            f"/v1/upload-sessions/{session_id}/complete", headers=self.auth(), json={}
+        ).status_code, 200)
+        self.assertEqual(
+            self.client.get("/v1/library/sessions", headers=self.auth()).json()[
+                "sessions"
+            ][0]["surveyContext"],
+            self.survey_context(),
+        )
+        receipt = self.client.get(
+            f"/v1/library/sessions/{session_id}/verification", headers=self.auth()
+        ).json()
+        self.assertEqual(receipt["surveyContext"], self.survey_context())
+
+        employee_token = self.configure_employee_access(role="OPERATOR")
+        headers = self.employee_auth(employee_token)
+        job = self.client.get(
+            "/v1/server/jobs", params={"projectId": "road-alpha"}, headers=headers
+        ).json()["jobs"][0]
+        self.assertEqual(job["projectId"], "road-alpha")
+        self.assertEqual(job["surveyContext"]["surveyProjectId"], "survey-alpha")
+        trashed = self.client.delete(
+            f"/v1/server/jobs/{session_id}",
+            params={"projectId": "road-alpha"},
+            headers=headers,
+        )
+        self.assertEqual(trashed.status_code, 200, trashed.text)
+        trash_entry = self.client.get(
+            "/v1/server/trash", params={"projectId": "road-alpha"}, headers=headers
+        ).json()["jobs"][0]
+        self.assertEqual(trash_entry["surveyContext"], self.survey_context())
+
+    def test_context_requires_exact_fields_and_matching_device(self) -> None:
+        manifest = self.manifest([("output.bin", b"x")], client_job_id="5" * 32)
+        manifest["context"] = self.survey_context(deviceId=SECOND_DEVICE_ID)
+        self.assertEqual(self.create(manifest).status_code, 403)
+        manifest["context"] = {**self.survey_context(), "unexpected": True}
+        self.assertEqual(self.create(manifest).status_code, 400)
+
+    def test_direct_server_query_uses_separate_employee_project_auth(self) -> None:
+        employee_token = self.configure_employee_access(role="VIEWER")
+        body = b"preview"
+        session_id = self.create(
+            self.manifest(
+                [("camera/front.jpg", body), ("notes.txt", b"notes")],
+                client_job_id="d" * 32,
+            )
+        ).json()["sessionId"]
+        self.assertEqual(self.put(session_id, "camera/front.jpg", body).status_code, 200)
+        self.assertEqual(self.put(session_id, "notes.txt", b"notes").status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{session_id}/complete", headers=self.auth(), json={}
+            ).status_code,
+            200,
+        )
+
+        self.assertEqual(
+            self.client.get("/v1/server/jobs", params={"projectId": "road-alpha"}, headers=self.auth()).status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.get("/v1/capabilities", headers=self.auth(employee_token)).status_code,
+            401,
+        )
+        mismatch = self.client.get(
+            "/v1/server/capabilities",
+            headers=self.employee_auth(employee_token, "production"),
+        )
+        self.assertEqual(mismatch.status_code, 409)
+
+        capabilities = self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(employee_token)
+        ).json()
+        self.assertEqual(capabilities["serverEnvironment"], "development")
+        self.assertEqual(capabilities["employee"]["employeeId"], "employee.one")
+        self.assertEqual(capabilities["projects"][0]["projectId"], "road-alpha")
+        self.assertNotIn(employee_token.encode("utf-8"), self.settings.database_path.read_bytes())
+
+        response = self.client.get(
+            "/v1/server/jobs",
+            params={"projectId": "road-alpha"},
+            headers=self.employee_auth(employee_token),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        listing = response.json()
+        self.assertEqual(listing["employeeId"], "employee.one")
+        self.assertRegex(listing["refreshedAt"], r"Z$")
+        job = listing["jobs"][0]
+        self.assertEqual(job["sessionId"], session_id)
+        self.assertEqual(job["state"], "COMPLETED")
+        self.assertEqual(job["receivedBytes"], len(body) + 5)
+        self.assertEqual(job["pathSummary"]["rootEntries"], ["camera", "notes.txt"])
+        self.assertEqual(job["pathSummary"]["imageCount"], 1)
+
+        preview = self.client.get(
+            f"/v1/server/jobs/{session_id}/preview",
+            params={"projectId": "road-alpha", "path": "camera/front.jpg"},
+            headers=self.employee_auth(employee_token),
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.content, body)
+        self.assertEqual(preview.headers["x-server-environment"], "development")
+        unsupported = self.client.get(
+            f"/v1/server/jobs/{session_id}/preview",
+            params={"projectId": "road-alpha", "path": "notes.txt"},
+            headers=self.employee_auth(employee_token),
+        )
+        self.assertEqual(unsupported.status_code, 415)
+
+        receipt = self.client.get(
+            f"/v1/server/jobs/{session_id}/receipt",
+            params={"projectId": "road-alpha"},
+            headers=self.employee_auth(employee_token),
+        ).json()
+        self.assertEqual(receipt["state"], "COMPLETED")
+        self.assertTrue(receipt["matched"])
+        self.assertEqual(receipt["sessionId"], session_id)
+        self.assertEqual(receipt["serverEnvironment"], "development")
+
+    def test_employee_project_grants_and_roles_are_isolated(self) -> None:
+        viewer = self.configure_employee_access(role="VIEWER")
+        receiver: ReceiverService = self.client.app.state.receiver
+        receiver.upsert_project("road-beta", "Road Beta")
+        receiver.assign_device_to_project(SECOND_DEVICE_ID, "road-beta")
+        beta = receiver.issue_employee_token(
+            "employee.beta", "Employee Beta", "OPERATOR", project_ids=["road-beta"]
+        )
+        body = b"scope"
+        session_id = self.create(
+            self.manifest([( "photo.jpg", body)], client_job_id="e" * 32)
+        ).json()["sessionId"]
+        self.assertEqual(self.put(session_id, "photo.jpg", body).status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{session_id}/complete", headers=self.auth(), json={}
+            ).status_code,
+            200,
+        )
+
+        denied_project = self.client.get(
+            "/v1/server/jobs",
+            params={"projectId": "road-beta"},
+            headers=self.employee_auth(viewer),
+        )
+        self.assertEqual(denied_project.status_code, 403)
+        hidden_session = self.client.get(
+            f"/v1/server/jobs/{session_id}/files",
+            params={"projectId": "road-beta"},
+            headers=self.employee_auth(beta),
+        )
+        self.assertEqual(hidden_session.status_code, 404)
+        denied_role = self.client.delete(
+            f"/v1/server/jobs/{session_id}",
+            params={"projectId": "road-alpha"},
+            headers=self.employee_auth(viewer),
+        )
+        self.assertEqual(denied_role.status_code, 403)
+        with self.assertRaises(ValueError):
+            receiver.assign_device_to_project(DEVICE_ID, "road-beta")
+
+    def test_role_project_revocation_and_admin_audit_take_effect_immediately(self) -> None:
+        operator = self.configure_employee_access(role="OPERATOR")
+        receiver: ReceiverService = self.client.app.state.receiver
+        admin_token = receiver.issue_employee_token(
+            "employee.admin", "Employee Admin", "ADMIN", project_ids=["road-alpha"]
+        )
+        body = b"audit"
+        session_id = self.create(
+            self.manifest([("audit.bin", body)], client_job_id="4" * 32)
+        ).json()["sessionId"]
+        self.assertEqual(self.put(session_id, "audit.bin", body).status_code, 200)
+        self.assertEqual(self.client.post(
+            f"/v1/upload-sessions/{session_id}/complete", headers=self.auth(), json={}
+        ).status_code, 200)
+
+        receiver.set_employee_role("employee.one", "VIEWER")
+        denied_role = self.client.delete(
+            f"/v1/server/jobs/{session_id}", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(denied_role.status_code, 403)
+        receiver.set_employee_role("employee.one", "OPERATOR")
+        trashed = self.client.delete(
+            f"/v1/server/jobs/{session_id}", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(trashed.status_code, 200, trashed.text)
+
+        viewer_audit = self.client.get(
+            "/v1/server/audit", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(viewer_audit.status_code, 403)
+        audit = self.client.get(
+            "/v1/server/audit", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(admin_token),
+        )
+        self.assertEqual(audit.status_code, 200, audit.text)
+        actions = [event["action"] for event in audit.json()["events"]]
+        self.assertIn("SERVER_JOB_TRASH_REQUESTED", actions)
+        self.assertIn("SERVER_JOB_TRASHED", actions)
+        self.assertIn("EMPLOYEE_ROLE_CHANGED", actions)
+
+        receiver.revoke_employee_project("employee.one", "road-alpha")
+        denied_project = self.client.get(
+            "/v1/server/jobs", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(operator),
+        )
+        self.assertEqual(denied_project.status_code, 403)
+        receiver.disable_project("road-alpha")
+        self.assertEqual(self.client.get(
+            "/v1/server/jobs", params={"projectId": "road-alpha"},
+            headers=self.employee_auth(admin_token),
+        ).status_code, 403)
+
+    def test_employee_token_rotation_expiry_and_disable_are_immediate(self) -> None:
+        receiver: ReceiverService = self.client.app.state.receiver
+        receiver.upsert_project("road-alpha", "Road Alpha")
+        old_token = receiver.issue_employee_token(
+            "employee.lifecycle", "Lifecycle", "VIEWER", project_ids=["road-alpha"]
+        )
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(old_token)
+        ).status_code, 200)
+        new_token = receiver.issue_employee_token(
+            "employee.lifecycle", "Lifecycle", "OPERATOR", project_ids=["road-alpha"]
+        )
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(old_token)
+        ).status_code, 401)
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(new_token)
+        ).json()["employee"]["role"], "OPERATOR")
+        receiver.disable_employee("employee.lifecycle")
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(new_token)
+        ).status_code, 401)
+
+        expired = receiver.issue_employee_token(
+            "employee.expired",
+            "Expired",
+            "VIEWER",
+            project_ids=["road-alpha"],
+            expires_at="2000-01-01T00:00:00Z",
+        )
+        self.assertEqual(self.client.get(
+            "/v1/server/capabilities", headers=self.employee_auth(expired)
+        ).status_code, 401)
+
+    def test_direct_server_trash_restore_and_ambiguous_fsync_recovery(self) -> None:
+        employee_token = self.configure_employee_access()
+        body = b"recoverable"
+        session_id = self.create(
+            self.manifest([( "photo.jpg", body)], client_job_id="f" * 32)
+        ).json()["sessionId"]
+        self.assertEqual(self.put(session_id, "photo.jpg", body).status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                f"/v1/upload-sessions/{session_id}/complete", headers=self.auth(), json={}
+            ).status_code,
+            200,
+        )
+        receiver: ReceiverService = self.client.app.state.receiver
+        original_fsync = receiver._fsync_directory
+        calls = 0
+
+        def fail_after_move(path: Path) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated fsync failure after rename")
+            original_fsync(path)
+
+        with patch.object(receiver, "_fsync_directory", side_effect=fail_after_move):
+            failed = self.client.delete(
+                f"/v1/server/jobs/{session_id}",
+                params={"projectId": "road-alpha"},
+                headers=self.employee_auth(employee_token),
+            )
+        self.assertEqual(failed.status_code, 503)
+        with receiver.database.connect() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM library_trash WHERE session_id=?", (session_id,)
+                ).fetchone()["state"],
+                "MOVING_TO_TRASH",
+            )
+        recovered = ReceiverService(self.settings)
+        with recovered.database.connect() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM library_trash WHERE session_id=?", (session_id,)
+                ).fetchone()["state"],
+                "TRASHED",
+            )
+
+        employee = recovered.authenticate_employee(
+            f"Bearer {employee_token}", "development"
+        )
+        original_fsync = recovered._fsync_directory
+        calls = 0
+
+        def fail_after_restore(path: Path) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated restore fsync failure after rename")
+            original_fsync(path)
+
+        with patch.object(recovered, "_fsync_directory", side_effect=fail_after_restore):
+            with self.assertRaises(ReceiverError) as raised:
+                recovered.restore_server_job(employee, "road-alpha", session_id)
+        self.assertEqual(raised.exception.status, 503)
+        with recovered.database.connect() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM library_trash WHERE session_id=?", (session_id,)
+                ).fetchone()["state"],
+                "RESTORING",
+            )
+        recovered_again = ReceiverService(self.settings)
+        with recovered_again.database.connect() as connection:
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT 1 FROM library_trash WHERE session_id=?", (session_id,)
+                ).fetchone()
+            )
+        self.assertTrue(recovered_again._final_directory(DEVICE_ID, session_id).is_dir())
+
+    def test_completed_library_session_is_verified_but_device_delete_is_disabled(self) -> None:
         files = [("camera/front.bin", b"front"), ("notes.txt", b"notes")]
         created = self.create(self.manifest(files, client_job_id="9" * 32))
         session_id = created.json()["sessionId"]
@@ -285,26 +673,21 @@ class ReceiverApiTest(unittest.TestCase):
             f"/v1/library/sessions/{session_id}",
             headers=self.auth(),
         )
-        self.assertEqual(
-            deleted.json(),
-            {"sessionId": session_id, "state": "DELETED"},
-        )
-        self.assertFalse(final_directory.exists())
+        self.assertEqual(deleted.status_code, 409)
+        self.assertIn("employee-scoped trash", deleted.json()["detail"])
+        self.assertTrue(final_directory.exists())
         with receiver.database.connect() as connection:
-            self.assertIsNone(
+            self.assertIsNotNone(
                 connection.execute(
                     "SELECT 1 FROM upload_sessions WHERE session_id=?",
                     (session_id,),
                 ).fetchone()
             )
-        self.assertEqual(
-            self.client.get("/v1/library/sessions", headers=self.auth()).json()[
-                "sessions"
-            ],
-            [],
-        )
+        self.assertEqual(len(self.client.get(
+            "/v1/library/sessions", headers=self.auth()
+        ).json()["sessions"]), 1)
 
-    def test_library_delete_rejects_open_sessions_and_symlink_storage(self) -> None:
+    def test_library_delete_rejects_open_and_completed_sessions_without_touching_storage(self) -> None:
         open_session = self.create(
             self.manifest([("open.bin", b"open")], client_job_id="a" * 32)
         ).json()["sessionId"]
@@ -344,7 +727,7 @@ class ReceiverApiTest(unittest.TestCase):
                 f"/v1/library/sessions/{completed_session}",
                 headers=self.auth(),
             )
-            self.assertEqual(rejected.status_code, 503)
+            self.assertEqual(rejected.status_code, 409)
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
             with receiver.database.connect() as connection:
                 self.assertIsNotNone(
@@ -357,7 +740,7 @@ class ReceiverApiTest(unittest.TestCase):
             final_directory.unlink()
             original.rename(final_directory)
 
-    def test_library_delete_finishes_after_objects_were_already_removed(self) -> None:
+    def test_library_delete_does_not_remove_database_when_objects_are_missing(self) -> None:
         body = b"completed"
         session_id = self.create(
             self.manifest([("done.bin", body)], client_job_id="c" * 32)
@@ -380,10 +763,9 @@ class ReceiverApiTest(unittest.TestCase):
             f"/v1/library/sessions/{session_id}",
             headers=self.auth(),
         )
-        self.assertEqual(deleted.status_code, 200, deleted.text)
-        self.assertEqual(deleted.json()["state"], "DELETED")
+        self.assertEqual(deleted.status_code, 409, deleted.text)
         with receiver.database.connect() as connection:
-            self.assertIsNone(
+            self.assertIsNotNone(
                 connection.execute(
                     "SELECT 1 FROM upload_sessions WHERE session_id=?",
                     (session_id,),

@@ -2,12 +2,15 @@ package com.example.jetsoncontroller.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
@@ -190,9 +193,15 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("정상 작동 중").performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasScrollAction())
+            .performScrollToNode(hasText("앱 연결 상태만으로 중단을 판단하지 않습니다"))
+        composeRule.onNodeWithText("앱 연결 상태만으로 중단을 판단하지 않습니다")
+            .assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("현재 작업"))
         composeRule.onNodeWithText("현재 작업").assertIsDisplayed()
         composeRule.onNodeWithText("작업 상태 확인 필요").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("정상 작동 중"))
+        composeRule.onNodeWithText("정상 작동 중").assertIsDisplayed()
     }
 
     @Test
@@ -227,8 +236,9 @@ class CoreWorkflowScreenTest {
             }
         }
 
+        composeRule.onNode(hasScrollAction())
+            .performScrollToNode(hasTestTag("dashboard-health-card"))
         composeRule.onNodeWithTag("dashboard-health-card")
-            .performScrollTo()
             .performTouchInput { swipeLeft() }
         composeRule.onAllNodesWithText("정상 작동 중").assertCountEquals(0)
     }
@@ -265,7 +275,9 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("확인이 필요합니다").performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasScrollAction())
+            .performScrollToNode(hasText("확인이 필요합니다"))
+        composeRule.onNodeWithText("확인이 필요합니다").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("상태 알림 닫기").performClick()
         composeRule.onAllNodesWithText("확인이 필요합니다").assertCountEquals(0)
     }

@@ -157,8 +157,6 @@ def apply_folder_convention(args: argparse.Namespace) -> None:
     if results not in write_paths:
         write_paths.append(results)
     args.write_path = write_paths
-    if not getattr(args, "autostart", False) and not getattr(args, "no_autostart", False):
-        args.autostart = True
 
 
 def relative_path(value: str, kind: str) -> Path:

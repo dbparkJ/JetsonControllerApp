@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadSourceSummary
 import com.example.jetsoncontroller.model.UploadTarget
+import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.ui.components.EmptyState
 import com.example.jetsoncontroller.ui.components.InlineMessage
 
@@ -59,6 +60,8 @@ fun UploadConfirmScreen(
     path: String,
     targets: List<UploadTarget>,
     sourceSummary: UploadSourceSummary?,
+    linkedRunId: String? = null,
+    linkedRun: PipelineRun? = null,
     isCalculatingSource: Boolean,
     serverUploadEnabled: Boolean,
     serverUploadDisabledReason: String?,
@@ -109,7 +112,8 @@ fun UploadConfirmScreen(
                         .navigationBarsPadding()
                         .padding(16.dp).heightIn(min = 52.dp),
                     enabled = serverUploadEnabled && selectedTargetId != null &&
-                        matchingSourceSummary != null && !isLoading && !isCalculatingSource
+                        matchingSourceSummary != null && !isLoading && !isCalculatingSource &&
+                        (linkedRunId == null || linkedRun != null)
                 ) {
                     if (isLoading || isCalculatingSource) {
                         CircularProgressIndicator(
@@ -164,6 +168,33 @@ fun UploadConfirmScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            if (linkedRunId != null) {
+                Surface(
+                    color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionRaised,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("조사 실행 연결", style = MaterialTheme.typography.titleMedium)
+                        if (linkedRun == null) {
+                            Text("장비가 보증한 실행·결과 컨텍스트를 확인하는 중입니다.",
+                                style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Text("${linkedRun.contextSnapshot.surveyProjectLabel} · ${linkedRun.contextSnapshot.surveySectionLabel}")
+                            Text("Run ${linkedRun.runId}", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                linkedRun.output.manifest?.let { manifest ->
+                                    "결과 ${manifest.fileCount}개 · ${formatSize(manifest.bytesTotal)} · 기대 결과 ${expectationLabel(manifest.expectationState)}"
+                                } ?: "결과 manifest ${linkedRun.output.manifestState}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text("전송 시 장비가 반환한 업로드 컨텍스트를 그대로 사용합니다.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
 
@@ -224,4 +255,10 @@ fun UploadConfirmScreen(
             }
         }
     }
+}
+
+private fun expectationLabel(state: String): String = when (state.uppercase()) {
+    "SATISFIED" -> "충족"
+    "NOT_SATISFIED" -> "미충족"
+    else -> "확인 중"
 }

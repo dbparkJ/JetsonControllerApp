@@ -40,7 +40,7 @@ class GeoFieldScreenTest {
             GeoRunDashboard(FieldState(deviceId = "fixture", runs = runs), emptyList(), "GEO& UI 테스트",
                 0, {}, {}, {}, { newRequests++ }, {}, {}, {}, {}, {}, {})
         } }
-        compose.onNodeWithText("실행 기록을 오른쪽으로 밀면 삭제할 수 있습니다.").assertIsDisplayed()
+        compose.onNodeWithText("실행 기록을 오른쪽으로 밀면 장치 휴지통으로 옮길 수 있습니다.").assertIsDisplayed()
         capture("tasks-all")
         compose.onAllNodesWithText("완료")[0].performClick()
         compose.onNodeWithText("진행 화면 예시").assertDoesNotExist()

@@ -17,6 +17,7 @@ from jetson_control.auth import (
     sign_response,
 )
 from jetson_control.config import DeviceConfig, RuntimePaths
+from jetson_control.field_quality import summarize_quality
 from jetson_control.filesystem import StorageRegistry, WorkspaceRegistry
 from jetson_control.mobile_rtk import MobileRtkRelayRegistry
 from jetson_control.uploads import UploadConfirmationRequired, UploadManager
@@ -58,7 +59,9 @@ class ApiContractTest(unittest.TestCase):
             upload_targets=targets_path,
             state_dir=base / "state",
             sensor_bridge_dir=sensor_bridge,
+            pipeline_logs=base / "logs",
         )
+        self.paths.pipeline_logs.mkdir()
         self.config = DeviceConfig(
             device_id="00000000-0000-0000-0000-000000000001",
             device_name="MMS-TEST",
@@ -273,17 +276,56 @@ class ApiContractTest(unittest.TestCase):
         response = self.signed_request("GET", "/v1/task-runs/capture/not-a-log/route")
         self.assertEqual(response.status_code, 400)
 
+    def test_run_history_and_route_expose_the_same_persisted_quality_summary(self):
+        directory = self.paths.pipeline_logs / "capture"
+        directory.mkdir()
+        log_id = "run-20260912T010001.000001Z-123.log"
+        log = directory / log_id
+        log.write_text("running", encoding="utf-8")
+        observations = [
+            {
+                "schemaVersion": 1,
+                "observedAtEpochMillis": at,
+                "observationWindowMillis": 2_000,
+                "rtkFixState": "FLOAT",
+                "sensors": {
+                    "gnss": {"state": "ACTIVE", "requirement": "UNSPECIFIED"}
+                },
+            }
+            for at in (1_000, 3_000)
+        ]
+        summary = summarize_quality(observations)
+        Path(str(log) + ".quality.json").write_text(json.dumps(summary), encoding="utf-8")
+        Path(str(log) + ".route.jsonl").write_text(
+            '{"latitude":37.0,"longitude":127.0,"timestamp":1000,"segment":0,"fixState":"FLOAT"}\n'
+            '{"latitude":37.1,"longitude":127.1,"timestamp":3000,"segment":0,"fixState":"FLOAT"}\n',
+            encoding="utf-8",
+        )
+
+        history = self.signed_request("GET", "/v1/task-runs?offset=0")
+        route = self.signed_request("GET", f"/v1/task-runs/capture/{log_id}/route")
+
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertEqual(route.status_code, 200, route.text)
+        self.assertEqual(history.json()["runs"][0]["quality"]["rtkFixRatio"], 0.0)
+        self.assertEqual(route.json()["quality"]["rtkFixRatio"], 0.0)
+        problem = route.json()["quality"]["problemIntervals"][0]
+        self.assertEqual((problem["startRoutePointIndex"], problem["endRoutePointIndex"]), (0, 1))
+
     def test_run_deletion_requires_auth_confirmation_and_returns_signed_result(self):
         path = '/v1/task-runs/capture/run-20260912T010001.000001Z-123.log'
+        run_log = self.paths.pipeline_logs / 'capture' / 'run-20260912T010001.000001Z-123.log'
+        run_log.parent.mkdir()
+        run_log.write_text('completed', encoding='utf-8')
         self.assertEqual(self.client.request('DELETE', path, json={'confirmed': True}).status_code, 401)
         self.assertEqual(self.signed_request('DELETE', path, b'{"confirmed":false}').status_code, 400)
         self.pipelines.delete_run_history.assert_not_called()
-        self.pipelines.delete_run_history.return_value = {'deleted': True}
         response = self.signed_request('DELETE', path, b'{"confirmed":true}')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'deleted': True})
+        self.assertEqual(response.json()['category'], 'RUN_HISTORY')
+        self.assertEqual(response.json()['state'], 'TRASHED')
         self.assertIn('X-Response-Signature', response.headers)
-        self.pipelines.delete_run_history.assert_called_once_with('capture', 'run-20260912T010001.000001Z-123.log')
+        self.assertFalse(run_log.exists())
 
     def signed_request(self, method: str, path: str, body: bytes = b""):
         self.nonce_counter += 1
@@ -545,9 +587,19 @@ class ApiContractTest(unittest.TestCase):
         body = json.dumps({"confirmed": True}, separators=(",", ":")).encode()
         deleted = self.signed_request("DELETE", path, body)
         self.assertEqual(deleted.status_code, 200, deleted.text)
-        self.assertEqual(deleted.json()["state"], "DELETED")
+        self.assertEqual(deleted.json()["state"], "TRASHED")
+        self.assertEqual(deleted.json()["category"], "STORAGE")
         self.assertEqual(deleted.json()["relativePath"], "hello world.txt")
         self.assertFalse((self.base / "source" / "hello world.txt").exists())
+
+        restored = self.signed_request(
+            "POST",
+            f"/v1/trash/{deleted.json()['trashId']}/restore",
+            body,
+        )
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertEqual(restored.json()["state"], "RESTORED")
+        self.assertTrue((self.base / "source" / "hello world.txt").is_file())
 
         root_path = "/v1/fs/entry?root=data&path="
         rejected_root = self.signed_request("DELETE", root_path, body)
@@ -668,6 +720,13 @@ class ApiContractTest(unittest.TestCase):
         self.uploads.verify_completed_source.assert_called_once_with("job-1")
 
     def test_upload_source_delete_requires_confirmation_and_returns_job(self) -> None:
+        self.uploads.get = Mock(
+            return_value={
+                "id": "job-1",
+                "rootId": "data",
+                "relativePath": "folder",
+            }
+        )
         self.uploads.delete_completed_source = Mock(
             side_effect=UploadConfirmationRequired("confirmation required")
         )
@@ -866,6 +925,25 @@ class ApiContractTest(unittest.TestCase):
             working_directory=source / "project",
             writable_paths=[source / "project" / "records"],
             autostart=True,
+        )
+
+    def test_pipeline_registration_defaults_to_manual_reboot_start(self) -> None:
+        body = json.dumps(
+            {
+                "rootId": "workspace-home",
+                "path": "jobs/capture",
+                "name": "카메라 수집",
+            },
+            separators=(",", ":"),
+        ).encode()
+
+        response = self.signed_request("POST", "/v1/pipelines/register-folder", body)
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.pipelines.register_folder.assert_called_once_with(
+            label="카메라 수집",
+            repository=self.base / "jobs" / "capture",
+            autostart=False,
         )
 
     def test_convention_pipeline_time_fan_and_workspace_contracts(self) -> None:

@@ -7,6 +7,7 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.UploadJob
@@ -14,6 +15,8 @@ import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadSourceSummary
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.UploadVerification
+import com.example.jetsoncontroller.model.PipelineRun
+import com.example.jetsoncontroller.model.UploadContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
@@ -41,6 +44,8 @@ data class UploadUiState(
     val currentJob: UploadJob? = null,
     val sourceSummary: UploadSourceSummary? = null,
     val sourceSummaryKey: String? = null,
+    val linkedRunId: String? = null,
+    val linkedRun: PipelineRun? = null,
     val verification: UploadVerification? = null,
     val isCalculatingSource: Boolean = false,
     val isLoading: Boolean = false,
@@ -90,7 +95,9 @@ class UploadViewModel(
                         startCurrentPolling(it.id, connectionGeneration)
                     }
                     _uiState.value.sourceSummaryKey?.split('\u0000', limit = 2)?.let { source ->
-                        if (source.size == 2) loadSourceSummary(source[0], source[1], force = true)
+                        if (source.size == 2) loadSourceSummary(
+                            source[0], source[1], force = true, linkedRunId = _uiState.value.linkedRunId
+                        )
                     }
                 } else {
                     _uiState.value = _uiState.value.copy(
@@ -129,8 +136,11 @@ class UploadViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message
+                            error = if (error is JetsonCommandResultUnknownException) {
+                                "원본 휴지통 이동 결과를 확인하지 못했습니다. 자동 재시도하지 않고 작업과 휴지통을 다시 조회합니다."
+                            } else error.message
                         )
+                        loadQueue(generation)
                     }
                 }
         }
@@ -223,7 +233,12 @@ class UploadViewModel(
             }
     }
 
-    fun loadSourceSummary(rootId: String, path: String, force: Boolean = false) {
+    fun loadSourceSummary(
+        rootId: String,
+        path: String,
+        force: Boolean = false,
+        linkedRunId: String? = null
+    ) {
         val generation = connectionGeneration
         val key = "$rootId\u0000$path"
         if (!_uiState.value.controlAvailable) {
@@ -232,6 +247,8 @@ class UploadViewModel(
                 sourceSummary = _uiState.value.sourceSummary?.takeIf {
                     it.matchesUploadSource(rootId, path)
                 },
+                linkedRunId = linkedRunId,
+                linkedRun = _uiState.value.linkedRun?.takeIf { it.runId == linkedRunId },
                 isCalculatingSource = false
             )
             return
@@ -245,15 +262,43 @@ class UploadViewModel(
             _uiState.value = _uiState.value.copy(
                 sourceSummary = null,
                 sourceSummaryKey = key,
+                linkedRunId = linkedRunId,
+                linkedRun = null,
                 isCalculatingSource = true,
                 error = null
             )
+            val linkedRun = linkedRunId?.let { runId ->
+                repository.pipelineRun(runId).getOrElse { error ->
+                    if (generation == connectionGeneration && _uiState.value.sourceSummaryKey == key &&
+                        _uiState.value.linkedRunId == linkedRunId
+                    ) _uiState.value = _uiState.value.copy(
+                        isCalculatingSource = false,
+                        error = error.message ?: "수집 실행의 결과 정보를 불러오지 못했습니다."
+                    )
+                    return@launch
+                }
+            }
+            if (linkedRun != null && !linkedRunMatchesSource(
+                    linkedRun, _uiState.value.deviceId, rootId, path
+                )
+            ) {
+                if (generation == connectionGeneration && _uiState.value.linkedRunId == linkedRunId) {
+                    _uiState.value = _uiState.value.copy(
+                        isCalculatingSource = false,
+                        error = "선택한 실행의 장비·결과 폴더·업로드 컨텍스트가 현재 전송 위치와 일치하지 않습니다."
+                    )
+                }
+                return@launch
+            }
             repository.getUploadSourceSummary(rootId, path)
                 .onSuccess { summary ->
-                    if (generation == connectionGeneration && _uiState.value.sourceSummaryKey == key) {
+                    if (generation == connectionGeneration && _uiState.value.sourceSummaryKey == key &&
+                        _uiState.value.linkedRunId == linkedRunId
+                    ) {
                         _uiState.value = if (summary.matchesUploadSource(rootId, path)) {
                             _uiState.value.copy(
                                 sourceSummary = summary,
+                                linkedRun = linkedRun,
                                 isCalculatingSource = false
                             )
                         } else {
@@ -266,7 +311,9 @@ class UploadViewModel(
                     }
                 }
                 .onFailure { error ->
-                    if (generation == connectionGeneration && _uiState.value.sourceSummaryKey == key) {
+                    if (generation == connectionGeneration && _uiState.value.sourceSummaryKey == key &&
+                        _uiState.value.linkedRunId == linkedRunId
+                    ) {
                         _uiState.value = _uiState.value.copy(
                             isCalculatingSource = false,
                             error = error.message
@@ -287,10 +334,21 @@ class UploadViewModel(
             )
             return
         }
-        startNewUpload(rootId, path, targetId)
+        val linkedRun = _uiState.value.linkedRun
+        if (_uiState.value.linkedRunId != null && linkedRun == null) {
+            _uiState.value = _uiState.value.copy(error = "수집 실행의 업로드 컨텍스트를 다시 확인해 주세요.")
+            return
+        }
+        if (linkedRun != null && (linkedRun.active || linkedRun.output.manifestState != "FINAL")) {
+            _uiState.value = _uiState.value.copy(
+                error = "수집 실행 결과 manifest가 FINAL로 확인된 뒤 전송할 수 있습니다."
+            )
+            return
+        }
+        startNewUpload(rootId, path, targetId, _uiState.value.linkedRun?.uploadContext)
     }
 
-    private fun startNewUpload(rootId: String, path: String, targetId: String) {
+    private fun startNewUpload(rootId: String, path: String, targetId: String, context: UploadContext? = null) {
         if (actionJob?.isActive == true || _uiState.value.isLoading) return
         _uiState.value = _uiState.value.copy(isLoading = true)
         val generation = connectionGeneration
@@ -305,9 +363,18 @@ class UploadViewModel(
                 message = null,
                 error = null
             )
-            repository.startUpload(rootId, path, targetId)
+            repository.startUpload(rootId, path, targetId, context)
                 .onSuccess { job ->
                     if (generation == connectionGeneration) {
+                        if (context != null && job.context != context) {
+                            _uiState.value = _uiState.value.copy(
+                                isLoading = false,
+                                currentJob = null,
+                                error = "업로드 작업이 장비 실행 컨텍스트를 그대로 확인하지 못했습니다. 작업 목록에서 서버 상태를 확인하세요."
+                            )
+                            loadQueue(generation)
+                            return@onSuccess
+                        }
                         rememberCurrentJobId(job.id)
                         _uiState.value = _uiState.value.copy(
                             currentJob = job,
@@ -396,7 +463,7 @@ class UploadViewModel(
         if (!_uiState.value.controlAvailable) return
         val current = _uiState.value.currentJob ?: return
         if (canStartFreshReupload(current, _uiState.value.verification)) {
-            startNewUpload(current.rootId, current.relativePath, current.targetId)
+            startNewUpload(current.rootId, current.relativePath, current.targetId, current.context)
             return
         }
         if (current.state != UploadJobState.FAILED) return
@@ -546,7 +613,9 @@ class UploadViewModel(
                             queue = upsertJob(_uiState.value.queue, job),
                             verification = job.verification,
                             isLoading = false,
-                            message = "확인된 업로드 원본을 장치에서 삭제했습니다."
+                            message = if (job.sourceRecoverable && job.sourceTrashId != null) {
+                                "확인된 업로드 원본을 장치 휴지통으로 옮겼습니다."
+                            } else "원본 처리 결과를 다시 확인해 주세요."
                         )
                     }
                 }
@@ -558,6 +627,39 @@ class UploadViewModel(
                         )
                     }
                 }
+        }
+    }
+
+    fun restoreCurrentSource() {
+        if (!_uiState.value.controlAvailable) return
+        val current = _uiState.value.currentJob ?: return
+        val trashId = current.sourceTrashId?.takeIf { current.sourceRecoverable } ?: return
+        val generation = connectionGeneration
+        actionJob?.cancel()
+        actionJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, message = null, error = null)
+            repository.restoreTrash(trashId).onSuccess { restored ->
+                if (generation != connectionGeneration) return@onSuccess
+                repository.getUploadJob(current.id).onSuccess { refreshed ->
+                    if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
+                        currentJob = refreshed,
+                        queue = upsertJob(_uiState.value.queue, refreshed),
+                        isLoading = false,
+                        message = if (restored.state == "RESTORED") "업로드 원본을 복원했습니다."
+                        else "복원 상태를 다시 확인해 주세요."
+                    )
+                }.onFailure { error ->
+                    if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = error.message ?: "복원 후 업로드 작업 상태를 다시 확인하지 못했습니다."
+                    )
+                }
+            }.onFailure { error ->
+                if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = error.message ?: "업로드 원본을 복원하지 못했습니다. 휴지통을 다시 확인하세요."
+                )
+            }
         }
     }
 
@@ -674,6 +776,23 @@ class UploadViewModel(
             return UploadViewModel(repository, extras.createSavedStateHandle()) as T
         }
     }
+}
+
+internal fun linkedRunMatchesSource(
+    run: PipelineRun,
+    selectedDeviceId: String?,
+    rootId: String,
+    path: String
+): Boolean {
+    val context = run.uploadContext
+    return !run.active && run.deviceId.equals(selectedDeviceId, true) &&
+        run.output.rootId == rootId && run.output.path.trim('/') == path.trim('/') &&
+        context.schemaVersion == 1 && context.runId == run.runId &&
+        context.deviceId.equals(run.deviceId, true) && context.pipelineId == run.pipelineId &&
+        context.surveyProjectId == run.contextSnapshot.surveyProjectId &&
+        context.surveySectionId == run.contextSnapshot.surveySectionId &&
+        context.sourceRevision == run.sourceRevision && context.configSha256 == run.configRevision &&
+        context.outputId == run.output.outputId && context.createdAt.isNotBlank()
 }
 
 private fun upsertJob(queue: List<UploadJob>, job: UploadJob): List<UploadJob> {

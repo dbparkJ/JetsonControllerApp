@@ -12,6 +12,9 @@ from typing import Dict, Iterable, Iterator, List, Mapping, Tuple
 from .config import load_json_object, validate_config_id
 
 
+RESERVED_STORAGE_NAMES = {".jetson-control-trash"}
+
+
 class FileTooLarge(ValueError):
     pass
 
@@ -96,6 +99,10 @@ class StorageRegistry:
         if "\x00" in relative:
             raise ValueError("Path contains a null byte")
 
+        relative_parts = Path(relative.lstrip("/")).parts
+        if relative_parts and relative_parts[0] in RESERVED_STORAGE_NAMES:
+            raise ValueError("Path is reserved for recoverable storage")
+
         target = (root.path / relative.lstrip("/")).resolve()
         try:
             target.relative_to(root.path)
@@ -147,7 +154,9 @@ class StorageRegistry:
         for directory, directory_names, file_names in os.walk(source, followlinks=False):
             base = Path(directory)
             directory_names[:] = [
-                name for name in directory_names if not (base / name).is_symlink()
+                name
+                for name in directory_names
+                if name not in RESERVED_STORAGE_NAMES and not (base / name).is_symlink()
             ]
             directory_names.sort(key=str.casefold)
             for name in sorted(file_names, key=str.casefold):
@@ -241,6 +250,8 @@ def _list_directory(root_path: Path, target: Path) -> List[Dict[str, object]]:
         raise PermissionError("Directory is not readable") from error
 
     for item in children:
+        if item.name in RESERVED_STORAGE_NAMES:
+            continue
         try:
             item_stat = item.lstat()
             if stat.S_ISDIR(item_stat.st_mode):

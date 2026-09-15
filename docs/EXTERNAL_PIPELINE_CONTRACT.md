@@ -84,7 +84,7 @@ ignore한 모델은 release에 복사되지 않으므로, YAML에 장치에서 �
 
 폴더 등록 시 working directory는 원본 작업 폴더이고 실행 파일은 release 안에 있다. 소스·리소스 경로는 `Path(__file__).resolve().parent` 기준으로 계산한다. `Path.cwd()`에서 원본 코드를 다시 읽으면 스냅샷의 버전 고정 효과가 사라진다. C++ 실행 파일·다른 CLI가 실제 추론을 담당해도 root `main.py`가 설정 전달, 하위 프로세스 대기·signal 전달, 종료 코드를 책임지는 어댑터로 남아야 한다.
 
-서비스는 `Restart=on-failure`, `RestartSec=15`, `TimeoutStopSec=30`으로 동작한다. 장시간 추론도 종료 요청을 주기적으로 확인하고 30초 안에 리소스를 정리한다. 정상 완료는 0, 사용자 중지는 130(SIGINT) 또는 143(SIGTERM), 오류는 다른 비영(非零) 코드를 사용하면 실행 기록이 구분된다. 오류로 끝난 작업은 서비스가 재시도할 수 있다. 앱의 중지 요청으로 서비스가 멈춘 경우에는 이 재시도가 발생하지 않는다.
+서비스는 `Restart=on-failure`, `RestartSec=15`, `TimeoutStopSec=30`으로 동작한다. 장시간 추론도 종료 요청을 주기적으로 확인하고 30초 안에 리소스를 정리한다. 자연 종료 코드 0은 `COMPLETED`, 앱의 중지 요청은 runner가 받은 signal과 함께 `STOPPED`, 다른 오류는 `FAILED`로 기록된다. contextual one-shot launch는 한 번 만든 실행 로그 ID로만 소비되며 같은 launch의 자동 재시작은 기존 로그의 `O_EXCL` 생성에서 차단된다. 과거 실행을 새 실행처럼 재개하지 않는다. 앱의 중지 요청으로 서비스가 멈춘 경우에는 systemd 재시작도 발생하지 않는다.
 
 | 환경 변수 | 의미 |
 |---|---|
@@ -95,10 +95,16 @@ ignore한 모델은 release에 복사되지 않으므로, YAML에 장치에서 �
 | `JETSON_PIPELINE_LOGS_DIR` | 실행 로그 디렉터리 |
 | `JETSON_PIPELINE_SENSOR_BRIDGE_DIR` | 센서 상태·프리뷰 게시 경로. 센서 모니터 연동 시 제공 |
 | `JETSON_PIPELINE_MOBILE_RTK_RELAY` | 모바일 RTK 중계 경로가 활성화되었을 때 `1` |
+| `JETSON_PIPELINE_RUN_ID` | contextual 실행의 immutable `pipelineId/logId` |
+| `JETSON_PIPELINE_OUTPUT_ID` | Controller가 만든 실행별 출력 identity |
 
 출력 경로는 `JETSON_PIPELINE_RESULTS_DIR`를 우선 사용한다. 하드코딩한 개발 PC 경로 또는 읽기 전용 release 내부에 결과를 쓰지 않는다. 예를 들어 `results/<UTC-run-id>/images`, `video`, `sensors`, `logs`, `detections.jsonl`로 구분하면 앱의 폴더·파일 전송 및 확장자 필터를 그대로 사용할 수 있다. 날짜 그룹은 파일 수정 시간을 휴대전화의 시간대로 표시한다.
 
 앱의 폴더 등록은 보통 `/data/collections/<pipeline-id>/`를 결과 root로 설정한다. 실제 기준은 환경 변수이며 CLI의 폴더 등록 기본값은 원본 폴더의 `results/`일 수 있다. 각 실행은 이 root 안에 고유한 하위 폴더를 만들어 이전 결과를 보존한다. 모델 캐시·임시 인코딩 파일 등 지속 쓰기가 필요한 경로도 결과 root 아래에 둔다. 일반 홈·venv·release는 systemd에서 쓰기가 제한된다. `/tmp`는 서비스별 임시 공간이므로 앱 데이터 저장소로 사용하지 않는다.
+
+명시적 run policy를 사용하는 contextual 실행에서는 Controller가 `JETSON_PIPELINE_RESULTS_DIR`를 그 실행만의 고유 디렉터리로 지정한다. 외부 pipeline은 이 디렉터리 또는 그 하위에만 결과를 써야 한다. 추가 하위 run 폴더를 만드는 기존 프로그램도 동작하지만 output manifest의 pattern은 Controller 디렉터리 기준 상대 경로와 맞아야 한다. runner는 진입 시 고정 release, source dirty 상태와 config SHA-256을 다시 확인하고 child 시작 전에 인증 시간, required 센서와 pipeline 사용자 저장 권한·여유 공간을 확인한다. API는 active context 동안 pipeline 재등록, config와 policy 변경을 같은 잠금으로 차단한다. required/optional 센서 구분과 최소 file/byte/pattern 기대값은 운영자가 설정하며 Controller가 RTK 합격 임계값을 만들지 않는다.
+
+실행 디렉터리의 `.jetson-output-context.json`과 종료 뒤 생성되는 `.jetson-output-manifest.json`은 전달 가능한 증거 사본이다. pipeline 사용자가 실행 디렉터리를 쓸 수 있으므로 이 sidecar만으로 upload 연결을 승인하지 않는다. Controller의 root 소유 run record가 `runId`, survey project/section, 장치, source/config, `outputId`, 정확한 결과 경로를 보존하고 upload 요청을 그 record와 대조한다. manifest의 file count와 byte count는 실행 고유 디렉터리의 workload 파일만 세며 두 metadata 파일이나 이전 실행 파일을 포함하지 않는다.
 
 YAML 편집은 현재 release의 설정 파일에 반영된다. 소스 코드 스냅샷과 달리 설정은 앱에서 변경될 수 있으므로 실행 시작 시 실제 설정의 비밀정보를 제거한 사본/해시, 소스 revision, 모델 해시를 결과 메타데이터에 기록한다. 앱의 설정 변경을 실행 중 자동 적용하는 기능은 없다. 외부 코드가 시작 시 읽는 방식이면 다음 실행에서 적용된다.
 

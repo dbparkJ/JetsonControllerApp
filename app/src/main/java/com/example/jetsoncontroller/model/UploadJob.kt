@@ -32,7 +32,12 @@ data class UploadJob(
     val verifiedAt: String? = null,
     val deletionEligible: Boolean = false,
     val sourceDeleted: Boolean = false,
-    val sourceDeletedAt: String? = null
+    val sourceDeletedAt: String? = null,
+    val sourceTrashId: String? = null,
+    val sourceTrashedAt: String? = null,
+    val sourceRecoverable: Boolean = false,
+    val context: UploadContext? = null,
+    val sourceIdentity: String? = null
 )
 
 data class UploadSourceSummary(

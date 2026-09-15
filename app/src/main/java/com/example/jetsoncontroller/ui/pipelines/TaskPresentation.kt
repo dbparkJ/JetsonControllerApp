@@ -25,6 +25,19 @@ fun taskStateLabel(state: PipelineState, confirmed: Boolean, pendingAction: Stri
     }
 }
 
+internal fun taskStateLabel(
+    pipeline: com.example.jetsoncontroller.model.ManagedPipeline,
+    confirmed: Boolean,
+    pendingAction: String? = null
+): String = when {
+    !confirmed -> "현재 상태 미확인 · 마지막 ${taskStateLabel(pipeline.state, true)}"
+    pendingAction != null -> taskStateLabel(pipeline.state, true, pendingAction)
+    pipeline.state == PipelineState.RUNNING && pipeline.activeRunId.isNullOrBlank() ->
+        "실행 보고 · 실행 ID 확인 필요"
+    pipeline.state == PipelineState.RUNNING -> "실행 중 · ${pipeline.activeRunId}"
+    else -> taskStateLabel(pipeline.state, true)
+}
+
 internal fun reconcileTaskRequests(requests: Map<String, String>, states: Map<String, PipelineState>): Map<String, String> =
     requests.filter { (id, action) ->
         val state = states[id]

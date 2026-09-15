@@ -360,7 +360,7 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         with self.assertRaises(FileTooLarge):
             self.storage.read_file("data", "note.txt", max_bytes=2)
 
-    def test_user_confirmed_storage_delete_removes_entries_but_not_root(self) -> None:
+    def test_user_confirmed_storage_delete_is_recoverable_and_blocks_root(self) -> None:
         with self.assertRaises(UploadConflict):
             self.uploads.delete_storage_entry("data", "note.txt", confirmed=False)
         self.assertTrue((self.source / "note.txt").is_file())
@@ -370,9 +370,12 @@ class FilesystemAndUploadsTest(unittest.TestCase):
             "folder",
             confirmed=True,
         )
-        self.assertEqual(deleted["state"], "DELETED")
-        self.assertEqual(deleted["type"], "DIRECTORY")
+        self.assertEqual(deleted["state"], "TRASHED")
+        self.assertEqual(deleted["entryType"], "DIRECTORY")
         self.assertFalse((self.source / "folder").exists())
+        restored = self.uploads.trash.restore(str(deleted["trashId"]), confirmed=True)
+        self.assertEqual(restored["state"], "RESTORED")
+        self.assertTrue((self.source / "folder").is_dir())
 
         with self.assertRaises(UploadConflict):
             self.uploads.delete_storage_entry("data", "", confirmed=True)
@@ -427,6 +430,51 @@ class FilesystemAndUploadsTest(unittest.TestCase):
         while time.monotonic() < deadline and uploads._cancellations:
             time.sleep(0.01)
         self.assertFalse(uploads._cancellations)
+
+    def test_linked_upload_requires_trusted_runtime_context_and_unchanged_source(self) -> None:
+        context = {
+            "schemaVersion": 1,
+            "surveyProjectId": "survey-alpha",
+            "surveySectionId": "section-01",
+            "runId": "capture/run-20260914T010203.000004Z-123.log",
+            "deviceId": "device-test",
+            "pipelineId": "capture",
+            "sourceRevision": "1234567890abcdef1234567890abcdef12345678",
+            "configSha256": "a" * 64,
+            "outputId": "output-0123456789abcdef",
+            "createdAt": "2026-09-14T01:02:03Z",
+        }
+        context_path = self.source / "folder" / ".jetson-output-context.json"
+        context_path.write_text(json.dumps(context), encoding="utf-8")
+
+        with self.assertRaisesRegex(UploadConflict, "trusted runtime record"):
+            self.uploads.start("data", "folder", "archive", context=context)
+        with self.assertRaisesRegex(UploadConflict, "does not match"):
+            self.uploads.start(
+                "data",
+                "folder",
+                "archive",
+                context=context,
+                expected_context={**context, "surveySectionId": "section-02"},
+            )
+
+        job = self.uploads.start(
+            "data", "folder", "archive", context=context, expected_context=context
+        )
+        self.assertEqual(job["context"], context)
+        self.assertRegex(str(job["sourceIdentity"]), r"^[a-f0-9]{64}$")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            current = self.uploads.get(str(job["id"]))
+            if current["state"] in {"COMPLETED", "FAILED"}:
+                break
+            time.sleep(0.02)
+        self.assertEqual(current["state"], "COMPLETED", current)
+        (self.source / "folder" / "sample.bin").write_bytes(b"changed")
+        current["state"] = "FAILED"
+        self.uploads._save_job(current)
+        with self.assertRaisesRegex(UploadConflict, "source changed"):
+            self.uploads.retry(str(job["id"]))
 
     def test_local_upload_is_persisted_and_completed(self) -> None:
         summary = self.uploads.source_summary("data", "")
@@ -639,8 +687,26 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                 confirmed=True,
             )
             self.assertFalse((self.source / "folder").exists())
-            self.assertTrue(deleted_job["sourceDeleted"])
-            self.assertIsNotNone(deleted_job["sourceDeletedAt"])
+            self.assertFalse(deleted_job["sourceDeleted"])
+            self.assertTrue(deleted_job["sourceRecoverable"])
+            self.assertIsNotNone(deleted_job["sourceTrashedAt"])
+            self.assertFalse((self.source / "folder").exists())
+            duplicate = uploads.delete_completed_source(
+                str(job["id"]),
+                confirmed=True,
+            )
+            self.assertEqual(duplicate["sourceTrashId"], deleted_job["sourceTrashId"])
+            uploads.trash.restore(str(deleted_job["sourceTrashId"]), confirmed=True)
+            self.assertTrue((self.source / "folder").is_dir())
+            source_file.write_bytes(b"z" * len(original))
+            restored_mismatch = uploads.verify_completed_source(str(job["id"]))
+            self.assertEqual(restored_mismatch["state"], "MISMATCH")
+            self.assertFalse(restored_mismatch["matched"])
+            restored_job = uploads.get(str(job["id"]))
+            self.assertIsNone(restored_job["sourceTrashId"])
+            self.assertIsNone(restored_job["sourceTrashedAt"])
+            self.assertFalse(restored_job["sourceRecoverable"])
+            self.assertFalse(restored_job["deletionEligible"])
 
             with self.assertRaises(UploadConflict):
                 uploads.delete_library_session(

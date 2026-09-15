@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.*
@@ -18,16 +19,20 @@ data class FieldState(
     val deviceId: String? = null, val online: Boolean = false,
     val runs: List<TaskRun> = emptyList(), val nextOffset: Int? = null,
     val selectedRun: TaskRun? = null, val route: List<RoutePoint> = emptyList(),
+    val routeQuality: RunQuality? = null,
+    val historyCurrent: Boolean = false,
     val loading: Boolean = false, val error: String? = null,
     val terminalBusy: Boolean = false, val terminalOutput: String = "",
     val captureBusy: Boolean = false, val captureMessage: String? = null,
-    val log: String? = null, val deletingRunId: String? = null, val message: String? = null
+    val log: String? = null, val deletingRunId: String? = null, val undoTrashId: String? = null,
+    val message: String? = null
 )
 
 class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel() {
     private val _state = MutableStateFlow(FieldState())
     val state = _state.asStateFlow()
     private var generation = 0L
+    private var routeRequestGeneration = 0L
     private var historyJob: Job? = null
     private var routeJob: Job? = null
     private var logJob: Job? = null
@@ -39,10 +44,12 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
             combine(repository.selectedDeviceId, repository.transportState) { id, transport -> id to transport }
                 .distinctUntilChanged().collectLatest { (id, transport) ->
                     generation++
+                    routeRequestGeneration++
                     historyJob?.cancel(); routeJob?.cancel(); logJob?.cancel(); terminalJob?.cancel(); captureJob?.cancel(); deleteJob?.cancel()
                     val online = transport is TransportState.Connected && transport.type != TransportType.BLE && transport.deviceId.equals(id, true)
                     _state.value = if (id != _state.value.deviceId) FieldState(deviceId = id, online = online)
-                        else _state.value.copy(online = online, loading = false, terminalBusy = false, captureBusy = false, deletingRunId = null)
+                        else _state.value.copy(online = online, historyCurrent = false, loading = false,
+                            terminalBusy = false, captureBusy = false, deletingRunId = null)
                     if (online) {
                         while (true) { refresh(retainLoaded = true); delay(10_000) }
                     }
@@ -65,24 +72,32 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     _state.value = previous.copy(runs = merged,
                         nextOffset = if (!more && retainLoaded && previous.runs.size > result.runs.size)
                             previous.nextOffset?.plus(added) else result.nextOffset,
-                        loading = false, error = null)
+                        historyCurrent = true, loading = false, error = null)
                 }
 
             }.onFailure { if (g == generation) _state.value = _state.value.copy(loading = false,
+                historyCurrent = if (more) _state.value.historyCurrent else false,
                 error = it.message ?: "기록을 불러오지 못했습니다. 장치 API 업데이트를 확인하세요.") }
         }
     }
     fun selectRun(run: TaskRun?) {
         routeJob?.cancel()
-        _state.value = _state.value.copy(selectedRun = run, route = emptyList())
+        val request = ++routeRequestGeneration
+        _state.value = _state.value.copy(selectedRun = run, route = emptyList(), routeQuality = run?.quality)
         val g = generation
         if (run != null && _state.value.online) routeJob = viewModelScope.launch {
             do {
                 repository.taskRoute(run.pipelineId, run.logId).onSuccess {
-                    if (g == generation) _state.value = _state.value.copy(route = it.points)
-                }.onFailure { if (g == generation) _state.value = _state.value.copy(error = it.message) }
+                    if (routeResponseIsCurrent(g, generation, request, routeRequestGeneration, _state.value.selectedRun?.id, run.id)) {
+                        _state.value = _state.value.copy(route = it.points, routeQuality = it.quality ?: run.quality)
+                    }
+                }.onFailure {
+                    if (routeResponseIsCurrent(g, generation, request, routeRequestGeneration, _state.value.selectedRun?.id, run.id)) {
+                        _state.value = _state.value.copy(error = it.message)
+                    }
+                }
                 delay(5_000)
-            } while (run.state == "RUNNING" && g == generation)
+            } while (run.isActiveRun() && g == generation && request == routeRequestGeneration)
         }
     }
     fun openLog(run: TaskRun) {
@@ -94,32 +109,67 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
             }.onFailure { if (g == generation) _state.value = _state.value.copy(error = it.message) }
         }
     }
-    fun stopRoutePolling() { routeJob?.cancel() }
+    fun stopRoutePolling() { routeRequestGeneration++; routeJob?.cancel() }
     fun dismissMessage(shown: String) {
-        if (_state.value.message == shown) _state.value = _state.value.copy(message = null)
+        if (_state.value.message == shown) _state.value = _state.value.copy(message = null, undoTrashId = null)
     }
     fun deleteRun(run: TaskRun) {
-        if (!_state.value.online || _state.value.deletingRunId != null || run.state == "RUNNING") return
+        if (!_state.value.online || _state.value.deletingRunId != null || run.isActiveRun()) return
         val g = generation
         historyJob?.cancel()
         routeJob?.cancel()
+        routeRequestGeneration++
         logJob?.cancel()
         _state.value = _state.value.copy(deletingRunId = run.id, loading = false, error = null, message = null)
         deleteJob = viewModelScope.launch {
-            repository.deleteTaskRun(run.pipelineId, run.logId).onSuccess {
+            repository.deleteTaskRun(run.pipelineId, run.logId).onSuccess { trashed ->
                 if (g == generation) {
                     val current = _state.value
                     _state.value = current.copy(
                         runs = current.runs.filterNot { it.id == run.id }, deletingRunId = null,
                         selectedRun = current.selectedRun?.takeUnless { it.id == run.id },
                         route = if (current.selectedRun?.id == run.id) emptyList() else current.route,
-                        log = null, message = "작업 이력을 삭제했습니다. 수집 원본 데이터는 유지됩니다.")
+                        routeQuality = if (current.selectedRun?.id == run.id) null else current.routeQuality,
+                        log = null,
+                        undoTrashId = trashed.trashId.takeIf { trashed.restoreSupported && trashed.state == "TRASHED" },
+                        message = if (trashed.restoreSupported && trashed.state == "TRASHED") {
+                            "작업 이력을 휴지통으로 옮겼습니다. 수집 원본 데이터는 유지됩니다."
+                        } else "작업 이력을 휴지통으로 옮겼지만 이 항목은 복원할 수 없습니다.")
                     refresh()
                 }
             }.onFailure {
                 if (g == generation) {
-                    _state.value = _state.value.copy(deletingRunId = null, error = it.message ?: "작업 이력을 삭제하지 못했습니다.")
+                    _state.value = _state.value.copy(deletingRunId = null, error =
+                        if (it is JetsonCommandResultUnknownException) {
+                            "휴지통 이동 결과를 확인하지 못했습니다. 자동 재시도하지 않고 작업 이력을 다시 조회합니다."
+                        } else it.message ?: "작업 이력을 휴지통으로 옮기지 못했습니다.")
+                    refresh()
                 }
+            }
+        }
+    }
+    fun undoDeleteRun() {
+        if (!_state.value.online || _state.value.deletingRunId != null) return
+        val trashId = _state.value.undoTrashId ?: return
+        val g = generation
+        _state.value = _state.value.copy(deletingRunId = trashId, message = null, error = null)
+        deleteJob?.cancel()
+        deleteJob = viewModelScope.launch {
+            repository.restoreTrash(trashId).onSuccess { restored ->
+                if (g == generation) {
+                    _state.value = _state.value.copy(
+                        deletingRunId = null,
+                        undoTrashId = null,
+                        message = if (restored.state == "RESTORED") "${restored.name} 작업 이력을 복원했습니다."
+                        else "복원 상태를 다시 확인해 주세요."
+                    )
+                    refresh()
+                }
+            }.onFailure { error ->
+                if (g == generation) _state.value = _state.value.copy(
+                    deletingRunId = null,
+                    error = error.message ?: "작업 이력을 복원하지 못했습니다. 휴지통을 다시 확인하세요."
+                )
             }
         }
     }
@@ -164,6 +214,18 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T = FieldToolsViewModel(repository) as T
     }
 }
+
+internal fun routeResponseIsCurrent(
+    expectedDeviceGeneration: Long,
+    currentDeviceGeneration: Long,
+    expectedRequestGeneration: Long,
+    currentRequestGeneration: Long,
+    selectedRunId: String?,
+    responseRunId: String
+): Boolean = expectedDeviceGeneration == currentDeviceGeneration &&
+    expectedRequestGeneration == currentRequestGeneration && selectedRunId == responseRunId
+
+internal fun TaskRun.isActiveRun(): Boolean = active || state in setOf("STARTING", "RUNNING", "STOPPING")
 
 internal fun saveToGallery(context: Context, name: String, bytes: ByteArray) {
     val resolver = context.contentResolver

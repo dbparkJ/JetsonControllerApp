@@ -15,6 +15,70 @@ from .config import validate_config_id
 MOBILE_RTK_RELAY_SCHEMA_VERSION = 1
 MOBILE_RTK_RELAY_LEASE_MILLIS = 30_000
 
+RTK_FIX_FIXED = "FIXED"
+RTK_FIX_FLOAT = "FLOAT"
+RTK_FIX_DIFFERENTIAL = "DIFFERENTIAL"
+RTK_FIX_STANDALONE = "STANDALONE"
+RTK_FIX_NONE = "NO_FIX"
+RTK_FIX_UNKNOWN = "UNKNOWN"
+RTK_FIX_NO_SAMPLE = "NO_SAMPLE"
+
+
+def classify_rtk_fix(
+    fix_type: object,
+    rtk_status: object,
+    fix_quality: object,
+    *,
+    has_sample: bool,
+) -> str:
+    """Normalize reported GNSS modes without applying a quality threshold."""
+    if not has_sample:
+        return RTK_FIX_NO_SAMPLE
+
+    def token(value: object) -> str:
+        if not isinstance(value, str):
+            return ""
+        return "_".join(value.strip().lower().replace("-", "_").split())
+
+    aliases = {
+        "rtk_fixed": RTK_FIX_FIXED,
+        "fixed": RTK_FIX_FIXED,
+        "fix": RTK_FIX_FIXED,
+        "rtk_fix": RTK_FIX_FIXED,
+        "rtk_float": RTK_FIX_FLOAT,
+        "float": RTK_FIX_FLOAT,
+        "dgps": RTK_FIX_DIFFERENTIAL,
+        "differential": RTK_FIX_DIFFERENTIAL,
+        "gps": RTK_FIX_STANDALONE,
+        "standalone": RTK_FIX_STANDALONE,
+        "single": RTK_FIX_STANDALONE,
+        "none": RTK_FIX_NONE,
+        "no_fix": RTK_FIX_NONE,
+        "invalid": RTK_FIX_NONE,
+    }
+    for value in (fix_type, rtk_status):
+        normalized = aliases.get(token(value))
+        if normalized is not None:
+            return normalized
+
+    if isinstance(fix_quality, bool):
+        return RTK_FIX_UNKNOWN
+    try:
+        numeric_quality = float(fix_quality)
+    except (TypeError, ValueError, OverflowError):
+        return RTK_FIX_UNKNOWN
+    if not numeric_quality.is_integer():
+        return RTK_FIX_UNKNOWN
+    quality = int(numeric_quality)
+    # NMEA GGA quality indicators are categorical source values, not app policy.
+    return {
+        0: RTK_FIX_NONE,
+        1: RTK_FIX_STANDALONE,
+        2: RTK_FIX_DIFFERENTIAL,
+        4: RTK_FIX_FIXED,
+        5: RTK_FIX_FLOAT,
+    }.get(quality, RTK_FIX_UNKNOWN)
+
 
 class MobileRtkRelayRegistry:
     """Persist a short-lived, non-secret route from a pipeline to the phone."""

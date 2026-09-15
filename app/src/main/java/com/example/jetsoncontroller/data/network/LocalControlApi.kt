@@ -6,11 +6,50 @@ import retrofit2.Response
 import retrofit2.http.*
 
 interface LocalControlApi {
+    @GET("/v1/survey/projects")
+    suspend fun surveyProjects(): Response<SurveyProjectsResponse>
+
+    @POST("/v1/survey/projects")
+    suspend fun createSurveyProject(@Body request: SurveyLabelMutationRequest): Response<SurveyProject>
+
+    @GET("/v1/survey/projects/{surveyProjectId}/sections")
+    suspend fun surveySections(@Path("surveyProjectId") surveyProjectId: String): Response<SurveySectionsResponse>
+
+    @POST("/v1/survey/projects/{surveyProjectId}/sections")
+    suspend fun createSurveySection(
+        @Path("surveyProjectId") surveyProjectId: String,
+        @Body request: SurveyLabelMutationRequest
+    ): Response<SurveySection>
+
+    @GET("/v1/pipelines/{pipelineId}/run-policy")
+    suspend fun pipelineRunPolicy(@Path("pipelineId") pipelineId: String): Response<PipelineRunPolicy>
+
+    @PUT("/v1/pipelines/{pipelineId}/run-policy")
+    suspend fun updatePipelineRunPolicy(
+        @Path("pipelineId") pipelineId: String,
+        @Body request: UpdatePipelineRunPolicyRequest
+    ): Response<PipelineRunPolicy>
+
+    @POST("/v1/pipelines/{pipelineId}/preflight")
+    suspend fun pipelinePreflight(
+        @Path("pipelineId") pipelineId: String,
+        @Body request: PipelinePreflightRequest
+    ): Response<PipelinePreflight>
+
+    @POST("/v1/pipelines/{pipelineId}/contextual-start")
+    suspend fun contextualStart(
+        @Path("pipelineId") pipelineId: String,
+        @Body request: ContextualStartRequest
+    ): Response<ManagedPipeline>
+
+    @GET("/v1/pipeline-runs/{runId}")
+    suspend fun pipelineRun(@Path(value = "runId", encoded = false) runId: String): Response<PipelineRun>
+
     @GET("/v1/task-runs")
     suspend fun taskRuns(@Query("offset") offset: Int): Response<com.example.jetsoncontroller.model.TaskRunsResponse>
     @HTTP(method = "DELETE", path = "/v1/task-runs/{pipelineId}/{logId}", hasBody = true)
     suspend fun deleteTaskRun(@Path("pipelineId") pipelineId: String, @Path("logId") logId: String,
-        @Body request: ConfirmDeletionRequest): Response<Map<String, Boolean>>
+        @Body request: ConfirmDeletionRequest): Response<TrashEntry>
     @GET("/v1/task-runs/{pipelineId}/{logId}/route")
     suspend fun taskRoute(@Path("pipelineId") pipelineId: String, @Path("logId") logId: String): Response<com.example.jetsoncontroller.model.TaskRoute>
     @GET("/v1/task-runs/{pipelineId}/{logId}/log")
@@ -62,7 +101,18 @@ interface LocalControlApi {
         @Query("root") rootId: String,
         @Query("path") path: String,
         @Body request: ConfirmDeletionRequest
-    ): Response<DeviceStorageDeletion>
+    ): Response<TrashEntry>
+
+    @GET("/v1/trash")
+    suspend fun getTrash(
+        @Query("includeRestored") includeRestored: Boolean = false
+    ): Response<TrashEntriesResponse>
+
+    @POST("/v1/trash/{trashId}/restore")
+    suspend fun restoreTrash(
+        @Path("trashId") trashId: String,
+        @Body request: ConfirmDeletionRequest
+    ): Response<TrashEntry>
 
     @GET("/v1/fs/workspaces")
     suspend fun getWorkspaceRoots(): Response<List<RemoteRoot>>
@@ -294,7 +344,8 @@ interface LocalControlApi {
     data class StartUploadRequest(
         val rootId: String,
         val relativePath: String,
-        val targetId: String
+        val targetId: String,
+        val context: UploadContext? = null
     )
 
     data class SaveUploadTargetRequest(

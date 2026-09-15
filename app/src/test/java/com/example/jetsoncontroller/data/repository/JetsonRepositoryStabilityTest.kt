@@ -404,9 +404,8 @@ class JetsonRepositoryStabilityTest {
     }
 
     @Test
-    fun `R12 unknown start without a running same-pipeline observation stops its prepared relay`() = runTest {
+    fun `R12 unknown start preserves relay until the same pipeline is verified terminal`() = runTest {
         for (observation in listOf(
-            Result.success(pipeline(PipelineState.STOPPED)),
             Result.success(pipeline(PipelineState.RUNNING).copy(id = "another-pipeline")),
             Result.failure<ManagedPipeline>(IOException("state unavailable"))
         )) {
@@ -416,8 +415,42 @@ class JetsonRepositoryStabilityTest {
                 h.pipelineError = unknown
                 val result = h.repository.controlPipeline("lab-pipeline", "start")
                 assertTrue(result.exceptionOrNull() === unknown)
+                assertEquals("An inconclusive read cannot prove acquisition ended", 0, h.rtkStopCalls())
+            }
+        }
+    }
+
+    @Test
+    fun `R12 unknown start stops its prepared relay after verified terminal state`() = runTest {
+        for (state in listOf(PipelineState.STOPPED, PipelineState.FAILED)) {
+            Harness(testScheduler).use { h ->
+                h.activatePipelineControl()
+                val unknown = JetsonCommandResultUnknownException(
+                    "pipeline start",
+                    Result.success(pipeline(state)),
+                    IOException("response lost")
+                )
+                h.pipelineError = unknown
+
+                val result = h.repository.controlPipeline("lab-pipeline", "start")
+
+                assertTrue(result.exceptionOrNull() === unknown)
                 assertEquals(1, h.rtkStopCalls())
             }
+        }
+    }
+
+    @Test
+    fun `R4 explicit target switch stops relay before retiring old client`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+
+            h.repository.connectRegisteredAutomatically(OTHER_DEVICE_ID)
+            testScheduler.runCurrent()
+
+            assertEquals(OTHER_DEVICE_ID, h.repository.selectedDeviceId.value)
+            assertEquals(1, h.rtkStopCalls())
+            assertEquals(TransportState.Disconnected, h.repository.transportState.value)
         }
     }
 
@@ -576,7 +609,7 @@ class JetsonRepositoryStabilityTest {
         }
 
         fun rtkStopCalls(): Int = Mockito.mockingDetails(relayManager).invocations.count {
-            it.method.name == "stop"
+            it.method.name.substringBefore('-') in setOf("stop", "stopIfOwnedBy")
         }
 
         fun directConnectCalls(): Int = Mockito.mockingDetails(directManager).invocations.count {

@@ -33,6 +33,12 @@ class SharedRuntimeDirectoryTest(unittest.TestCase):
 
         self.assertIn("ReadWritePaths=-/var/lib/jetson-sensors\n", unit)
 
+    def test_pipeline_recovers_runtime_faults_but_not_preflight_failures(self) -> None:
+        unit = (SYSTEMD_ROOT / "jetson-pipeline@.service").read_text(encoding="utf-8")
+
+        self.assertIn("Restart=on-failure\n", unit)
+        self.assertIn("RestartPreventExitStatus=78\n", unit)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineControl
 import com.example.jetsoncontroller.model.PipelineState
 import com.google.gson.Gson
 import com.sun.net.httpserver.HttpsConfigurator
@@ -122,6 +123,53 @@ class LocalApiClientReplayTest {
             assertEquals("RESULT_UNKNOWN", unknown.resultCode)
             assertEquals(PipelineState.RUNNING, (unknown.stateQueryResult.getOrThrow() as ManagedPipeline).state)
             backend.assertAuthenticatedRequests()
+        }
+    }
+
+    @Test
+    fun `lost start and stop responses requery actual state without replaying commands`() = runBlocking {
+        for ((action, expectedState) in listOf(
+            "start" to PipelineState.RUNNING,
+            "stop" to PipelineState.STOPPED
+        )) {
+            TestBackend().use { backend ->
+                backend.damage = Damage.DROP_RESPONSE
+                val client = backend.connectedClient()
+
+                val result = client.controlPipeline("test-pipeline", action)
+
+                val unknown = result.exceptionOrNull() as JetsonCommandResultUnknownException
+                val observed = unknown.stateQueryResult.getOrThrow() as ManagedPipeline
+                assertEquals(expectedState, observed.state)
+                assertEquals(1, backend.mutations.get())
+                assertEquals(1, backend.queries.get())
+                backend.assertAuthenticatedRequests()
+            }
+        }
+    }
+
+    @Test
+    fun `duplicate start and stop responses expose one backend mutation`() = runBlocking {
+        for ((action, initialState) in listOf(
+            "start" to PipelineState.STOPPED,
+            "stop" to PipelineState.RUNNING
+        )) {
+            TestBackend().use { backend ->
+                backend.damage = Damage.NONE
+                backend.pipelineState = initialState
+                val client = backend.connectedClient()
+
+                val first = client.controlPipeline("test-pipeline", action).getOrThrow()
+                val duplicate = client.controlPipeline("test-pipeline", action).getOrThrow()
+
+                assertEquals("COMMAND_COMPLETED", first.control!!.outcome)
+                assertTrue(first.control!!.commandIssued)
+                assertEquals("ALREADY_SATISFIED", duplicate.control!!.outcome)
+                assertTrue(!duplicate.control!!.commandIssued)
+                assertEquals(2, backend.mutations.get())
+                assertEquals(1, backend.pipelineCommandIssues.get())
+                backend.assertAuthenticatedRequests()
+            }
         }
     }
 
@@ -289,19 +337,22 @@ class LocalApiClientReplayTest {
     }
 
     @Test
-    fun `same endpoint reset blocks the old command reconciliation`() = runBlocking {
-        TestBackend().use { backend ->
-            backend.damage = Damage.HOLD_RESPONSE
-            val client = backend.connectedClient()
-            val command = async { client.controlPipeline("test-pipeline", "restart") }
-            withTimeout(5_000) { backend.mutationReceived.await() }
-            backend.resetEndpoint(client)
-            backend.releaseResponse.countDown()
+    fun `late start and stop responses cannot cross an endpoint generation`() = runBlocking {
+        for (action in listOf("start", "stop")) {
+            TestBackend().use { backend ->
+                backend.damage = Damage.HOLD_RESPONSE
+                val client = backend.connectedClient()
+                val command = async { client.controlPipeline("test-pipeline", action) }
+                withTimeout(5_000) { backend.mutationReceived.await() }
+                backend.resetEndpoint(client)
+                backend.releaseResponse.countDown()
 
-            val error = runCatching { command.await() }.exceptionOrNull()
-            assertTrue("A same-URL reset still starts a new endpoint generation", error is CancellationException)
-            assertEquals(0, backend.queries.get())
-            backend.assertCallsReleased(client)
+                val error = runCatching { command.await() }.exceptionOrNull()
+                assertTrue("A same-URL reset still starts a new endpoint generation", error is CancellationException)
+                assertEquals(1, backend.mutations.get())
+                assertEquals(0, backend.queries.get())
+                backend.assertCallsReleased(client)
+            }
         }
     }
 
@@ -419,6 +470,7 @@ class LocalApiClientReplayTest {
         var damageHelloProof = false
         var damageHelloCertificate = false
         val mutations = AtomicInteger()
+        val pipelineCommandIssues = AtomicInteger()
         val queries = AtomicInteger()
         val hellos = AtomicInteger()
         val requestRefs = CopyOnWriteArrayList<String>()
@@ -492,8 +544,27 @@ class LocalApiClientReplayTest {
                 }
                 if (exchange.requestMethod != "GET") {
                     val count = mutations.incrementAndGet()
+                    val action = exchange.requestURI.rawPath.substringAfterLast('/')
+                    val satisfied = when (action) {
+                        "start" -> pipelineState in setOf(PipelineState.RUNNING, PipelineState.STARTING)
+                        "stop" -> pipelineState in setOf(PipelineState.STOPPED, PipelineState.FAILED)
+                        else -> false
+                    }
+                    if (!satisfied && action in setOf("start", "stop", "restart")) {
+                        pipelineCommandIssues.incrementAndGet()
+                        pipelineState = if (action == "stop") PipelineState.STOPPED else PipelineState.RUNNING
+                    }
+                    val responsePipeline = pipeline().copy(
+                        control = if (action in setOf("start", "stop", "restart")) {
+                            PipelineControl(
+                                action = action,
+                                commandIssued = !satisfied,
+                                outcome = if (satisfied) "ALREADY_SATISFIED" else "COMMAND_COMPLETED"
+                            )
+                        } else null
+                    )
                     mutationReceived.complete(Unit)
-                    respondDamaged(exchange, gson.toJson(pipeline()), if (count == 1) damage else Damage.NONE)
+                    respondDamaged(exchange, gson.toJson(responsePipeline), if (count == 1) damage else Damage.NONE)
                 } else {
                     val count = queries.incrementAndGet()
                     queryReceived.complete(Unit)
@@ -506,8 +577,10 @@ class LocalApiClientReplayTest {
             }
         }
 
+        @Volatile var pipelineState = PipelineState.RUNNING
+
         private fun pipeline() = ManagedPipeline(
-            id = "test-pipeline", label = "Test pipeline", state = PipelineState.RUNNING,
+            id = "test-pipeline", label = "Test pipeline", state = pipelineState,
             entrypoint = "test.py", config = "test.yaml", virtualenv = "test-venv"
         )
 
