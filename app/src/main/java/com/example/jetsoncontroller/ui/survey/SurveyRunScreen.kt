@@ -9,20 +9,28 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.PipelinePreflight
 import com.example.jetsoncontroller.model.SurveyProject
 import com.example.jetsoncontroller.model.SurveySection
 import com.example.jetsoncontroller.ui.components.AppBanner
+import com.example.jetsoncontroller.ui.components.AdaptiveColumns
+import com.example.jetsoncontroller.ui.components.AdaptiveContent
 import com.example.jetsoncontroller.ui.components.ConnectionStepper
 import com.example.jetsoncontroller.ui.components.GeoBottomActionBar
+import com.example.jetsoncontroller.ui.components.GeoDataRow
 import com.example.jetsoncontroller.ui.components.GeoIdentifier
 import com.example.jetsoncontroller.ui.components.GeoPrimaryAction
 import com.example.jetsoncontroller.ui.components.GeoRowDivider
@@ -77,7 +85,8 @@ internal fun SurveyRunScreen(
     onPreflight: () -> Unit,
     onStart: () -> Unit,
     onRetryPendingStart: () -> Unit,
-    onDismissMessage: () -> Unit
+    onDismissMessage: () -> Unit,
+    developerModeEnabled: Boolean = false
 ) {
     val c = LocalGeoColors.current
     var confirmStart by remember(state.deviceId, state.pipelineId, state.preflight?.preflightId) {
@@ -86,15 +95,10 @@ internal fun SurveyRunScreen(
     if (confirmStart) {
         StartConfirmationDialog(
             state = state,
+            developerModeEnabled = developerModeEnabled,
             onDismiss = { confirmStart = false },
             onConfirm = { confirmStart = false; onStart() }
         )
-    }
-
-    val currentStep = when {
-        !state.selectionComplete -> 0
-        state.policy == null -> 1
-        else -> 2
     }
 
     Scaffold(
@@ -105,16 +109,7 @@ internal fun SurveyRunScreen(
                     containerColor = c.canvas,
                     titleContentColor = c.ink
                 ),
-                title = {
-                    Column {
-                        Text("조사 수집 준비", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            state.pipelineLabel.ifBlank { state.pipelineId.orEmpty() },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = c.muted
-                        )
-                    }
-                },
+                title = { Text(if (state.preflight == null) "수집 준비" else "장치 점검") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
@@ -128,55 +123,59 @@ internal fun SurveyRunScreen(
             )
         },
         bottomBar = {
-            GeoBottomActionBar(
-                readiness = startReadinessLabel(state),
-                readinessTone = startReadinessTone(state)
-            ) {
-                when {
-                    state.pendingStart != null -> GeoPrimaryAction(
-                        label = "같은 요청 ID로 시작 결과 확인",
-                        onClick = onRetryPendingStart,
-                        enabled = state.online && state.operation == null
-                    )
-                    state.preflight?.ready == true -> GeoPrimaryAction(
-                        label = "확인 후 수집 시작",
-                        onClick = { confirmStart = true },
-                        enabled = state.canStart
-                    )
-                    else -> GeoPrimaryAction(
-                        label = "시작 전 필수 점검",
-                        onClick = onPreflight,
-                        enabled = state.canPreflight
-                    )
+            Surface(color = c.surface) {
+                Column(
+                    Modifier.fillMaxWidth().navigationBarsPadding()
+                        .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.md)
+                ) {
+                    when {
+                        state.pendingStart != null -> GeoPrimaryAction(
+                            "시작 상태 확인", onRetryPendingStart,
+                            enabled = state.online && state.operation == null,
+                            icon = Icons.Default.Refresh
+                        )
+                        state.unconfirmedRunId != null -> GeoPrimaryAction(
+                            "수집 상태 확인", onRefresh,
+                            enabled = state.online && state.operation == null,
+                            icon = Icons.Default.Refresh
+                        )
+                        state.preflight?.ready == true -> GeoPrimaryAction(
+                            "수집 시작", { confirmStart = true },
+                            enabled = state.canStart,
+                            icon = Icons.Default.CheckCircle
+                        )
+                        state.preflight != null -> GeoPrimaryAction(
+                            "장치 다시 점검", onPreflight,
+                            enabled = state.canPreflight,
+                            icon = Icons.Default.Refresh
+                        )
+                        else -> GeoPrimaryAction(
+                            "장치 점검", onPreflight,
+                            enabled = state.canPreflight,
+                            icon = Icons.Default.CheckCircle
+                        )
+                    }
                 }
             }
         }
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            val wide = maxWidth >= 720.dp
+        AdaptiveContent(Modifier.fillMaxSize().padding(padding), maxWidth = 1120.dp) {
             LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    start = GeoSpace.gutter,
-                    end = GeoSpace.gutter,
                     top = GeoSpace.md,
                     bottom = GeoSpace.xxl
                 ),
                 verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
             ) {
-                item {
-                    ConnectionStepper(
-                        labels = listOf("조사 범위", "수집 정책", "시작 전 점검"),
-                        currentStep = currentStep
-                    )
-                }
+                item { PreparationSteps(if (state.preflight == null) 0 else 1) }
                 if (state.isLoading || state.operation != null) {
                     item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 }
                 if (!state.online) {
                     item {
                         AppBanner(
-                            "장비 연결이 확인되지 않았습니다. 이 화면의 선택만으로는 수집을 시작할 수 없습니다.",
+                            "장치 연결이 끊겼습니다. 다시 연결한 뒤 장치 점검을 진행해 주세요.",
                             StatusTone.ERROR
                         )
                     }
@@ -185,9 +184,9 @@ internal fun SurveyRunScreen(
                     item {
                         AppBanner(
                             if (state.pendingStart != null || state.unconfirmedRunId != null) {
-                                "시작 결과를 확인하는 동안 프로젝트·구간·정책을 변경하거나 새 요청을 만들 수 없습니다."
+                                "수집 시작 여부를 확인하는 동안 프로젝트와 구간을 변경하거나 새 수집을 시작할 수 없습니다."
                             } else {
-                                "현재 수집 실행에 프로젝트·구간·정책이 고정되어 있습니다. 실행이 끝난 뒤 변경하세요."
+                                "현재 수집에 프로젝트와 구간이 고정되어 있습니다. 수집이 끝난 뒤 변경하세요."
                             },
                             if (state.pendingStart != null || state.unconfirmedRunId != null) {
                                 StatusTone.PENDING
@@ -209,21 +208,27 @@ internal fun SurveyRunScreen(
                 state.message?.let { message ->
                     item { AppBanner(message, StatusTone.SUCCESS, onDismiss = onDismissMessage) }
                 }
+                if (developerModeEnabled) state.technicalError?.let { detail ->
+                    item { AppBanner(detail, StatusTone.UNKNOWN, onDismiss = onDismissMessage) }
+                }
                 state.activeRun?.let { run -> item { ActiveRunCard(run) } }
                 item {
-                    if (wide) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(GeoSpace.lg),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Box(Modifier.weight(1f)) {
-                                SurveyContextPane(
-                                    state, onSelectProject, onSelectSection,
-                                    onCreateProject, onCreateSection
-                                )
+                    AdaptiveColumns(
+                        first = {
+                            SurveyContextPane(
+                                state, onSelectProject, onSelectSection,
+                                onCreateProject, onCreateSection,
+                                developerModeEnabled
+                            )
+                        },
+                        second = {
+                            if (state.preflight != null) {
+                                PreflightPane(state.preflight, developerModeEnabled)
+                            } else {
+                                CollectionTaskPane(state)
                             }
-                            Box(Modifier.weight(1f)) {
+                            if (developerModeEnabled) {
+                                Spacer(Modifier.height(GeoSpace.lg))
                                 PolicyPane(
                                     state, onSensorRequirement, onMinFreeBytes,
                                     onOutputMinFiles, onOutputMinBytes, onOutputPatterns,
@@ -231,21 +236,25 @@ internal fun SurveyRunScreen(
                                 )
                             }
                         }
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)) {
-                            SurveyContextPane(
-                                state, onSelectProject, onSelectSection,
-                                onCreateProject, onCreateSection
-                            )
-                            PolicyPane(
-                                state, onSensorRequirement, onMinFreeBytes,
-                                onOutputMinFiles, onOutputMinBytes, onOutputPatterns,
-                                onOutputRoot, onOutputPath, onSavePolicy
-                            )
-                        }
-                    }
+                    )
                 }
-                item { PreflightPane(state.preflight) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreparationSteps(currentStep: Int) {
+    val c = LocalGeoColors.current
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+        listOf("조사 선택", "장치 점검", "수집").forEachIndexed { index, label ->
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+                Text(
+                    "${index + 1}  $label",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (index == currentStep) c.primary else c.muted
+                )
+                HorizontalDivider(thickness = 3.dp, color = if (index == currentStep) c.primary else c.border)
             }
         }
     }
@@ -265,6 +274,7 @@ internal fun SurveyRunScreen(
 @Composable
 private fun StartConfirmationDialog(
     state: SurveyRunUiState,
+    developerModeEnabled: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
@@ -272,25 +282,28 @@ private fun StartConfirmationDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = c.surface,
-        title = { Text("이 조사 범위로 수집을 시작할까요?") },
+        icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = c.primary) },
+        title = { Text("수집을 시작할까요?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
                 ConfirmRow("장비", state.deviceId.orEmpty())
                 ConfirmRow("프로젝트", state.selectedProject?.label ?: "선택 없음")
                 ConfirmRow("구간", state.selectedSection?.label ?: "선택 없음")
-                ConfirmRow("정책", state.policy?.let { "v${it.policyVersion}" } ?: "미저장")
-                state.preflight?.preflightId?.let { GeoIdentifier("점검 ID", it) }
+                if (developerModeEnabled) {
+                    ConfirmRow("정책", state.policy?.let { "v${it.policyVersion}" } ?: "미저장")
+                    state.preflight?.preflightId?.let { GeoIdentifier("점검 ID", it) }
+                }
                 Spacer(Modifier.height(GeoSpace.xs))
                 Text(
-                    "시작하면 프로젝트·구간·정책과 결과 폴더가 이 실행에 고정되며, 실행 중에는 바꿀 수 없습니다.",
+                    "시작하면 선택한 프로젝트와 구간이 이 수집에 고정되며, 수집 중에는 바꿀 수 없습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = c.muted
                 )
             }
         },
         confirmButton = {
-            Button(onClick = onConfirm, enabled = state.canStart) {
-                Text("점검 근거로 시작")
+            Button(onClick = onConfirm, enabled = state.canStart, modifier = Modifier.testTag("confirm-start")) {
+                Text("수집 시작")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
@@ -310,88 +323,166 @@ private fun ConfirmRow(label: String, value: String) {
 // 1. Survey context
 // =====================================================================================
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SurveyContextPane(
     state: SurveyRunUiState,
     onSelectProject: (SurveyProject) -> Unit,
     onSelectSection: (SurveySection) -> Unit,
     onCreateProject: (String) -> Unit,
-    onCreateSection: (String) -> Unit
+    onCreateSection: (String) -> Unit,
+    developerModeEnabled: Boolean
 ) {
     val c = LocalGeoColors.current
     var projectLabel by remember(state.deviceId) { mutableStateOf("") }
     var sectionLabel by remember(state.deviceId, state.selectedProject?.surveyProjectId) { mutableStateOf("") }
+    var creating by rememberSaveable(state.deviceId) { mutableStateOf(false) }
+    var projectExpanded by remember { mutableStateOf(false) }
 
-    GeoSection(tone = if (state.selectionComplete) StatusTone.SUCCESS else null) {
-        GeoSectionHeader(
-            title = "프로젝트와 조사 구간",
-            eyebrow = "1단계",
-            trailing = {
-                StatusBadge(
-                    if (state.selectionComplete) "선택됨" else "선택 필요",
-                    if (state.selectionComplete) StatusTone.SUCCESS else StatusTone.INFO
-                )
-            }
-        )
-        Text(
-            "선택은 이 장비에만 저장되며 서버의 현재 revision과 일치해야 합니다.",
-            style = MaterialTheme.typography.bodySmall,
-            color = c.muted
-        )
-
-        Text("프로젝트", style = MaterialTheme.typography.titleSmall)
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)
-        ) {
-            state.projects.forEach { project ->
-                FilterChip(
-                    selected = state.selectedProject?.surveyProjectId == project.surveyProjectId,
-                    onClick = { onSelectProject(project) },
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)) {
+        Text("수집할 구간을 선택하세요", style = MaterialTheme.typography.headlineMedium, color = c.ink)
+        Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+            Text("프로젝트", style = MaterialTheme.typography.labelMedium, color = c.muted)
+            ExposedDropdownMenuBox(
+                expanded = projectExpanded,
+                onExpandedChange = {
+                    if (!state.contextLocked && state.operation == null) projectExpanded = !projectExpanded
+                }
+            ) {
+                OutlinedTextField(
+                    value = state.selectedProject?.let {
+                        it.label + if (developerModeEnabled) " · r${it.revision}" else ""
+                    } ?: "프로젝트 선택",
+                    onValueChange = {},
+                    readOnly = true,
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(projectExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor().heightIn(min = 60.dp),
                     enabled = !state.contextLocked && state.operation == null,
-                    label = { Text("${project.label} · r${project.revision}") }
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
                 )
+                ExposedDropdownMenu(projectExpanded, onDismissRequest = { projectExpanded = false }) {
+                    state.projects.forEach { project ->
+                        DropdownMenuItem(
+                            text = { Text(project.label) },
+                            onClick = { projectExpanded = false; onSelectProject(project) }
+                        )
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("새 프로젝트 만들기") },
+                        leadingIcon = { Icon(Icons.Default.Add, null) },
+                        onClick = { projectExpanded = false; creating = true }
+                    )
+                }
             }
         }
         if (state.projects.isEmpty() && !state.isLoading) {
             Text("등록된 프로젝트가 없습니다.", style = MaterialTheme.typography.bodyMedium, color = c.muted)
         }
-        CreateRow(
-            value = projectLabel,
-            onValue = { projectLabel = it.take(80) },
-            label = "새 프로젝트 이름",
-            enabled = !state.contextLocked,
-            actionEnabled = projectLabel.isNotBlank() && !state.contextLocked && state.operation == null,
-            onAction = { onCreateProject(projectLabel); projectLabel = "" }
-        )
-
-        GeoRowDivider()
-
-        Text("조사 구간", style = MaterialTheme.typography.titleSmall)
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)
-        ) {
-            state.sections.forEach { section ->
-                FilterChip(
-                    selected = state.selectedSection?.surveySectionId == section.surveySectionId,
-                    onClick = { onSelectSection(section) },
-                    enabled = !state.contextLocked && state.operation == null,
-                    label = { Text("${section.label} · r${section.revision}") }
-                )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("조사 구간", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            IconButton(
+                onClick = { creating = !creating },
+                enabled = !state.contextLocked,
+                modifier = Modifier.size(GeoSize.minTouchTarget)
+            ) { Icon(Icons.Default.Add, contentDescription = "프로젝트 또는 조사 구간 만들기") }
+        }
+        if (state.sections.isNotEmpty()) {
+            Surface(color = c.surface, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
+                Column {
+                    state.sections.forEachIndexed { index, section ->
+                        val selected = state.selectedSection?.surveySectionId == section.surveySectionId
+                        Surface(
+                            onClick = { onSelectSection(section) },
+                            enabled = !state.contextLocked && state.operation == null,
+                            color = if (selected) c.accent else c.surface
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 58.dp)
+                                    .padding(horizontal = GeoSpace.lg, vertical = GeoSpace.md),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    section.label + if (developerModeEnabled) " · r${section.revision}" else "",
+                                    Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = if (selected) c.primary else c.ink
+                                )
+                                Icon(
+                                    if (selected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                                    contentDescription = if (selected) "선택됨" else "선택",
+                                    tint = if (selected) c.primary else c.muted
+                                )
+                            }
+                        }
+                        if (index < state.sections.lastIndex) HorizontalDivider(color = c.border)
+                    }
+                }
             }
         }
         if (state.selectedProject != null && state.sections.isEmpty() && state.operation == null) {
             Text("이 프로젝트에 등록된 구간이 없습니다.", style = MaterialTheme.typography.bodyMedium, color = c.muted)
         }
-        CreateRow(
-            value = sectionLabel,
-            onValue = { sectionLabel = it.take(80) },
-            label = "새 구간 이름",
-            enabled = state.selectedProject != null && !state.contextLocked,
-            actionEnabled = sectionLabel.isNotBlank() && state.selectedProject != null &&
-                !state.contextLocked && state.operation == null,
-            onAction = { onCreateSection(sectionLabel); sectionLabel = "" }
+        if (creating) {
+            AppBanner(
+                "새 프로젝트를 만들거나, 선택한 프로젝트에 조사 구간을 추가할 수 있습니다.",
+                StatusTone.INFO,
+                onDismiss = { creating = false }
+            )
+            CreateRow(
+                value = projectLabel,
+                onValue = { projectLabel = it.take(80) },
+                label = "새 프로젝트 이름",
+                enabled = !state.contextLocked,
+                actionEnabled = projectLabel.isNotBlank() && !state.contextLocked && state.operation == null,
+                onAction = { onCreateProject(projectLabel); projectLabel = "" }
+            )
+            CreateRow(
+                value = sectionLabel,
+                onValue = { sectionLabel = it.take(80) },
+                label = "새 구간 이름",
+                enabled = state.selectedProject != null && !state.contextLocked,
+                actionEnabled = sectionLabel.isNotBlank() && state.selectedProject != null &&
+                    !state.contextLocked && state.operation == null,
+                onAction = { onCreateSection(sectionLabel); sectionLabel = "" }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CollectionTaskPane(state: SurveyRunUiState) {
+    val c = LocalGeoColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+        Text("수집 작업", style = MaterialTheme.typography.labelMedium, color = c.muted)
+        Text(
+            state.pipelineLabel.ifBlank { "수집 작업 미선택" },
+            style = MaterialTheme.typography.titleLarge,
+            color = c.ink
+        )
+        Text(
+            state.deviceId?.let { "$it · ${if (state.online) "연결됨" else "연결 확인 필요"}" }
+                ?: "선택한 장치 없음",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (state.online) c.success else c.muted
+        )
+    }
+}
+
+@Composable
+private fun PreflightIntro(state: SurveyRunUiState) {
+    val c = LocalGeoColors.current
+    GeoSection {
+        GeoSectionHeader(title = "시작 전 점검", eyebrow = "다음 단계")
+        Text(
+            when {
+                !state.selectionComplete -> "프로젝트와 조사 구간을 선택하면 장치 상태를 점검할 수 있습니다."
+                state.policy == null -> "이 수집 작업의 설정이 준비되지 않았습니다. 설정 담당자에게 확인하세요."
+                else -> "장치 연결, 저장 공간, 필수 센서를 확인합니다."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = c.muted
         )
     }
 }
@@ -405,20 +496,31 @@ private fun CreateRow(
     actionEnabled: Boolean,
     onAction: () -> Unit
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        OutlinedTextField(
-            value, onValue, label = { Text(label) },
-            singleLine = true, enabled = enabled, modifier = Modifier.weight(1f)
-        )
-        OutlinedButton(
-            onClick = onAction,
-            enabled = actionEnabled,
-            shape = MaterialTheme.shapes.small,
-            modifier = Modifier.heightIn(min = GeoSize.secondaryAction)
-        ) { Text("만들기") }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stack = maxWidth < 360.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f
+        if (stack) {
+            Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+                OutlinedTextField(
+                    value, onValue, label = { Text(label) }, singleLine = true,
+                    enabled = enabled, modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(
+                    onClick = onAction, enabled = actionEnabled, shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.secondaryAction)
+                ) { Text("만들기") }
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value, onValue, label = { Text(label) }, singleLine = true,
+                    enabled = enabled, modifier = Modifier.weight(1f)
+                )
+                OutlinedButton(
+                    onClick = onAction, enabled = actionEnabled, shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.heightIn(min = GeoSize.secondaryAction)
+                ) { Text("만들기") }
+            }
+        }
     }
 }
 
@@ -595,28 +697,26 @@ private fun NumericPolicyField(label: String, value: String, onValue: (String) -
  * reported a failure and a sensor that never answered call for different actions.
  */
 @Composable
-private fun PreflightPane(preflight: PipelinePreflight?) {
+private fun PreflightPane(preflight: PipelinePreflight?, developerModeEnabled: Boolean) {
     val c = LocalGeoColors.current
     val tone = when {
         preflight == null -> StatusTone.INFO
         preflight.ready -> StatusTone.SUCCESS
         else -> StatusTone.WARNING
     }
-    GeoSection(tone = if (preflight == null) null else tone) {
-        GeoSectionHeader(
-            title = "시작 전 점검",
-            eyebrow = "3단계",
-            trailing = {
-                StatusBadge(
-                    when {
-                        preflight == null -> "점검 전"
-                        preflight.ready -> "준비됨"
-                        else -> "확인 필요"
-                    },
-                    tone
-                )
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)) {
+        Text(
+            if (preflight?.ready == true) "수집을 시작할 수 있습니다" else "확인이 필요한 항목이 있습니다",
+            style = MaterialTheme.typography.headlineMedium,
+            color = c.ink
         )
+        preflight?.let {
+            Text(
+                "${it.contextSnapshot.surveyProjectLabel} · ${it.contextSnapshot.surveySectionLabel}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = c.muted
+            )
+        }
         if (preflight == null) {
             Text(
                 "프로젝트·구간과 저장된 정책으로 장비 시간, 저장 공간, 센서를 실제로 조회해 점검합니다. 확인 팝업이 아니라 장비의 응답입니다.",
@@ -624,29 +724,69 @@ private fun PreflightPane(preflight: PipelinePreflight?) {
                 color = c.muted
             )
         } else {
-            GeoIdentifier("점검 ID", preflight.preflightId)
-            GeoRowDivider()
-            CheckRow("장비 시간", checkLabel(preflight.checks.time.state), checkTone(preflight.checks.time.state))
-            CheckRow("저장 공간", checkLabel(preflight.checks.storage.state), checkTone(preflight.checks.storage.state))
-            preflight.checks.sensors.forEach { sensor ->
-                CheckRow(
-                    label = sensorLabel(sensor.sensor),
-                    value = checkLabel(sensor.state),
-                    tone = checkTone(sensor.state),
-                    supporting = requirementLabel(sensor.requirement) + (sensor.detail?.let { " · $it" }.orEmpty())
-                )
+            Surface(color = c.surface, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
+                Column(Modifier.fillMaxWidth().padding(GeoSpace.xl)) {
+                    CheckInfoRow("장치 연결 확인", preflight.deviceId, StatusTone.SUCCESS)
+                    HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
+                    CheckInfoRow(
+                        "장치 시간 확인",
+                        checkLabel(preflight.checks.time.state),
+                        checkTone(preflight.checks.time.state)
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
+                    CheckInfoRow(
+                        "저장 공간 확인",
+                        checkLabel(preflight.checks.storage.state),
+                        checkTone(preflight.checks.storage.state)
+                    )
+                    preflight.checks.sensors.forEach { sensor ->
+                        HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
+                        CheckInfoRow(
+                            "${sensorLabel(sensor.sensor)} 준비",
+                            checkLabel(sensor.state) + if (developerModeEnabled) {
+                                sensor.detail?.let { " · $it" }.orEmpty()
+                            } else "",
+                            checkTone(sensor.state)
+                        )
+                    }
+                }
+            }
+            if (developerModeEnabled) {
+                Spacer(Modifier.height(GeoSpace.sm))
+                GeoIdentifier("점검 ID", preflight.preflightId)
             }
             if (preflight.problems.isNotEmpty()) {
                 GeoRowDivider()
                 Text("확인이 필요한 항목", style = MaterialTheme.typography.titleSmall)
-                preflight.problems.forEach { problem ->
+                if (developerModeEnabled) {
+                    preflight.problems.forEach { problem ->
+                        Text(
+                            "• ${problem.detail ?: problem.code}",
+                            color = c.danger,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                } else {
                     Text(
-                        "• ${problem.detail ?: problem.code}",
+                        "장치에서 확인이 필요한 항목 ${preflight.problems.size}개가 있습니다.",
                         color = c.danger,
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CheckInfoRow(title: String, detail: String, tone: StatusTone) {
+    val c = LocalGeoColors.current
+    val visuals = com.example.jetsoncontroller.ui.components.statusVisuals(tone)
+    Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.md), verticalAlignment = Alignment.CenterVertically) {
+        Icon(visuals.icon, null, tint = visuals.content, modifier = Modifier.size(GeoSize.iconMd))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = c.ink)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = c.muted)
         }
     }
 }
@@ -680,10 +820,8 @@ private fun ActiveRunCard(run: com.example.jetsoncontroller.model.PipelineRun) {
         GeoSectionHeader(
             title = "${run.contextSnapshot.surveyProjectLabel} · ${run.contextSnapshot.surveySectionLabel}",
             eyebrow = "현재 실행에 고정된 조사 범위",
-            trailing = { StatusBadge(run.state, StatusTone.PENDING) }
+            trailing = { StatusBadge("진행 중", StatusTone.PENDING) }
         )
-        GeoIdentifier("Run", run.runId)
-        GeoIdentifier("결과 경로", "${run.output.rootId}/${run.output.path}")
         Text(
             "이 실행이 끝날 때까지 프로젝트·구간·정책은 바꿀 수 없습니다.",
             style = MaterialTheme.typography.bodySmall,
@@ -698,15 +836,15 @@ private fun ActiveRunCard(run: com.example.jetsoncontroller.model.PipelineRun) {
 
 internal fun startReadinessLabel(state: SurveyRunUiState): String = when {
     !state.online -> "장비 연결 확인 필요"
-    state.pendingStart != null -> "시작 결과 미확인 · 저장된 요청 ID 재사용"
+    state.pendingStart != null -> "수집 시작 여부를 확인하고 있습니다"
     state.unconfirmedRunId != null -> "최근 실행 상태 미확인 · 같은 장비에서 재조회 필요"
     state.contextLocked -> "현재 실행이 끝날 때까지 조사 범위 잠김"
     !state.selectionComplete -> "프로젝트와 조사 구간 선택 필요"
-    state.policy == null -> "수집 정책 저장 필요"
+    state.policy == null -> "수집 작업 설정 확인 필요"
     state.preflight == null -> "시작 전 점검 필요"
     !state.preflight.ready -> "점검 문제 확인 필요"
     !state.canStart -> "선택 또는 정책 변경됨 · 다시 점검 필요"
-    else -> "프로젝트·구간·정책·필수 점검 확인됨"
+    else -> "조사 구간과 필수 점검 확인됨"
 }
 
 /**

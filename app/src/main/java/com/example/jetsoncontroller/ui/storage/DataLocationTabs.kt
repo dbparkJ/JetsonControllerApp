@@ -1,9 +1,6 @@
 package com.example.jetsoncontroller.ui.storage
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -24,14 +21,12 @@ internal fun DataLocationTabs(
         Tab(
             selected = selected == DataLocation.DEVICE,
             onClick = onDeviceClick,
-            text = { Text("Jetson") },
-            icon = { Icon(Icons.Default.Storage, contentDescription = null) }
+            text = { Text("장치", style = MaterialTheme.typography.titleMedium) }
         )
         Tab(
             selected = selected == DataLocation.SERVER,
             onClick = onServerClick,
-            text = { Text("서버") },
-            icon = { Icon(Icons.Default.Cloud, contentDescription = null) }
+            text = { Text("서버", style = MaterialTheme.typography.titleMedium) }
         )
     }
 }

@@ -132,23 +132,19 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
     return when (stage) {
         FieldStage.START_PENDING -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 3 · 결과 대기",
-            title = "시작 요청의 결과를 확인하세요",
-            detail = "요청은 보냈지만 장치의 응답을 받지 못했습니다. 장치에서 이미 시작됐을 수 있으므로, " +
-                "새로 시작하기 전에 같은 요청 ID로 결과부터 확인합니다.",
-            actionLabel = "같은 요청 ID로 결과 확인",
+            eyebrow = "현재 작업",
+            title = "수집 시작 상태를 확인하세요",
+            detail = input.lastObservedLabel?.let { "마지막 확인 $it" }.orEmpty(),
+            actionLabel = "시작 상태 확인",
             destination = FieldDestination.ACTIVE_RUN,
             tone = StatusTone.PENDING
         )
 
         FieldStage.RUN_UNCONFIRMED -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 3 · 상태 미확인",
-            title = "수집 상태를 확인하지 못했습니다",
-            detail = buildString {
-                append("앱이 장치의 현재 실행 상태를 모릅니다. 앱 연결이 끊겨도 Jetson의 수집은 계속될 수 있습니다.")
-                input.lastObservedLabel?.let { append(" 마지막으로 확인한 시각은 $it 입니다.") }
-            },
+            eyebrow = "현재 작업",
+            title = "현재 수집 상태를 확인하세요",
+            detail = input.lastObservedLabel?.let { "마지막 확인 $it" }.orEmpty(),
             actionLabel = if (input.connected) "실행 상태 다시 조회" else "장치에 다시 연결",
             destination = if (input.connected) FieldDestination.ACTIVE_RUN else FieldDestination.CONNECT,
             tone = StatusTone.UNKNOWN
@@ -156,14 +152,9 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
 
         FieldStage.NOT_CONNECTED -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 0 · 다음 행동",
+            eyebrow = "다음 작업",
             title = "장치에 연결하세요",
-            detail = if (input.registeredDeviceCount > 0) {
-                "등록된 장치 ${input.registeredDeviceCount}대가 있습니다. 연결은 제어 경로를 여는 것이고, " +
-                    "수집을 시작하지는 않습니다."
-            } else {
-                "등록된 장치가 없습니다. 장치의 QR로 먼저 등록해야 합니다."
-            },
+            detail = if (input.registeredDeviceCount > 0) "등록 장치 ${input.registeredDeviceCount}대" else "등록된 장치 없음",
             actionLabel = if (input.registeredDeviceCount > 0) "장치 연결" else "QR로 장치 등록",
             destination = FieldDestination.CONNECT,
             tone = StatusTone.INFO
@@ -171,12 +162,9 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
 
         FieldStage.COLLECTING -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 3 · 진행 중",
+            eyebrow = "현재 작업",
             title = input.elapsedLabel?.let { "수집 중 · $it" } ?: "수집 중",
-            detail = buildString {
-                append(survey ?: "현재 실행")
-                append(" · 실행 중에는 프로젝트·구간·정책을 바꿀 수 없습니다.")
-            },
+            detail = survey.orEmpty(),
             actionLabel = "수집 중 화면 열기",
             destination = FieldDestination.ACTIVE_RUN,
             tone = StatusTone.SUCCESS
@@ -184,10 +172,9 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
 
         FieldStage.NEEDS_RESULT -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 4 · 다음 행동",
-            title = "저장 결과를 확인하세요",
-            detail = "실행은 종료됐습니다. 장치에 무엇이 남았는지는 아직 확인 전이고, " +
-                "서버 전송은 시작하지 않았습니다. 이 셋은 서로 다른 사실입니다.",
+            eyebrow = "다음 작업",
+            title = "수집 결과를 확인하세요",
+            detail = survey.orEmpty(),
             actionLabel = "결과 요약 보기",
             destination = FieldDestination.RUN_RESULT,
             tone = StatusTone.PENDING
@@ -195,10 +182,9 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
 
         FieldStage.NEEDS_SURVEY -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 1 · 다음 행동",
-            title = "조사할 구간을 고르세요",
-            detail = survey?.let { "최근 조사: $it" }
-                ?: "프로젝트와 조사 구간을 선택해야 수집 결과가 어디에 속하는지 남습니다.",
+            eyebrow = "다음 작업",
+            title = "새 수집을 시작하세요",
+            detail = survey.orEmpty(),
             actionLabel = "조사 준비",
             destination = FieldDestination.SURVEY_PREP,
             tone = StatusTone.INFO
@@ -206,12 +192,9 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
 
         FieldStage.NEEDS_PREFLIGHT -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 2 · 다음 행동",
+            eyebrow = "다음 작업",
             title = "시작 전 점검이 필요합니다",
-            detail = buildString {
-                survey?.let { append(it); append(" · ") }
-                append("장비 시간, 저장 공간, 필수 센서를 실제로 조회해 확인합니다.")
-            },
+            detail = survey.orEmpty(),
             actionLabel = "시작 전 점검",
             destination = FieldDestination.PREFLIGHT,
             tone = StatusTone.INFO
@@ -219,12 +202,9 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
 
         FieldStage.READY_TO_START -> FieldStagePlan(
             stage = stage,
-            eyebrow = "단계 2 · 시작 가능",
+            eyebrow = "다음 작업",
             title = "수집을 시작할 수 있습니다",
-            detail = buildString {
-                survey?.let { append(it); append(" · ") }
-                append("점검을 통과했습니다. 시작하면 조사 범위와 결과 폴더가 이 실행에 고정됩니다.")
-            },
+            detail = survey.orEmpty(),
             actionLabel = "확인 후 수집 시작",
             destination = FieldDestination.PREFLIGHT,
             tone = StatusTone.SUCCESS

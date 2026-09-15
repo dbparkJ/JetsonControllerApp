@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -85,6 +86,8 @@ import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.SectionHeader
 import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.AppBanner
+import com.example.jetsoncontroller.ui.components.StatusTone
 import kotlinx.coroutines.flow.collectLatest
 import java.time.Instant
 import java.time.ZoneId
@@ -112,7 +115,8 @@ fun PipelineListScreen(
     startCapability: Boolean = false,
     nowMillis: Long = System.currentTimeMillis(),
     onHistory: () -> Unit = {},
-    onPrepareRun: (ManagedPipeline) -> Unit = {}
+    onPrepareRun: (ManagedPipeline) -> Unit = {},
+    developerModeEnabled: Boolean = false
 ) {
     var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
     val fresh = tasksAreFresh(state.controlAvailable, state.observedAtMillis, nowMillis)
@@ -128,39 +132,58 @@ fun PipelineListScreen(
     Scaffold(
         topBar = {
             com.example.jetsoncontroller.ui.components.DeviceContextHeader(
-                if (detailId == null) "작업 시작 · 실행 프로그램 선택" else "작업 상세", deviceName,
-                if (fresh) "작업 상태 확인됨" else "현재 상태 미확인", onBack, unreadCount, onAlerts,
+                if (detailId == null) "수집 작업 선택" else "작업 상세", deviceName,
+                if (fresh) "상태 확인됨" else "상태 확인 필요", onBack, unreadCount, onAlerts,
                 actions = {
-                    if (detailId == null) IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "작업 추가") }
+                    if (developerModeEnabled && detailId == null) {
+                        IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "작업 추가") }
+                    }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading && state.busyPipelineId == null) { Icon(Icons.Default.Refresh, "상태 새로고침") }
                 })
         },
-        bottomBar = { ControlNavigationBar(ControlSection.PIPELINES, onSectionSelected) }
+        bottomBar = { ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected) }
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                Text("작업 이력")
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(Modifier.widthIn(max = 760.dp).fillMaxSize(), contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text("수집 작업 ${state.pipelines.size}개", style = MaterialTheme.typography.bodyMedium) }
+            if (developerModeEnabled) item {
+                OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("작업 이력")
+                }
+            }
+            state.error?.let { item {
+                AppBanner(it, StatusTone.ERROR, actionLabel = "다시 시도", onAction = onRefresh)
             } }
-            item { Text("전체 ${state.pipelines.size} · 실행 확인 ${if (fresh) state.pipelines.count {
-                it.state == PipelineState.RUNNING && !it.activeRunId.isNullOrBlank() && it.id !in state.pendingActions
-            } else 0}",
-                style = MaterialTheme.typography.bodyMedium) }
-            state.error?.let { item { InlineMessage(it, true) } }
+            if (developerModeEnabled) state.technicalError?.let { detail ->
+                item { SelectionContainer { Text(detail, style = MaterialTheme.typography.bodySmall) } }
+            }
             state.message?.let { item { InlineMessage(it, false) } }
             if (state.mobileRtkRelay.active || state.mobileRtkRelay.error != null) {
-                item { InlineMessage(state.mobileRtkRelay.error ?: "모바일 RTK 중계 · RTCM ${state.mobileRtkRelay.bytesFromCaster} bytes · 파일 업로드와 별개", state.mobileRtkRelay.error != null) }
+                item { InlineMessage(
+                    when {
+                        state.mobileRtkRelay.error != null && !developerModeEnabled ->
+                            "모바일 RTK 연결을 확인하지 못했습니다. 연결 상태를 확인하세요."
+                        state.mobileRtkRelay.error != null -> state.mobileRtkRelay.error
+                        developerModeEnabled -> "모바일 RTK 중계 · RTCM ${state.mobileRtkRelay.bytesFromCaster} bytes"
+                        else -> "모바일 RTK 연결됨"
+                    },
+                    state.mobileRtkRelay.error != null
+                ) }
             }
             if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             if (state.pipelines.isEmpty() && !state.isLoading) item {
                 EmptyState(if (fresh) "등록된 작업이 없습니다" else "작업 상태 확인 필요",
-                    if (fresh) "장비에 등록된 Python 작업이 아직 없습니다." else "연결 후 목록을 다시 확인하세요.",
-                    actionLabel = "작업 추가", onAction = onAdd)
+                    if (fresh) "이 장비에서 사용할 수집 작업이 없습니다." else "연결 후 목록을 다시 확인하세요.",
+                    actionLabel = "작업 추가".takeIf { developerModeEnabled },
+                    onAction = onAdd.takeIf { developerModeEnabled })
             }
             items(state.pipelines.filter { detailId == null || it.id == detailId }, key = { it.id }) { pipeline ->
                 TaskStateCard(pipeline, fresh, state.pendingActions[pipeline.id], state.busyPipelineId == pipeline.id,
                     controlsEnabled = fresh && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
                     expanded = detailId != null,
+                    developerModeEnabled = developerModeEnabled,
+                    startCapability = startCapability,
                     onDetails = { onDetails(pipeline) },
                     onControl = { action -> if (action in setOf("start", "restart")) onPrepareRun(pipeline)
                         else onControl(pipeline, action) },
@@ -168,13 +191,15 @@ fun PipelineListScreen(
                     onConfig = { onConfig(pipeline) }, onOutput = { onOutput(pipeline) })
             }
         }
+        }
     }
 }
 
 @Composable
 private fun TaskStateCard(
     pipeline: ManagedPipeline, fresh: Boolean, pendingAction: String?, busy: Boolean,
-    controlsEnabled: Boolean, expanded: Boolean, onDetails: () -> Unit,
+    controlsEnabled: Boolean, expanded: Boolean, developerModeEnabled: Boolean,
+    startCapability: Boolean, onDetails: () -> Unit,
     onControl: (String) -> Unit, onRemove: () -> Unit, onLogs: () -> Unit,
     onConfig: () -> Unit, onOutput: () -> Unit
 ) {
@@ -197,12 +222,17 @@ private fun TaskStateCard(
                     else -> com.example.jetsoncontroller.ui.components.StatusTone.INFO
                 })
             if (pipeline.result != "unknown") com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
-                Text("최근 실행 결과: ${pipeline.result} · 종료 코드 ${pipeline.lastExitCode}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    if (developerModeEnabled) "최근 실행 결과: ${pipeline.result} · 종료 코드 ${pipeline.lastExitCode}"
+                    else if (pipeline.result == "success") "최근 수집이 완료되었습니다."
+                    else "최근 수집 결과를 확인하세요.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-            if (!expanded) {
+            if (developerModeEnabled && !expanded) {
                 Button(shape = MaterialTheme.shapes.small, onClick = onDetails, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = if (confirmedRunning) androidx.compose.material3.ButtonDefaults.buttonColors(c.accent, c.onAccent) else androidx.compose.material3.ButtonDefaults.buttonColors()) { Text("상태 보기") }
-            } else {
+            } else if (developerModeEnabled) {
                 Text(pipeline.description.ifBlank { "장비의 실제 실행 상태와 결과를 확인합니다." }, style = MaterialTheme.typography.bodyLarge)
                 Text("실행 파일: ${pipeline.entrypoint}", style = MaterialTheme.typography.bodyMedium)
                 pipeline.execution?.let { execution ->
@@ -233,7 +263,16 @@ private fun TaskStateCard(
                 }
                 OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onRemove, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("작업 등록 해제") }
             }
-            if (mayBeActive) {
+            if (!developerModeEnabled) {
+                Button(
+                    shape = MaterialTheme.shapes.small,
+                    onClick = { onControl("start") },
+                    enabled = controlsEnabled && startCapability,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                ) {
+                    Text(if (mayBeActive) "현재 수집 보기" else "이 작업으로 수집 준비")
+                }
+            } else if (mayBeActive) {
                 OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { onControl("stop") }, enabled = controlsEnabled,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = if (confirmedRunning) c.heroText else c.primary)) { Text("중지 요청") }

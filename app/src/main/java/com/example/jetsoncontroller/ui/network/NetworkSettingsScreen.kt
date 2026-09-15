@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Smartphone
@@ -42,6 +43,9 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,15 +57,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -85,8 +87,12 @@ import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.data.network.WifiSecurity
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.ui.components.EmptyState
+import com.example.jetsoncontroller.ui.components.AdaptiveContent
 import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.SectionHeader
+import com.example.jetsoncontroller.ui.theme.GeoSize
+import com.example.jetsoncontroller.ui.theme.GeoSpace
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -102,108 +108,133 @@ fun NetworkSettingsScreen(
     wifiScanPermissionGranted: Boolean,
     onRequestWifiScanPermission: () -> Unit,
     onScanAccessPoints: () -> Unit,
-    onSelectAccessPoint: (WifiAccessPoint) -> Unit
+    onSelectAccessPoint: (WifiAccessPoint) -> Unit,
+    deviceName: String = "선택한 장치"
 ) {
     val listState = rememberLazyListState()
     var manualEntryExpanded by rememberSaveable { mutableStateOf(false) }
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var connectionInfoOpen by rememberSaveable { mutableStateOf(false) }
+
+    if (connectionInfoOpen) {
+        AlertDialog(
+            onDismissRequest = { connectionInfoOpen = false },
+            title = { Text("연결 상태") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                    NetworkIdentityRow(
+                        icon = Icons.Default.Smartphone,
+                        label = "모바일",
+                        value = state.mobileWifiSsid ?: "Wi-Fi 확인 필요"
+                    )
+                    NetworkIdentityRow(
+                        icon = Icons.Default.Router,
+                        label = "장치",
+                        value = if (state.wifiConnected) state.currentWifiSsid ?: "연결된 Wi-Fi"
+                            else "Wi-Fi 연결 안 됨"
+                    )
+                    when {
+                        state.sameWifi && state.transportType == TransportType.LAN ->
+                            Text("같은 Wi-Fi에서 LAN으로 연결되었습니다.")
+                        state.sameWifi -> Text("모바일과 장치가 같은 Wi-Fi에 연결되어 있습니다.")
+                        !state.mobileWifiSsid.isNullOrBlank() && !state.currentWifiSsid.isNullOrBlank() ->
+                            Text("모바일과 장치의 Wi-Fi가 서로 다릅니다.")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { connectionInfoOpen = false }) { Text("닫기") }
+            }
+        )
+    }
 
     Scaffold(
+        containerColor = LocalGeoColors.current.canvas,
         topBar = {
             TopAppBar(
-                title = { Text("네트워크") },
+                title = { Text("네트워크", style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = if (wifiScanPermissionGranted) {
-                            onScanAccessPoints
-                        } else {
-                            onRequestWifiScanPermission
-                        },
-                        enabled = !state.scanningAccessPoints
-                    ) {
-                        if (state.scanningAccessPoints) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "Wi-Fi 다시 검색")
-                        }
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "네트워크 메뉴")
                     }
-                }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("연결 상태 보기") },
+                            onClick = { menuOpen = false; connectionInfoOpen = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("숨겨진 네트워크 추가") },
+                            onClick = {
+                                menuOpen = false
+                                manualEntryExpanded = true
+                                onSsidChange("")
+                                onHiddenChange(true)
+                            }
+                        )
+                    }
+                },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = LocalGeoColors.current.canvas
+                )
             )
         }
     ) { paddingValues ->
-        Column(Modifier.fillMaxSize().padding(paddingValues)) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("연결 상태") },
-                    icon = { Icon(Icons.Default.Router, contentDescription = null) }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Jetson Wi-Fi") },
-                    icon = { Icon(Icons.Default.Wifi, contentDescription = null) }
-                )
-            }
-            if (selectedTab == 0) {
-                NetworkConnectionStatus(
-                    state = state,
-                    wifiScanPermissionGranted = wifiScanPermissionGranted,
-                    onRequestWifiScanPermission = onRequestWifiScanPermission,
-                    modifier = Modifier.weight(1f)
-                )
-            } else {
+        AdaptiveContent(Modifier.fillMaxSize().padding(paddingValues)) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .imePadding()
                         .navigationBarsPadding(),
-                    contentPadding = PaddingValues(bottom = 24.dp)
+                    contentPadding = PaddingValues(top = GeoSpace.sm, bottom = GeoSpace.xxl),
+                    verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
                 ) {
             item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    ConnectionMethodLabel(state.transportType)
-                    if (state.wifiConnected && !state.currentWifiSsid.isNullOrBlank()) {
-                        Spacer(Modifier.height(12.dp))
-                        CurrentWifiCard(state.currentWifiSsid)
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                    Text("장치 Wi-Fi", style = MaterialTheme.typography.headlineMedium)
+                    Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = LocalGeoColors.current.muted)
+                    CurrentWifiCard(state.currentWifiSsid, state.wifiConnected)
                     state.accessPointError?.let { error ->
-                        Spacer(Modifier.height(12.dp))
                         InlineMessage(message = error, isError = true)
                     }
                 }
             }
 
             item {
-                SectionHeader(
-                    title = "주변 네트워크",
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                    Text("다른 네트워크", style = MaterialTheme.typography.titleLarge)
+                    Button(
+                        onClick = if (wifiScanPermissionGranted) onScanAccessPoints
+                            else onRequestWifiScanPermission,
+                        enabled = !state.scanningAccessPoints,
+                        modifier = Modifier.fillMaxWidth().height(GeoSize.primaryAction)
+                    ) {
+                        if (state.scanningAccessPoints) {
+                            CircularProgressIndicator(Modifier.size(GeoSize.iconMd), strokeWidth = 2.dp)
+                            Spacer(Modifier.size(GeoSpace.sm))
+                            Text("검색 중…")
+                        } else {
+                            Text(if (wifiScanPermissionGranted) "네트워크 다시 검색" else "검색 권한 허용")
+                            Spacer(Modifier.size(GeoSpace.md))
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                        }
+                    }
+                    Text(
+                        "목록에서 네트워크를 선택해 연결합니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LocalGeoColors.current.muted
+                    )
+                }
             }
 
             if (state.accessPoints.isEmpty() && !state.scanningAccessPoints) {
-                item {
-                    EmptyState(
-                        title = "검색된 네트워크가 없습니다",
-                        message = "Wi-Fi 검색 권한과 위치 서비스 상태를 확인하세요.",
-                        actionLabel = if (wifiScanPermissionGranted) "다시 검색" else "권한 허용",
-                        onAction = if (wifiScanPermissionGranted) {
-                            onScanAccessPoints
-                        } else {
-                            onRequestWifiScanPermission
-                        }
-                    )
-                }
+                // The visible search action already explains how to populate the list;
+                // avoid a second oversized empty-state action below it.
             } else {
                 items(
                     items = state.accessPoints,
@@ -226,15 +257,14 @@ fun NetworkSettingsScreen(
                         onPasswordChange = onPasswordChange,
                         onSubmit = onSubmit
                     )
-                    HorizontalDivider(modifier = Modifier.padding(start = 68.dp))
+                    HorizontalDivider()
                 }
             }
 
             item {
-                Spacer(Modifier.height(16.dp))
                 SectionHeader(
                     title = "직접 입력",
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    modifier = Modifier.padding(top = GeoSpace.sm)
                 )
                 ListItem(
                     headlineContent = { Text("숨겨진 네트워크 추가") },
@@ -265,7 +295,6 @@ fun NetworkSettingsScreen(
                 }
             }
                 }
-            }
         }
     }
 }
@@ -358,26 +387,27 @@ private fun NetworkIdentityRow(
 }
 
 @Composable
-private fun CurrentWifiCard(ssid: String) {
+private fun CurrentWifiCard(ssid: String?, connected: Boolean) {
+    val c = LocalGeoColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        color = c.surface,
+        contentColor = c.ink,
         shape = MaterialTheme.shapes.medium
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(GeoSpace.xl),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
         ) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null)
+            Icon(Icons.Default.Wifi, contentDescription = null, tint = if (connected) c.success else c.muted)
             Column {
                 Text(
-                    "현재 Wi-Fi 연결됨",
-                    style = MaterialTheme.typography.titleSmall,
+                    ssid.takeIf { connected && !it.isNullOrBlank() } ?: "연결된 Wi-Fi 없음",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                Text(ssid, style = MaterialTheme.typography.bodySmall)
+                Text(if (connected) "연결됨" else "연결 안 됨", style = MaterialTheme.typography.bodySmall, color = c.muted)
             }
         }
     }

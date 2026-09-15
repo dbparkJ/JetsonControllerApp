@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.repository.JetsonRepository
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -125,7 +126,7 @@ class CameraPreviewViewModel(
                 isLoading = false,
                 isRefreshing = false,
                 checkedAtEpochMillis = System.currentTimeMillis(),
-                error = error.message ?: "카메라 프리뷰를 불러오지 못했습니다."
+                error = userFacingFailure(error, "카메라 프리뷰를 불러오지 못했습니다. 다시 시도하세요.").message
             )
             FrameLoadResult.FAILURE
         }

@@ -22,6 +22,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -43,16 +45,13 @@ class SurveyRunViewModelTest {
                 "device-a" to SurveyRunLocalState(pendingStart = pendingA),
                 "device-b" to SurveyRunLocalState(
                     selection = SurveySelection(projectB.surveyProjectId, projectB.revision,
-                        sectionB.surveySectionId, sectionB.revision)
+                        sectionB.surveySectionId, sectionB.revision),
+                    lastPipelineId = "pipe"
                 )
             )
         )
-        val viewModel = SurveyRunViewModel(source, persistence)
-        advanceUntilIdle()
-        viewModel.open("pipe", "수집")
-        advanceUntilIdle()
-
         source.connection.value = SurveyDeviceConnection("device-a", true)
+        val viewModel = SurveyRunViewModel(source, persistence)
         runCurrent()
         source.connection.value = SurveyDeviceConnection("device-b", true)
         advanceUntilIdle()
@@ -79,7 +78,143 @@ class SurveyRunViewModelTest {
 
         assertTrue(state.contextLocked)
         assertTrue(!state.canPreflight)
-        assertEquals("시작 결과 미확인 · 저장된 요청 ID 재사용", startReadinessLabel(state))
+        assertEquals("수집 시작 여부를 확인하고 있습니다", startReadinessLabel(state))
+    }
+
+    @Test
+    fun `cold start restores pending pipeline and blocks opening another profile`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val pending = pending("pipe", "project", "section")
+        val source = FakeSource(project("project"), section(project("project"), "section"))
+        val persistence = FakePersistence(
+            states = mapOf("device" to SurveyRunLocalState(pendingStart = pending))
+        )
+        val viewModel = SurveyRunViewModel(source, persistence)
+        advanceUntilIdle()
+
+        source.connection.value = SurveyDeviceConnection("device", true)
+        advanceUntilIdle()
+
+        assertEquals("pipe", viewModel.uiState.value.pipelineId)
+        assertEquals(pending, viewModel.uiState.value.pendingStart)
+        assertTrue(viewModel.uiState.value.contextLocked)
+
+        viewModel.open("other-pipe", "다른 작업")
+        advanceUntilIdle()
+        assertEquals("pipe", viewModel.uiState.value.pipelineId)
+        assertEquals(pending, viewModel.uiState.value.pendingStart)
+    }
+
+    @Test
+    fun `terminal evidence survives offline and is isolated when device changes`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val source = FakeSource(project, section, configuredPolicy = policy())
+        source.runResult = Result.success(run("run-1", true, project, section))
+        val persistence = FakePersistence(states = mapOf(
+            "device-a" to SurveyRunLocalState(lastPipelineId = "pipe", lastRunId = "run-1")
+        ))
+        val viewModel = SurveyRunViewModel(source, persistence)
+        advanceUntilIdle()
+
+        source.connection.value = SurveyDeviceConnection("device-a", true)
+        advanceUntilIdle()
+        assertEquals("run-1", viewModel.uiState.value.activeRun?.runId)
+
+        source.runResult = Result.success(run("run-1", false, project, section))
+        viewModel.refresh()
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.latestRun!!.active)
+        assertNull(viewModel.uiState.value.activeRun)
+
+        source.connection.value = SurveyDeviceConnection("device-a", false)
+        advanceUntilIdle()
+        assertEquals("run-1", viewModel.uiState.value.latestRun?.runId)
+
+        source.connection.value = SurveyDeviceConnection("device-b", false)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.latestRun)
+        assertNull(viewModel.uiState.value.pendingStart)
+    }
+
+    @Test
+    fun `late accepted persistence from old device cannot replace new device request lock`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val acceptedGate = CompletableDeferred<Unit>()
+        val project = project("project")
+        val section = section(project, "section")
+        val pendingA = pending("pipe", project.surveyProjectId, section.surveySectionId)
+        val pendingB = pending("pipe-b", "project-b", "section-b")
+        val source = FakeSource(project, section, configuredPolicy = policy())
+        source.contextualReceipt = receipt(pendingA, project, section, "device-a")
+        source.connection.value = SurveyDeviceConnection("device-a", true)
+        val persistence = FakePersistence(
+            states = mapOf(
+                "device-a" to SurveyRunLocalState(pendingStart = pendingA),
+                "device-b" to SurveyRunLocalState(pendingStart = pendingB)
+            ),
+            acceptedGate = acceptedGate
+        )
+        val viewModel = SurveyRunViewModel(source, persistence)
+        runCurrent()
+
+        source.connection.value = SurveyDeviceConnection("device-b", true)
+        advanceUntilIdle()
+        assertEquals("device-b", viewModel.uiState.value.deviceId)
+        assertEquals(pendingB, viewModel.uiState.value.pendingStart)
+
+        acceptedGate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("device-b", viewModel.uiState.value.deviceId)
+        assertEquals("pipe-b", viewModel.uiState.value.pipelineId)
+        assertEquals(pendingB, viewModel.uiState.value.pendingStart)
+    }
+
+    @Test
+    fun `run query must return the exact requested run identity`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val source = FakeSource(project, section, configuredPolicy = policy())
+        source.runResult = Result.success(run("different-run", false, project, section, "device"))
+        val persistence = FakePersistence(states = mapOf(
+            "device" to SurveyRunLocalState(lastPipelineId = "pipe", lastRunId = "requested-run")
+        ))
+        val viewModel = SurveyRunViewModel(source, persistence)
+        advanceUntilIdle()
+
+        source.connection.value = SurveyDeviceConnection("device", true)
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.latestRun)
+        assertEquals("requested-run", viewModel.uiState.value.unconfirmedRunId)
+    }
+
+    @Test
+    fun `acknowledged terminal run remains visible and allows a new profile`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val source = FakeSource(project, section, configuredPolicy = policy())
+        source.runResult = Result.success(run("run-1", false, project, section, "device"))
+        val persistence = FakePersistence(states = mapOf(
+            "device" to SurveyRunLocalState(lastPipelineId = "pipe", lastRunId = "run-1")
+        ))
+        val viewModel = SurveyRunViewModel(source, persistence)
+        advanceUntilIdle()
+        source.connection.value = SurveyDeviceConnection("device", true)
+        advanceUntilIdle()
+
+        viewModel.acknowledgeResult("run-1")
+        advanceUntilIdle()
+        assertEquals("run-1", persistence.savedAcknowledgedRunId)
+        assertEquals("run-1", viewModel.uiState.value.latestRun?.runId)
+        assertFalse(viewModel.uiState.value.contextLocked)
+
+        viewModel.open("other-pipe", "다른 작업")
+        advanceUntilIdle()
+        assertEquals("other-pipe", viewModel.uiState.value.pipelineId)
     }
 
     @Test
@@ -103,8 +238,9 @@ class SurveyRunViewModelTest {
         )
         val viewModel = SurveyRunViewModel(source, persistence)
         advanceUntilIdle()
-        viewModel.open("pipe", "수집")
         source.connection.value = SurveyDeviceConnection("device", true)
+        advanceUntilIdle()
+        viewModel.open("pipe", "수집")
         advanceUntilIdle()
         viewModel.runPreflight()
         advanceUntilIdle()
@@ -151,11 +287,86 @@ class SurveyRunViewModelTest {
         )
     }
 
+    private fun run(
+        runId: String,
+        active: Boolean,
+        project: SurveyProject,
+        section: SurveySection,
+        deviceId: String = "device-a"
+    ): PipelineRun {
+        val policy = policy()
+        val preflight = preflight(project, section, policy)
+        val output = PipelineRunOutput("data", "runs/$runId", "output-$runId", "READY")
+        val upload = UploadContext(
+            surveyProjectId = project.surveyProjectId,
+            surveySectionId = section.surveySectionId,
+            runId = runId,
+            deviceId = deviceId,
+            pipelineId = "pipe",
+            sourceRevision = "source",
+            configSha256 = "config",
+            outputId = output.outputId,
+            createdAt = "created"
+        )
+        return PipelineRun(
+            runId = runId,
+            logId = "log-$runId",
+            pipelineId = "pipe",
+            deviceId = deviceId,
+            state = if (active) "RUNNING" else "COMPLETED",
+            startedAt = "started",
+            finishedAt = if (active) null else "finished",
+            exitCode = if (active) null else 0,
+            contextSnapshot = preflight.contextSnapshot,
+            policySnapshot = policy,
+            preflightSnapshot = preflight,
+            sourceRevision = "source",
+            configRevision = "config",
+            output = output,
+            uploadContext = upload,
+            active = active
+        )
+    }
+
+    private fun receipt(
+        pending: PendingContextualStart,
+        project: SurveyProject,
+        section: SurveySection,
+        deviceId: String
+    ): ContextualStartReceipt {
+        val policy = policy()
+        val checked = preflight(project, section, policy).copy(deviceId = deviceId)
+        val context = checked.contextSnapshot.copy(deviceId = deviceId)
+        val output = PipelineRunOutput("data", "runs/run-1", "output-run-1")
+        return ContextualStartReceipt(
+            runId = "run-1",
+            clientRequestId = pending.clientRequestId,
+            outcome = "STARTED",
+            contextSnapshot = context,
+            preflightSnapshot = checked.copy(contextSnapshot = context),
+            output = output,
+            uploadContext = UploadContext(
+                surveyProjectId = project.surveyProjectId,
+                surveySectionId = section.surveySectionId,
+                runId = "run-1",
+                deviceId = deviceId,
+                pipelineId = pending.pipelineId,
+                sourceRevision = checked.sourceRevision,
+                configSha256 = checked.configRevision,
+                outputId = output.outputId,
+                createdAt = "created"
+            ),
+            statusUrl = "/runs/run-1"
+        )
+    }
+
     private class FakePersistence(
-        private val oldGate: CompletableDeferred<Unit>,
-        private val states: Map<String, SurveyRunLocalState>
+        private val oldGate: CompletableDeferred<Unit> = CompletableDeferred(Unit),
+        private val states: Map<String, SurveyRunLocalState> = emptyMap(),
+        private val acceptedGate: CompletableDeferred<Unit>? = null
     ) : SurveyRunPersistence {
         var savedPending: PendingContextualStart? = null
+        var savedAcknowledgedRunId: String? = null
         override fun state(deviceId: String): Flow<SurveyRunLocalState> = if (deviceId == "device-a") flow {
             withContext(NonCancellable) { oldGate.await() }
             emit(states.getValue(deviceId))
@@ -164,7 +375,14 @@ class SurveyRunViewModelTest {
         override suspend fun savePendingStart(deviceId: String, pending: PendingContextualStart?) {
             savedPending = pending
         }
-        override suspend fun saveAcceptedRun(deviceId: String, pipelineId: String, runId: String) = Unit
+        override suspend fun saveAcceptedRun(deviceId: String, pipelineId: String, runId: String) {
+            if (deviceId == "device-a") acceptedGate?.let { gate ->
+                withContext(NonCancellable) { gate.await() }
+            }
+        }
+        override suspend fun saveAcknowledgedRun(deviceId: String, runId: String) {
+            savedAcknowledgedRunId = runId
+        }
     }
 
     private class FakeSource(
@@ -175,6 +393,8 @@ class SurveyRunViewModelTest {
         private val startFailure: Throwable? = null
     ) : SurveyRunDataSource {
         val connection = MutableStateFlow(SurveyDeviceConnection(null, false))
+        var runResult: Result<PipelineRun>? = null
+        var contextualReceipt: ContextualStartReceipt? = null
         private val projects = listOf(project)
         private val sections = listOf(section)
         override val deviceConnection: Flow<SurveyDeviceConnection> = connection
@@ -191,9 +411,11 @@ class SurveyRunViewModelTest {
             configuredPreflight?.let { Result.success(it) } ?: Result.failure(UnsupportedOperationException())
         override suspend fun contextualStart(pipelineId: String, request: ContextualStartRequest) =
             Result.failure<ManagedPipeline>(startFailure ?: UnsupportedOperationException())
-        override suspend fun pipelineRun(runId: String) = Result.failure<PipelineRun>(UnsupportedOperationException())
+        override suspend fun pipelineRun(runId: String) =
+            runResult ?: Result.failure<PipelineRun>(UnsupportedOperationException())
         override suspend fun pipelines() = Result.success(listOf(ManagedPipeline(
-            id = "pipe", label = "수집", entrypoint = "run.py", config = "config", virtualenv = ".venv"
+            id = "pipe", label = "수집", entrypoint = "run.py", config = "config", virtualenv = ".venv",
+            contextualStart = contextualReceipt
         )))
         override suspend fun roots() = Result.success(emptyList<RemoteRoot>())
     }

@@ -7,6 +7,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -139,7 +140,11 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("제어 가능").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(
+            hasText("제어 가능", substring = true)
+        )
+        composeRule.onNodeWithText("제어 가능", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("이 장치 열기").assertIsDisplayed()
         composeRule.onAllNodesWithText("온라인").assertCountEquals(0)
     }
 
@@ -193,19 +198,16 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNode(hasScrollAction())
-            .performScrollToNode(hasText("앱 연결 상태만으로 중단을 판단하지 않습니다"))
-        composeRule.onNodeWithText("앱 연결 상태만으로 중단을 판단하지 않습니다")
-            .assertIsDisplayed()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("현재 작업"))
-        composeRule.onNodeWithText("현재 작업").assertIsDisplayed()
-        composeRule.onNodeWithText("작업 상태 확인 필요").assertIsDisplayed()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("정상 작동 중"))
-        composeRule.onNodeWithText("정상 작동 중").assertIsDisplayed()
+        composeRule.onNodeWithText("현장 홈").assertIsDisplayed()
+        composeRule.onNodeWithText("장치 저장 공간").assertIsDisplayed()
+        composeRule.onNodeWithText("현재 수집").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("최근 수집"))
+        composeRule.onNodeWithText("최근 수집").assertIsDisplayed()
+        composeRule.onAllNodesWithText("정상 작동 중").assertCountEquals(0)
     }
 
     @Test
-    fun healthyDashboardCardCanBeSwipedAway() {
+    fun healthyDashboardDoesNotShowPersistentStatusCard() {
         composeRule.setContent {
             JetsonControllerTheme {
                 DashboardScreen(
@@ -236,11 +238,7 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNode(hasScrollAction())
-            .performScrollToNode(hasTestTag("dashboard-health-card"))
-        composeRule.onNodeWithTag("dashboard-health-card")
-            .performTouchInput { swipeLeft() }
-        composeRule.onAllNodesWithText("정상 작동 중").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("dashboard-health-card").assertCountEquals(0)
     }
 
     @Test

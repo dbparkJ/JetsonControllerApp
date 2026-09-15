@@ -31,7 +31,15 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.AdaptiveColumns
+import com.example.jetsoncontroller.ui.components.AdaptiveContent
+import com.example.jetsoncontroller.ui.components.DeviceContextHeader
 import com.example.jetsoncontroller.ui.components.SectionHeader
+import com.example.jetsoncontroller.ui.components.StatusBadge
+import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.theme.GeoSize
+import com.example.jetsoncontroller.ui.theme.GeoSpace
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,9 +56,11 @@ fun SensorScreen(
     unreadCount: Int = 0
 ) {
     Scaffold(
-        topBar = { com.example.jetsoncontroller.ui.components.DeviceContextHeader(
+        containerColor = LocalGeoColors.current.canvas,
+        topBar = { DeviceContextHeader(
             "센서 상태", deviceName, if (deviceOnline) "장비 응답 기준" else "현재 상태 미확인",
-            onDevices, unreadCount, onAlerts) },
+            onDevices, unreadCount, onAlerts,
+            connectionTone = if (deviceOnline) StatusTone.SUCCESS else StatusTone.UNKNOWN) },
         bottomBar = {
             ControlNavigationBar(
                 selected = ControlSection.OVERVIEW,
@@ -63,13 +73,15 @@ fun SensorScreen(
             )
         }
     ) { paddingValues ->
+        AdaptiveContent(Modifier.fillMaxSize().padding(paddingValues)) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(paddingValues),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = GeoSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
         ) {
             item { SectionHeader("연결된 센서") }
             item {
+                AdaptiveColumns(first = {
                 val camera = status.cameraSensor
                 SensorStatusRow(
                     icon = Icons.Default.CameraAlt,
@@ -89,8 +101,7 @@ fun SensorScreen(
                     } else null,
                     onClick = onCameraClick.takeIf { deviceOnline && fullControlAvailable }
                 )
-            }
-            item {
+                }, second = {
                 val gnss = status.gnssSensor
                 val gnssAvailable = effectiveGnssAvailability(
                     deviceOnline = deviceOnline,
@@ -128,14 +139,14 @@ fun SensorScreen(
                                 gnssAvailable = gnssAvailable,
                                 fixType = gnss.fixType,
                                 rtkStatus = gnss.rtkStatus
-                            ),
-                            gnss.ntripMountpoint?.takeIf { gnssAvailable && gnss.ntripConnected }
+                            )
                         ).joinToString(" · ")
                     } else {
                         presentation.description
                     },
-                    onClick = onGnssClick
+                    onClick = onGnssClick.takeIf { deviceOnline }
                 )
+                })
             }
             item {
                 val imu = status.imuSensor
@@ -150,15 +161,10 @@ fun SensorScreen(
                         telemetryFresh = status.sensorTelemetryFresh,
                         legacyRunning = status.imuRunning
                     ),
-                    detail = imu.source?.let { source ->
-                        when (source) {
-                            "external" -> "외부 IMU"
-                            "oak+external" -> "OAK + 외부 IMU"
-                            else -> "OAK IMU"
-                        }
-                    }
+                    detail = null
                 )
             }
+        }
         }
     }
 }
@@ -172,50 +178,49 @@ private fun SensorStatusRow(
     onClick: (() -> Unit)? = null
 ) {
     val active = presentation.activity == SensorActivity.ACTIVE
+    val c = LocalGeoColors.current
+    val tone = when (presentation.activity) {
+        SensorActivity.ACTIVE -> StatusTone.SUCCESS
+        SensorActivity.CONNECTED -> StatusTone.INFO
+        SensorActivity.WAITING -> StatusTone.PENDING
+        SensorActivity.STALE -> StatusTone.WARNING
+        SensorActivity.DISCONNECTED -> StatusTone.ERROR
+        SensorActivity.UNCONFIGURED -> StatusTone.UNKNOWN
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         shape = MaterialTheme.shapes.medium,
-        color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft,
-        contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.ink
+        color = c.surface,
+        contentColor = c.ink,
+        border = androidx.compose.foundation.BorderStroke(GeoSize.hairline, c.border)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(GeoSpace.lg),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
-                tint = if (active) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (active) c.primary else c.muted
             )
             Column(Modifier.weight(1f).padding(start = 14.dp)) {
                 Text(name, fontWeight = FontWeight.SemiBold)
                 Text(
                     detail ?: presentation.description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = c.muted
                 )
             }
-            Surface(
-                color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.successBg,
-                contentColor = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success,
-                shape = MaterialTheme.shapes.small
-            ) {
-                Text(
-                    presentation.badge,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
+            StatusBadge(presentation.badge, tone)
             if (onClick != null) {
                 Icon(
                     Icons.Default.ChevronRight,
                     contentDescription = null,
                     modifier = Modifier.padding(start = 6.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = c.muted
                 )
             }
         }

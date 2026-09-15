@@ -127,6 +127,34 @@ class LocalApiClientReplayTest {
     }
 
     @Test
+    fun `exact stop fails closed when old backend lacks contextual endpoint`() = runBlocking {
+        TestBackend().use { backend ->
+            backend.damage = Damage.NONE
+            backend.supportsContextualStop = false
+            backend.pipelineState = PipelineState.RUNNING
+            val client = backend.connectedClient()
+
+            val result = client.controlPipeline(
+                "test-pipeline",
+                "stop",
+                expectedRunId = "capture/run-0001"
+            )
+
+            val error = result.exceptionOrNull() as JetsonApiException
+            assertEquals(404, error.statusCode)
+            assertEquals(
+                listOf("/v1/pipelines/test-pipeline/contextual-stop"),
+                backend.mutationPaths.toList()
+            )
+            assertTrue(backend.mutationBodies.single().contains("\"expectedRunId\":\"capture/run-0001\""))
+            assertEquals(PipelineState.RUNNING, backend.pipelineState)
+            assertEquals(0, backend.pipelineCommandIssues.get())
+            assertEquals(0, backend.queries.get())
+            backend.assertAuthenticatedRequests()
+        }
+    }
+
+    @Test
     fun `lost start and stop responses requery actual state without replaying commands`() = runBlocking {
         for ((action, expectedState) in listOf(
             "start" to PipelineState.RUNNING,
@@ -469,11 +497,14 @@ class LocalApiClientReplayTest {
         var alwaysDamageReads = false
         var damageHelloProof = false
         var damageHelloCertificate = false
+        var supportsContextualStop = true
         val mutations = AtomicInteger()
         val pipelineCommandIssues = AtomicInteger()
         val queries = AtomicInteger()
         val hellos = AtomicInteger()
         val requestRefs = CopyOnWriteArrayList<String>()
+        val mutationPaths = CopyOnWriteArrayList<String>()
+        val mutationBodies = CopyOnWriteArrayList<String>()
         val mutationReceived = CompletableDeferred<Unit>()
         val queryReceived = CompletableDeferred<Unit>()
         val releaseResponse = CountDownLatch(1)
@@ -544,7 +575,14 @@ class LocalApiClientReplayTest {
                 }
                 if (exchange.requestMethod != "GET") {
                     val count = mutations.incrementAndGet()
-                    val action = exchange.requestURI.rawPath.substringAfterLast('/')
+                    mutationPaths += path
+                    mutationBodies += bytes.toString(Charsets.UTF_8)
+                    if (path.endsWith("/contextual-stop") && !supportsContextualStop) {
+                        respond(exchange, "{\"detail\":\"Unknown pipeline action\"}", code = 404)
+                        return
+                    }
+                    val rawAction = exchange.requestURI.rawPath.substringAfterLast('/')
+                    val action = if (rawAction == "contextual-stop") "stop" else rawAction
                     val satisfied = when (action) {
                         "start" -> pipelineState in setOf(PipelineState.RUNNING, PipelineState.STARTING)
                         "stop" -> pipelineState in setOf(PipelineState.STOPPED, PipelineState.FAILED)

@@ -1,74 +1,57 @@
 package com.example.jetsoncontroller.ui.field
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.PipelineRun
+import com.example.jetsoncontroller.ui.components.AdaptiveContent
 import com.example.jetsoncontroller.ui.components.AppBanner
-import com.example.jetsoncontroller.ui.components.ConnectionStepper
-import com.example.jetsoncontroller.ui.components.DeviceContextHeader
-import com.example.jetsoncontroller.ui.components.GeoBottomActionBar
-import com.example.jetsoncontroller.ui.components.GeoDangerAction
-import com.example.jetsoncontroller.ui.components.GeoDataRow
-import com.example.jetsoncontroller.ui.components.GeoFreshnessLabel
 import com.example.jetsoncontroller.ui.components.GeoIdentifier
-import com.example.jetsoncontroller.ui.components.GeoRowDivider
+import com.example.jetsoncontroller.ui.components.GeoPrimaryAction
 import com.example.jetsoncontroller.ui.components.GeoSection
 import com.example.jetsoncontroller.ui.components.GeoSectionHeader
-import com.example.jetsoncontroller.ui.components.GeoSecondaryAction
-import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.theme.GeoSpace
-import com.example.jetsoncontroller.ui.theme.GeoType
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.*
 
-/**
- * 수집 중 — 이번 재편에서 새로 생긴 화면입니다.
- *
- * 이전 앱에는 이 화면이 없었습니다. 라우트 33개 어디에도 '진행 중인 수집' 이 없어서,
- * 시작을 누른 직원은 작업 목록으로 되돌아가 목록 항목의 상태 글자를 읽어야 했습니다.
- * 조사 중에 확인해야 할 유일한 질문 — "지금 이게 실제로 돌고 있나" — 에 답하는 화면이
- * 없었던 셈입니다.
- *
- * 설계 규칙 세 가지:
- *
- *  - 여기 보이는 값은 전부 장치가 보고한 값이고, 언제 받은 값인지 함께 적습니다.
- *    프리뷰가 움직인다는 사실은 원본이 저장되고 있다는 증거가 아닙니다.
- *  - 일시정지 버튼은 두지 않습니다. 현재 API가 일시정지를 지원하는지 확인되지 않았고,
- *    지원하지 않는 동작을 화면에 만들면 사용자는 앱을 신뢰하지 않게 됩니다.
- *  - 중지는 확인 단계를 거치고, 확인창은 "정말 실행할까요?" 가 아니라 어느 장치의 어떤
- *    실행이 끝나는지를 적습니다.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ActiveRunScreen(
     deviceName: String,
     connectionLabel: String,
     connectionTone: StatusTone,
     run: PipelineRun?,
-    /** 장비가 준 경과 시간. 앱이 임의로 계산하지 않습니다. */
     elapsedLabel: String?,
-    /** 마지막으로 장치 응답을 받은 시각. */
     lastObservedLabel: String?,
     sensorSummary: String?,
     storageSummary: String?,
     stopInProgress: Boolean,
     online: Boolean,
+    stopAvailable: Boolean = true,
+    pendingStart: Boolean = false,
+    unconfirmedRunId: String? = null,
+    onRetryPendingStart: () -> Unit = {},
+    developerModeEnabled: Boolean = false,
     unreadCount: Int,
     onDevices: () -> Unit,
     onAlerts: () -> Unit,
@@ -79,226 +62,428 @@ internal fun ActiveRunScreen(
     onMap: () -> Unit
 ) {
     val c = LocalGeoColors.current
+    val awaitingStart = pendingStart || unconfirmedRunId != null
+    val confirmedActive = run?.active == true && online && !awaitingStart && stopAvailable
     var confirmStop by remember(run?.runId) { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(
+        confirmStop, online, stopInProgress, stopAvailable, run?.runId, run?.active, awaitingStart
+    ) {
+        if (confirmStop && (!online || stopInProgress || !stopAvailable || run?.active != true || awaitingStart)) {
+            confirmStop = false
+        }
+    }
 
     if (confirmStop && run != null) {
         AlertDialog(
             onDismissRequest = { confirmStop = false },
             containerColor = c.surface,
-            title = { Text("이 수집을 중지할까요?") },
+            icon = { Icon(Icons.Default.Storage, contentDescription = null, tint = c.danger) },
+            title = { Text("수집을 종료할까요?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
-                    Text("장치: $deviceName")
-                    Text("조사: ${run.contextSnapshot.surveyProjectLabel} · ${run.contextSnapshot.surveySectionLabel}")
-                    GeoIdentifier("Run", run.runId)
                     Text(
-                        "중지하면 이 실행이 끝납니다. 명령이 접수된 것과 실행이 실제로 종료된 것은 다르므로, " +
-                            "종료 확인까지 기다린 뒤 저장 결과를 확인하게 됩니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = c.muted
+                        "${run.contextSnapshot.surveyProjectLabel} · ${run.contextSnapshot.surveySectionLabel}",
+                        style = MaterialTheme.typography.titleMedium
                     )
+                    Text("${deviceName}에서 진행 중인 수집을 종료합니다.", color = c.muted)
+                    Text("종료 후 장치 저장 결과를 확인합니다.", color = c.muted)
+                    if (developerModeEnabled) GeoIdentifier("Run", run.runId)
                 }
             },
             confirmButton = {
-                TextButton(onClick = { confirmStop = false; onStop() }) { Text("수집 중지") }
+                com.example.jetsoncontroller.ui.theme.Button(
+                    onClick = {
+                        if (online && !stopInProgress && stopAvailable && run.active && !awaitingStart) {
+                            confirmStop = false
+                            onStop()
+                        }
+                    },
+                    enabled = online && !stopInProgress && stopAvailable && run.active && !awaitingStart,
+                    colors = ButtonDefaults.buttonColors(containerColor = c.danger, contentColor = c.onDanger),
+                    modifier = Modifier.testTag("confirm-stop")
+                ) { Text("수집 종료") }
             },
-            dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("계속 수집") } }
+            dismissButton = {
+                com.example.jetsoncontroller.ui.theme.TextButton(onClick = { confirmStop = false }) {
+                    Text("계속 수집")
+                }
+            }
         )
     }
 
     Scaffold(
         containerColor = c.canvas,
         topBar = {
-            DeviceContextHeader(
-                title = "수집 중",
-                deviceName = deviceName,
-                connectionLabel = connectionLabel,
-                connectionTone = connectionTone,
-                onDevices = onDevices,
-                unreadCount = unreadCount,
-                onAlerts = onAlerts
+            TopAppBar(
+                title = {
+                    Text(
+                        when {
+                            pendingStart -> "시작 확인 중"
+                            confirmedActive -> "수집 중"
+                            else -> "수집 상태"
+                        }
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "수집 메뉴")
+                    }
+                    DropdownMenu(menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("장치 선택") },
+                            onClick = { menuExpanded = false; onDevices() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (unreadCount > 0) "알림 ${unreadCount}개" else "알림") },
+                            onClick = { menuExpanded = false; onAlerts() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("수집 상태 새로고침") },
+                            leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                            enabled = online && !stopInProgress,
+                            onClick = { menuExpanded = false; onRefresh() }
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.canvas, titleContentColor = c.ink)
             )
         },
         bottomBar = {
-            GeoBottomActionBar(
-                readiness = when {
-                    stopInProgress -> "중지 명령을 보냈습니다. 실행이 실제로 끝났는지 확인하는 중입니다."
-                    !online -> "장치 연결이 끊겨 중지 명령을 보낼 수 없습니다. 수집은 계속되고 있을 수 있습니다."
-                    else -> "중지하면 이 실행이 끝나고 저장 결과 확인 단계로 넘어갑니다."
-                },
-                readinessTone = when {
-                    stopInProgress -> StatusTone.PENDING
-                    !online -> StatusTone.UNKNOWN
-                    else -> StatusTone.INFO
+            BoxWithConstraints {
+                val tabletPanelAction = maxWidth >= 600.dp && LocalDensity.current.fontScale <= 1.3f &&
+                    run?.active == true && online && !awaitingStart && stopAvailable
+                if (!tabletPanelAction) {
+                    Surface(color = c.surface) {
+                        Column(
+                            Modifier.fillMaxWidth().navigationBarsPadding()
+                                .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.md)
+                        ) {
+                            when {
+                                pendingStart && online -> GeoPrimaryAction(
+                                    label = "시작 상태 확인",
+                                    onClick = onRetryPendingStart,
+                                    enabled = !stopInProgress,
+                                    icon = Icons.Default.Refresh
+                                )
+                                unconfirmedRunId != null && online -> GeoPrimaryAction(
+                                    label = "수집 상태 확인",
+                                    onClick = onRefresh,
+                                    enabled = !stopInProgress,
+                                    icon = Icons.Default.Refresh
+                                )
+                                !online -> GeoPrimaryAction("다시 연결", onDevices, icon = Icons.Default.Refresh)
+                                run == null || !stopAvailable -> GeoPrimaryAction(
+                                    "수집 상태 다시 확인", onRefresh, enabled = online && !stopInProgress,
+                                    icon = Icons.Default.Refresh
+                                )
+                                else -> DangerPrimaryAction(
+                                    label = if (stopInProgress) "수집 종료 확인 중" else "수집 종료",
+                                    onClick = { if (confirmedActive && stopAvailable) confirmStop = true },
+                                    enabled = confirmedActive && stopAvailable && !stopInProgress
+                                )
+                            }
+                        }
+                    }
                 }
-            ) {
-                GeoDangerAction(
-                    label = if (stopInProgress) "중지 요청 처리 중" else "수집 중지",
-                    target = "대상: $deviceName · ${run?.contextSnapshot?.surveySectionLabel ?: "현재 실행"}",
-                    onClick = { confirmStop = true },
-                    enabled = online && !stopInProgress && run != null
-                )
             }
         }
     ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(
-                start = GeoSpace.gutter, end = GeoSpace.gutter,
-                top = GeoSpace.md, bottom = GeoSpace.xxl
-            ),
-            verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
-        ) {
-            item {
-                ConnectionStepper(
-                    labels = listOf("연결", "준비", "점검", "수집", "결과"),
-                    currentStep = 3
-                )
-            }
-
-            if (run == null) {
-                item {
-                    AppBanner(
-                        "이 장치에서 진행 중인 실행을 찾지 못했습니다. 연결이 끊긴 사이에 종료됐을 수도 있고, " +
-                            "아직 목록을 받지 못했을 수도 있습니다.",
-                        StatusTone.UNKNOWN,
-                        actionLabel = "실행 상태 다시 조회",
-                        onAction = onRefresh
-                    )
-                }
-            }
-
-            if (!online) {
-                item {
-                    AppBanner(
-                        "장치 연결이 끊겼습니다. 마지막으로 확인한 상태를 표시하고 있으며, " +
-                            "Jetson의 수집은 계속되고 있을 수 있습니다.",
-                        StatusTone.UNKNOWN,
-                        actionLabel = "다시 연결",
-                        onAction = onDevices
-                    )
-                }
-            }
-
-            if (stopInProgress) {
-                item {
-                    AppBanner(
-                        "중지 명령이 접수됐습니다. 실행이 실제로 끝났는지는 아직 확인되지 않았습니다.",
-                        StatusTone.PENDING
-                    )
-                }
-            }
-
-            // ---- 경과 ---------------------------------------------------------
-            item {
-                GeoSection(tone = if (stopInProgress) StatusTone.PENDING else StatusTone.SUCCESS) {
-                    GeoSectionHeader(
-                        title = run?.let {
-                            "${it.contextSnapshot.surveyProjectLabel} · ${it.contextSnapshot.surveySectionLabel}"
-                        } ?: "실행 정보 미확인",
-                        eyebrow = "현재 실행",
-                        trailing = {
-                            StatusBadge(
-                                if (stopInProgress) "중지 요청 중" else run?.state ?: "미확인",
-                                if (stopInProgress) StatusTone.PENDING
-                                else if (run == null) StatusTone.UNKNOWN else StatusTone.SUCCESS
-                            )
-                        }
-                    )
-                    // 경과 시간은 장비가 줄 때만 표시합니다. 없으면 장비가 보고한 시작
-                    // 시각을 같은 크기로 세웁니다 — 화면의 무게를 유지하되 앱이 만들어낸
-                    // 숫자를 올리지는 않습니다.
-                    if (elapsedLabel != null) {
-                        Text(elapsedLabel, style = GeoType.numericLarge, color = c.ink)
-                        run?.startedAt?.let {
-                            Text("$it 시작", style = MaterialTheme.typography.bodySmall, color = c.muted)
-                        }
-                    } else {
-                        Text(
-                            run?.startedAt ?: "시작 시각 미확인",
-                            style = GeoType.numericLarge,
-                            color = if (run?.startedAt != null) c.ink else c.unknown
-                        )
-                        Text(
-                            "시작 시각 · 경과 시간은 장비가 제공하지 않습니다",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = c.muted
+        AdaptiveContent(Modifier.fillMaxSize().padding(padding), maxWidth = 1200.dp) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = GeoSpace.sm, bottom = GeoSpace.xl),
+                verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
+            ) {
+                when {
+                    awaitingStart -> item {
+                        PendingStartContent(
+                            run, deviceName, online, pendingStart, developerModeEnabled, unconfirmedRunId
                         )
                     }
-                    lastObservedLabel?.let {
-                        GeoFreshnessLabel("마지막 확인 · $it", stale = !online)
+                    run == null -> item {
+                        UnknownRunContent(online = online, onRefresh = onRefresh, onDevices = onDevices)
                     }
-                }
-            }
-
-            // ---- 실행에 고정된 범위 ----------------------------------------------
-            if (run != null) {
-                item {
-                    GeoSection {
-                        GeoSectionHeader(
-                            title = "실행에 고정된 범위",
-                            eyebrow = "끝날 때까지 바꿀 수 없습니다"
+                    else -> item {
+                        ActiveWorkspace(
+                            run, deviceName, connectionLabel, elapsedLabel, lastObservedLabel,
+                            sensorSummary, storageSummary, online, stopInProgress,
+                            stopAvailable, developerModeEnabled, onCamera, onMap,
+                            onRequestStop = { if (confirmedActive && stopAvailable) confirmStop = true }
                         )
-                        // 식별자는 왼쪽 정렬 한 줄보다 label/value 행이 훑기 쉽습니다.
-                        // 현장에서 이 값들은 읽는 것이 아니라 대조하는 대상입니다.
-                        GeoDataRow(label = "Run", value = run.runId.takeLast(8))
-                        GeoRowDivider()
-                        GeoDataRow(label = "결과 경로", value = "${run.output.rootId}/${run.output.path}")
-                        GeoRowDivider()
-                        GeoDataRow(label = "정책", value = "v${run.policySnapshot.policyVersion}")
-                        GeoRowDivider()
-                        GeoDataRow(label = "점검", value = run.preflightSnapshot.preflightId.takeLast(8))
-                        GeoIdentifier("전체 Run ID", run.runId)
                     }
                 }
             }
+        }
+    }
+}
 
-            // ---- 장비가 보고한 값 ------------------------------------------------
-            item {
-                GeoSection {
-                    GeoSectionHeader(
-                        title = "장비가 보고한 값",
-                        eyebrow = "앱이 계산한 값이 아닙니다",
-                        trailing = { TextButton(onClick = onRefresh) { Text("새로고침") } }
-                    )
-                    GeoDataRow(
-                        label = "센서",
-                        supporting = "카메라 · GNSS · IMU",
-                        value = sensorSummary ?: "",
-                        valueUnavailable = sensorSummary == null
-                    )
-                    GeoRowDivider()
-                    GeoDataRow(
-                        label = "장치 저장",
-                        supporting = "이 실행이 쓰고 있는 용량",
-                        value = storageSummary ?: "",
-                        valueUnavailable = storageSummary == null
-                    )
-                }
-            }
+@Composable
+private fun DangerPrimaryAction(label: String, onClick: () -> Unit, enabled: Boolean) {
+    val c = LocalGeoColors.current
+    com.example.jetsoncontroller.ui.theme.Button(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.buttonColors(containerColor = c.danger, contentColor = c.onDanger),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.primaryAction)
+    ) { Text(label, style = MaterialTheme.typography.labelLarge) }
+}
 
-            // ---- 현장 확인 -------------------------------------------------------
-            item {
-                GeoSection {
-                    GeoSectionHeader(
-                        title = "현장 확인",
-                        eyebrow = "보이는 것과 저장되는 것은 다릅니다"
+@Composable
+private fun PendingStartContent(
+    run: PipelineRun?,
+    deviceName: String,
+    online: Boolean,
+    pendingStart: Boolean,
+    developerModeEnabled: Boolean,
+    unconfirmedRunId: String?
+) {
+    val c = LocalGeoColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)) {
+        Text(
+            if (pendingStart) "시작 요청을 보냈습니다" else "수집 상태를 확인하고 있습니다",
+            style = MaterialTheme.typography.headlineMedium,
+            color = c.ink
+        )
+        Surface(color = c.pendingBg, contentColor = c.ink, shape = RoundedCornerShape(20.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(GeoSpace.xl),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+            ) {
+                Icon(Icons.Default.Refresh, null, tint = c.pending, modifier = Modifier.size(GeoSize.iconMd))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+                    Text(
+                        if (online) "장치 응답을 기다리는 중" else "장치 연결을 기다리는 중",
+                        style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        "프리뷰가 움직인다는 사실은 원본이 녹화되고 있다는 증거가 아닙니다. " +
-                            "저장 여부는 종료 후 결과 요약에서 확인합니다.",
+                        listOfNotNull(run?.contextSnapshot?.surveySectionLabel, deviceName).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = c.muted
                     )
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)
-                    ) {
-                        GeoSecondaryAction("카메라 프리뷰", onCamera, enabled = online)
-                        GeoSecondaryAction("지도에서 보기", onMap, enabled = online)
+                }
+            }
+        }
+        Text(
+            "같은 수집의 시작 결과를 확인합니다. 확인이 끝날 때까지 새 수집을 시작할 수 없습니다.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = c.muted
+        )
+        if (developerModeEnabled && unconfirmedRunId != null) {
+            GeoSection { GeoIdentifier("확인 중인 Run", unconfirmedRunId) }
+        }
+    }
+}
+
+@Composable
+private fun UnknownRunContent(online: Boolean, onRefresh: () -> Unit, onDevices: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)) {
+        Text("현재 수집 상태를 확인해 주세요", style = MaterialTheme.typography.headlineMedium)
+        AppBanner(
+            message = if (online) "장치에서 진행 중인 수집을 찾지 못했습니다."
+                else "장치 연결이 끊겼습니다. 수집은 계속되고 있을 수 있습니다.",
+            tone = StatusTone.UNKNOWN,
+            actionLabel = if (online) "다시 확인" else "다시 연결",
+            onAction = if (online) onRefresh else onDevices
+        )
+    }
+}
+
+@Composable
+private fun ActiveWorkspace(
+    run: PipelineRun,
+    deviceName: String,
+    connectionLabel: String,
+    elapsedLabel: String?,
+    lastObservedLabel: String?,
+    sensorSummary: String?,
+    storageSummary: String?,
+    online: Boolean,
+    stopInProgress: Boolean,
+    stopAvailable: Boolean,
+    developerModeEnabled: Boolean,
+    onCamera: () -> Unit,
+    onMap: () -> Unit,
+    onRequestStop: () -> Unit
+) {
+    val c = LocalGeoColors.current
+    val confirmedActive = online && run.active && stopAvailable
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)) {
+        Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+            Text(run.contextSnapshot.surveyProjectLabel, style = MaterialTheme.typography.bodySmall, color = c.muted)
+            Text(run.contextSnapshot.surveySectionLabel, style = MaterialTheme.typography.headlineMedium, color = c.ink)
+            Text(
+                "$deviceName · ${if (online) connectionLabel else "연결 끊김"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (confirmedActive) c.success else c.unknown
+            )
+        }
+        if (!online) {
+            AppBanner(
+                "장치 연결이 끊겼습니다. 마지막 상태를 표시하며 수집은 계속되고 있을 수 있습니다.",
+                StatusTone.UNKNOWN
+            )
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val stack = maxWidth < 600.dp || LocalDensity.current.fontScale > 1.3f
+            val wideWorkspace = maxWidth >= 1000.dp
+            val tabletPanelAction = !stack && confirmedActive && stopAvailable
+            val statusPane: @Composable ColumnScope.() -> Unit = {
+                LiveStatusCard(confirmedActive, stopInProgress, elapsedLabel, lastObservedLabel)
+                Spacer(Modifier.height(GeoSpace.lg))
+                ObservationRow(Icons.Default.Storage, "장치 저장", storageSummary ?: "확인 중")
+                Spacer(Modifier.height(GeoSpace.md))
+                ObservationRow(Icons.Default.Map, "위치 정보", sensorSummary ?: "관찰 중")
+            }
+            val controlsPane: @Composable ColumnScope.() -> Unit = {
+                CameraAction(onCamera, enabled = confirmedActive)
+                if (tabletPanelAction) {
+                    Spacer(Modifier.height(GeoSpace.xl))
+                    DangerPrimaryAction(
+                        label = if (stopInProgress) "수집 종료 확인 중" else "수집 종료",
+                        onClick = onRequestStop,
+                        enabled = !stopInProgress
+                    )
+                }
+            }
+            if (stack) {
+                Column {
+                    statusPane()
+                    Spacer(Modifier.height(GeoSpace.xl))
+                    controlsPane()
+                    Spacer(Modifier.height(GeoSpace.lg))
+                    MapObservationAction(sensorSummary, onMap, confirmedActive, minHeight = 146.dp)
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
+                    Column(Modifier.weight(if (wideWorkspace) 1.7f else 1f)) {
+                        MapObservationAction(sensorSummary, onMap, confirmedActive, minHeight = 420.dp)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        statusPane()
+                        Spacer(Modifier.height(GeoSpace.lg))
+                        controlsPane()
                     }
                 }
             }
+        }
+        if (developerModeEnabled) {
+            GeoSection {
+                GeoSectionHeader("실행 세부 정보", eyebrow = "개발자 모드")
+                GeoIdentifier("Run", run.runId)
+                GeoIdentifier("결과 경로", "${run.output.rootId}/${run.output.path}")
+                GeoIdentifier("점검", run.preflightSnapshot.preflightId)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveStatusCard(
+    confirmedActive: Boolean,
+    stopInProgress: Boolean,
+    elapsedLabel: String?,
+    lastObservedLabel: String?
+) {
+    val c = LocalGeoColors.current
+    Surface(color = c.surface, shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(GeoSpace.xl), verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+                Icon(Icons.Default.Wifi, null, tint = if (confirmedActive) c.success else c.unknown)
+                Text(
+                    when {
+                        stopInProgress -> "수집 종료를 확인하고 있습니다"
+                        confirmedActive -> "수집이 진행 중입니다"
+                        else -> "수집 상태가 확인되지 않았습니다"
+                    },
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            }
+            HorizontalDivider(color = c.border)
+            Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.xl)) {
+                Metric("경과 시간", elapsedLabel ?: "—", Modifier.weight(1f), large = true)
+                Metric("마지막 상태 확인", lastObservedLabel ?: "미확인", Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun Metric(label: String, value: String, modifier: Modifier, large: Boolean = false) {
+    val c = LocalGeoColors.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        Text(value, style = if (large) GeoType.numericLarge else GeoType.numeric, color = c.ink)
+    }
+}
+
+@Composable
+private fun ObservationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
+    val c = LocalGeoColors.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = c.primary, modifier = Modifier.size(GeoSize.iconMd))
+        Text(label, Modifier.padding(start = GeoSpace.md).weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(value, style = MaterialTheme.typography.labelMedium, color = c.muted)
+    }
+}
+
+@Composable
+private fun CameraAction(onClick: () -> Unit, enabled: Boolean) {
+    val c = LocalGeoColors.current
+    Surface(
+        onClick = onClick, enabled = enabled, color = c.surface, contentColor = c.ink,
+        shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp)
+    ) {
+        Row(Modifier.padding(GeoSpace.lg), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.CameraAlt, null, tint = c.primary)
+            Text("카메라 영상 확인", Modifier.padding(start = GeoSpace.md).weight(1f), style = MaterialTheme.typography.titleMedium)
+            Icon(Icons.Default.ChevronRight, null, tint = c.muted)
+        }
+    }
+}
+
+@Composable
+private fun MapObservationAction(
+    sensorSummary: String?,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    minHeight: androidx.compose.ui.unit.Dp
+) {
+    val c = LocalGeoColors.current
+    val stroke = with(LocalDensity.current) { 1.dp.toPx() }
+    val radius = with(LocalDensity.current) { 16.dp.toPx() }
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = minHeight)
+            .drawBehind {
+                drawRoundRect(
+                    color = c.border,
+                    cornerRadius = CornerRadius(radius),
+                    style = Stroke(width = stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)))
+                )
+            }
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+            Icon(Icons.Default.Map, null, tint = c.muted, modifier = Modifier.size(32.dp))
+            Text(
+                if (sensorSummary == null) "위치 정보 대기" else "위치 정보 확인",
+                style = MaterialTheme.typography.labelLarge,
+                color = c.ink
+            )
+            Text(
+                sensorSummary?.let { "$it · 지도 열기 ›" } ?: "지도 열기 ›",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.primary
+            )
         }
     }
 }

@@ -10,13 +10,16 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.jetsoncontroller.model.RemoteEntryType
+import com.example.jetsoncontroller.model.RemoteFileEntry
+import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineUiState
 import com.example.jetsoncontroller.ui.storage.DataHubScreen
+import com.example.jetsoncontroller.ui.storage.DeviceStorageUiState
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
-import com.example.jetsoncontroller.ui.upload.UploadUiState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -30,57 +33,59 @@ class SlateHarmonyScreenTest {
         var dark by mutableStateOf(false)
         var transfers = 0
         val folders = (0..15).map {
-            ManagedPipeline("task$it", "검사 폴더 $it", entrypoint = "collect.py", config = "config.yaml",
-                virtualenv = "venv", outputRootId = "recordings", outputPath = "inspection$it")
+            RemoteFileEntry("검사 폴더 $it", "inspection$it", RemoteEntryType.DIRECTORY,
+                sizeBytes = 1024L * (it + 1), modifiedAt = "2026-09-15T12:${it.toString().padStart(2, '0')}:00Z")
         }
+        val storage = DeviceStorageUiState(deviceId = "A", controlAvailable = true,
+            currentRoot = RemoteRoot("recordings", "수집 자료", null), entries = folders)
         compose.setContent {
             JetsonControllerTheme(darkTheme = dark) {
                 Box(Modifier.width(360.dp).fillMaxHeight()) {
-                    DataHubScreen("테스트 장비", folders, UploadUiState(deviceId = "A"), true, "", 0,
-                        {}, {}, {}, {}, {}, { _, _ -> transfers++ }, {})
+                    DataHubScreen("테스트 장비", storage, true, "", 0,
+                        {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> transfers++ }, {})
                 }
             }
         }
         val list = compose.onNode(hasScrollToIndexAction())
         list.performScrollToNode(hasText("검사 폴더 15"))
+        compose.onNodeWithText("선택").performClick()
         compose.onNodeWithText("검사 폴더 15").performClick()
-        compose.onNodeWithText("선택한 폴더 전송 확인").assertIsEnabled()
+        compose.onNodeWithText("서버로 전송").assertIsEnabled()
         val before = compose.onNodeWithText("검사 폴더 15").fetchSemanticsNode().boundsInRoot
         compose.runOnIdle { dark = true }
         compose.onNodeWithText("검사 폴더 15").assertIsDisplayed()
         assertEquals(before, compose.onNodeWithText("검사 폴더 15").fetchSemanticsNode().boundsInRoot)
         list.performScrollToIndex(0)
-        compose.onNodeWithText("폴더 검색").performScrollTo().performTextInput("검사")
-        compose.onNodeWithText("폴더 검색").assertIsFocused()
+        compose.onNodeWithTag("file-search").performScrollTo().performTextInput("검사")
+        compose.onNodeWithTag("file-search").assertIsFocused()
         capture("selection-focus-dark")
         compose.runOnIdle { dark = false }
-        compose.onNodeWithText("폴더 검색").assertIsFocused().assertTextContains("검사")
-        compose.onNodeWithText("선택한 폴더 전송 확인").assertIsEnabled()
+        compose.onNodeWithTag("file-search").assertIsFocused().assertTextContains("검사")
+        compose.onNodeWithText("서버로 전송").assertIsEnabled()
         capture("selection-focus-light")
         compose.runOnIdle { assertEquals(0, transfers) }
     }
 
-    @Test fun confirmationSurvivesThemeChangeAndCancelSendsNoCommand() {
+    @Test fun pipelinePreparationActionSurvivesThemeChangeWithoutLegacyCommand() {
         var dark by mutableStateOf(false)
         var calls = 0
+        var preparations = 0
         val task = ManagedPipeline("task", "검사 작업", state = PipelineState.STOPPED,
             entrypoint = "collect.py", config = "config.yaml", virtualenv = "venv")
         compose.setContent {
             JetsonControllerTheme(darkTheme = dark) {
                 PipelineListScreen(PipelineUiState(deviceId = "A", controlAvailable = true,
                     pipelines = listOf(task), observedAtMillis = 1000), {}, {}, {},
-                    { _, _ -> calls++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001)
+                    { _, _ -> calls++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001,
+                    onPrepareRun = { preparations++ })
             }
         }
-        compose.onNodeWithText("작업 시작").performScrollTo().performClick()
-        compose.onNodeWithText("확인 후 시작").assertIsEnabled()
-        capture("confirmation-light", dialog = true)
+        compose.onNodeWithText("이 작업으로 수집 준비").performScrollTo().performClick()
+        capture("pipeline-selection-light")
         compose.runOnIdle { dark = true }
-        compose.onNodeWithText("확인 후 시작").assertIsEnabled()
-        capture("confirmation-dark", dialog = true)
-        compose.onNodeWithText("취소").performClick()
-        compose.onAllNodesWithText("확인 후 시작").assertCountEquals(0)
-        compose.runOnIdle { assertEquals(0, calls) }
+        compose.onNodeWithText("이 작업으로 수집 준비").assertIsEnabled()
+        capture("pipeline-selection-dark")
+        compose.runOnIdle { assertEquals(0, calls); assertEquals(1, preparations) }
     }
 
     private fun capture(name: String, dialog: Boolean = false) {

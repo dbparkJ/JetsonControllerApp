@@ -13,6 +13,7 @@ import com.example.jetsoncontroller.model.UploadLibrarySession
 import com.example.jetsoncontroller.model.UploadTarget
 import kotlinx.coroutines.Job
 import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -149,7 +150,7 @@ class ServerStorageViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message ?: "서버 파일을 열지 못했습니다."
+                            error = userFacingFailure(error, "서버 파일을 열지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -190,7 +191,7 @@ class ServerStorageViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isDeleting = false,
-                            error = error.message ?: "서버 데이터를 삭제하지 못했습니다."
+                            error = userFacingFailure(error, "서버 데이터를 삭제하지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -243,7 +244,7 @@ class ServerStorageViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message ?: "업로드 서버를 불러오지 못했습니다."
+                            error = userFacingFailure(error, "업로드 서버를 불러오지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -282,7 +283,7 @@ class ServerStorageViewModel(
                 if (generation == connectionGeneration) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = error.message ?: "서버 데이터를 불러오지 못했습니다."
+                        error = userFacingFailure(error, "서버 데이터를 불러오지 못했습니다. 다시 시도하세요.").message
                     )
                 }
             }
@@ -311,7 +312,7 @@ class ServerStorageViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message ?: "서버 파일 목록을 불러오지 못했습니다."
+                            error = userFacingFailure(error, "서버 파일 목록을 불러오지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }

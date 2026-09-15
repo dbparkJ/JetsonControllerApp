@@ -360,10 +360,102 @@ class ContextualApiContractTest(unittest.TestCase):
         self.assertEqual(observed.json()["state"], "RUNNING")
         self.assertEqual(observed.json()["uploadContext"], receipt["uploadContext"])
 
-        stopped = self.signed("POST", "/v1/pipelines/capture/stop")
+        stopped = self.signed(
+            "POST",
+            "/v1/pipelines/capture/contextual-stop",
+            {"expectedRunId": receipt["runId"]},
+        )
         self.assertEqual(stopped.status_code, 200, stopped.text)
         self.assertEqual(self.pipelines.stop_observed_state, "STOPPING")
         self.assertEqual(self.pipelines.control_calls, ["start", "stop"])
+
+    def test_contextual_stop_rejects_stale_run_without_stopping_successor(self):
+        project, section = self.create_context()
+        policy = self.configure_policy()
+        request = {
+            "surveyProjectId": project["surveyProjectId"],
+            "surveySectionId": section["surveySectionId"],
+            "surveyProjectRevision": project["revision"],
+            "surveySectionRevision": section["revision"],
+            "policyRevision": policy["revision"],
+        }
+
+        first_preflight = self.signed(
+            "POST", "/v1/pipelines/capture/preflight", request
+        ).json()
+        first = self.signed(
+            "POST",
+            "/v1/pipelines/capture/contextual-start",
+            {
+                **request,
+                "preflightId": first_preflight["preflightId"],
+                "clientRequestId": "start-request-stale-0001",
+            },
+        ).json()["contextualStart"]
+
+        self.pipelines.active_run_id = "capture/untracked-successor.log"
+        runtime_mismatch = self.signed(
+            "POST",
+            "/v1/pipelines/capture/contextual-stop",
+            {"expectedRunId": first["runId"]},
+        )
+        self.assertEqual(runtime_mismatch.status_code, 409, runtime_mismatch.text)
+        self.assertEqual(
+            runtime_mismatch.json()["detail"]["code"], "ACTIVE_RUN_MISMATCH"
+        )
+        self.assertEqual(self.pipelines.state, "RUNNING")
+        self.assertEqual(self.pipelines.control_calls, ["start"])
+        self.pipelines.active_run_id = first["runId"]
+
+        pipeline_id, log_id = first["runId"].split("/", 1)
+        log_directory = self.logs / pipeline_id
+        log_directory.mkdir(exist_ok=True)
+        (log_directory / log_id).write_text(
+            "=== Jetson pipeline run finished ===\n"
+            "finished_at=2026-09-14T10:00:00Z\n"
+            "exit_code=0\nterminal_state=COMPLETED\nstop_signal=\n",
+            encoding="utf-8",
+        )
+        self.pipelines.state = "STOPPED"
+        self.pipelines.active_run_id = None
+        terminal = self.signed("GET", first["statusUrl"])
+        self.assertEqual(terminal.json()["state"], "COMPLETED")
+
+        second_preflight = self.signed(
+            "POST", "/v1/pipelines/capture/preflight", request
+        ).json()
+        second = self.signed(
+            "POST",
+            "/v1/pipelines/capture/contextual-start",
+            {
+                **request,
+                "preflightId": second_preflight["preflightId"],
+                "clientRequestId": "start-request-stale-0002",
+            },
+        ).json()["contextualStart"]
+        self.assertNotEqual(first["runId"], second["runId"])
+
+        stale_stop = self.signed(
+            "POST",
+            "/v1/pipelines/capture/contextual-stop",
+            {"expectedRunId": first["runId"]},
+        )
+        self.assertEqual(stale_stop.status_code, 409, stale_stop.text)
+        self.assertEqual(
+            stale_stop.json()["detail"]["code"], "ACTIVE_RUN_MISMATCH"
+        )
+        self.assertEqual(self.pipelines.state, "RUNNING")
+        self.assertEqual(self.pipelines.active_run_id, second["runId"])
+        self.assertEqual(self.pipelines.control_calls, ["start", "start"])
+
+        current_stop = self.signed(
+            "POST",
+            "/v1/pipelines/capture/contextual-stop",
+            {"expectedRunId": second["runId"]},
+        )
+        self.assertEqual(current_stop.status_code, 200, current_stop.text)
+        self.assertEqual(self.pipelines.stop_observed_state, "STOPPING")
+        self.assertEqual(self.pipelines.control_calls, ["start", "start", "stop"])
 
     def test_linked_upload_requires_terminal_run_and_trusted_source(self):
         project, section = self.create_context()

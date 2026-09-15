@@ -63,7 +63,8 @@ fun AlertSettingsScreen(
     onUploadStartedEnabledChange: (Boolean) -> Unit,
     onUploadEndedEnabledChange: (Boolean) -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
-    onOpenDiagnostics: () -> Unit = {}
+    onOpenDiagnostics: () -> Unit = {},
+    developerModeEnabled: Boolean = false
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -78,8 +79,10 @@ fun AlertSettingsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                Text("연결 진단 기록")
+            if (developerModeEnabled) {
+                OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                    Text("연결 진단 기록")
+                }
             }
             if (!notificationPermissionGranted) {
                 NotificationPermissionBanner(onRequestNotificationPermission)

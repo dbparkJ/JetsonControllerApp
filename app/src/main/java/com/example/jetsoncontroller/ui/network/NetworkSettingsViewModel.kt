@@ -8,6 +8,7 @@ import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -165,8 +166,9 @@ class NetworkSettingsViewModel(
                 } else {
                     it.copy(
                         sending = false,
-                        message = result.exceptionOrNull()?.message
-                            ?: "Wi-Fi 설정 전송에 실패했습니다.",
+                        message = result.exceptionOrNull()?.let {
+                            userFacingFailure(it, "Wi-Fi 연결 요청을 보내지 못했습니다. 연결을 확인하고 다시 시도하세요.").message
+                        } ?: "Wi-Fi 연결 요청을 보내지 못했습니다. 다시 시도하세요.",
                         isError = true
                     )
                 }

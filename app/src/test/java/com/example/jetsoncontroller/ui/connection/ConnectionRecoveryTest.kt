@@ -25,4 +25,15 @@ class ConnectionRecoveryTest {
         assertTrue(formatLastSeen(1_000L, 181_000L).contains("3분 전"))
         assertTrue(formatLastSeen(1_000L, 7_201_000L).contains("2시간 전"))
     }
+
+
+    @Test
+    fun rawNetworkFailure_isNotShownToOperators() {
+        val raw = "java.net.ConnectException: failed to connect to /111.111.111.110:44181"
+        val message = connectionErrorMessage(raw)
+
+        assertFalse(message.contains("111.111.111.110"))
+        assertFalse(message.contains("ConnectException"))
+        assertTrue(message.contains("다시 시도"))
+    }
 }

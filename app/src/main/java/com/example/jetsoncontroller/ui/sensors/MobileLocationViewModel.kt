@@ -96,10 +96,8 @@ class MobileLocationViewModel(
             )
         }
         runCatching { tracker.start(callbacks) }
-            .onFailure { error ->
-                callbacks.onError(
-                    error.message ?: "모바일 위치 추적을 시작하지 못했습니다."
-                )
+            .onFailure {
+                callbacks.onError("모바일 위치 추적을 시작하지 못했습니다. 위치 권한과 설정을 확인해 주세요.")
             }
         freshnessJob = viewModelScope.launch {
             while (isActive) {

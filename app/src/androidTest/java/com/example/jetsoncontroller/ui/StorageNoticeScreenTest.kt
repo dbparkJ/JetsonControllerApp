@@ -5,6 +5,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.ui.storage.*
+import com.example.jetsoncontroller.ui.components.DismissibleNoticeBanner
+import com.example.jetsoncontroller.ui.components.NoticeDismissalProvider
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -46,5 +48,23 @@ class StorageNoticeScreenTest {
         compose.runOnIdle { visible = false }
         compose.runOnIdle { assertNull(state.message); visible = true }
         compose.onNodeWithText(message).assertDoesNotExist()
+    }
+
+    @Test fun dismissedHelpStaysHiddenUntilSemanticContentKeyChanges() {
+        var version by mutableStateOf(1)
+        compose.setContent { JetsonControllerTheme {
+            NoticeDismissalProvider {
+                DismissibleNoticeBanner(
+                    noticeKey = "storage-help.v$version",
+                    message = "파일 도움말 $version"
+                )
+            }
+        } }
+
+        compose.onNodeWithText("파일 도움말 1").assertIsDisplayed()
+        compose.onNodeWithContentDescription("메시지 닫기").performClick()
+        compose.onNodeWithText("파일 도움말 1").assertDoesNotExist()
+        compose.runOnIdle { version = 2 }
+        compose.onNodeWithText("파일 도움말 2").assertIsDisplayed()
     }
 }

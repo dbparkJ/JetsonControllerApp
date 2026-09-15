@@ -7,12 +7,26 @@ import com.example.jetsoncontroller.data.server.ServerPathSummary
 import com.example.jetsoncontroller.data.server.ServerJobsSnapshot
 import com.example.jetsoncontroller.data.server.ServerJobsResponse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 import javax.net.ssl.SSLHandshakeException
 
 class DirectServerPresentationTest {
+    @Test
+    fun operatorMessageHidesEndpointAndCredentialInstructions() {
+        val raw = "저장된 토큰이 https://uploads.example.com 에서 거절되었습니다."
+
+        val message = directServerOperatorMessage(raw)
+
+        assertTrue(message.contains("관리자"))
+        assertFalse(message.contains("토큰"))
+        assertFalse(message.contains("https://"))
+        assertFalse(directServerOperatorMessage("Connection refused at 10.0.0.8/api/jobs")
+            .contains("10.0.0.8"))
+    }
+
     @Test fun `auth errors point to saved employee credentials`() {
         val error = ServerRequestException(401)
         assertEquals("프로필 인증 확인", directServerRecoveryAction(error))

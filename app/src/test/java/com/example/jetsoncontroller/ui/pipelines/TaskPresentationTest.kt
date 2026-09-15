@@ -22,8 +22,9 @@ class TaskPresentationTest {
     @Test fun runningNeedsActiveRunIdentityBeforeUiConfirmsIt() {
         val base = ManagedPipeline("capture", "Capture", state = PipelineState.RUNNING,
             entrypoint = "run.py", config = "config.yaml", virtualenv = "venv")
-        assertEquals("실행 보고 · 실행 ID 확인 필요", taskStateLabel(base, true))
-        assertTrue(taskStateLabel(base.copy(activeRunId = "capture/run-1"), true).startsWith("실행 중"))
+        assertEquals("수집 상태 확인 필요", taskStateLabel(base, true))
+        assertEquals("수집 중", taskStateLabel(base.copy(activeRunId = "capture/run-1"), true))
+        assertFalse(taskStateLabel(base.copy(activeRunId = "capture/run-1"), true).contains("run-1"))
     }
     @Test fun observationReconcilesOnlyTheRequestedTask() {
         val requests = mapOf("a" to "start", "b" to "stop", "c" to "unknown")

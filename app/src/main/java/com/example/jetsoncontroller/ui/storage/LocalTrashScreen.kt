@@ -13,8 +13,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.TrashEntry
 import com.example.jetsoncontroller.ui.components.EmptyState
+import com.example.jetsoncontroller.ui.components.DismissibleNoticeBanner
 import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.OperationMessageHost
+import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.theme.Button
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,7 +45,13 @@ fun LocalTrashScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { Text("휴지통 비우기는 지원하지 않습니다. 복원 가능한 항목만 원래 위치로 되돌릴 수 있습니다.") }
+            item {
+                DismissibleNoticeBanner(
+                    noticeKey = "storage.local-trash-retention.v1",
+                    message = "휴지통 비우기는 지원하지 않습니다. 복원 가능한 항목만 원래 위치로 되돌릴 수 있습니다.",
+                    tone = StatusTone.INFO
+                )
+            }
             if (state.loading || state.restoringId != null) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             state.error?.let { item { InlineMessage(it, true) } }
             items(state.entries, key = { it.trashId }) { entry ->
@@ -77,7 +85,7 @@ private fun categoryLabel(category: String): String = when (category) {
     "STORAGE" -> "장비 데이터"
     "UPLOADED_SOURCE" -> "업로드 원본"
     "RUN_HISTORY" -> "작업 이력"
-    else -> category
+    else -> "장비 데이터"
 }
 
 private fun stateLabel(state: String): String = when (state) {
@@ -85,5 +93,5 @@ private fun stateLabel(state: String): String = when (state) {
     "MOVING_TO_TRASH" -> "이동 상태 확인 중"
     "RESTORING" -> "복원 중"
     "RECOVERY_REQUIRED" -> "복구 확인 필요"
-    else -> state
+    else -> "상태 확인 필요"
 }

@@ -242,6 +242,12 @@ interface LocalControlApi {
         @Path("action") action: String
     ): Response<ManagedPipeline>
 
+    @POST("/v1/pipelines/{pipelineId}/contextual-stop")
+    suspend fun contextualStopPipeline(
+        @Path("pipelineId") pipelineId: String,
+        @Body request: ContextualStopRequest
+    ): Response<ManagedPipeline>
+
     @DELETE("/v1/pipelines/{pipelineId}")
     suspend fun removePipeline(
         @Path("pipelineId") pipelineId: String
@@ -356,6 +362,10 @@ interface LocalControlApi {
 
     data class ConfirmDeletionRequest(
         val confirmed: Boolean = true
+    )
+
+    data class ContextualStopRequest(
+        val expectedRunId: String
     )
 
     data class SynchronizeSystemTimeRequest(

@@ -36,7 +36,8 @@ data class SurveyRunLocalState(
     val selection: SurveySelection? = null,
     val pendingStart: PendingContextualStart? = null,
     val lastPipelineId: String? = null,
-    val lastRunId: String? = null
+    val lastRunId: String? = null,
+    val acknowledgedRunId: String? = null
 )
 
 interface SurveyRunPersistence {
@@ -44,6 +45,7 @@ interface SurveyRunPersistence {
     suspend fun saveSelection(deviceId: String, selection: SurveySelection?)
     suspend fun savePendingStart(deviceId: String, pending: PendingContextualStart?)
     suspend fun saveAcceptedRun(deviceId: String, pipelineId: String, runId: String)
+    suspend fun saveAcknowledgedRun(deviceId: String, runId: String)
 }
 
 class SurveySelectionStore(context: Context) : SurveyRunPersistence {
@@ -65,6 +67,10 @@ class SurveySelectionStore(context: Context) : SurveyRunPersistence {
         update(deviceId) {
             it.copy(pendingStart = null, lastPipelineId = pipelineId, lastRunId = runId)
         }
+    }
+
+    override suspend fun saveAcknowledgedRun(deviceId: String, runId: String) {
+        update(deviceId) { it.copy(acknowledgedRunId = runId) }
     }
 
     private suspend fun update(deviceId: String, transform: (SurveyRunLocalState) -> SurveyRunLocalState) {
@@ -103,6 +109,7 @@ private fun encode(state: SurveyRunLocalState): String = JSONObject().apply {
     }
     state.lastPipelineId?.let { put("lastPipelineId", it) }
     state.lastRunId?.let { put("lastRunId", it) }
+    state.acknowledgedRunId?.let { put("acknowledgedRunId", it) }
 }.toString()
 
 private fun decode(encoded: String?): SurveyRunLocalState = if (encoded == null) {
@@ -134,6 +141,7 @@ private fun decode(encoded: String?): SurveyRunLocalState = if (encoded == null)
         selection = selection,
         pendingStart = pending,
         lastPipelineId = json.optString("lastPipelineId").takeIf(String::isNotBlank),
-        lastRunId = json.optString("lastRunId").takeIf(String::isNotBlank)
+        lastRunId = json.optString("lastRunId").takeIf(String::isNotBlank),
+        acknowledgedRunId = json.optString("acknowledgedRunId").takeIf(String::isNotBlank)
     )
 }.getOrDefault(SurveyRunLocalState())

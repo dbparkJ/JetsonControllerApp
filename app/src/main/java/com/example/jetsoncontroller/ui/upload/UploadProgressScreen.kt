@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.upload
 
+import androidx.compose.foundation.BorderStroke
 import com.example.jetsoncontroller.ui.theme.TextButton
 import com.example.jetsoncontroller.ui.theme.OutlinedButton
 import com.example.jetsoncontroller.ui.theme.Button
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
@@ -44,6 +47,8 @@ import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.ui.components.InlineMessage
+import com.example.jetsoncontroller.ui.components.AdaptiveContent
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,11 +66,18 @@ fun UploadProgressScreen(
     onBack: () -> Unit,
     serverMutationEnabled: Boolean = true,
     serverMutationDisabledReason: String? = null,
-    deviceDeletionEnabled: Boolean = true
+    deviceDeletionEnabled: Boolean = true,
+    developerModeEnabled: Boolean = false,
+    targetLabel: String? = null,
+    onServerData: () -> Unit = onBack,
+    onHome: () -> Unit = onBack
 ) {
     var showCancelDialog by remember(job?.id, deviceDeletionEnabled) { mutableStateOf(false) }
     var showDeleteDialog by remember(job?.id, deviceDeletionEnabled) { mutableStateOf(false) }
     val active = job?.state?.let(::isActiveUploadState) == true
+    val deleteSourceAllowed = job?.state == UploadJobState.COMPLETED &&
+        verification?.matched == true && verification.deletionAllowed &&
+        job.deletionEligible && deviceDeletionEnabled && !isLoading
 
     if (showCancelDialog) {
         AlertDialog(
@@ -92,7 +104,7 @@ fun UploadProgressScreen(
                 Text("서버 데이터와 다시 대조한 뒤 장치의 원본 폴더를 휴지통으로 옮깁니다. 이동이 확인되면 복원할 수 있습니다.")
             },
             confirmButton = {
-                Button(onClick = {
+                Button(enabled = deleteSourceAllowed, onClick = {
                     showDeleteDialog = false
                     onDeleteSource()
                 }) { Text("확인 후 휴지통 이동") }
@@ -106,7 +118,7 @@ fun UploadProgressScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("업로드") },
+                title = { Text(if (job?.state == UploadJobState.COMPLETED) "전송 결과" else "전송") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -115,8 +127,9 @@ fun UploadProgressScreen(
             )
         }
     ) { paddingValues ->
+        AdaptiveContent(Modifier.fillMaxSize().padding(paddingValues), maxWidth = 760.dp) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(20.dp),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (job == null) {
@@ -158,7 +171,14 @@ fun UploadProgressScreen(
                 Icon(icon, contentDescription = null, tint = color)
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = stateLabel(job.state),
+                    text = when {
+                        job.state == UploadJobState.COMPLETED && verification?.matched == true ->
+                            "서버 수신이 확인됐습니다"
+                        job.state == UploadJobState.COMPLETED && verification?.matched == false ->
+                            "서버 수신을 확인하지 못했습니다"
+                        job.state == UploadJobState.COMPLETED -> "전송이 완료됐습니다"
+                        else -> stateLabel(job.state)
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -174,25 +194,30 @@ fun UploadProgressScreen(
                 job.context?.let { context ->
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}\nRun ${context.runId}",
+                        if (developerModeEnabled) {
+                            "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}\nRun ${context.runId}"
+                        } else {
+                            "조사 실행과 연결된 전송"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                 }
-                job.remoteSessionId?.let { sessionId ->
+                job.remoteSessionId?.takeIf { developerModeEnabled }?.let { sessionId ->
                     Spacer(Modifier.height(6.dp))
                     Text("수신 세션 $sessionId", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 Spacer(Modifier.height(32.dp))
-                if ((job.bytesTotal ?: 0) > 0 || job.state == UploadJobState.COMPLETED) {
+                val hasKnownTotal = (job.bytesTotal ?: 0) > 0
+                if (hasKnownTotal) {
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier.fillMaxWidth()
                     )
-                } else {
+                } else if (active) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 Spacer(Modifier.height(10.dp))
@@ -200,9 +225,12 @@ fun UploadProgressScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("${(progress * 100).toInt()}%", fontWeight = FontWeight.SemiBold)
                     Text(
-                        "${formatSize(job.bytesTransferred ?: 0)} / ${formatSize(job.bytesTotal ?: 0)}",
+                        if (hasKnownTotal) "${(progress * 100).toInt()}%" else "진행률 미확인",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        uploadProgressBytesLabel(job.bytesTransferred, job.bytesTotal),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -220,7 +248,7 @@ fun UploadProgressScreen(
                 }
 
                 Spacer(Modifier.height(28.dp))
-                job.currentFile?.let { file ->
+                job.currentFile?.takeIf { developerModeEnabled }?.let { file ->
                     Text("현재 파일", style = MaterialTheme.typography.labelMedium)
                     Text(
                         text = file,
@@ -239,13 +267,76 @@ fun UploadProgressScreen(
                     )
                 }
 
-                job.errorMessage?.let {
+                if (job.state == UploadJobState.COMPLETED) {
                     Spacer(Modifier.height(20.dp))
-                    InlineMessage(message = it, isError = true)
+                    androidx.compose.material3.Surface(
+                        color = LocalGeoColors.current.surface,
+                        contentColor = LocalGeoColors.current.ink,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    when (verification?.matched) {
+                                        true -> Icons.Default.CheckCircle
+                                        false -> Icons.Default.Error
+                                        null -> Icons.Default.CloudUpload
+                                    },
+                                    contentDescription = null,
+                                    tint = when (verification?.matched) {
+                                        true -> LocalGeoColors.current.success
+                                        false -> LocalGeoColors.current.warning
+                                        null -> LocalGeoColors.current.unknown
+                                    }
+                                )
+                                Spacer(Modifier.size(8.dp))
+                                Text(
+                                    if (verification?.matched == true) "서버 수신 확인" else "서버 수신 확인 필요",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                            targetLabel?.let {
+                                Text(it, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            val receiptFileCount = job.filesTotal ?: verification?.filesTotal
+                            val receiptBytes = job.bytesTotal ?: verification?.bytesTotal
+                            Text(
+                                listOf(
+                                    receiptFileCount?.let { "${it}개 파일" } ?: "개수 미확인",
+                                    receiptBytes?.let(::formatSize) ?: "용량 미확인"
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LocalGeoColors.current.muted
+                            )
+                            Text(
+                                when {
+                                    job.sourceRecoverable -> "장치 원본을 휴지통에서 복원할 수 있습니다"
+                                    job.sourceDeleted -> "장치 원본을 휴지통으로 옮겼습니다"
+                                    else -> "장치 원본 보관 중"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LocalGeoColors.current.muted
+                            )
+                        }
+                    }
+                }
+
+                job.errorMessage?.let { technicalError ->
+                    Spacer(Modifier.height(20.dp))
+                    InlineMessage(
+                        message = if (developerModeEnabled) technicalError
+                            else "업로드에 실패했습니다. 연결을 확인하고 다시 시도하세요.",
+                        isError = true
+                    )
                 }
                 error?.let {
                     Spacer(Modifier.height(12.dp))
-                    InlineMessage(message = it, isError = true)
+                    InlineMessage(
+                        message = if (developerModeEnabled) it
+                            else "전송 상태를 확인하지 못했습니다. 다시 시도하세요.",
+                        isError = true
+                    )
                 }
                 message?.let {
                     Spacer(Modifier.height(12.dp))
@@ -276,7 +367,7 @@ fun UploadProgressScreen(
                     )
                 }
 
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(28.dp))
                 if (active) {
                     OutlinedButton(
                         onClick = { showCancelDialog = true },
@@ -300,13 +391,19 @@ fun UploadProgressScreen(
                         }
                         Text(if (isLoading) "준비 중" else "다시 시도")
                     }
-                } else if (job.state == UploadJobState.COMPLETED && !job.sourceDeleted) {
-                    OutlinedButton(
-                        onClick = onVerify,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading
-                    ) {
-                        Text(if (isLoading) "확인 중" else "서버 데이터 확인")
+                } else if (job.state == UploadJobState.COMPLETED) {
+                    if (verification?.matched != true) {
+                        OutlinedButton(
+                            onClick = onVerify,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading
+                        ) {
+                            Text(if (isLoading) "확인 중" else "서버 수신 확인")
+                        }
+                    } else {
+                        Button(onClick = onServerData, modifier = Modifier.fillMaxWidth()) {
+                            Text("서버 파일 보기")
+                        }
                     }
                     if (verification?.matched == false) {
                         Spacer(Modifier.height(8.dp))
@@ -327,17 +424,21 @@ fun UploadProgressScreen(
                         ) { Text("장치 원본 복원") }
                     } else if (verification?.matched == true && verification.deletionAllowed && job.deletionEligible) {
                         Spacer(Modifier.height(8.dp))
-                        Button(
+                        OutlinedButton(
                             onClick = { showDeleteDialog = true },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !isLoading && deviceDeletionEnabled
+                            enabled = !isLoading && deviceDeletionEnabled,
+                            border = BorderStroke(1.dp, LocalGeoColors.current.dangerBorder),
+                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                contentColor = LocalGeoColors.current.danger
+                            )
                         ) {
                             Text("확인된 장치 원본 휴지통 이동")
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                        Text("닫기")
+                    TextButton(onClick = onHome, modifier = Modifier.fillMaxWidth()) {
+                        Text("홈으로")
                     }
                 } else {
                     Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
@@ -346,7 +447,14 @@ fun UploadProgressScreen(
                 }
             }
         }
+        }
     }
+}
+
+internal fun uploadProgressBytesLabel(transferred: Long?, total: Long?): String = when {
+    transferred != null && total != null -> "${formatSize(transferred)} / ${formatSize(total)}"
+    transferred != null -> "${formatSize(transferred)} 전송 · 전체 용량 미확인"
+    else -> "전송 용량 미확인"
 }
 
 internal fun formatEta(seconds: Long): String {

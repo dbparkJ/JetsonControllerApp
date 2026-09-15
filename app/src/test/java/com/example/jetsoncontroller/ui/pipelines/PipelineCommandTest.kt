@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.pipelines
 
 import androidx.lifecycle.ViewModelStore
+import com.example.jetsoncontroller.data.network.JetsonApiException
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
@@ -53,6 +54,56 @@ class PipelineCommandTest {
             runCurrent()
             assertEquals("preserved draft", vm.uiState.value.draft.label)
             verify(repo, times(1)).controlPipeline("task", "start")
+        } finally { store.clear(); Dispatchers.resetMain() }
+    }
+
+    @Test fun exactStopPassesRunIdentityAndReportsOldBackendWithoutRetry() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val repo = mock(JetsonRepository::class.java)
+            val device = MutableStateFlow<String?>("a")
+            val transport = MutableStateFlow<TransportState>(
+                TransportState.Connected(
+                    type = TransportType.LAN,
+                    deviceId = "a",
+                    deviceName = "Device A"
+                )
+            )
+            `when`(repo.selectedDeviceId).thenReturn(device)
+            `when`(repo.transportState).thenReturn(transport)
+            `when`(repo.mobileRtkRelayState).thenReturn(MutableStateFlow(MobileRtkRelayState()))
+            val task = ManagedPipeline(
+                "task",
+                "Task",
+                entrypoint = "main.py",
+                config = "config.yaml",
+                virtualenv = "venv",
+                state = PipelineState.RUNNING
+            )
+            `when`(repo.getPipelines()).thenReturn(Result.success(listOf(task)))
+            `when`(repo.getWorkspaceRoots()).thenReturn(Result.success(emptyList()))
+            `when`(repo.controlPipeline("task", "stop", "capture/run-0001")).thenReturn(
+                Result.failure(
+                    JetsonApiException(
+                        statusCode = 404,
+                        message = "Unknown pipeline action"
+                    )
+                )
+            )
+            val vm = PipelineViewModel(repo)
+            store.put("pipeline", vm)
+            runCurrent()
+
+            vm.control(task, "stop", expectedRunId = "capture/run-0001")
+            runCurrent()
+
+            verify(repo, times(1)).controlPipeline("task", "stop", "capture/run-0001")
+            assertEquals(
+                "장비 소프트웨어 업데이트가 필요합니다. 수집은 종료되지 않았습니다.",
+                vm.uiState.value.error
+            )
+            assertEquals("unknown", vm.uiState.value.pendingActions["task"])
         } finally { store.clear(); Dispatchers.resetMain() }
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.data.network.WifiSecurity
@@ -63,8 +64,7 @@ class NetworkSettingsScreenTest {
         }
 
         composeRule.onAllNodesWithTag("wifi-selected-network-form").assertCountEquals(0)
-        composeRule.onNodeWithText("Jetson Wi-Fi").performClick()
-        composeRule.onNodeWithText("Office Wi-Fi").performClick()
+        composeRule.onNodeWithText("Office Wi-Fi").performScrollTo().performClick()
         composeRule.onNodeWithTag("wifi-selected-network-form").assertIsDisplayed()
         composeRule.onNodeWithText("비밀번호").assertIsDisplayed()
         composeRule.onNodeWithTag("wifi-connect-button").assertIsDisplayed()
@@ -100,8 +100,7 @@ class NetworkSettingsScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Jetson Wi-Fi").performClick()
-        composeRule.onNodeWithText("현재 Jetson이 연결됨 · WPA 개인용 네트워크")
+        composeRule.onNodeWithText("연결됨")
             .assertIsDisplayed()
         composeRule.onNodeWithTag("wifi-access-point-Lab Wi-Fi")
             .assertIsNotEnabled()

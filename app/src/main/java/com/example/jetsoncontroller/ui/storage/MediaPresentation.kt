@@ -39,6 +39,17 @@ internal fun localDateTimeLabel(value: String): String = runCatching {
     OffsetDateTime.parse(value).atZoneSameInstant(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss"))
 }.getOrDefault(value)
 
+internal fun localTimeOrDateLabel(
+    value: String,
+    zone: ZoneId = ZoneId.systemDefault()
+): String = runCatching {
+    OffsetDateTime.parse(value)
+        .atZoneSameInstant(zone)
+        .format(DateTimeFormatter.ofPattern("HH:mm"))
+}.getOrElse {
+    runCatching { LocalDate.parse(value).toString() }.getOrDefault("시간 미확인")
+}
+
 @Composable
 internal fun MediaFilters(selected: String, onSelected: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.theme.Button
@@ -440,7 +441,7 @@ fun RowScope.GeoSecondaryAction(
         shape = MaterialTheme.shapes.small,
         modifier = Modifier.weight(1f).heightIn(min = GeoSize.secondaryAction)
     ) {
-        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, textAlign = TextAlign.Center)
     }
 }
 

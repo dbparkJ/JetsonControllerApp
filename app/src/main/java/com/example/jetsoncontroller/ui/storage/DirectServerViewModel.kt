@@ -75,11 +75,11 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            store.profiles.catch { error ->
+            store.profiles.catch {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isConnecting = false,
-                    message = error.message ?: "저장된 서버 프로필을 불러오지 못했습니다.",
+                    message = "저장된 서버 연결 정보를 불러오지 못했습니다. 다시 시도하세요.",
                     messageIsError = true,
                     errorActionLabel = "프로필 편집"
                 )
@@ -539,5 +539,5 @@ internal fun directServerErrorMessage(error: Throwable): String = when {
         "선택한 환경과 서버 응답 환경이 다릅니다. 서버 주소와 환경을 확인하세요."
     error.message?.contains("project", ignoreCase = true) == true ->
         "선택한 프로젝트와 서버 응답이 일치하지 않습니다. 프로젝트 프로필을 확인하세요."
-    else -> error.message ?: "서버에 연결하지 못했습니다. 인터넷과 서버 주소를 확인하세요."
+    else -> "서버에 연결하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요."
 }

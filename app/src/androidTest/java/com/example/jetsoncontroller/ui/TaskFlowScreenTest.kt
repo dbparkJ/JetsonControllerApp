@@ -37,13 +37,36 @@ class TaskFlowScreenTest {
                 { _, _ -> starts++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001,
                 onPrepareRun = { preparations++ })
         } }
-        compose.onNodeWithText("작업 시작").performScrollTo().performClick()
+        compose.onNodeWithText("이 작업으로 수집 준비").performScrollTo().performClick()
         compose.onNodeWithText("작업 시작 · 최종 점검").assertDoesNotExist()
         compose.runOnIdle {
             assertEquals(1, preparations)
             assertEquals(0, refreshes)
             assertEquals(0, starts)
         }
+    }
+
+    @Test fun pipelineTechnicalErrorIsVisibleOnlyInDeveloperMode() {
+        var developerMode by mutableStateOf(false)
+        val state = PipelineUiState(
+            deviceId = "A",
+            controlAvailable = true,
+            observedAtMillis = 1000,
+            error = "장비에 연결할 수 없습니다. 같은 네트워크인지 확인하고 다시 시도하세요.",
+            technicalError = "ConnectException: /111.111.111.110:44181"
+        )
+        compose.setContent { JetsonControllerTheme {
+            PipelineListScreen(
+                state, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {},
+                nowMillis = 1001,
+                developerModeEnabled = developerMode
+            )
+        } }
+
+        compose.onNodeWithText(state.error!!).assertIsDisplayed()
+        compose.onNodeWithText(state.technicalError!!).assertDoesNotExist()
+        compose.runOnIdle { developerMode = true }
+        compose.onNodeWithText(state.technicalError!!).assertIsDisplayed()
     }
 
     @Test fun historyDeletionRequiresConfirmationAndRunningRunsCannotBeDeleted() {

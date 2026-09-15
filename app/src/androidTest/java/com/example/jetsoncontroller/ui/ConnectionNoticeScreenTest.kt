@@ -69,7 +69,7 @@ class ConnectionNoticeScreenTest {
         compose.runOnIdle { assertEquals(2, resolved) }
     }
 
-    @Test fun noticeExpiresAndLeavesAllFourTabsAtTheBottom() {
+    @Test fun noticeExpiresAndLeavesThreePrimaryTabsAtTheBottom() {
         compose.setContent {
             JetsonControllerTheme(darkTheme = true) {
                 ConnectionRecoveryLayout("A", false, notice, {}) { modifier ->
@@ -87,7 +87,7 @@ class ConnectionNoticeScreenTest {
         compose.waitUntil(timeoutMillis = 15_000) {
             compose.onAllNodesWithText(notice).fetchSemanticsNodes().isEmpty()
         }
-        listOf("홈", "작업", "데이터", "설정").forEach {
+        listOf("홈", "파일", "설정").forEach {
             compose.onNodeWithText(it).assertIsDisplayed()
         }
         assertEquals(navigation, compose.onNodeWithTag("navigation").fetchSemanticsNode().boundsInRoot)

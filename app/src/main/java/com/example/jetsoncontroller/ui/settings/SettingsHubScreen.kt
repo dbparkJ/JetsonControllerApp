@@ -3,14 +3,23 @@ package com.example.jetsoncontroller.ui.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 import com.example.jetsoncontroller.ui.components.*
 import com.example.jetsoncontroller.ui.connection.userConnectionStage
 import com.example.jetsoncontroller.ui.dashboard.*
@@ -21,6 +30,7 @@ import com.example.jetsoncontroller.ui.theme.ThemeMode
 import com.example.jetsoncontroller.ui.theme.rememberThemePreference
 
 /** Operator-facing preferences. Administrative device controls live in [AdminToolsScreen]. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsHubScreen(
     state: DashboardUiState, deviceId: String?, unreadCount: Int,
@@ -30,69 +40,309 @@ fun SettingsHubScreen(
     onRefreshFan: () -> Unit, onFanAuto: () -> Unit, onFanManual: (Int) -> Unit,
     onReboot: () -> Unit, onShutdown: () -> Unit,
     onDismissMessage: () -> Unit, onSection: (ControlSection) -> Unit,
-    onDeveloper: () -> Unit = {}, onAdminTools: () -> Unit = {}
+    onDeveloper: () -> Unit = {}, onAdminTools: () -> Unit = {},
+    developerModeEnabled: Boolean = false,
+    onDeveloperModeChange: (Boolean) -> Unit = {}
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val developerPrefs = remember { context.getSharedPreferences("geo_developer", 0) }
-    var developer by remember { mutableStateOf(developerPrefs.getBoolean("enabled", false)) }
-    var taps by remember { mutableIntStateOf(0) }
-    var lastTap by remember { mutableLongStateOf(0L) }
-    var developerMessage by remember { mutableStateOf<String?>(null) }
     val (theme, setTheme) = rememberThemePreference()
+    var themePickerOpen by rememberSaveable { mutableStateOf(false) }
+    var aboutOpen by rememberSaveable { mutableStateOf(false) }
+    var helpOpen by rememberSaveable { mutableStateOf(false) }
+
+    if (themePickerOpen) {
+        AlertDialog(
+            onDismissRequest = { themePickerOpen = false },
+            title = { Text("화면 테마") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+                    ThemeMode.entries.forEach { value ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = theme == value,
+                                    role = Role.RadioButton,
+                                    onValueChange = {
+                                        setTheme(value)
+                                        themePickerOpen = false
+                                    }
+                                )
+                                .padding(vertical = GeoSpace.sm),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = theme == value, onClick = null)
+                            Text(value.label, Modifier.padding(start = GeoSpace.md))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { themePickerOpen = false }) { Text("취소") }
+            }
+        )
+    }
+    if (aboutOpen) {
+        AlertDialog(
+            onDismissRequest = { aboutOpen = false },
+            title = { Text("앱 정보") },
+            text = {
+                Text(
+                    "GEO& Jetson Controller\n버전 ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { aboutOpen = false }) { Text("확인") }
+            }
+        )
+    }
+    if (helpOpen) {
+        AlertDialog(
+            onDismissRequest = { helpOpen = false },
+            title = { Text("현장 수집 도움말") },
+            text = {
+                Text(
+                    "장치 연결 → 조사 구간 선택 → 장치 점검 → 수집 순서로 진행합니다. " +
+                        "수집 후 파일에서 저장 결과와 서버 수신을 확인할 수 있습니다."
+                )
+            },
+            confirmButton = {
+                Button(onClick = { helpOpen = false }) { Text("도움말 닫기") }
+            }
+        )
+    }
 
     Scaffold(
         containerColor = LocalGeoColors.current.canvas,
         topBar = {
-            val stage = userConnectionStage(state.isOnline, state.transportType)
-            DeviceContextHeader("설정", state.deviceName, stage.label,
-                onDevices, unreadCount, onAlerts, connectionTone = stage.tone)
+            TopAppBar(
+                title = { Text("설정", style = MaterialTheme.typography.headlineMedium) },
+                navigationIcon = {
+                    IconButton(onClick = { onSection(ControlSection.OVERVIEW) }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "홈으로 돌아가기")
+                    }
+                },
+                actions = { AlertIconButton(unreadCount, onAlerts) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = LocalGeoColors.current.canvas)
+            )
         },
         bottomBar = { ControlNavigationBar(ControlSection.SETTINGS, onSection) }
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { GeoDeviceSummary(state, onDevices, showMetrics = false) }
-            item { SectionHeader("현장 작업 설정") }
-            item { SettingsLink("센서 상태", "카메라 · GNSS · IMU · RTK 관찰값", onSensors) }
-            item { SettingsLink("서버 데이터", "휴대전화 인터넷으로 서버 결과 확인", onServerStorage) }
-            item { SettingsLink("알림", "이력·권한·장비 및 작업 임계값", onAlertSettings,
-                LocalGeoColors.current.sectionRaised, alert = unreadCount > 0) }
-            item {
-                SectionSurface(LocalGeoColors.current.sectionRaised) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("화면 테마", style = MaterialTheme.typography.titleMedium)
-                        ThemeMode.entries.forEach { value ->
-                            FilterChip(selected = theme == value, onClick = { setTheme(value) },
-                                label = { Text(value.label) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
+        AdaptiveContent(Modifier.fillMaxSize().padding(padding), maxWidth = 1240.dp) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = GeoSpace.sm, bottom = GeoSpace.lg),
+                verticalArrangement = Arrangement.spacedBy(GeoSpace.section)
+            ) {
+                item {
+                    AdaptiveColumns(
+                        modifier = Modifier.fillMaxWidth(),
+                        first = {
+                            Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
+                                CurrentDevicePreference(
+                                    deviceName = state.deviceName,
+                                    connected = state.isOnline,
+                                    onClick = onDevices
+                                )
+                                SettingsSection("앱 설정") {
+                                    SettingsPreferenceRow(
+                                        icon = Icons.Default.Palette,
+                                        title = "화면 테마",
+                                        value = theme.label,
+                                        onClick = { themePickerOpen = true }
+                                    )
+                                    GeoRowDivider()
+                                    SettingsPreferenceRow(
+                                        icon = Icons.Default.Notifications,
+                                        title = "알림",
+                                        value = if (unreadCount > 0) "새 알림 ${unreadCount}개" else "켜짐",
+                                        onClick = onAlertSettings,
+                                        alert = unreadCount > 0
+                                    )
+                                    GeoRowDivider()
+                                    SettingsPreferenceRow(
+                                        icon = Icons.Default.Wifi,
+                                        title = "네트워크",
+                                        value = "장비 Wi-Fi 선택",
+                                        onClick = onNetwork
+                                    )
+                                    GeoRowDivider()
+                                    SettingsPreferenceRow(
+                                        icon = Icons.AutoMirrored.Filled.HelpOutline,
+                                        title = "도움말",
+                                        onClick = { helpOpen = true }
+                                    )
+                                }
+                            }
+                        },
+                        second = {
+                            Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
+                                SettingsPreferenceRow(
+                                    icon = null,
+                                    title = "앱 정보",
+                                    value = "GEO& ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}",
+                                    onClick = { aboutOpen = true },
+                                    standalone = true
+                                )
+                                SettingsSection("고급") {
+                                    DeveloperModeRow(
+                                        enabled = developerModeEnabled,
+                                        onEnabledChange = onDeveloperModeChange
+                                    )
+                                }
+                                if (developerModeEnabled) {
+                                    SettingsSection("개발자 도구") {
+                                        SettingsPreferenceRow(
+                                            icon = Icons.Default.Terminal,
+                                            title = "기술 정보와 관리 도구",
+                                            value = "진단 · 서버 · 작업 · 장치 제어",
+                                            onClick = onDeveloper
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        Text("선택·검색·초안은 장비별로 보존합니다. 실행 상태는 연결 후 다시 확인합니다.",
-                            style = MaterialTheme.typography.bodyMedium)
-                    }
+                    )
                 }
             }
-            item { SectionHeader("관리 영역") }
-            item { AppBanner(
-                "관리 영역 구분은 화면을 정리하기 위한 것입니다. 서버나 장비 권한을 부여하지 않으며 실제 작업은 각 대상의 인증으로 확인합니다.",
-                StatusTone.INFO) }
-            item { SettingsLink("관리자 도구", "네트워크·업로드 대상·진단·전원 관리", onAdminTools) }
-            item {
-                SettingsLink("빌드 번호", "GEO& ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}", {
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (now - lastTap > 5_000) taps = 0
-                    lastTap = now
-                    taps += 1
-                    if (taps >= 7) {
-                        developer = true
-                        developerPrefs.edit().putBoolean("enabled", true).apply()
-                        developerMessage = "개발자 도구가 표시됩니다. 이 설정은 서버 권한과 무관합니다."
-                    } else if (taps >= 3) {
-                        developerMessage = "개발자 도구 표시까지 ${7 - taps}번 남았습니다."
-                    }
-                }, LocalGeoColors.current.sectionRaised)
-            }
-            developerMessage?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
-            if (developer) item { SettingsLink("개발자 도구", "원격 터미널 · 저장 로그", onDeveloper) }
         }
+    }
+}
+
+@Composable
+private fun CurrentDevicePreference(
+    deviceName: String,
+    connected: Boolean,
+    onClick: () -> Unit
+) {
+    val c = LocalGeoColors.current
+    Surface(
+        onClick = onClick,
+        color = c.surface,
+        contentColor = c.ink,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp)
+    ) {
+        Row(
+            Modifier.padding(GeoSpace.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+        ) {
+            Surface(color = c.brandSoft, shape = MaterialTheme.shapes.small) {
+                Icon(
+                    Icons.Default.DeveloperBoard,
+                    contentDescription = null,
+                    tint = c.primary,
+                    modifier = Modifier.padding(GeoSpace.md).size(GeoSize.iconLg)
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    deviceName,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    if (connected) "연결된 장치" else "현재 선택한 장치 · 연결 안 됨",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.muted
+                )
+            }
+            Icon(Icons.Default.ChevronRight, "장치 변경", tint = c.muted)
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    label: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+        Text(
+            label,
+            style = com.example.jetsoncontroller.ui.theme.GeoType.eyebrow,
+            color = LocalGeoColors.current.muted
+        )
+        Surface(
+            color = LocalGeoColors.current.surface,
+            contentColor = LocalGeoColors.current.ink,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(content = content)
+        }
+    }
+}
+
+@Composable
+private fun SettingsPreferenceRow(
+    icon: ImageVector?,
+    title: String,
+    value: String? = null,
+    onClick: () -> Unit,
+    alert: Boolean = false,
+    standalone: Boolean = false
+) {
+    val c = LocalGeoColors.current
+    val row: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = GeoSize.minTouchTarget)
+                .clickable(onClick = onClick)
+                .padding(GeoSpace.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+        ) {
+            if (icon != null) Icon(icon, null, tint = c.muted, modifier = Modifier.size(GeoSize.iconMd))
+            Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            if (value != null) {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.muted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (alert) Badge { Text("!") }
+            Icon(Icons.Default.ChevronRight, null, tint = c.muted)
+        }
+    }
+    if (standalone) {
+        Surface(color = c.canvas, contentColor = c.ink, shape = MaterialTheme.shapes.small) { row() }
+    } else row()
+}
+
+@Composable
+private fun DeveloperModeRow(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    val c = LocalGeoColors.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = GeoSize.minTouchTarget)
+            .toggleable(
+                value = enabled,
+                role = Role.Switch,
+                onValueChange = onEnabledChange
+            )
+            .padding(GeoSpace.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("개발자 모드", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "기술 정보와 관리 도구",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.muted
+            )
+        }
+        Switch(checked = enabled, onCheckedChange = null)
     }
 }
 
@@ -130,11 +380,13 @@ fun AdminToolsScreen(
             DeviceContextHeader("관리자 도구", state.deviceName, stage.label,
                 onBack, 0, {}, connectionTone = stage.tone)
         }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { AppBanner(
-                "이 화면은 관리 기능을 모아 보여 줍니다. 로컬 화면 접근은 관리자 인증이나 서버 권한 확인을 대신하지 않습니다.",
-                StatusTone.WARNING) }
+        AdaptiveContent(Modifier.fillMaxSize().padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = GeoSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)) {
+            item { DismissibleNoticeBanner(
+                noticeKey = "settings.admin-access-explainer.v1",
+                message = "이 화면은 관리 기능을 모아 보여 줍니다. 로컬 화면 접근은 관리자 인증이나 서버 권한 확인을 대신하지 않습니다.",
+                tone = StatusTone.WARNING) }
             item { SectionHeader("연결 · 운영 정책") }
             item { SettingsLink("네트워크 연결", "장비의 연결 경로와 복구 방법", onNetwork) }
             item { SettingsLink("업로드 서버 대상", "Jetson이 전송할 서버 주소와 장비 인증", onTargets) }
@@ -181,6 +433,7 @@ fun AdminToolsScreen(
             }
             item { SettingsLink("장비 등록 관리", "등록 삭제는 측정 파일 삭제나 장비 초기화가 아닙니다",
                 onDeviceRegistration, LocalGeoColors.current.sectionDanger) }
+        }
         }
     }
 }

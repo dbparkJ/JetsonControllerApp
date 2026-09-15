@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.dashboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +15,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.WarningAmber
@@ -47,12 +52,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.UploadJob
+import com.example.jetsoncontroller.model.TaskRun
+import com.example.jetsoncontroller.model.PipelineRun
+import com.example.jetsoncontroller.R
+import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
 import com.example.jetsoncontroller.ui.components.DeviceContextHeader
@@ -75,6 +85,9 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.OutlinedButton
 import com.example.jetsoncontroller.ui.theme.TextButton
 import kotlin.math.roundToInt
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 현장 홈.
@@ -130,18 +143,19 @@ fun DashboardScreen(
     tasksConfirmed: Boolean = false,
     taskObservedAt: Long? = null,
     pendingTaskActions: Map<String, String> = emptyMap(),
-    /**
-     * 현재 업무 단계. 조사 선택·점검 상태는 이 화면이 받지 않는 다른 ViewModel에 있으므로,
-     * 판정은 두 상태를 모두 가진 내비게이션 계층에서 하고 여기서는 그리기만 합니다.
-     * null이면 기존 next-action 카드로 되돌아갑니다.
-     */
     stagePlan: com.example.jetsoncontroller.ui.field.FieldStagePlan? = null,
-    onStageAction: (com.example.jetsoncontroller.ui.field.FieldDestination) -> Unit = {}
+    onStageAction: (com.example.jetsoncontroller.ui.field.FieldDestination) -> Unit = {},
+    recentRuns: List<TaskRun> = emptyList(),
+    latestRun: PipelineRun? = null,
+    recentHistoryCurrent: Boolean = tasksConfirmed,
+    onRecentRunsClick: () -> Unit = onPipelinesClick
 ) {
     val c = LocalGeoColors.current
+    val statusFresh = state.isOnline && state.statusFreshness == StatusFreshness.CURRENT
     val health = assessDashboardHealth(
         state.status,
-        if (state.status == com.example.jetsoncontroller.model.JetsonStatus()) StatusFreshness.UNKNOWN else state.statusFreshness,
+        if (state.status == com.example.jetsoncontroller.model.JetsonStatus()) StatusFreshness.UNKNOWN
+        else state.statusFreshness,
         pipelines,
         uploads
     )
@@ -150,140 +164,514 @@ fun DashboardScreen(
     val active = pipelines.filter {
         tasksConfirmed && it.state == PipelineState.RUNNING && !it.activeRunId.isNullOrBlank()
     }
-    val task = active.firstOrNull()
     val summary = operationalSummary(state, pipelines, uploads, tasksConfirmed)
-    val nextAction = summary.nextAction
-    val onNextAction = when (nextAction.destination) {
+    val resolvedPlan = stagePlan
+    val fallbackAction = summary.nextAction
+    val fallbackClick = when (fallbackAction.destination) {
         HomeActionDestination.CONNECTION -> onConnectionClick
         HomeActionDestination.PIPELINES -> onPipelinesClick
         HomeActionDestination.SENSORS -> onSensorsClick
         HomeActionDestination.STORAGE -> onStorageClick
     }
     val connectionStage = userConnectionStage(state.isOnline, state.transportType)
+    val latestRuns = homeRecentRuns(latestRun, recentRuns, uploads)
 
-    Scaffold(
-        containerColor = c.canvas,
-        topBar = {
-            DeviceContextHeader(
-                title = "도로관리장치 제어",
-                deviceName = state.deviceName,
-                showLogo = true,
-                connectionLabel = connectionStage.label,
-                connectionTone = connectionStage.tone,
-                onDevices = onBack,
-                unreadCount = unreadAlertCount,
-                onAlerts = onAlertsClick
-            )
-        },
-        bottomBar = { ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(
-                start = GeoSpace.gutter,
-                end = GeoSpace.gutter,
-                top = GeoSpace.lg,
-                bottom = GeoSpace.xxxl
-            ),
-            verticalArrangement = Arrangement.spacedBy(GeoSpace.section)
-        ) {
-            // ---- 1. 다음 행동 ---------------------------------------------------------
-            item {
-                if (stagePlan != null) {
-                    StageCard(stagePlan) { onStageAction(stagePlan.destination) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val tabletLayout = maxWidth >= GeoBreakpoint.medium && LocalDensity.current.fontScale <= 1.3f
+        Scaffold(
+            containerColor = c.canvas,
+            topBar = {
+                if (tabletLayout) {
+                    HomeTabletBar(
+                        deviceName = state.deviceName,
+                        unreadCount = unreadAlertCount,
+                        onAlertsClick = onAlertsClick
+                    )
                 } else {
-                    NextActionCard(nextAction, onNextAction)
+                    HomeBrandBar(
+                        unreadCount = unreadAlertCount,
+                        onAlertsClick = onAlertsClick
+                    )
                 }
-            }
-
-            // ---- 2. 지금 상태 (독립 축) -------------------------------------------------
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
-                    GeoSectionHeader(
-                        title = "지금 상태",
-                        eyebrow = "각 항목은 서로 다른 사실입니다",
-                        trailing = {
-                            if (state.statusFreshness != StatusFreshness.CURRENT) {
-                                StatusBadge("값 미확인", StatusTone.UNKNOWN)
+            },
+            bottomBar = { ControlNavigationBar(ControlSection.OVERVIEW, onSectionSelected) }
+        ) { padding ->
+            BoxWithConstraints(
+                Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                val railVisible = com.example.jetsoncontroller.ui.components
+                    .LocalControlNavigationRailVisible.current
+                val wideRailLayout = tabletLayout && railVisible && maxWidth >= 1_100.dp
+                val showHealth = state.isOnline && health.level == DashboardHealthLevel.ATTENTION &&
+                    !hiddenHealth && !(healthKeys.isNotEmpty() && dismissedHealthKeys.containsAll(healthKeys))
+                val dismissHealth = {
+                    hiddenHealth = true
+                    onHealthDismissalsChange(
+                        dismissDashboardHealth(dismissedHealthKeys, healthDeviceId, health)
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = if (tabletLayout) GeoSpace.xxl else GeoSpace.gutter,
+                        end = if (tabletLayout) GeoSpace.xxl else GeoSpace.gutter,
+                        top = GeoSpace.sm,
+                        bottom = GeoSpace.xxxl
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(GeoSpace.xxl)
+                ) {
+                    if (!tabletLayout) item { HomeHeading() }
+                    when {
+                        wideRailLayout -> item {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(GeoSpace.xxl),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Column(
+                                    Modifier.width(380.dp),
+                                    verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)
+                                ) {
+                                    HomeDeviceIdentity(
+                                        deviceName = state.deviceName,
+                                        connectionLabel = connectionStage.label,
+                                        connectionTone = connectionStage.tone,
+                                        onClick = onBack,
+                                        modifier = Modifier.heightIn(min = 168.dp)
+                                    )
+                                    if (resolvedPlan != null) {
+                                        StageCard(resolvedPlan) { onStageAction(resolvedPlan.destination) }
+                                    } else {
+                                        NextActionCard(fallbackAction, fallbackClick)
+                                    }
+                                }
+                                Column(
+                                    Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)
+                                ) {
+                                    HomeFacts(
+                                        storageLabel = storageAvailableLabel(state, statusFresh),
+                                        collectionLabel = collectionFactLabel(tasksConfirmed, active)
+                                    )
+                                    if (showHealth) {
+                                        SwipeDismissibleHealthOverview(
+                                            state, health, onDismiss = dismissHealth, showCloseButton = true
+                                        )
+                                    }
+                                    RecentSurveySection(
+                                        runs = latestRuns,
+                                        historyCurrent = recentHistoryCurrent,
+                                        tableLayout = true,
+                                        onClick = onRecentRunsClick
+                                    )
+                                }
                             }
                         }
-                    )
-                    OperationalStatusGrid(
-                        signals = listOf(
-                            summary.connection,
-                            summary.collection,
-                            summary.internet,
-                            summary.positioning
-                        )
-                    )
-                }
-            }
-
-            // ---- 3. 현재 수집 ---------------------------------------------------------
-            item {
-                CollectionSection(
-                    task = task,
-                    activeCount = active.size,
-                    tasksConfirmed = tasksConfirmed,
-                    taskObservedAt = taskObservedAt,
-                    pendingAction = task?.let { pendingTaskActions[it.id] },
-                    onClick = onPipelinesClick
-                )
-            }
-
-            // ---- 4. 주의가 필요한 항목 --------------------------------------------------
-            if (state.isOnline && !hiddenHealth &&
-                !(healthKeys.isNotEmpty() && dismissedHealthKeys.containsAll(healthKeys))
-            ) {
-                item {
-                    SwipeDismissibleHealthOverview(state, health, onDismiss = {
-                        hiddenHealth = true
-                        onHealthDismissalsChange(
-                            dismissDashboardHealth(dismissedHealthKeys, healthDeviceId, health)
-                        )
-                    }, showCloseButton = true)
-                }
-            }
-
-            // ---- 5. 시작 준비 ---------------------------------------------------------
-            item {
-                ReadinessSection(
-                    state = state,
-                    onSensorsClick = onSensorsClick,
-                    onStorageClick = onStorageClick,
-                    onCameraClick = onCameraClick,
-                    onGnssClick = onGnssClick
-                )
-            }
-
-            // ---- 6. 결과와 전송 -------------------------------------------------------
-            item {
-                GeoSection {
-                    GeoSectionHeader(
-                        title = "결과와 전송",
-                        eyebrow = "장치 저장과 서버 수신은 별개입니다"
-                    )
-                    Text(
-                        "장치에 원본이 남았는지와 서버가 실제로 받았는지는 각각 확인해야 합니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = c.muted
-                    )
-                    GeoRowDivider()
-                    NavigationRow(
-                        icon = Icons.Default.Storage,
-                        title = "장치 자료",
-                        detail = "Jetson에 저장된 실제 파일과 폴더",
-                        onClick = onStorageClick
-                    )
-                    NavigationRow(
-                        icon = Icons.Default.CloudUpload,
-                        title = "전송 · 수신 확인",
-                        detail = "전송 내역 ${uploads.size}개 · 서버 수신 검증 결과",
-                        onClick = onUploadQueueClick
-                    )
+                        tabletLayout -> {
+                            item {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(GeoSpace.xxl),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    HomeDeviceIdentity(
+                                        deviceName = state.deviceName,
+                                        connectionLabel = connectionStage.label,
+                                        connectionTone = connectionStage.tone,
+                                        onClick = onBack,
+                                        modifier = Modifier.weight(1f).heightIn(min = 168.dp)
+                                    )
+                                    Box(Modifier.weight(1f)) {
+                                        if (resolvedPlan != null) {
+                                            StageCard(resolvedPlan) { onStageAction(resolvedPlan.destination) }
+                                        } else {
+                                            NextActionCard(fallbackAction, fallbackClick)
+                                        }
+                                    }
+                                }
+                            }
+                            item {
+                                HomeFacts(
+                                    storageLabel = storageAvailableLabel(state, statusFresh),
+                                    collectionLabel = collectionFactLabel(tasksConfirmed, active)
+                                )
+                            }
+                            if (showHealth) item {
+                                SwipeDismissibleHealthOverview(
+                                    state, health, onDismiss = dismissHealth, showCloseButton = true
+                                )
+                            }
+                            item {
+                                RecentSurveySection(
+                                    runs = latestRuns,
+                                    historyCurrent = recentHistoryCurrent,
+                                    tableLayout = true,
+                                    onClick = onRecentRunsClick
+                                )
+                            }
+                        }
+                        else -> {
+                            item {
+                                HomeDeviceIdentity(
+                                    deviceName = state.deviceName,
+                                    connectionLabel = connectionStage.label,
+                                    connectionTone = connectionStage.tone,
+                                    onClick = onBack
+                                )
+                            }
+                            item {
+                                if (resolvedPlan != null) {
+                                    StageCard(resolvedPlan) { onStageAction(resolvedPlan.destination) }
+                                } else {
+                                    NextActionCard(fallbackAction, fallbackClick)
+                                }
+                            }
+                            item {
+                                HomeFacts(
+                                    storageLabel = storageAvailableLabel(state, statusFresh),
+                                    collectionLabel = collectionFactLabel(tasksConfirmed, active)
+                                )
+                            }
+                            if (showHealth) item {
+                                SwipeDismissibleHealthOverview(
+                                    state, health, onDismiss = dismissHealth, showCloseButton = true
+                                )
+                            }
+                            item {
+                                RecentSurveySection(
+                                    runs = latestRuns,
+                                    historyCurrent = recentHistoryCurrent,
+                                    tableLayout = false,
+                                    onClick = onRecentRunsClick
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+
+private fun collectionFactLabel(tasksConfirmed: Boolean, active: List<ManagedPipeline>): String = when {
+    !tasksConfirmed -> "상태 확인 필요"
+    active.size > 1 -> "진행 중인 수집 ${active.size}개"
+    active.size == 1 -> active.first().label
+    else -> "진행 중인 수집 없음"
+}
+
+@Composable
+private fun HomeBrandBar(unreadCount: Int, onAlertsClick: () -> Unit) {
+    val c = LocalGeoColors.current
+    Surface(color = c.canvas, contentColor = c.ink) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding()
+                .padding(start = GeoSpace.gutter, end = GeoSpace.md, top = GeoSpace.sm, bottom = GeoSpace.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            com.example.jetsoncontroller.ui.components.GeoLogo(
+                modifier = Modifier.width(92.dp),
+                backgroundColor = c.canvas
+            )
+            Spacer(Modifier.weight(1f))
+            AlertIconButton(unreadCount, onAlertsClick)
+        }
+    }
+}
+
+@Composable
+private fun HomeTabletBar(deviceName: String, unreadCount: Int, onAlertsClick: () -> Unit) {
+    val c = LocalGeoColors.current
+    Surface(color = c.canvas, contentColor = c.ink) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding()
+                .padding(horizontal = GeoSpace.xxl, vertical = GeoSpace.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+        ) {
+            Text("현장 홈", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+            Text(
+                deviceName,
+                modifier = Modifier.widthIn(max = 174.dp),
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = c.muted
+            )
+            AlertIconButton(unreadCount, onAlertsClick)
+        }
+    }
+}
+
+@Composable
+private fun HomeHeading() {
+    val c = LocalGeoColors.current
+    val date = SimpleDateFormat("M월 d일 EEEE", Locale.KOREAN).format(Date())
+    if (LocalDensity.current.fontScale > 1.3f) {
+        Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+            Text("현장 홈", style = MaterialTheme.typography.headlineMedium)
+            Text(date, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        }
+    } else {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("현장 홈", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+            Text(date, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        }
+    }
+}
+
+@Composable
+private fun HomeDeviceIdentity(
+    deviceName: String,
+    connectionLabel: String,
+    connectionTone: StatusTone,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val c = LocalGeoColors.current
+    val statusColor = com.example.jetsoncontroller.ui.components.statusVisuals(connectionTone).content
+    Surface(
+        onClick = onClick,
+        color = c.surface,
+        contentColor = c.ink,
+        shape = MaterialTheme.shapes.large,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(GeoSpace.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.lg)
+        ) {
+            Image(
+                painter = painterResource(R.drawable.geo_device),
+                contentDescription = "GEO& 도로관리장치",
+                modifier = Modifier.size(82.dp)
+            )
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)
+            ) {
+                Text(deviceName, style = MaterialTheme.typography.titleMedium)
+                Text("● $connectionLabel", style = MaterialTheme.typography.labelMedium, color = statusColor)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("장치 변경", style = MaterialTheme.typography.bodySmall, color = c.primary)
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = c.primary,
+                        modifier = Modifier.size(GeoSize.iconSm))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeFacts(storageLabel: String, collectionLabel: String) {
+    if (LocalDensity.current.fontScale <= 1.3f) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GeoSpace.xl)) {
+            HomeFact("장치 저장 공간", storageLabel, Modifier.weight(1f))
+            HomeFact("현재 수집", collectionLabel, Modifier.weight(1f))
+        }
+    } else {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+            HomeFact("장치 저장 공간", storageLabel)
+            HomeFact("현재 수집", collectionLabel)
+        }
+    }
+}
+
+@Composable
+private fun HomeFact(label: String, value: String, modifier: Modifier = Modifier) {
+    val c = LocalGeoColors.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        Text(value, style = GeoType.numeric)
+    }
+}
+
+@Composable
+private fun RecentSurveySection(
+    runs: List<HomeRecentRun>,
+    historyCurrent: Boolean,
+    tableLayout: Boolean,
+    onClick: () -> Unit
+) {
+    val c = LocalGeoColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("최근 수집", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            if (!historyCurrent) Text("기록 미확인", style = MaterialTheme.typography.labelMedium, color = c.unknown)
+        }
+        if (runs.isEmpty()) {
+            Text(
+                if (historyCurrent) "아직 확인된 수집 기록이 없습니다." else "장치에 연결해 최근 수집을 확인하세요.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = c.muted
+            )
+        } else {
+            Surface(color = c.surface, shape = MaterialTheme.shapes.large) {
+                Column {
+                    if (tableLayout) {
+                        RecentSurveyTableHeadings()
+                        GeoRowDivider()
+                    }
+                    runs.forEachIndexed { index, run ->
+                        if (tableLayout) RecentSurveyTableRow(run, onClick)
+                        else RecentSurveyRow(run, onClick)
+                        if (index < runs.lastIndex) GeoRowDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentSurveyTableHeadings() {
+    val c = LocalGeoColors.current
+    Row(
+        Modifier.fillMaxWidth().padding(GeoSpace.md),
+        horizontalArrangement = Arrangement.spacedBy(GeoSpace.lg)
+    ) {
+        Text("조사 구간", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = c.muted)
+        Text("저장·전송", Modifier.width(140.dp), style = MaterialTheme.typography.labelMedium, color = c.muted)
+        Text("용량", Modifier.width(90.dp), style = MaterialTheme.typography.labelMedium, color = c.muted)
+        Text("최근 확인", Modifier.width(104.dp), style = MaterialTheme.typography.labelMedium, color = c.muted)
+    }
+}
+
+@Composable
+private fun RecentSurveyTableRow(run: HomeRecentRun, onClick: () -> Unit) {
+    val c = LocalGeoColors.current
+    Surface(onClick = onClick, color = c.surface, contentColor = c.ink) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = GeoSize.minTouchTarget).padding(GeoSpace.md),
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.lg),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(run.title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            Text(
+                run.receiptLabel,
+                Modifier.width(140.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (run.serverReceived) c.success else c.muted
+            )
+            Text(run.bytesLabel, Modifier.width(90.dp), style = MaterialTheme.typography.bodySmall, color = c.muted)
+            Text(run.finishedAt.orEmpty(), Modifier.width(104.dp), style = MaterialTheme.typography.bodySmall, color = c.muted)
+        }
+    }
+}
+
+@Composable
+private fun RecentSurveyRow(run: HomeRecentRun, onClick: () -> Unit) {
+    val c = LocalGeoColors.current
+    Surface(onClick = onClick, color = c.surface, contentColor = c.ink) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(horizontal = GeoSpace.md, vertical = GeoSpace.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+        ) {
+            Icon(Icons.Default.Folder, contentDescription = null, tint = c.primary)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+                Text(run.title, style = MaterialTheme.typography.labelLarge)
+                Text(
+                    listOfNotNull(
+                        run.finishedAt,
+                        if (run.stored) "장치 저장 완료" else "저장 결과 확인 필요"
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.muted
+                )
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "수집 이력 열기", tint = c.ink)
+        }
+    }
+}
+
+private data class HomeRecentRun(
+    val id: String,
+    val title: String,
+    val finishedAt: String?,
+    val stored: Boolean,
+    val serverReceived: Boolean,
+    val bytesLabel: String
+) {
+    val receiptLabel: String
+        get() = when {
+            serverReceived -> "서버 수신 확인"
+            stored -> "장치 저장 완료"
+            else -> "저장 결과 확인 필요"
+        }
+}
+
+private fun homeRecentRuns(
+    latestRun: PipelineRun?,
+    history: List<TaskRun>,
+    uploads: List<UploadJob>
+): List<HomeRecentRun> {
+    val latest = latestRun?.takeUnless { it.active }?.let { run ->
+        HomeRecentRun(
+            id = run.runId,
+            title = run.contextSnapshot.surveySectionLabel.takeIf(String::isNotBlank) ?: run.pipelineId,
+            finishedAt = homeObservedLabel(run.finishedAt),
+            stored = com.example.jetsoncontroller.ui.field.runOutputStored(run),
+            serverReceived = uploads.any { job ->
+                job.context == run.uploadContext && job.verification?.matched == true
+            },
+            bytesLabel = run.output.manifest?.bytesTotal?.let(::formatHomeBytes) ?: "미확인"
+        )
+    }
+    val historyItems = history.filterNot { it.active || it.state.equals("RUNNING", ignoreCase = true) }
+        .map { run ->
+            val runId = run.runId ?: run.id
+            HomeRecentRun(
+                id = runId,
+                title = run.contextSnapshot?.surveySectionLabel?.takeIf(String::isNotBlank) ?: run.label,
+                finishedAt = homeObservedLabel(run.finishedAt ?: run.startedAt),
+                stored = run.output?.let { output ->
+                    output.manifestState.equals("FINAL", ignoreCase = true) &&
+                        output.manifest?.runId == runId
+                } == true,
+                serverReceived = uploads.any { job ->
+                    job.verification?.matched == true && job.context?.let { context ->
+                        context.runId == runId && context.pipelineId == run.pipelineId &&
+                            (run.deviceId == null || context.deviceId.equals(run.deviceId, true)) &&
+                            (run.output == null || context.outputId == run.output.outputId)
+                    } == true
+                },
+                bytesLabel = run.output?.manifest?.bytesTotal?.let(::formatHomeBytes) ?: "미확인"
+            )
+        }
+    return listOfNotNull(latest).plus(historyItems).distinctBy { it.id }.take(3)
+}
+
+private fun formatHomeBytes(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> "%.1f GB".format(Locale.US, bytes / 1_000_000_000.0)
+    bytes >= 1_000_000L -> "%.1f MB".format(Locale.US, bytes / 1_000_000.0)
+    bytes >= 1_000L -> "%.0f KB".format(Locale.US, bytes / 1_000.0)
+    else -> "$bytes B"
+}
+
+private fun homeObservedLabel(value: String?): String? {
+    if (value.isNullOrBlank()) return null
+    return try {
+        val observed = java.time.Instant.parse(value).atZone(java.time.ZoneId.systemDefault())
+        val today = java.time.LocalDate.now(observed.zone)
+        val prefix = if (observed.toLocalDate() == today) "오늘" else
+            "${observed.monthValue}월 ${observed.dayOfMonth}일"
+        "$prefix ${"%02d:%02d".format(Locale.US, observed.hour, observed.minute)}"
+    } catch (_: Exception) {
+        value
+    }
+}
+
+private fun storageAvailableLabel(state: DashboardUiState, current: Boolean): String {
+    if (!current || !state.status.metricIsValid("storageAvailableBytes")) return "용량 확인 필요"
+    val bytes = state.status.storageAvailableBytes
+    return when {
+        bytes >= 1_000_000_000L -> "%.0f GB 사용 가능".format(Locale.US, bytes / 1_000_000_000.0)
+        bytes >= 1_000_000L -> "%.0f MB 사용 가능".format(Locale.US, bytes / 1_000_000.0)
+        else -> "$bytes B 사용 가능"
     }
 }
 
@@ -308,7 +696,7 @@ private fun StageCard(
     Surface(
         color = c.hero,
         contentColor = c.heroText,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -329,17 +717,22 @@ private fun StageCard(
                 }
             }
             Text(plan.title, style = MaterialTheme.typography.headlineSmall)
-            Text(plan.detail, style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
-            Spacer(Modifier.height(GeoSpace.xs))
+            if (plan.detail.isNotBlank()) {
+                Text(plan.detail, style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
+            }
             Button(
                 shape = MaterialTheme.shapes.small,
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.primaryAction),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                     containerColor = c.heroText,
                     contentColor = c.hero
                 )
-            ) { Text(plan.actionLabel, style = MaterialTheme.typography.labelLarge) }
+            ) {
+                Text(plan.actionLabel, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(GeoSpace.md))
+                Icon(Icons.Default.ChevronRight, contentDescription = null)
+            }
         }
     }
 }
@@ -357,7 +750,7 @@ private fun NextActionCard(action: HomeNextAction, onClick: () -> Unit) {
     Surface(
         color = c.hero,
         contentColor = c.heroText,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -366,17 +759,22 @@ private fun NextActionCard(action: HomeNextAction, onClick: () -> Unit) {
         ) {
             Text(action.eyebrow, style = GeoType.eyebrow, color = c.heroMuted)
             Text(action.title, style = MaterialTheme.typography.headlineSmall)
-            Text(action.detail, style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
-            Spacer(Modifier.height(GeoSpace.xs))
+            if (action.detail.isNotBlank()) {
+                Text(action.detail, style = MaterialTheme.typography.bodyMedium, color = c.heroMuted)
+            }
             Button(
                 shape = MaterialTheme.shapes.small,
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.primaryAction),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                     containerColor = c.heroText,
                     contentColor = c.hero
                 )
-            ) { Text(action.buttonLabel, style = MaterialTheme.typography.labelLarge) }
+            ) {
+                Text(action.buttonLabel, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(GeoSpace.md))
+                Icon(Icons.Default.ChevronRight, contentDescription = null)
+            }
         }
     }
 }

@@ -1188,6 +1188,32 @@ class RunContextService:
                 self.record_stop_intent(pipeline_id)
             return operation(*args, **kwargs)
 
+    def contextual_stop(
+        self,
+        pipeline_id: str,
+        expected_run_id: str,
+        operation: Callable[..., object],
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        """Stop only the contextual run whose identity the operator confirmed."""
+        with self._lock:
+            active = self.active_run(pipeline_id)
+            runtime = self.pipelines.status(pipeline_id)
+            if (
+                active is None
+                or active.get("runId") != expected_run_id
+                or runtime.get("activeRunId") != expected_run_id
+            ):
+                current = active if active is not None else runtime
+                raise RunContextConflict(
+                    "ACTIVE_RUN_MISMATCH",
+                    "Active run changed before the stop command was applied",
+                    current,
+                )
+            self.record_stop_intent(pipeline_id)
+            return operation(*args, **kwargs)
+
     def expected_context_for_source(self, root_id: str, relative_path: str) -> Optional[Dict[str, object]]:
         """Resolve an upload source to the exact root-owned run output record."""
         with self._lock:

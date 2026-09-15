@@ -12,6 +12,7 @@ import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -116,7 +117,7 @@ class DeviceStorageViewModel(
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
-                            error = error.message,
+                            error = userFacingFailure(error, "수집 데이터 저장소를 불러오지 못했습니다. 다시 시도하세요.").message,
                             isLoading = false
                         )
                     }
@@ -152,8 +153,8 @@ class DeviceStorageViewModel(
             if (root == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = storageRoots.exceptionOrNull()?.message
-                        ?: workspaceRoots.exceptionOrNull()?.message
+                    error = (storageRoots.exceptionOrNull() ?: workspaceRoots.exceptionOrNull())
+                        ?.let { userFacingFailure(it, "결과 저장소를 찾지 못했습니다. 다시 시도하세요.").message }
                         ?: "결과 저장소를 찾지 못했습니다."
                 )
             } else {
@@ -188,7 +189,7 @@ class DeviceStorageViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message ?: "파일을 열지 못했습니다."
+                            error = userFacingFailure(error, "파일을 열지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -233,7 +234,7 @@ class DeviceStorageViewModel(
                             isDeleting = false,
                             error = if (error is JetsonCommandResultUnknownException) {
                                 "휴지통 이동 결과를 확인하지 못했습니다. 자동 재시도하지 않고 현재 폴더를 다시 조회합니다."
-                            } else error.message ?: "장치 데이터를 휴지통으로 옮기지 못했습니다."
+                            } else userFacingFailure(error, "장치 데이터를 휴지통으로 옮기지 못했습니다. 다시 시도하세요.").message
                         )
                         loadDirectory(root.id, _uiState.value.currentPath, generation)
                     }
@@ -263,7 +264,7 @@ class DeviceStorageViewModel(
             }.onFailure { error ->
                 if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
                     isDeleting = false,
-                    error = error.message ?: "휴지통 데이터를 복원하지 못했습니다. 목록을 새로고침해 주세요."
+                    error = userFacingFailure(error, "휴지통 데이터를 복원하지 못했습니다. 목록을 새로고침해 주세요.").message
                 )
             }
         }
@@ -322,7 +323,7 @@ class DeviceStorageViewModel(
                         _uiState.value.currentPath == path
                     ) {
                         _uiState.value = _uiState.value.copy(
-                            error = error.message,
+                            error = userFacingFailure(error, "폴더를 불러오지 못했습니다. 다시 시도하세요.").message,
                             isLoading = false
                         )
                     }

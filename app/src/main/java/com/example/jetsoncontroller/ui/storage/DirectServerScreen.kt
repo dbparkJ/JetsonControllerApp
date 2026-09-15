@@ -32,6 +32,7 @@ import com.example.jetsoncontroller.ui.theme.LocalCobaltColors
 import com.example.jetsoncontroller.ui.theme.Button
 import com.example.jetsoncontroller.ui.theme.OutlinedButton
 import com.example.jetsoncontroller.ui.theme.TextButton
+import com.example.jetsoncontroller.ui.theme.slateTextFieldColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -61,7 +62,9 @@ internal fun DirectServerScreen(
     onUndoTrash: () -> Unit,
     onRefreshTrash: () -> Unit,
     onRemoveProfile: () -> Unit,
-    onDismissMessage: () -> Unit
+    onDismissMessage: () -> Unit,
+    developerModeEnabled: Boolean = false,
+    onDeviceData: () -> Unit = {}
 ) {
     BackHandler(onBack = onBack)
     var trashCandidate by remember(state.selectedProfileId) { mutableStateOf<ServerJob?>(null) }
@@ -70,7 +73,7 @@ internal fun DirectServerScreen(
         AlertDialog(
             onDismissRequest = { trashCandidate = null },
             title = { Text("서버 작업을 휴지통으로 이동할까요?") },
-            text = { Text("${job.sourceName}\n${job.sessionId}\n\n휴지통에서 복원할 수 있습니다. 서버가 이동을 확인한 뒤에만 목록에서 제거됩니다.") },
+            text = { Text("${job.sourceName}\n\n휴지통에서 복원할 수 있습니다. 서버가 이동을 확인한 뒤에만 목록에서 제거됩니다.") },
             confirmButton = { Button(onClick = { trashCandidate = null; onMoveToTrash(job) }) { Text("휴지통으로 이동") } },
             dismissButton = { TextButton(onClick = { trashCandidate = null }) { Text("취소") } }
         )
@@ -84,7 +87,7 @@ internal fun DirectServerScreen(
             dismissButton = { TextButton(onClick = { removeProfile = false }) { Text("취소") } }
         )
     }
-    state.receipt?.let { receipt -> ReceiptDialog(receipt, onBack) }
+    state.receipt?.let { receipt -> ReceiptDialog(receipt, onBack, developerModeEnabled) }
 
     val selectedProfile = state.profiles.firstOrNull { it.profile.profileId == state.selectedProfileId }?.profile
     val canMutate = directServerRoleCanMutate(state.capabilities?.employee?.role)
@@ -95,7 +98,13 @@ internal fun DirectServerScreen(
                     Column {
                         Text("서버 데이터")
                         Text(
-                            selectedProfile?.let { "${it.displayName} · ${it.environment.label()} · ${it.projectId}" }
+                            selectedProfile?.let {
+                                if (developerModeEnabled) {
+                                    "${it.displayName} · ${it.environment.label()} · ${it.projectId}"
+                                } else {
+                                    it.displayName
+                                }
+                            }
                                 ?: "Jetson 연결 없이 직접 조회",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -117,6 +126,11 @@ internal fun DirectServerScreen(
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            DataLocationTabs(
+                selected = DataLocation.SERVER,
+                onDeviceClick = onDeviceData,
+                onServerClick = {}
+            )
             DirectServerTabs(state.section, onSection)
             state.mutationMessage?.let { message ->
                 AppBanner(
@@ -129,15 +143,25 @@ internal fun DirectServerScreen(
                 )
             }
             state.message?.let { message ->
+                val profileSettingsActions = setOf(
+                    "프로필 추가", "프로필 편집", "프로필 인증 확인",
+                    "프로젝트 권한 확인", "서버 환경 확인", "서버 인증서 확인"
+                )
+                val profileSettingsAction = state.errorActionLabel in profileSettingsActions
                 AppBanner(
-                    message,
+                    if (developerModeEnabled || !state.messageIsError) message
+                    else directServerOperatorMessage(message),
                     if (state.messageIsError) StatusTone.WARNING else StatusTone.SUCCESS,
                     actionLabel = when {
+                        profileSettingsAction && !developerModeEnabled ->
+                            "다시 연결".takeIf { state.profiles.isNotEmpty() }
                         state.errorActionLabel != null -> state.errorActionLabel
                         else -> null
                     },
                     onAction = when {
-                        state.errorActionLabel in setOf("프로필 추가", "프로필 편집", "프로필 인증 확인", "프로젝트 권한 확인", "서버 환경 확인", "서버 인증서 확인") ->
+                        profileSettingsAction && !developerModeEnabled ->
+                            onConnect.takeIf { state.profiles.isNotEmpty() }
+                        profileSettingsAction ->
                             ({ onSection(DirectServerSection.PROFILES) })
                         state.errorActionLabel != null -> {
                             if (state.section == DirectServerSection.TRASH) onRefreshTrash else onRefreshJobs
@@ -152,11 +176,15 @@ internal fun DirectServerScreen(
             when (state.section) {
                 DirectServerSection.DATA -> ServerDataPane(
                     state, onConnect, onRefreshJobs, onOpenJob, onOpenDirectory, onOpenFile,
-                    onReceipt, { trashCandidate = it }, onLoadMoreJobs, canMutate
+                    onReceipt, { trashCandidate = it }, onLoadMoreJobs, canMutate,
+                    developerModeEnabled
                 )
-                DirectServerSection.TRASH -> TrashPane(state, onRestore, onRefreshTrash, canMutate)
+                DirectServerSection.TRASH -> TrashPane(
+                    state, onRestore, onRefreshTrash, canMutate, developerModeEnabled
+                )
                 DirectServerSection.PROFILES -> ProfilesPane(
-                    state, onSelectProfile, onSaveProfile, onConnect, { removeProfile = true }
+                    state, onSelectProfile, onSaveProfile, onConnect, { removeProfile = true },
+                    developerModeEnabled
                 )
             }
         }
@@ -190,10 +218,11 @@ private fun ServerDataPane(
     onReceipt: (ServerJob) -> Unit,
     onTrash: (ServerJob) -> Unit,
     onLoadMore: () -> Unit,
-    canMutate: Boolean
+    canMutate: Boolean,
+    developerModeEnabled: Boolean
 ) {
     if (state.profiles.isEmpty()) {
-        EmptyState("서버 프로필이 없습니다", "서버 프로필에서 HTTPS 주소, 환경, 직원과 프로젝트 인증을 등록하세요.")
+        EmptyState("서버 연결 정보가 없습니다", "개발자 모드에서 서버 연결 정보를 등록하거나 관리자에게 요청해 주세요.")
         return
     }
     if (state.capabilities == null && state.jobsSource == null && !state.isConnecting) {
@@ -211,16 +240,16 @@ private fun ServerDataPane(
             val showDetail = state.selectedJob != null
             if (maxWidth >= 720.dp) {
                 Row(Modifier.fillMaxSize()) {
-                    JobsList(state, onRefresh, onOpenJob, onLoadMore, Modifier.weight(0.9f))
+                    JobsList(state, onRefresh, onOpenJob, onLoadMore, Modifier.weight(0.9f), developerModeEnabled)
                     VerticalDivider()
                     JobDetail(state, onOpenDirectory, onOpenFile, onReceipt, onTrash,
-                        Modifier.weight(1.1f), canMutate)
+                        Modifier.weight(1.1f), canMutate, developerModeEnabled)
                 }
             } else if (showDetail) {
                 JobDetail(state, onOpenDirectory, onOpenFile, onReceipt, onTrash,
-                    Modifier.fillMaxSize(), canMutate)
+                    Modifier.fillMaxSize(), canMutate, developerModeEnabled)
             } else {
-                JobsList(state, onRefresh, onOpenJob, onLoadMore, Modifier.fillMaxSize())
+                JobsList(state, onRefresh, onOpenJob, onLoadMore, Modifier.fillMaxSize(), developerModeEnabled)
             }
         }
     }
@@ -255,7 +284,8 @@ private fun JobsList(
     onRefresh: () -> Unit,
     onOpenJob: (ServerJob) -> Unit,
     onLoadMore: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    developerModeEnabled: Boolean
 ) {
     LazyColumn(modifier, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (state.jobs.isEmpty() && !state.isLoading) item {
@@ -281,7 +311,9 @@ private fun JobsList(
                         Text(job.sourceName, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                         StatusBadge(job.state.serverStateLabel(), job.state.serverStateTone())
                     }
-                    Text("장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
+                    if (developerModeEnabled) {
+                        Text("장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
+                    }
                     Text("${job.fileCount}개 파일 · ${formatBytes(job.totalBytes)}", style = MaterialTheme.typography.bodySmall)
                     Text("서버 관찰 · ${localDateTimeLabel(job.updatedAt)}", style = MaterialTheme.typography.bodySmall)
                 }
@@ -302,11 +334,12 @@ private fun JobDetail(
     onReceipt: (ServerJob) -> Unit,
     onTrash: (ServerJob) -> Unit,
     modifier: Modifier,
-    canMutate: Boolean
+    canMutate: Boolean,
+    developerModeEnabled: Boolean
 ) {
     val job = state.selectedJob
     if (job == null) {
-        EmptyState("수신 결과를 선택하세요", "파일, 독립 검증 영수증과 서버 세션을 확인할 수 있습니다.", modifier)
+        EmptyState("수신 결과를 선택하세요", "파일과 서버 수신 확인 결과를 볼 수 있습니다.", modifier)
         return
     }
     state.preview?.let { preview ->
@@ -317,14 +350,20 @@ private fun JobDetail(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(job.sourceName, style = MaterialTheme.typography.titleLarge)
-                Text("세션 ${job.sessionId}", style = MaterialTheme.typography.bodySmall)
-                Text("접근 프로젝트 ${job.accessProjectId ?: job.projectId} · 장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
-                job.surveyContext?.let { context ->
-                    Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}",
-                        style = MaterialTheme.typography.bodySmall)
-                    Text("Run ${context.runId}", style = MaterialTheme.typography.bodySmall)
+                if (developerModeEnabled) {
+                    Text("세션 ${job.sessionId}", style = MaterialTheme.typography.bodySmall)
+                    Text("접근 프로젝트 ${job.accessProjectId ?: job.projectId} · 장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
                 }
-                Text(if (state.currentPath.isBlank()) "서버 파일 루트" else state.currentPath,
+                job.surveyContext?.let { context ->
+                    if (developerModeEnabled) {
+                        Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}",
+                            style = MaterialTheme.typography.bodySmall)
+                        Text("Run ${context.runId}", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Text("조사 실행과 연결된 수신 결과", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text(if (state.currentPath.isBlank()) "서버 파일" else if (developerModeEnabled) state.currentPath else "현재 폴더 · ${state.currentPath.substringAfterLast('/')}",
                     style = MaterialTheme.typography.titleMedium)
             }
         }
@@ -382,10 +421,17 @@ private fun TrashPane(
     state: DirectServerUiState,
     onRestore: (String) -> Unit,
     onRefresh: () -> Unit,
-    canMutate: Boolean
+    canMutate: Boolean,
+    developerModeEnabled: Boolean
 ) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { AppBanner("휴지통 항목은 서버 정책에 따라 보관됩니다. 영구 삭제 기능은 이 앱에서 제공하지 않습니다.", StatusTone.INFO) }
+        item {
+            DismissibleNoticeBanner(
+                noticeKey = "storage.server-trash-retention.v1",
+                message = "휴지통 항목은 서버 정책에 따라 보관됩니다. 영구 삭제 기능은 이 앱에서 제공하지 않습니다.",
+                tone = StatusTone.INFO
+            )
+        }
         if (state.trash.isEmpty() && !state.isLoading) item {
             EmptyState(
                 "휴지통이 비어 있습니다",
@@ -399,7 +445,12 @@ private fun TrashPane(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(job.sourceName, style = MaterialTheme.typography.titleMedium)
                     job.surveyContext?.let { context ->
-                        Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}",
+                        Text(
+                            if (developerModeEnabled) {
+                                "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}"
+                            } else {
+                                "조사 실행과 연결된 수신 결과"
+                            },
                             style = MaterialTheme.typography.bodySmall)
                     }
                     Text("${job.fileCount}개 파일 · ${formatBytes(job.totalBytes)}", style = MaterialTheme.typography.bodySmall)
@@ -418,7 +469,8 @@ private fun ProfilesPane(
     onSelect: (String) -> Unit,
     onSave: (ServerEndpointProfile, String) -> Unit,
     onConnect: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    developerModeEnabled: Boolean
 ) {
     var profileId by rememberSaveable { mutableStateOf("") }
     var displayName by rememberSaveable { mutableStateOf("") }
@@ -429,7 +481,15 @@ private fun ProfilesPane(
     var token by remember(state.selectedProfileId) { mutableStateOf("") }
     DisposableEffect(Unit) { onDispose { token = "" } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { AppBanner("직원 토큰은 이 앱의 보호된 저장소에 보관합니다. 프로필 환경·직원·프로젝트가 서버 응답과 모두 일치해야 데이터를 표시합니다.", StatusTone.INFO) }
+        if (developerModeEnabled) {
+            item {
+                DismissibleNoticeBanner(
+                    noticeKey = "storage.server-profile-auth.v1",
+                    message = "직원 토큰은 이 앱의 보호된 저장소에 보관합니다. 프로필 환경·직원·프로젝트가 서버 응답과 모두 일치해야 데이터를 표시합니다.",
+                    tone = StatusTone.INFO
+                )
+            }
+        }
         if (state.profiles.isNotEmpty()) item {
             SectionHeader("저장된 프로필")
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -443,55 +503,69 @@ private fun ProfilesPane(
                 }
                 Button(onClick = onConnect, enabled = state.selectedProfileId != null && !state.isConnecting,
                     modifier = Modifier.fillMaxWidth()) { Text("선택 프로필로 연결") }
-                TextButton(onClick = onRemove, enabled = state.selectedProfileId != null,
-                    modifier = Modifier.fillMaxWidth()) { Text("선택 프로필 삭제") }
+                if (developerModeEnabled) {
+                    TextButton(onClick = onRemove, enabled = state.selectedProfileId != null,
+                        modifier = Modifier.fillMaxWidth()) { Text("선택 프로필 삭제") }
+                }
             }
         }
-        item { SectionHeader(if (state.profiles.isEmpty()) "서버 프로필 추가" else "새 프로필 추가 또는 인증 갱신") }
-        item { OutlinedTextField(value = profileId, onValueChange = { profileId = it }, label = { Text("프로필 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(value = displayName, onValueChange = { displayName = it }, label = { Text("표시 이름") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ServerEnvironment.entries.forEach { value -> FilterChip(environment == value, { environment = value }, label = { Text(value.label()) }) }
-        } }
-        item { OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("HTTPS 서버 루트 주소") }, supportingText = { Text("예: https://uploads.example.com/") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(value = employeeId, onValueChange = { employeeId = it }, label = { Text("직원 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(value = projectId, onValueChange = { projectId = it }, label = { Text("프로젝트 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("직원 토큰") },
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-            singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item {
-            Button(
-                onClick = {
-                    onSave(
-                        ServerEndpointProfile(profileId, displayName, environment, baseUrl, employeeId, projectId),
-                        token
-                    )
-                    token = ""
-                },
-                enabled = listOf(profileId, displayName, baseUrl, employeeId, projectId, token).all { it.isNotBlank() } && !state.isConnecting,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-            ) { Text("암호화해 저장하고 연결") }
+        if (developerModeEnabled) {
+            item { SectionHeader(if (state.profiles.isEmpty()) "서버 프로필 추가" else "새 프로필 추가 또는 인증 갱신") }
+            item { OutlinedTextField(value = profileId, onValueChange = { profileId = it }, label = { Text("프로필 ID") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(value = displayName, onValueChange = { displayName = it }, label = { Text("표시 이름") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
+            item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ServerEnvironment.entries.forEach { value -> FilterChip(environment == value, { environment = value }, label = { Text(value.label()) }) }
+            } }
+            item { OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("HTTPS 서버 루트 주소") }, supportingText = { Text("예: https://uploads.example.com/") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(value = employeeId, onValueChange = { employeeId = it }, label = { Text("직원 ID") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(value = projectId, onValueChange = { projectId = it }, label = { Text("프로젝트 ID") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("직원 토큰") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+                singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
+            item {
+                Button(
+                    onClick = {
+                        onSave(
+                            ServerEndpointProfile(profileId, displayName, environment, baseUrl, employeeId, projectId),
+                            token
+                        )
+                        token = ""
+                    },
+                    enabled = listOf(profileId, displayName, baseUrl, employeeId, projectId, token).all { it.isNotBlank() } && !state.isConnecting,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                ) { Text("암호화해 저장하고 연결") }
+            }
         }
     }
 }
 
 @Composable
-private fun ReceiptDialog(receipt: ServerReceipt, onDismiss: () -> Unit) {
+private fun ReceiptDialog(
+    receipt: ServerReceipt,
+    onDismiss: () -> Unit,
+    developerModeEnabled: Boolean
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("서버 수신 영수증") },
         text = { SelectionContainer { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusBadge(if (receipt.matched) "검증 일치" else "검증 불일치",
                 if (receipt.matched) StatusTone.SUCCESS else StatusTone.ERROR)
-            Text("세션 ${receipt.sessionId}")
-            Text("접근 프로젝트 ${receipt.accessProjectId ?: receipt.projectId}")
+            if (developerModeEnabled) {
+                Text("세션 ${receipt.sessionId}")
+                Text("접근 프로젝트 ${receipt.accessProjectId ?: receipt.projectId}")
+            }
             receipt.surveyContext?.let { context ->
-                Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}")
-                Text("Run ${context.runId} · 장비 ${context.deviceId}")
+                if (developerModeEnabled) {
+                    Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}")
+                    Text("Run ${context.runId} · 장비 ${context.deviceId}")
+                } else {
+                    Text("조사 실행과 연결됨")
+                }
             }
             Text("${receipt.fileCount}개 파일 · ${formatBytes(receipt.totalBytes)}")
-            Text("SHA-256\n${receipt.contentSha256}")
+            if (developerModeEnabled) Text("SHA-256\n${receipt.contentSha256}")
             Text("완료 · ${localDateTimeLabel(receipt.completedAt)}")
             Text("검증 · ${localDateTimeLabel(receipt.verifiedAt)}")
         } } },
@@ -510,7 +584,7 @@ private fun String.serverStateLabel(): String = when (uppercase(Locale.ROOT)) {
     "FAILED" -> "실패"
     "TRASHED" -> "휴지통"
     "UPLOADING" -> "전송 중"
-    else -> this
+    else -> "상태 확인 필요"
 }
 
 private fun String.serverStateTone(): StatusTone = when (uppercase(Locale.ROOT)) {
@@ -519,6 +593,9 @@ private fun String.serverStateTone(): StatusTone = when (uppercase(Locale.ROOT))
     "UPLOADING" -> StatusTone.INFO
     else -> StatusTone.WARNING
 }
+
+internal fun directServerOperatorMessage(@Suppress("UNUSED_PARAMETER") message: String): String =
+    "서버 인증을 확인하지 못했습니다. 관리자에게 서버 연결 설정 확인을 요청해 주세요."
 
 internal fun directServerRoleCanMutate(role: String?): Boolean =
     role?.uppercase(Locale.ROOT) in setOf("OPERATOR", "ADMIN")
@@ -580,7 +657,7 @@ private fun VideoPreview(preview: DirectServerPreview) {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            failure = error.message ?: "영상 미리보기 파일을 준비하지 못했습니다."
+            failure = "영상 미리보기를 준비하지 못했습니다. 다시 시도하세요."
         } finally {
             candidate?.let { abandoned ->
                 withContext(NonCancellable + Dispatchers.IO) { abandoned.delete() }

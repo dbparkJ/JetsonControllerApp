@@ -57,7 +57,8 @@ fun UploadQueueScreen(
     onDeleteJob: (UploadJob) -> Unit,
     onBack: () -> Unit,
     mutationEnabled: Boolean = true,
-    deviceId: String? = null
+    deviceId: String? = null,
+    developerModeEnabled: Boolean = false
 ) {
     val targetLabels = targets.associate { it.id to it.label }
     var pendingDeletion by remember(deviceId, mutationEnabled) { mutableStateOf<UploadJob?>(null) }
@@ -95,8 +96,10 @@ fun UploadQueueScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onManageTargets) {
-                        Icon(Icons.Default.Dns, contentDescription = "업로드 서버 관리")
+                    if (developerModeEnabled) {
+                        IconButton(onClick = onManageTargets) {
+                            Icon(Icons.Default.Dns, contentDescription = "업로드 서버 관리")
+                        }
                     }
                     IconButton(onClick = onRefresh, enabled = mutationEnabled && !isLoading) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로고침")
@@ -156,8 +159,10 @@ fun UploadQueueScreen(
                                 Text(
                                     listOfNotNull(
                                         stateLabel(job.state),
-                                        targetLabels[job.targetId] ?: job.targetId,
-                                        job.currentFile?.substringAfterLast('/'),
+                                        targetLabels[job.targetId]
+                                            ?: if (developerModeEnabled) job.targetId else "업로드 서버",
+                                        job.currentFile?.substringAfterLast('/')
+                                            ?.takeIf { developerModeEnabled },
                                         job.etaSeconds?.takeIf {
                                             isActiveUploadState(job.state) && it >= 0L
                                         }
@@ -168,7 +173,11 @@ fun UploadQueueScreen(
                                 )
                                 job.context?.let { context ->
                                     Text(
-                                        "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId} · Run ${context.runId}",
+                                        if (developerModeEnabled) {
+                                            "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId} · Run ${context.runId}"
+                                        } else {
+                                            "조사 실행과 연결됨"
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis

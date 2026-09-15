@@ -7,7 +7,6 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.jetsoncontroller.data.repository.JetsonRepository
-import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.UploadJob
@@ -20,6 +19,7 @@ import com.example.jetsoncontroller.model.UploadContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -136,9 +136,10 @@ class UploadViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = if (error is JetsonCommandResultUnknownException) {
-                                "원본 휴지통 이동 결과를 확인하지 못했습니다. 자동 재시도하지 않고 작업과 휴지통을 다시 조회합니다."
-                            } else error.message
+                            error = userFacingFailure(
+                                error,
+                                "업로드 서버 목록을 불러오지 못했습니다. 다시 시도하세요."
+                            ).message
                         )
                         loadQueue(generation)
                     }
@@ -228,7 +229,9 @@ class UploadViewModel(
             }
             .onFailure { error ->
                 if (reportFailure && generation == connectionGeneration) {
-                    _uiState.value = _uiState.value.copy(error = error.message)
+                    _uiState.value = _uiState.value.copy(
+                        error = userFacingFailure(error, "업로드 목록을 불러오지 못했습니다. 다시 시도하세요.").message
+                    )
                 }
             }
     }
@@ -273,7 +276,7 @@ class UploadViewModel(
                         _uiState.value.linkedRunId == linkedRunId
                     ) _uiState.value = _uiState.value.copy(
                         isCalculatingSource = false,
-                        error = error.message ?: "수집 실행의 결과 정보를 불러오지 못했습니다."
+                        error = userFacingFailure(error, "수집 실행의 결과 정보를 불러오지 못했습니다. 다시 시도하세요.").message
                     )
                     return@launch
                 }
@@ -316,7 +319,7 @@ class UploadViewModel(
                     ) {
                         _uiState.value = _uiState.value.copy(
                             isCalculatingSource = false,
-                            error = error.message
+                            error = userFacingFailure(error, "업로드할 폴더 정보를 불러오지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -388,7 +391,7 @@ class UploadViewModel(
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
-                            error = error.message,
+                            error = userFacingFailure(error, "업로드를 시작하지 못했습니다. 다시 시도하세요.").message,
                             isLoading = false
                         )
                     }
@@ -417,7 +420,9 @@ class UploadViewModel(
                     }
                     .onFailure { error ->
                         if (generation == connectionGeneration) {
-                            _uiState.value = _uiState.value.copy(error = error.message)
+                            _uiState.value = _uiState.value.copy(
+                                error = userFacingFailure(error, "업로드 상태를 확인하지 못했습니다. 다시 시도하세요.").message
+                            )
                         }
                     }
                 delay(1_000)
@@ -451,7 +456,7 @@ class UploadViewModel(
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
-                            error = error.message,
+                            error = userFacingFailure(error, "업로드를 취소하지 못했습니다. 다시 시도하세요.").message,
                             isLoading = false
                         )
                     }
@@ -493,7 +498,7 @@ class UploadViewModel(
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
-                            error = error.message,
+                            error = userFacingFailure(error, "업로드를 다시 시작하지 못했습니다. 다시 시도하세요.").message,
                             isLoading = false
                         )
                     }
@@ -557,7 +562,7 @@ class UploadViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message ?: "업로드 기록을 삭제하지 못했습니다."
+                            error = userFacingFailure(error, "업로드 기록을 삭제하지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -590,7 +595,7 @@ class UploadViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message
+                            error = userFacingFailure(error, "서버 데이터를 확인하지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -623,7 +628,7 @@ class UploadViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = error.message
+                            error = userFacingFailure(error, "업로드 원본을 휴지통으로 옮기지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -651,13 +656,13 @@ class UploadViewModel(
                 }.onFailure { error ->
                     if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = error.message ?: "복원 후 업로드 작업 상태를 다시 확인하지 못했습니다."
+                        error = userFacingFailure(error, "복원 후 업로드 상태를 확인하지 못했습니다. 다시 시도하세요.").message
                     )
                 }
             }.onFailure { error ->
                 if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = error.message ?: "업로드 원본을 복원하지 못했습니다. 휴지통을 다시 확인하세요."
+                    error = userFacingFailure(error, "업로드 원본을 복원하지 못했습니다. 휴지통을 다시 확인하세요.").message
                 )
             }
         }
@@ -696,7 +701,7 @@ class UploadViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isSavingTarget = false,
-                            error = error.message
+                            error = userFacingFailure(error, "업로드 서버를 저장하지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }
@@ -727,7 +732,7 @@ class UploadViewModel(
                     if (generation == connectionGeneration) {
                         _uiState.value = _uiState.value.copy(
                             isSavingTarget = false,
-                            error = error.message
+                            error = userFacingFailure(error, "업로드 서버를 삭제하지 못했습니다. 다시 시도하세요.").message
                         )
                     }
                 }

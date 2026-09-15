@@ -1772,7 +1772,8 @@ class JetsonRepository(
 
     suspend fun controlPipeline(
         pipelineId: String,
-        action: String
+        action: String,
+        expectedRunId: String? = null
     ): Result<ManagedPipeline> {
         val client = activeIpClient ?: return missingIpConnection()
         val sessionRequest = transportCoordinator.beginRequest("pipeline-control")
@@ -1797,7 +1798,7 @@ class JetsonRepository(
         if (!transportCoordinator.isCurrent(sessionRequest)) {
             throw CancellationException("장비 연결이 변경되었습니다.")
         }
-        val controlled = client.controlPipeline(pipelineId, action)
+        val controlled = client.controlPipeline(pipelineId, action, expectedRunId)
         if (!transportCoordinator.isCurrent(sessionRequest)) {
             throw CancellationException("장비 연결이 변경되어 작업 결과를 다시 확인해야 합니다.")
         }

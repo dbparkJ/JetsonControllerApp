@@ -15,6 +15,7 @@ import com.example.jetsoncontroller.data.survey.SurveySelectionStore
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.*
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -119,17 +120,23 @@ internal data class SurveyRunUiState(
     val policyDraft: RunPolicyDraft = RunPolicyDraft(),
     val preflight: PipelinePreflight? = null,
     val acceptedStart: ContextualStartReceipt? = null,
+    /** Last run observed for this device and pipeline, including terminal evidence. */
+    val latestRun: PipelineRun? = null,
+    val resultAcknowledged: Boolean = false,
     val activeRun: PipelineRun? = null,
     val unconfirmedRunId: String? = null,
     val pendingStart: PendingContextualStart? = null,
+    val restoringLocalState: Boolean = false,
     val isLoading: Boolean = false,
     val operation: String? = null,
     val message: String? = null,
     val error: String? = null,
-    val errorCode: String? = null
+    val errorCode: String? = null,
+    val technicalError: String? = null
 ) {
     val contextLocked: Boolean
-        get() = activeRun?.active == true || acceptedStart != null || pendingStart != null || unconfirmedRunId != null
+        get() = activeRun?.active == true || acceptedStart != null || pendingStart != null ||
+            unconfirmedRunId != null || (latestRun?.active == false && !resultAcknowledged)
     val selectionComplete: Boolean
         get() = selectedProject != null && selectedSection != null
     val canPreflight: Boolean
@@ -156,16 +163,34 @@ internal class SurveyRunViewModel(
                 val expected = ++generation
                 operationJob?.cancel()
                 deviceLoadJob?.cancel()
-                val pipelineId = _uiState.value.pipelineId
-                val pipelineLabel = _uiState.value.pipelineLabel
-                localState = SurveyRunLocalState()
-                _uiState.value = SurveyRunUiState(
-                    deviceId = connection.deviceId,
-                    online = connection.online,
-                    pipelineId = pipelineId,
-                    pipelineLabel = pipelineLabel,
-                    error = if (connection.online) null else "장비에 연결한 뒤 조사 정보를 확인하세요."
-                )
+                val previous = _uiState.value
+                val sameDevice = previous.deviceId.equals(connection.deviceId, ignoreCase = true)
+                val pipelineId = previous.pipelineId.takeIf { sameDevice }
+                if (sameDevice) {
+                    _uiState.value = previous.copy(
+                        online = connection.online,
+                        isLoading = false,
+                        operation = null,
+                        restoringLocalState = true,
+                        activeRun = previous.latestRun?.takeIf { it.active },
+                        unconfirmedRunId = if (!connection.online) {
+                            previous.activeRun?.runId ?: previous.unconfirmedRunId
+                        } else previous.unconfirmedRunId,
+                        error = if (connection.online) null else
+                            "장비에 다시 연결하면 현재 실행 상태를 확인합니다."
+                    )
+                } else {
+                    localState = SurveyRunLocalState()
+                    _uiState.value = SurveyRunUiState(
+                        deviceId = connection.deviceId,
+                        online = connection.online,
+                        pipelineId = pipelineId,
+                        pipelineLabel = previous.pipelineLabel.takeIf { sameDevice }.orEmpty(),
+                        restoringLocalState = true,
+                        error = if (connection.online) null else
+                            "장비에 연결한 뒤 조사 정보를 확인하세요."
+                    )
+                }
                 loadDeviceState(expected, connection.deviceId, connection.online, pipelineId)
             }
         }
@@ -173,6 +198,7 @@ internal class SurveyRunViewModel(
 
     fun open(pipelineId: String, label: String) {
         if (_uiState.value.pipelineId == pipelineId) return
+        if (_uiState.value.restoringLocalState || _uiState.value.contextLocked) return
         generation += 1
         operationJob?.cancel()
         deviceLoadJob?.cancel()
@@ -188,9 +214,12 @@ internal class SurveyRunViewModel(
             policyDraft = RunPolicyDraft(),
             preflight = null,
             acceptedStart = null,
+            latestRun = null,
+            resultAcknowledged = false,
             activeRun = null,
             unconfirmedRunId = null,
             pendingStart = null,
+            restoringLocalState = false,
             message = null,
             error = null
         )
@@ -209,13 +238,15 @@ internal class SurveyRunViewModel(
                 }
             } ?: SurveyRunLocalState()
             if (expected != generation || _uiState.value.deviceId != deviceId ||
-                _uiState.value.pipelineId != pipelineId
-            ) return@launch
+                _uiState.value.pipelineId != pipelineId) return@launch
+            val restoredPipelineId = pipelineId ?: loaded.pendingStart?.pipelineId ?: loaded.lastPipelineId
             localState = loaded
             _uiState.value = _uiState.value.copy(
-                pendingStart = loaded.pendingStart?.takeIf { it.pipelineId == pipelineId }
+                pipelineId = restoredPipelineId,
+                pendingStart = loaded.pendingStart?.takeIf { it.pipelineId == restoredPipelineId },
+                restoringLocalState = false
             )
-            if (online && pipelineId != null) refreshInternal(expected)
+            if (online && restoredPipelineId != null) refreshInternal(expected)
         }
     }
 
@@ -223,10 +254,12 @@ internal class SurveyRunViewModel(
 
     private fun refreshInternal(expectedGeneration: Long) {
         val pipelineId = _uiState.value.pipelineId ?: return
+        val expectedDeviceId = _uiState.value.deviceId ?: return
         if (!_uiState.value.online || operationJob?.isActive == true) return
         operationJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
-                isLoading = true, operation = "refresh", error = null, errorCode = null
+                isLoading = true, operation = "refresh", error = null, errorCode = null,
+                technicalError = null
             )
             val projects = source.projects()
             val policy = source.policy(pipelineId)
@@ -267,11 +300,38 @@ internal class SurveyRunViewModel(
             }
             val loadedPolicy = policy.getOrNull()
             val currentPipeline = pipelines.getOrThrow().firstOrNull { it.id == pipelineId }
-            val receipt = currentPipeline?.contextualStart
-            val lastRunId = receipt?.runId ?: localState.lastRunId.takeIf { localState.lastPipelineId == pipelineId }
+            var pendingStart = localState.pendingStart?.takeIf { it.pipelineId == pipelineId }
+            val receipt = currentPipeline?.contextualStart?.takeIf { candidate ->
+                candidate.contextSnapshot.deviceId.equals(expectedDeviceId, ignoreCase = true) &&
+                    candidate.preflightSnapshot.pipelineId == pipelineId &&
+                    (pendingStart == null || acceptedStartMatches(
+                        candidate,
+                        pendingStart!!,
+                        expectedDeviceId,
+                        pipelineId
+                    ))
+            }
+            if (pendingStart != null && receipt != null) {
+                persistence.saveAcceptedRun(expectedDeviceId, pipelineId, receipt.runId)
+                if (!current(expectedGeneration, pipelineId) ||
+                    !_uiState.value.deviceId.equals(expectedDeviceId, ignoreCase = true)
+                ) return@launch
+                localState = localState.copy(
+                    pendingStart = null,
+                    lastPipelineId = pipelineId,
+                    lastRunId = receipt.runId
+                )
+                pendingStart = null
+            }
+            val lastRunId = if (pendingStart != null) null else {
+                receipt?.runId ?: localState.lastRunId.takeIf { localState.lastPipelineId == pipelineId }
+            }
             val runResult = lastRunId?.let { source.pipelineRun(it) }
             val observedRun = runResult?.getOrNull()
-                ?.takeIf { it.deviceId.equals(_uiState.value.deviceId, true) && it.pipelineId == pipelineId }
+                ?.takeIf {
+                    it.runId == lastRunId &&
+                        it.deviceId.equals(_uiState.value.deviceId, true) && it.pipelineId == pipelineId
+                }
             val activeRun = observedRun?.takeIf { it.active }
             val unconfirmedRunId = lastRunId?.takeIf {
                 runResult?.isFailure == true || (runResult?.isSuccess == true && observedRun == null)
@@ -282,29 +342,42 @@ internal class SurveyRunViewModel(
                 sections = sectionList,
                 selectedProject = selectedProject,
                 selectedSection = selectedSection,
+                pipelineLabel = currentPipeline?.label ?: _uiState.value.pipelineLabel,
                 roots = roots.getOrThrow(),
                 policy = loadedPolicy,
                 policyDraft = loadedPolicy?.toDraft() ?: RunPolicyDraft(
                     outputRootId = roots.getOrThrow().singleOrNull()?.id.orEmpty()
                 ),
                 acceptedStart = receipt?.takeIf { observedRun?.active == true || unconfirmedRunId != null },
+                latestRun = observedRun ?: _uiState.value.latestRun,
+                resultAcknowledged = observedRun?.let {
+                    !it.active && localState.acknowledgedRunId == it.runId
+                } ?: _uiState.value.resultAcknowledged,
                 activeRun = activeRun,
                 unconfirmedRunId = unconfirmedRunId,
-                pendingStart = localState.pendingStart?.takeIf { it.pipelineId == pipelineId },
+                pendingStart = pendingStart,
                 isLoading = false,
                 operation = null,
                 error = when {
                     policy.isFailure && (policy.exceptionOrNull() as? JetsonApiException)?.statusCode != 404 ->
-                        policy.exceptionOrNull()?.message
+                        policy.exceptionOrNull()?.let {
+                            userFacingFailure(
+                                it,
+                                "수집 설정을 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요."
+                            ).message
+                        } ?: "수집 설정을 불러오지 못했습니다. 다시 시도하세요."
                     storedSelection != null && (selectedProject == null || selectedSection == null) &&
                         localState.pendingStart != null ->
-                        "결과가 확인되지 않은 시작 요청이 있습니다. 같은 요청 ID로 결과를 먼저 확인하세요."
+                        "이전에 접수한 시작 결과를 먼저 확인하세요."
                     storedSelection != null && (selectedProject == null || selectedSection == null) ->
                         "저장된 프로젝트·구간 버전이 변경되었습니다. 현재 항목을 다시 선택하세요."
                     unconfirmedRunId != null ->
                         "최근 시작한 실행의 현재 상태를 확인하지 못했습니다. 같은 장비에서 상태를 다시 불러오세요."
                     else -> null
-                }
+                },
+                technicalError = policy.exceptionOrNull()?.takeIf {
+                    (it as? JetsonApiException)?.statusCode != 404
+                }?.let { userFacingFailure(it).technicalDetail }
             )
         }
     }
@@ -492,30 +565,36 @@ internal class SurveyRunViewModel(
                 val receipt = updated.contextualStart
                 if (!acceptedStartMatches(receipt, pending, deviceId, pipelineId)) {
                     _uiState.value = _uiState.value.copy(operation = null,
-                        error = "시작 응답의 장비·조사 범위 또는 요청 ID가 일치하지 않습니다. 실행 목록을 새로고침하세요.")
+                        error = "시작 응답이 현재 준비 정보와 일치하지 않습니다. 실행 상태를 새로고침하세요.")
                     return@onSuccess
                 }
                 persistence.saveAcceptedRun(deviceId, pipelineId, receipt!!.runId)
                 if (!current(expected, pipelineId) || _uiState.value.deviceId != deviceId) return@onSuccess
                 localState = localState.copy(pendingStart = null, lastPipelineId = pipelineId, lastRunId = receipt.runId)
                 val run = source.pipelineRun(receipt.runId).getOrNull()
-                    ?.takeIf { it.deviceId.equals(deviceId, true) && it.pipelineId == pipelineId }
+                    ?.takeIf {
+                        it.runId == receipt.runId &&
+                            it.deviceId.equals(deviceId, true) && it.pipelineId == pipelineId
+                    }
                 if (current(expected, pipelineId)) _uiState.value = _uiState.value.copy(
                     acceptedStart = receipt.takeIf { run?.active != false },
+                    latestRun = run ?: _uiState.value.latestRun,
+                    resultAcknowledged = false,
                     activeRun = run?.takeIf { it.active },
                     unconfirmedRunId = receipt.runId.takeIf { run == null },
                     pendingStart = null,
                     operation = null,
                     message = "조사 범위를 고정하고 수집 시작 요청을 접수했습니다.",
                     error = null,
-                    errorCode = null
+                    errorCode = null,
+                    technicalError = null
                 )
             }.onFailure { error ->
                 if (error is JetsonCommandResultUnknownException) {
                     if (current(expected, pipelineId)) _uiState.value = _uiState.value.copy(
                         operation = null,
                         pendingStart = pending,
-                        error = "시작 응답을 받지 못했습니다. 새 요청을 만들지 말고 같은 요청 ID로 결과를 확인하세요.",
+                        error = "시작 결과를 아직 확인하지 못했습니다. 시작 상태 확인을 눌러 확인하세요.",
                         errorCode = "RESULT_UNKNOWN"
                     )
                 } else {
@@ -539,7 +618,18 @@ internal class SurveyRunViewModel(
         }
     }
 
-    fun clearMessage() { _uiState.value = _uiState.value.copy(message = null, error = null, errorCode = null) }
+    fun clearMessage() { _uiState.value = _uiState.value.copy(
+        message = null, error = null, errorCode = null, technicalError = null
+    ) }
+
+    fun acknowledgeResult(runId: String) {
+        val state = _uiState.value
+        val deviceId = state.deviceId ?: return
+        if (state.latestRun?.runId != runId || state.latestRun.active) return
+        _uiState.value = state.copy(resultAcknowledged = true)
+        localState = localState.copy(acknowledgedRunId = runId)
+        viewModelScope.launch { persistence.saveAcknowledgedRun(deviceId, runId) }
+    }
 
     private fun invalidatePreflight() {
         _uiState.value = _uiState.value.copy(preflight = null, acceptedStart = null, error = null, message = null)
@@ -567,11 +657,15 @@ internal class SurveyRunViewModel(
 
     private fun showError(error: Throwable?) {
         val api = error as? JetsonApiException
+        val fallback = "조사 수집 요청을 처리하지 못했습니다. 다시 시도하세요."
+        val failure = error?.let { userFacingFailure(it, fallback) }
+            ?: com.example.jetsoncontroller.ui.UserFacingFailure(fallback, "")
         _uiState.value = _uiState.value.copy(
             isLoading = false,
             operation = null,
-            error = surveyErrorMessage(api?.errorCode, error?.message),
-            errorCode = api?.errorCode
+            error = surveyErrorMessage(api?.errorCode, failure.message),
+            errorCode = api?.errorCode,
+            technicalError = failure.technicalDetail
         )
     }
 
@@ -647,7 +741,7 @@ internal fun surveyErrorMessage(code: String?, fallback: String?): String = when
     "PIPELINE_CHANGED" -> "점검 뒤 작업 소스 또는 설정이 변경되었습니다. 다시 점검하세요."
     "PIPELINE_ALREADY_ACTIVE" -> "같은 작업의 수집이 이미 실행 중입니다. 현재 실행 상태를 확인하세요."
     "LEGACY_RUN_ACTIVE" -> "조사 컨텍스트 없이 시작된 기존 작업이 실행 중입니다. 현재 실행을 먼저 종료하세요."
-    "IDEMPOTENCY_CONFLICT" -> "같은 요청 ID에 다른 시작 정보가 연결되어 있습니다. 실행 상태를 새로고침하세요."
+    "IDEMPOTENCY_CONFLICT" -> "이전 시작 요청과 현재 준비 정보가 다릅니다. 실행 상태를 새로고침하세요."
     else -> fallback ?: "조사 수집 요청을 처리하지 못했습니다."
 }
 

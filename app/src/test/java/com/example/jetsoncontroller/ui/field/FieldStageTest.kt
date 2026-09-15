@@ -2,6 +2,7 @@ package com.example.jetsoncontroller.ui.field
 
 import com.example.jetsoncontroller.ui.components.StatusTone
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -120,7 +121,7 @@ class FieldStageTest {
     // ---- 문구 규칙 ---------------------------------------------------------
 
     @Test
-    fun `모든 단계가 다음 행동과 설명을 갖는다`() {
+    fun `모든 단계가 짧은 사용자 행동을 갖는다`() {
         val samples = listOf(
             FieldStageInput(registeredDeviceCount = 0),
             FieldStageInput(registeredDeviceCount = 3),
@@ -135,8 +136,9 @@ class FieldStageTest {
         for (input in samples) {
             val plan = fieldStagePlan(input)
             assertTrue("actionLabel 비어 있음: ${plan.stage}", plan.actionLabel.isNotBlank())
-            assertTrue("detail 비어 있음: ${plan.stage}", plan.detail.isNotBlank())
             assertTrue("title 비어 있음: ${plan.stage}", plan.title.isNotBlank())
+            assertFalse("내부 단계 번호 노출: ${plan.stage}", plan.eyebrow.contains("단계"))
+            assertFalse("확인 전 전송 상태 단정: ${plan.stage}", plan.detail.contains("전송은 시작하지"))
         }
     }
 

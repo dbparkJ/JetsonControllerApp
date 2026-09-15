@@ -8,6 +8,7 @@ import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.TrashEntry
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,7 +62,8 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
                 )
             }.onFailure { error ->
                 if (expected == generation) _state.value = _state.value.copy(
-                    loading = false, error = error.message ?: "장비 휴지통을 불러오지 못했습니다."
+                    loading = false,
+                    error = userFacingFailure(error, "장비 휴지통을 불러오지 못했습니다. 다시 시도하세요.").message
                 )
             }
         }
@@ -89,7 +91,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
                         restoringId = null,
                         error = if (error is JetsonCommandResultUnknownException) {
                             "복원 결과를 확인하지 못했습니다. 자동 재시도하지 않고 휴지통을 다시 조회합니다."
-                        } else error.message ?: "항목을 복원하지 못했습니다."
+                        } else userFacingFailure(error, "항목을 복원하지 못했습니다. 다시 시도하세요.").message
                     )
                     refresh()
                 }

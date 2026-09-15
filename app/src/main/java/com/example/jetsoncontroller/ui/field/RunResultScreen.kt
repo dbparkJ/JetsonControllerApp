@@ -1,68 +1,42 @@
 package com.example.jetsoncontroller.ui.field
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.PipelineOutputManifest
 import com.example.jetsoncontroller.model.PipelineRun
-import com.example.jetsoncontroller.ui.components.AppBanner
-import com.example.jetsoncontroller.ui.components.ConnectionStepper
-import com.example.jetsoncontroller.ui.components.DeviceContextHeader
-import com.example.jetsoncontroller.ui.components.GeoBottomActionBar
-import com.example.jetsoncontroller.ui.components.GeoDataRow
-import com.example.jetsoncontroller.ui.components.GeoIdentifier
-import com.example.jetsoncontroller.ui.components.GeoPrimaryAction
-import com.example.jetsoncontroller.ui.components.GeoRowDivider
-import com.example.jetsoncontroller.ui.components.GeoSection
-import com.example.jetsoncontroller.ui.components.GeoSectionHeader
-import com.example.jetsoncontroller.ui.components.GeoStateBlock
-import com.example.jetsoncontroller.ui.components.StatusBadge
-import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.theme.GeoSize
-import com.example.jetsoncontroller.ui.theme.GeoSpace
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.OutlinedButton
+import com.example.jetsoncontroller.ui.components.*
+import com.example.jetsoncontroller.ui.theme.*
 
-/**
- * 결과 요약 — 이번 재편에서 새로 생긴 두 번째 화면입니다.
- *
- * 이전에는 수집이 끝나면 실행 이력 목록으로 돌아갔고, "이번 조사가 제대로 남았나" 라는
- * 질문에 답하는 화면이 없었습니다. 목록의 상태 글자 하나로 실행 종료·저장 확인·서버 수신
- * 세 가지가 뭉뚱그려졌습니다.
- *
- * 이 화면의 전부는 그 셋을 갈라 놓는 것입니다:
- *
- *   실행 종료   프로세스가 끝났는가          ← 장치가 보고
- *   장치 저장   파일이 실제로 남았는가       ← manifest 조회 결과
- *   서버 수신   서버가 실제로 받았는가       ← 전송·검증 결과
- *
- * 하나가 확인됐다고 다음이 확인된 것이 아니며, 세 칸에 각각의 상태가 들어갑니다.
- * 기대 조건 검사를 통과했다는 것도 '조사 품질이 보증됐다' 는 뜻이 아니므로 그렇게 적습니다.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RunResultScreen(
     deviceName: String,
     connectionLabel: String,
     connectionTone: StatusTone,
     run: PipelineRun?,
-    /** 서버 전송을 시작할 수 있는 연결 상태인가. 현재 제품은 LAN에서만 허용합니다. */
     uploadEnabled: Boolean,
     uploadDisabledReason: String,
-    /**
-     * 서버 수신 결과. `null` 은 "전송하지 않음" 이 아니라 **앱이 아직 모른다** 입니다.
-     * 이 둘을 같은 문구로 뭉뚱그리면, 전송이 실패한 자료를 보내지 않은 자료로 착각하게 됩니다.
-     */
     serverReceiptLabel: String?,
+    serverReceiptTone: StatusTone = if (serverReceiptLabel == null) StatusTone.UNKNOWN else StatusTone.SUCCESS,
     online: Boolean,
+    developerModeEnabled: Boolean = false,
     unreadCount: Int,
     onDevices: () -> Unit,
     onAlerts: () -> Unit,
@@ -73,179 +47,157 @@ internal fun RunResultScreen(
     onNewSurvey: () -> Unit
 ) {
     val c = LocalGeoColors.current
+    var menuExpanded by remember { mutableStateOf(false) }
     val manifest = run?.output?.manifest
-    val manifestState = run?.output?.manifestState.orEmpty().uppercase()
-
-    // 실행 종료 · 장치 저장 · 서버 수신 — 각각 독립적으로 판정한다.
+    val stored = runOutputStored(run)
     val finishedTone = when {
         run == null -> StatusTone.UNKNOWN
-        run.finishedAt == null -> StatusTone.PENDING
+        run.active || run.finishedAt == null -> StatusTone.PENDING
         run.exitCode != null && run.exitCode != 0 -> StatusTone.WARNING
         else -> StatusTone.SUCCESS
     }
-    val storedTone = when (manifestState) {
-        "READY", "COMPLETE", "VERIFIED" -> StatusTone.SUCCESS
-        "PENDING", "RUNNING" -> StatusTone.PENDING
-        "FAILED", "ERROR" -> StatusTone.WARNING
+    val storedTone = when {
+        stored -> StatusTone.SUCCESS
+        run?.output?.manifestState.equals("PENDING", true) || run?.output?.manifestState.equals("RUNNING", true) -> StatusTone.PENDING
+        run?.output?.manifestState.equals("FAILED", true) || run?.output?.manifestState.equals("ERROR", true) -> StatusTone.WARNING
         else -> StatusTone.UNKNOWN
     }
-    val serverTone = if (serverReceiptLabel == null) StatusTone.UNKNOWN else StatusTone.SUCCESS
+    val canUpload = run != null && stored && uploadEnabled
 
     Scaffold(
         containerColor = c.canvas,
         topBar = {
-            DeviceContextHeader(
-                title = "결과 요약",
-                deviceName = deviceName,
-                connectionLabel = connectionLabel,
-                connectionTone = connectionTone,
-                onDevices = onDevices,
-                unreadCount = unreadCount,
-                onAlerts = onAlerts
+            TopAppBar(
+                title = { Text("수집 결과") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "수집 결과 메뉴")
+                    }
+                    DropdownMenu(menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("장치 선택") },
+                            onClick = { menuExpanded = false; onDevices() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (unreadCount > 0) "알림 ${unreadCount}개" else "알림") },
+                            onClick = { menuExpanded = false; onAlerts() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("결과 새로고침") },
+                            leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                            enabled = online,
+                            onClick = { menuExpanded = false; onRefresh() }
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.canvas, titleContentColor = c.ink)
             )
         },
         bottomBar = {
-            GeoBottomActionBar(
-                readiness = when {
-                    run == null -> "확인할 실행을 찾지 못했습니다."
-                    storedTone == StatusTone.PENDING -> "저장 결과를 확인하는 중입니다. 확인이 끝나기 전에는 전송을 시작하지 않습니다."
-                    !uploadEnabled -> uploadDisabledReason
-                    else -> "원본은 장치에 있고 서버에는 아직 없습니다."
-                },
-                readinessTone = when {
-                    run == null -> StatusTone.UNKNOWN
-                    storedTone == StatusTone.PENDING -> StatusTone.PENDING
-                    !uploadEnabled -> StatusTone.WARNING
-                    else -> StatusTone.INFO
+            Surface(color = c.surface) {
+                Column(
+                    Modifier.fillMaxWidth().navigationBarsPadding()
+                        .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.md),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)
+                ) {
+                    GeoPrimaryAction(
+                        label = "파일 전송 준비",
+                        onClick = onPrepareUpload,
+                        enabled = canUpload,
+                        icon = Icons.Default.CloudUpload
+                    )
+                    com.example.jetsoncontroller.ui.theme.TextButton(
+                        onClick = onNewSurvey,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.secondaryAction)
+                    ) { Text("다음 구간 수집 준비") }
                 }
-            ) {
-                GeoPrimaryAction(
-                    label = if (uploadEnabled) "전송 준비" else "전송 조건 확인",
-                    onClick = onPrepareUpload,
-                    enabled = run != null && storedTone != StatusTone.PENDING
-                )
-                OutlinedButton(
-                    onClick = onNewSurvey,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.secondaryAction)
-                ) { Text("새 구간 조사 시작") }
             }
         }
     ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(
-                start = GeoSpace.gutter, end = GeoSpace.gutter,
-                top = GeoSpace.md, bottom = GeoSpace.xxl
-            ),
-            verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
-        ) {
-            item {
-                ConnectionStepper(
-                    labels = listOf("연결", "준비", "점검", "수집", "결과"),
-                    currentStep = 4
-                )
-            }
-
-            if (run == null) {
-                item {
-                    GeoStateBlock(
-                        title = "확인할 실행을 찾지 못했습니다",
-                        impact = "이 장치에서 최근 종료된 실행을 받지 못했습니다. 실행 이력에서 직접 찾을 수 있습니다.",
-                        tone = StatusTone.UNKNOWN,
-                        primaryLabel = "다시 조회",
-                        onPrimary = onRefresh,
-                        secondaryLabel = "실행 이력 열기",
-                        onSecondary = onBack
-                    )
-                }
-                return@LazyColumn
-            }
-
-            // ---- 세 가지 사실 ----------------------------------------------------
-            item {
-                GeoSection {
-                    GeoSectionHeader(
-                        title = "${run.contextSnapshot.surveyProjectLabel} · ${run.contextSnapshot.surveySectionLabel}",
-                        eyebrow = "이 셋은 서로 다른 사실입니다"
-                    )
-                    FactRow(
-                        "실행 종료",
-                        when (finishedTone) {
-                            StatusTone.SUCCESS -> run.finishedAt.orEmpty().ifBlank { "확인됨" }
-                            StatusTone.PENDING -> "종료 확인 중"
-                            StatusTone.WARNING -> "비정상 종료 · exit ${run.exitCode}"
-                            else -> "미확인"
-                        },
-                        finishedTone
-                    )
-                    GeoRowDivider()
-                    FactRow(
-                        "장치 저장",
-                        when (storedTone) {
-                            StatusTone.SUCCESS -> manifest?.let {
-                                "파일 ${it.fileCount}개 · ${formatBytes(it.bytesTotal)}"
-                            } ?: "확인됨"
-                            StatusTone.PENDING -> "확인 중"
-                            StatusTone.WARNING -> "저장 확인 실패"
-                            else -> "미확인"
-                        },
-                        storedTone
-                    )
-                    GeoRowDivider()
-                    FactRow(
-                        "서버 수신",
-                        serverReceiptLabel ?: "",
-                        serverTone
-                    )
-                }
-            }
-
-            // ---- 기대 조건 검사 ---------------------------------------------------
-            item {
-                if (manifest == null) {
-                    GeoSection(tone = StatusTone.UNKNOWN) {
-                        GeoSectionHeader(title = "기대 조건 검사", eyebrow = "결과 없음")
-                        Text(
-                            "장치에서 결과 목록(manifest)을 아직 받지 못했습니다. 파일이 없다는 뜻이 아니라, " +
-                                "무엇이 남았는지 앱이 모른다는 뜻입니다.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = c.muted
+        AdaptiveContent(Modifier.fillMaxSize().padding(padding), maxWidth = 1000.dp) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = GeoSpace.sm, bottom = GeoSpace.xl),
+                verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)
+            ) {
+                if (run == null) {
+                    item {
+                        GeoStateBlock(
+                            title = "확인할 수집 결과가 없습니다",
+                            impact = "최근 수집 결과를 다시 확인하거나 수집 이력에서 찾아보세요.",
+                            tone = StatusTone.UNKNOWN,
+                            primaryLabel = "다시 확인",
+                            onPrimary = onRefresh,
+                            secondaryLabel = "수집 이력 열기",
+                            onSecondary = onBack
                         )
                     }
-                } else {
-                    ExpectationSection(manifest)
+                    return@LazyColumn
                 }
-            }
 
-            // ---- 저장 위치 -------------------------------------------------------
-            item {
-                GeoSection {
-                    GeoSectionHeader(
-                        title = "저장 위치",
-                        eyebrow = "장치 안의 실제 경로",
-                        trailing = { OutlinedButton(onClick = onOpenFiles, shape = MaterialTheme.shapes.small) { Text("파일 열기") } }
-                    )
-                    GeoIdentifier("경로", "${run.output.rootId}/${run.output.path}")
-                    GeoIdentifier("Run", run.runId)
-                    GeoIdentifier("Output", run.output.outputId)
-                    if (manifest?.truncated == true) {
-                        AppBanner(
-                            "결과 목록이 잘렸습니다. 표시된 파일 수와 용량은 전체가 아닐 수 있습니다.",
-                            StatusTone.WARNING
-                        )
-                    }
-                }
-            }
-
-            if (!online) {
                 item {
-                    AppBanner(
-                        "장치 연결이 끊겼습니다. 표시된 결과는 마지막으로 확인한 값입니다.",
-                        StatusTone.UNKNOWN,
-                        actionLabel = "다시 연결",
-                        onAction = onDevices
-                    )
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val stack = maxWidth < 600.dp || LocalDensity.current.fontScale > 1.3f
+                        val summary: @Composable ColumnScope.() -> Unit = {
+                            ResultHero(run, finishedTone, deviceName)
+                            Spacer(Modifier.height(GeoSpace.xl))
+                            ReceiptCard(
+                                run = run,
+                                manifest = manifest,
+                                finishedTone = finishedTone,
+                                storedTone = storedTone,
+                                serverReceiptLabel = serverReceiptLabel,
+                                serverReceiptTone = serverReceiptTone,
+                                developerModeEnabled = developerModeEnabled
+                            )
+                        }
+                        val actions: @Composable ColumnScope.() -> Unit = {
+                            CollectedFilesAction(onOpenFiles)
+                            if (!online) {
+                                Spacer(Modifier.height(GeoSpace.lg))
+                                AppBanner(
+                                    "장치 연결이 끊겼습니다. 표시된 결과는 마지막으로 확인한 값입니다.",
+                                    StatusTone.UNKNOWN,
+                                    actionLabel = "다시 연결",
+                                    onAction = onDevices
+                                )
+                            }
+                            if (!canUpload) {
+                                Spacer(Modifier.height(GeoSpace.lg))
+                                Text(
+                                    when {
+                                        !stored -> "장치 저장 결과를 확인한 뒤 파일을 전송할 수 있습니다."
+                                        !uploadEnabled -> uploadDisabledReason
+                                        else -> "파일 전송 조건을 확인해 주세요."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = c.muted
+                                )
+                            }
+                            if (developerModeEnabled) {
+                                Spacer(Modifier.height(GeoSpace.lg))
+                                TechnicalResultDetails(run, manifest)
+                            }
+                        }
+                        if (stack) {
+                            Column {
+                                summary()
+                                Spacer(Modifier.height(GeoSpace.xl))
+                                actions()
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
+                                Column(Modifier.weight(1.35f), content = summary)
+                                Column(Modifier.weight(1f), content = actions)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -253,87 +205,154 @@ internal fun RunResultScreen(
 }
 
 @Composable
-private fun FactRow(label: String, value: String, tone: StatusTone) {
-    GeoDataRow(
-        label = label,
-        value = value,
-        valueUnavailable = tone == StatusTone.UNKNOWN,
-        trailing = {
-            StatusBadge(
-                when (tone) {
-                    StatusTone.SUCCESS -> "확인됨"
-                    StatusTone.PENDING -> "처리 중"
-                    StatusTone.WARNING -> "확인 필요"
-                    StatusTone.ERROR -> "실패"
-                    StatusTone.INFO -> "해당 없음"
-                    StatusTone.UNKNOWN -> "미확인"
-                },
-                tone
-            )
-        }
-    )
-}
-
-@Composable
-private fun ExpectationSection(manifest: PipelineOutputManifest) {
+private fun ResultHero(run: PipelineRun, tone: StatusTone, deviceName: String) {
     val c = LocalGeoColors.current
-    val state = manifest.expectationState.uppercase()
-    val tone = when (state) {
-        "PASSED", "MET" -> StatusTone.SUCCESS
-        "FAILED", "UNMET" -> StatusTone.WARNING
-        "PENDING" -> StatusTone.PENDING
-        else -> StatusTone.UNKNOWN
-    }
-    val expected = manifest.expected
-
-    GeoSection(tone = tone) {
-        GeoSectionHeader(
-            title = "기대 조건 검사",
-            eyebrow = "관리자가 정한 정책과 대조",
-            trailing = {
-                StatusBadge(
-                    when (tone) {
-                        StatusTone.SUCCESS -> "통과"
-                        StatusTone.WARNING -> "미충족"
-                        StatusTone.PENDING -> "검사 중"
-                        else -> "미확인"
-                    },
-                    tone
-                )
-            }
-        )
-        if (expected.minFiles > 0) {
-            GeoDataRow(
-                label = "최소 파일 수",
-                supporting = "기준 ${expected.minFiles}개",
-                value = "${manifest.fileCount}개"
-            )
-        }
-        if (expected.minBytes > 0) {
-            GeoRowDivider()
-            GeoDataRow(
-                label = "최소 용량",
-                supporting = "기준 ${formatBytes(expected.minBytes)}",
-                value = formatBytes(manifest.bytesTotal)
-            )
-        }
-        manifest.matchedPatterns.forEach { match ->
-            GeoRowDivider()
-            GeoDataRow(
-                label = match.pattern,
-                supporting = formatBytes(match.bytesTotal),
-                value = "${match.fileCount}개"
-            )
-        }
+    val visuals = statusVisuals(tone)
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+        Icon(visuals.icon, contentDescription = null, tint = visuals.content, modifier = Modifier.size(44.dp))
         Text(
-            "검사 통과는 정책이 정한 하한을 넘었다는 뜻이며, 조사 품질이 보증됐다는 뜻이 아닙니다.",
+            when (tone) {
+                StatusTone.SUCCESS -> "수집을 마쳤습니다"
+                StatusTone.PENDING -> "수집 종료를 확인하고 있습니다"
+                StatusTone.WARNING, StatusTone.ERROR -> "수집 종료를 확인했습니다"
+                else -> "수집 결과를 확인해 주세요"
+            },
+            style = MaterialTheme.typography.headlineMedium,
+            color = c.ink
+        )
+        Text(run.contextSnapshot.surveySectionLabel, style = MaterialTheme.typography.titleLarge, color = c.ink)
+        Text(
+            listOfNotNull(run.finishedAt?.takeIf { it.isNotBlank() }, deviceName).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = c.muted
         )
     }
 }
 
-/** 용량은 값이 없을 때 0으로 표시하지 않고 호출부에서 '미확인' 으로 갈라 놓습니다. */
+@Composable
+private fun ReceiptCard(
+    run: PipelineRun,
+    manifest: PipelineOutputManifest?,
+    finishedTone: StatusTone,
+    storedTone: StatusTone,
+    serverReceiptLabel: String?,
+    serverReceiptTone: StatusTone,
+    developerModeEnabled: Boolean
+) {
+    val finishedDetail = when (finishedTone) {
+        StatusTone.SUCCESS -> "장치에서 실행 종료를 확인했습니다."
+        StatusTone.PENDING -> "장치의 종료 응답을 기다리고 있습니다."
+        StatusTone.WARNING, StatusTone.ERROR -> if (developerModeEnabled && run.exitCode != null) {
+            "정상적으로 끝나지 않았습니다. exit ${run.exitCode}"
+        } else "정상적으로 끝나지 않았습니다."
+        else -> "장치의 종료 결과를 확인하지 못했습니다."
+    }
+    val storedDetail = when (storedTone) {
+        StatusTone.SUCCESS -> manifest?.let { "${it.fileCount}개 파일 · ${formatBytes(it.bytesTotal)}" } ?: "저장 확인됨"
+        StatusTone.PENDING -> "장치에서 파일 목록을 확인하고 있습니다."
+        StatusTone.WARNING, StatusTone.ERROR -> "장치 저장 결과를 다시 확인해 주세요."
+        else -> "장치에 저장되었는지 아직 확인하지 못했습니다."
+    }
+    val serverTitle = when (serverReceiptTone) {
+        StatusTone.SUCCESS -> "서버 수신 확인"
+        StatusTone.PENDING -> "서버 수신 확인 중"
+        StatusTone.WARNING, StatusTone.ERROR -> "서버 수신 확인 필요"
+        else -> "서버 수신 미확인"
+    }
+    val serverDetail = serverReceiptLabel ?: when (serverReceiptTone) {
+        StatusTone.PENDING -> "서버의 수신 결과를 확인하고 있습니다."
+        StatusTone.WARNING, StatusTone.ERROR -> "서버의 수신 결과를 다시 확인해 주세요."
+        else -> "서버의 수신 결과를 확인해 주세요."
+    }
+
+    val c = LocalGeoColors.current
+    Surface(color = c.surface, shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(GeoSpace.xl)) {
+            ReceiptRow(statusVisuals(finishedTone).icon, finishedTone, "수집 종료 확인", finishedDetail)
+            HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
+            ReceiptRow(Icons.Default.Storage, storedTone, storedTitle(storedTone), storedDetail)
+            HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
+            ReceiptRow(Icons.Default.Cloud, serverReceiptTone, serverTitle, serverDetail)
+        }
+    }
+}
+
+private fun storedTitle(tone: StatusTone): String = when (tone) {
+    StatusTone.SUCCESS -> "장치 저장 완료"
+    StatusTone.PENDING -> "장치 저장 확인 중"
+    StatusTone.WARNING, StatusTone.ERROR -> "장치 저장 확인 필요"
+    else -> "장치 저장 미확인"
+}
+
+@Composable
+private fun ReceiptRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tone: StatusTone,
+    title: String,
+    detail: String
+) {
+    val c = LocalGeoColors.current
+    val visuals = statusVisuals(tone)
+    Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.md), verticalAlignment = Alignment.Top) {
+        Icon(icon, contentDescription = null, tint = visuals.content, modifier = Modifier.size(GeoSize.iconMd))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = c.ink)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        }
+    }
+}
+
+@Composable
+private fun CollectedFilesAction(onClick: () -> Unit) {
+    val c = LocalGeoColors.current
+    Surface(onClick = onClick, color = c.canvas, contentColor = c.primary, shape = RoundedCornerShape(12.dp)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = GeoSize.secondaryAction).padding(vertical = GeoSpace.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.FolderOpen, null)
+            Text("수집한 파일 보기", Modifier.padding(start = GeoSpace.md).weight(1f), style = MaterialTheme.typography.labelLarge)
+            Icon(Icons.Default.ChevronRight, null)
+        }
+    }
+}
+
+@Composable
+private fun TechnicalResultDetails(run: PipelineRun, manifest: PipelineOutputManifest?) {
+    GeoSection {
+        GeoSectionHeader("결과 세부 정보", eyebrow = "개발자 모드")
+        GeoIdentifier("경로", "${run.output.rootId}/${run.output.path}")
+        GeoIdentifier("Run", run.runId)
+        GeoIdentifier("Output", run.output.outputId)
+        manifest?.let { ExpectationSection(it) }
+    }
+}
+
+/** A FINAL marker is accepted only when the manifest and upload identity belong to this run. */
+internal fun runOutputStored(run: PipelineRun?): Boolean {
+    if (run == null || run.active || run.finishedAt == null) return false
+    val output = run.output
+    val manifest = output.manifest ?: return false
+    val context = run.uploadContext
+    return output.manifestState.equals("FINAL", ignoreCase = true) &&
+        manifest.runId == run.runId && output.rootId.isNotBlank() && output.path.isNotBlank() &&
+        context.runId == run.runId && context.deviceId.equals(run.deviceId, ignoreCase = true) &&
+        context.pipelineId == run.pipelineId && context.sourceRevision == run.sourceRevision &&
+        context.configSha256 == run.configRevision && context.outputId == output.outputId
+}
+
+@Composable
+private fun ExpectationSection(manifest: PipelineOutputManifest) {
+    val c = LocalGeoColors.current
+    val expected = manifest.expected
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+        Text("기대 조건 검사 · ${manifest.expectationState}", style = MaterialTheme.typography.titleSmall)
+        if (expected.minFiles > 0) Text("최소 파일 수 ${expected.minFiles}개 · 실제 ${manifest.fileCount}개", color = c.muted)
+        if (expected.minBytes > 0) Text("최소 용량 ${formatBytes(expected.minBytes)} · 실제 ${formatBytes(manifest.bytesTotal)}", color = c.muted)
+        manifest.matchedPatterns.forEach { Text("${it.pattern} · ${it.fileCount}개", color = c.muted) }
+    }
+}
+
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000.0)
     bytes >= 1_000_000L -> "%.1f MB".format(bytes / 1_000_000.0)

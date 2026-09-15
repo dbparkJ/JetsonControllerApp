@@ -4,6 +4,7 @@ import com.example.jetsoncontroller.ui.theme.TextButton
 import com.example.jetsoncontroller.ui.theme.OutlinedButton
 import com.example.jetsoncontroller.ui.theme.Button
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,10 +14,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -49,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +68,10 @@ import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.theme.AppSpacing
 import com.example.jetsoncontroller.ui.alerts.AlertIconButton
+import com.example.jetsoncontroller.R
+import com.example.jetsoncontroller.ui.theme.GeoSize
+import com.example.jetsoncontroller.ui.theme.GeoSpace
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,12 +95,13 @@ fun ConnectionHubScreen(
     onUploadHistoryClick: () -> Unit = {},
     onServerDataClick: () -> Unit = {}
 ) {
+    val colors = LocalGeoColors.current
     var directDevice by remember { mutableStateOf<RegisteredDevice?>(null) }
     directDevice?.let { device ->
         AlertDialog(
             onDismissRequest = { directDevice = null },
             title = { Text("${device.deviceName}에 직접 연결할까요?") },
-            text = { Text("장비의 공유기 연결과 서버 업로드가 중단될 수 있습니다. 휴대전화의 Wi-Fi 연결에도 영향을 줄 수 있습니다. 진행 중인 업로드를 확인한 뒤 전환해 주세요.") },
+            text = { Text("장비의 공유기 연결과 서버 업로드가 중단될 수 있습니다. 진행 중인 전송을 확인한 뒤 전환해 주세요.") },
             confirmButton = {
                 Button(onClick = { directDevice = null; onDirectConnect(device) }) {
                     Text("직접 연결로 전환")
@@ -102,146 +112,250 @@ fun ConnectionHubScreen(
     }
     val connected = transportState as? TransportState.Connected
     val endpointByDeviceId = lanEndpoints.associateBy { it.deviceId.lowercase() }
+    val selected = registeredDevices.firstOrNull {
+        connected?.deviceId.equals(it.deviceId, ignoreCase = true)
+    } ?: registeredDevices.firstOrNull { endpointByDeviceId.containsKey(it.deviceId.lowercase()) }
+        ?: registeredDevices.firstOrNull()
+    val others = registeredDevices.filterNot { it.deviceId == selected?.deviceId }
 
     Scaffold(
+        containerColor = colors.canvas,
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.background) {
-                Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        com.example.jetsoncontroller.ui.components.GeoLogo(Modifier.width(164.dp))
-                        Spacer(Modifier.weight(1f))
-                        AlertIconButton(unreadAlertCount, onAlertsClick)
-                        IconButton(onClick = onAddDevice) { Icon(Icons.Default.Add, "새 장비 등록") }
+            Surface(color = colors.canvas, contentColor = colors.ink) {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding()
+                        .padding(horizontal = GeoSpace.md, vertical = GeoSpace.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(Modifier.width(GeoSpace.sm))
+                    Text("장치 연결", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                    AlertIconButton(unreadAlertCount, onAlertsClick)
+                    IconButton(onClick = onAddDevice) { Icon(Icons.Default.Add, "새 장치 등록") }
+                }
+            }
+        },
+        bottomBar = {
+            Surface(color = colors.surface, contentColor = colors.primary) {
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding()
+                        .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.lg),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onServerDataClick, modifier = Modifier.weight(1f)) {
+                        Text("장치 연결 없이 서버 파일 보기")
+                        Icon(Icons.Default.ChevronRight, contentDescription = null)
                     }
-                    Text("도로관리장치 제어", style = MaterialTheme.typography.titleLarge)
-                    Text("내 장비", style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(Icons.Default.Settings, contentDescription = "앱 설정")
+                    }
                 }
             }
         }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(bottom = AppSpacing.section)
-        ) {
-            item {
-                SectionHeader(
-                    title = "등록된 장비",
-                    modifier = Modifier.padding(
-                        start = AppSpacing.screen,
-                        top = AppSpacing.large,
-                        end = AppSpacing.small
-                    ),
-                    trailing = {
-                        IconButton(
-                            onClick = onRefreshLan,
-                            enabled = localNetworkPermissionGranted
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "장비 상태 새로고침")
+        Box(Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(
+                modifier = Modifier.widthIn(max = 760.dp).fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = GeoSpace.gutter, end = GeoSpace.gutter,
+                    top = GeoSpace.sm, bottom = GeoSpace.xxl
+                ),
+                verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)
+            ) {
+                item { Text("사용할 장치를 연결하세요", style = MaterialTheme.typography.headlineMedium) }
+                if (selected == null) {
+                    item {
+                        Surface(color = colors.surface, shape = MaterialTheme.shapes.extraLarge) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(GeoSpace.xl),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
+                            ) {
+                                Image(painterResource(R.drawable.geo_device), "GEO& 도로관리장치", Modifier.size(180.dp))
+                                Text("등록된 장치가 없습니다", style = MaterialTheme.typography.headlineSmall)
+                                Button(
+                                    onClick = onAddDevice,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                                ) { Text("QR 코드로 장치 등록") }
+                            }
                         }
                     }
-                )
-                Spacer(Modifier.height(AppSpacing.small))
-            }
-
-            if (registeredDevices.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = "등록된 Jetson이 없습니다",
-                        message = "첫 장비를 등록하면 연결 상태와 작업을 이곳에서 확인할 수 있습니다.",
-                        actionLabel = "장비 등록",
-                        onAction = onAddDevice
-                    )
-                }
-            } else {
-                items(registeredDevices, key = { it.deviceId }) { device ->
-                    val endpoint = endpointByDeviceId[device.deviceId.lowercase()]
-                    val isConnected = connected?.deviceId.equals(device.deviceId, ignoreCase = true)
-                    RegisteredDeviceCard(
-                        device = device,
-                        endpoint = endpoint,
-                        connectedTransport = if (isConnected) connected?.type else null,
-                        connecting = connectingLanDeviceId.equals(device.deviceId, ignoreCase = true),
-                        onDirectConnect = { directDevice = device },
-                        onClick = when {
-                            isConnected -> onOpenDashboard
-                            endpoint != null -> ({ onConnectLan(endpoint) })
-                            else -> ({ onReconnectDevice(device) })
-                        },
-                        modifier = Modifier.padding(
-                            horizontal = AppSpacing.screen,
-                            vertical = AppSpacing.xSmall
+                } else {
+                    item {
+                        val endpoint = endpointByDeviceId[selected.deviceId.lowercase()]
+                        val isConnected = connected?.deviceId.equals(selected.deviceId, ignoreCase = true)
+                        val connecting = connectingLanDeviceId.equals(selected.deviceId, ignoreCase = true)
+                        FeaturedDeviceCard(
+                            device = selected,
+                            endpoint = endpoint,
+                            connectedTransport = connected?.type.takeIf { isConnected },
+                            connecting = connecting,
+                            onConnect = when {
+                                isConnected -> onOpenDashboard
+                                endpoint != null -> ({ onConnectLan(endpoint) })
+                                else -> ({ onReconnectDevice(selected) })
+                            },
+                            onDirectConnect = { directDevice = selected }
                         )
-                    )
+                    }
+                    if (others.isNotEmpty()) {
+                        item { Text("다른 장치", style = MaterialTheme.typography.titleLarge) }
+                        items(others, key = { it.deviceId }) { device ->
+                            val endpoint = endpointByDeviceId[device.deviceId.lowercase()]
+                            val connecting = connectingLanDeviceId.equals(device.deviceId, ignoreCase = true)
+                            SavedDeviceRow(
+                                device = device,
+                                available = endpoint != null,
+                                connecting = connecting,
+                                onClick = if (endpoint != null) ({ onConnectLan(endpoint) })
+                                else ({ onReconnectDevice(device) })
+                            )
+                        }
+                    }
+                    item {
+                        Surface(onClick = onAddDevice, color = colors.canvas, contentColor = colors.primary) {
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = GeoSize.minTouchTarget)
+                                    .padding(horizontal = GeoSpace.md),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+                            ) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                                Text("QR 코드로 새 장치 등록", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
                 }
-            }
-
-            item {
-                Column(modifier = Modifier.padding(horizontal = AppSpacing.screen)) {
-                    if (!localNetworkPermissionGranted) {
-                        AppBanner(
-                            message = "같은 네트워크의 장비를 찾으려면 로컬 네트워크 권한이 필요합니다.",
+                item {
+                    when {
+                        !localNetworkPermissionGranted -> AppBanner(
+                            message = "같은 네트워크의 장치를 찾으려면 로컬 네트워크 권한이 필요합니다.",
                             tone = StatusTone.INFO,
                             actionLabel = "권한 허용",
-                            onAction = onRequestLocalNetworkPermission,
-                            modifier = Modifier.padding(top = AppSpacing.medium)
+                            onAction = onRequestLocalNetworkPermission
                         )
-                    } else if (lanError != null) {
-                        val requiresRegistration = requiresQrRegistration(lanError)
-                        AppBanner(
-                            message = lanError,
+                        lanError != null -> AppBanner(
+                            message = connectionErrorMessage(lanError),
                             tone = StatusTone.ERROR,
-                            actionLabel = if (requiresRegistration) "QR 재등록" else "다시 검색",
-                            onAction = if (requiresRegistration) onAddDevice else onRefreshLan,
-                            modifier = Modifier.padding(top = AppSpacing.medium)
+                            actionLabel = if (requiresQrRegistration(lanError)) "QR 재등록" else "다시 검색",
+                            onAction = if (requiresQrRegistration(lanError)) onAddDevice else onRefreshLan
                         )
                     }
                 }
-            }
-
-            val unregisteredEndpoints = lanEndpoints.filter { endpoint ->
-                registeredDevices.none { it.deviceId.equals(endpoint.deviceId, ignoreCase = true) }
-            }
-            if (unregisteredEndpoints.isNotEmpty()) {
-                item {
-                    Spacer(Modifier.height(AppSpacing.section))
-                    SectionHeader(
-                        title = "등록 가능한 장비",
-                        modifier = Modifier.padding(horizontal = AppSpacing.screen)
-                    )
+                val unregisteredEndpoints = lanEndpoints.filter { endpoint ->
+                    registeredDevices.none { it.deviceId.equals(endpoint.deviceId, ignoreCase = true) }
                 }
-                items(unregisteredEndpoints, key = { it.deviceId }) { endpoint ->
-                    LanRegistrationRow(endpoint = endpoint, onRegister = onAddDevice)
+                if (unregisteredEndpoints.isNotEmpty()) {
+                    item { Text("등록 가능한 장치", style = MaterialTheme.typography.titleLarge) }
+                    items(unregisteredEndpoints, key = { it.deviceId }) { endpoint ->
+                        Surface(
+                            onClick = onAddDevice,
+                            color = colors.surface,
+                            shape = MaterialTheme.shapes.large
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(GeoSpace.lg),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+                            ) {
+                                Icon(Icons.Default.Router, contentDescription = null, tint = colors.primary)
+                                Column(Modifier.weight(1f)) {
+                                    Text(endpoint.displayName, style = MaterialTheme.typography.titleMedium)
+                                    Text("QR 등록 필요", style = MaterialTheme.typography.bodySmall, color = colors.muted)
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null)
+                            }
+                        }
+                    }
                 }
-            }
-
-            item {
-                Spacer(Modifier.height(AppSpacing.section))
-                SectionHeader(
-                    title = "서버 데이터 · 앱 설정",
-                    modifier = Modifier.padding(horizontal = AppSpacing.screen)
-                )
-                ConnectionMethod(
-                    icon = Icons.Default.QrCodeScanner,
-                    title = "새 장비 등록",
-                    description = "QR로 장비 인증 정보 저장",
-                    onClick = onAddDevice
-                )
-                ConnectionMethod(
-                    Icons.Default.Cloud,
-                    "서버 데이터 직접 보기",
-                    "Jetson 연결 없이 휴대전화 인터넷으로 조회",
-                    onServerDataClick
-                )
-                ConnectionMethod(Icons.Default.Settings, "설정", "장비·서버·알림·화면 설정", onSettingsClick)
-                ConnectionMethod(Icons.Default.History, "업로드 기록", "마지막으로 확인한 전송 기록 보기", onUploadHistoryClick)
             }
         }
     }
 }
+
+@Composable
+private fun FeaturedDeviceCard(
+    device: RegisteredDevice,
+    endpoint: DeviceEndpoint?,
+    connectedTransport: TransportType?,
+    connecting: Boolean,
+    onConnect: () -> Unit,
+    onDirectConnect: () -> Unit
+) {
+    val colors = LocalGeoColors.current
+    val connection = userConnectionStage(connectedTransport != null, connectedTransport)
+    val available = endpoint != null || connectedTransport != null
+    val label = when {
+        connecting -> "연결 중"
+        connectedTransport != null -> connection.label
+        available -> "연결 가능"
+        else -> "등록됨"
+    }
+    val tone = if (connectedTransport != null && connectedTransport != TransportType.BLE) {
+        StatusTone.SUCCESS
+    } else if (connecting) StatusTone.PENDING else StatusTone.INFO
+    val statusColor = com.example.jetsoncontroller.ui.components.statusVisuals(tone).content
+    Surface(color = colors.surface, shape = MaterialTheme.shapes.extraLarge) {
+        Column(
+            Modifier.fillMaxWidth().padding(GeoSpace.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)
+        ) {
+            Image(painterResource(R.drawable.geo_device), "${device.deviceName} 장치", Modifier.size(180.dp))
+            Text(device.deviceName, style = MaterialTheme.typography.headlineSmall)
+            Text("● $label", style = MaterialTheme.typography.labelMedium, color = statusColor)
+            Button(
+                onClick = onConnect,
+                enabled = !connecting,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            ) {
+                if (connecting) CircularProgressIndicator(Modifier.size(GeoSize.iconMd), strokeWidth = 2.dp)
+                else Text(if (connectedTransport != null) "이 장치 열기" else "이 장치 연결")
+            }
+            if (!available && !connecting) {
+                TextButton(onClick = onDirectConnect) { Text("연결 문제 해결") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedDeviceRow(
+    device: RegisteredDevice,
+    available: Boolean,
+    connecting: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = LocalGeoColors.current
+    Surface(onClick = onClick, color = colors.surface, shape = MaterialTheme.shapes.large) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(GeoSpace.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
+        ) {
+            Image(painterResource(R.drawable.geo_device), null, Modifier.size(48.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+                Text(device.deviceName, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    when {
+                        connecting -> "연결 중"
+                        available -> "연결 가능"
+                        else -> "등록된 장치"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.muted
+                )
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "${device.deviceName} 연결")
+        }
+    }
+}
+
+internal fun connectionErrorMessage(message: String): String =
+    if (requiresQrRegistration(message)) {
+        "장치 인증 정보를 확인할 수 없습니다. QR 코드로 다시 등록하세요."
+    } else {
+        "장치를 찾거나 연결하지 못했습니다. 같은 네트워크인지 확인하고 다시 시도하세요."
+    }
 
 internal fun requiresQrRegistration(message: String): Boolean {
     val normalized = message.lowercase()

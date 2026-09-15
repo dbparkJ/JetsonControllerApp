@@ -186,6 +186,12 @@ class ContextualStartRequest(RunPreflightRequest):
     client_request_id: str = Field(alias="clientRequestId", min_length=8, max_length=128)
 
 
+class ContextualStopRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_run_id: str = Field(alias="expectedRunId", min_length=1, max_length=512)
+
+
 class SaveUploadTargetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -846,6 +852,32 @@ def create_app(
             return run_context.get_run(run_id)
         except (RunContextError, ValueError) as error:
             raise_context_error(error)
+
+    @app.post(
+        "/v1/pipelines/{pipeline_id}/contextual-stop",
+        dependencies=authenticated,
+    )
+    async def contextual_stop(
+        pipeline_id: str, body: ContextualStopRequest
+    ) -> Dict[str, object]:
+        try:
+            controlled = await run_in_threadpool(
+                run_context.contextual_stop,
+                pipeline_id,
+                body.expected_run_id,
+                pipelines.control,
+                pipeline_id,
+                "stop",
+            )
+            return await run_in_threadpool(pipeline_response, controlled)
+        except PipelineNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except RunContextConflict as error:
+            raise_context_error(error)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PipelineError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
 
     @app.get("/v1/status", dependencies=authenticated)
     async def device_status() -> Dict[str, object]:

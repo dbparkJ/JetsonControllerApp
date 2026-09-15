@@ -14,6 +14,12 @@ class MediaPresentationTest {
         assertEquals("어제", dateGroup("2026-09-11T14:00:00Z", today, seoul))
         assertEquals("날짜 미확인", dateGroup("broken", today, seoul))
     }
+    @Test fun collectionTimeUsesTheSameLocalZoneAsItsDateGroup() {
+        val seoul = ZoneId.of("Asia/Seoul")
+        assertEquals("01:39", localTimeOrDateLabel("2026-09-14T16:39:00Z", seoul))
+        assertEquals("2026-09-15", localTimeOrDateLabel("2026-09-15", seoul))
+        assertEquals("시간 미확인", localTimeOrDateLabel("broken", seoul))
+    }
     @Test fun legacyServerTargetsRemainVisibleWhileLocalTargetsStayExcluded() {
         assertTrue(supportsServerLibrary(UploadTarget("old", "old")))
         assertTrue(supportsServerLibrary(UploadTarget("http", "server", "http")))

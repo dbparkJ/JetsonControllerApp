@@ -18,6 +18,7 @@ import com.example.jetsoncontroller.model.RemoteRoot
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -94,7 +95,8 @@ data class PipelineUiState(
     val configSaving: Boolean = false,
     val mobileRtkRelay: MobileRtkRelayState = MobileRtkRelayState(),
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val technicalError: String? = null
 ) {
     val configHasChanges: Boolean
         get() = configFields.any { originalConfigValues[it.path] != it.value }
@@ -155,6 +157,8 @@ class PipelineViewModel(
                         isLoading = false, busyPipelineId = null, detailLoading = false,
                         configSaving = false, logLive = false, isDiscoveringFolder = false,
                         picker = current.picker.copy(isLoading = false),
+                        error = null,
+                        technicalError = null,
                         message = if (current.configSaving || current.busyPipelineId != null) {
                             "요청 결과를 확인하지 못했습니다. 재연결 후 장비의 반영 상태를 확인합니다."
                         } else current.message
@@ -175,16 +179,19 @@ class PipelineViewModel(
         if (!_uiState.value.controlAvailable) return
         operationJob?.cancel()
         operationJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, technicalError = null)
             val pipelines = repository.getPipelines()
             val roots = repository.getWorkspaceRoots()
             if (generation != connectionGeneration) return@launch
             if (pipelines.isFailure || roots.isFailure) {
+                val error = pipelines.exceptionOrNull() ?: roots.exceptionOrNull()
+                val failure = error?.let {
+                    userFacingFailure(it, "수집 작업을 불러오지 못했습니다. 다시 시도하세요.")
+                }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = pipelines.exceptionOrNull()?.message
-                        ?: roots.exceptionOrNull()?.message
-                        ?: "자동 실행 작업을 불러오지 못했습니다."
+                    error = failure?.message ?: "수집 작업을 불러오지 못했습니다. 다시 시도하세요.",
+                    technicalError = failure?.technicalDetail
                 )
                 return@launch
             }
@@ -195,7 +202,8 @@ class PipelineViewModel(
                     pipelines.getOrThrow().associate { it.id to it.state }),
                 roots = roots.getOrThrow(),
                 isLoading = false,
-                error = null
+                error = null,
+                technicalError = null
             )
         }
     }
@@ -365,9 +373,11 @@ class PipelineViewModel(
                 }
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
+                        val failure = userFacingFailure(error, "작업 폴더 규칙을 확인하지 못했습니다.")
                         _uiState.value = _uiState.value.copy(
                             isDiscoveringFolder = false,
-                            error = error.message ?: "작업 폴더 규칙을 확인하지 못했습니다."
+                            error = failure.message,
+                            technicalError = failure.technicalDetail
                         )
                     }
                 }
@@ -440,8 +450,10 @@ class PipelineViewModel(
                 .onFailure { error ->
                     val picker = _uiState.value.picker
                     if (generation == connectionGeneration && picker.currentPath == path) {
+                        val failure = userFacingFailure(error, "폴더 내용을 불러오지 못했습니다. 다시 시도하세요.")
                         _uiState.value = _uiState.value.copy(
-                            picker = picker.copy(isLoading = false, error = error.message)
+                            picker = picker.copy(isLoading = false, error = failure.message),
+                            technicalError = failure.technicalDetail
                         )
                     }
                 }
@@ -463,10 +475,14 @@ class PipelineViewModel(
             val timeSync = repository.synchronizeSystemTime(System.currentTimeMillis())
             if (generation != connectionGeneration) return@launch
             if (timeSync.isFailure) {
+                val error = timeSync.exceptionOrNull()
+                val failure = error?.let {
+                    userFacingFailure(it, "장비 시간을 맞추지 못했습니다. 연결을 확인하고 다시 시도하세요.")
+                }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = "모바일 시간 동기화 실패: " +
-                        (timeSync.exceptionOrNull()?.message ?: "알 수 없는 오류")
+                    error = failure?.message ?: "장비 시간을 맞추지 못했습니다. 다시 시도하세요.",
+                    technicalError = failure?.technicalDetail
                 )
                 return@launch
             }
@@ -488,39 +504,51 @@ class PipelineViewModel(
                 }
             }.onFailure { error ->
                 if (generation == connectionGeneration) {
+                    val failure = userFacingFailure(error, "작업을 등록하지 못했습니다.")
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = error.message ?: "작업을 등록하지 못했습니다."
+                        error = failure.message,
+                        technicalError = failure.technicalDetail
                     )
                 }
             }
         }
     }
 
-    fun control(pipeline: ManagedPipeline, action: String) {
+    fun control(
+        pipeline: ManagedPipeline,
+        action: String,
+        expectedRunId: String? = null
+    ) {
         if (!_uiState.value.controlAvailable ||
             !_uiState.value.deviceId.equals(repository.selectedDeviceId.value, true)) return
+        if (expectedRunId != null && action != "stop") return
         if (_uiState.value.busyPipelineId != null || pipeline.id in _uiState.value.pendingActions) return
         if (_uiState.value.pipelines.none { it.id == pipeline.id }) return
         val generation = connectionGeneration
         operationJob?.cancel()
         _uiState.value = _uiState.value.copy(busyPipelineId = pipeline.id,
-            pendingActions = _uiState.value.pendingActions + (pipeline.id to action), message = null, error = null)
+            pendingActions = _uiState.value.pendingActions + (pipeline.id to action),
+            message = null, error = null, technicalError = null)
         operationJob = viewModelScope.launch {
             if (action in setOf("start", "restart")) {
                 val timeSync = repository.synchronizeSystemTime(System.currentTimeMillis())
                 if (generation != connectionGeneration) return@launch
                 if (timeSync.isFailure) {
+                    val error = timeSync.exceptionOrNull()
+                    val failure = error?.let {
+                        userFacingFailure(it, "장비 시간을 맞추지 못했습니다. 연결을 확인하고 다시 시도하세요.")
+                    }
                     _uiState.value = _uiState.value.copy(
                         busyPipelineId = null,
                         pendingActions = _uiState.value.pendingActions - pipeline.id,
-                        error = "모바일 시간 동기화 실패: " +
-                            (timeSync.exceptionOrNull()?.message ?: "알 수 없는 오류")
+                        error = failure?.message ?: "장비 시간을 맞추지 못했습니다. 다시 시도하세요.",
+                        technicalError = failure?.technicalDetail
                     )
                     return@launch
                 }
             }
-            repository.controlPipeline(pipeline.id, action)
+            repository.controlPipeline(pipeline.id, action, expectedRunId)
                 .onSuccess { updated ->
                     if (generation == connectionGeneration) {
                         replacePipeline(updated)
@@ -532,10 +560,23 @@ class PipelineViewModel(
                 }
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
+                        val exactStopUnsupported = expectedRunId != null &&
+                            (error as? com.example.jetsoncontroller.data.network.JetsonApiException)
+                                ?.statusCode == 404
+                        val failure = if (exactStopUnsupported) {
+                            com.example.jetsoncontroller.ui.UserFacingFailure(
+                                "장비 소프트웨어 업데이트가 필요합니다. 수집은 종료되지 않았습니다.",
+                                error.message.orEmpty()
+                            )
+                        } else userFacingFailure(
+                            error,
+                            "장비가 요청을 처리했는지 확인하지 못했습니다. 상태를 다시 확인하세요."
+                        )
                         _uiState.value = _uiState.value.copy(
                             busyPipelineId = null,
                             pendingActions = _uiState.value.pendingActions + (pipeline.id to "unknown"),
-                            error = "요청 결과 확인 필요. 상태를 다시 조회합니다. " + (error.message ?: "응답 없음")
+                            error = failure.message,
+                            technicalError = failure.technicalDetail
                         )
                     }
                 }
@@ -566,9 +607,11 @@ class PipelineViewModel(
                 }
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
+                        val failure = userFacingFailure(error, "작업 등록을 해제하지 못했습니다.")
                         _uiState.value = _uiState.value.copy(
                             busyPipelineId = null,
-                            error = error.message ?: "작업 등록 해제에 실패했습니다."
+                            error = failure.message,
+                            technicalError = failure.technicalDetail
                         )
                     }
                 }
@@ -646,10 +689,12 @@ class PipelineViewModel(
     private suspend fun pollPipelineLogs(pipelineId: String, generation: Long) {
         val response = repository.getPipelineLogFiles(pipelineId).getOrElse { error ->
             if (generation == connectionGeneration && activeLogPipelineId == pipelineId) {
+                val failure = userFacingFailure(error, "실행 로그를 불러오지 못했습니다.")
                 _uiState.value = _uiState.value.copy(
                     detailLoading = false,
                     logLive = false,
-                    error = error.message ?: "실행 로그를 불러오지 못했습니다."
+                    error = failure.message,
+                    technicalError = failure.technicalDetail
                 )
             }
             return
@@ -701,11 +746,13 @@ class PipelineViewModel(
                 limit = LOG_CHUNK_BYTES
             ).getOrElse { error ->
                 if (generation == connectionGeneration && activeLogPipelineId == pipelineId) {
+                    val failure = userFacingFailure(error, "실행 로그 내용을 불러오지 못했습니다.")
                     _uiState.value = _uiState.value.copy(
                         logFiles = files,
                         detailLoading = false,
                         logLive = false,
-                        error = error.message ?: "실행 로그 내용을 불러오지 못했습니다."
+                        error = failure.message,
+                        technicalError = failure.technicalDetail
                     )
                 }
                 return
@@ -772,9 +819,11 @@ class PipelineViewModel(
                 }
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
+                        val failure = userFacingFailure(error, "작업 설정을 불러오지 못했습니다.")
                         _uiState.value = _uiState.value.copy(
                             detailLoading = false,
-                            error = error.message ?: "작업 설정을 불러오지 못했습니다."
+                            error = failure.message,
+                            technicalError = failure.technicalDetail
                         )
                     }
                 }
@@ -817,10 +866,18 @@ class PipelineViewModel(
                     }
                 )
             }.onFailure { error ->
-                if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
-                    detailLoading = false, configNeedsReview = true,
-                    error = "장비의 설정 버전을 확인하지 못했습니다. 다시 불러온 후 저장해 주세요: ${error.message.orEmpty()}"
-                )
+                if (generation == connectionGeneration) {
+                    val failure = userFacingFailure(
+                        error,
+                        "장비 설정을 확인하지 못했습니다. 다시 불러온 후 저장해 주세요."
+                    )
+                    _uiState.value = _uiState.value.copy(
+                        detailLoading = false,
+                        configNeedsReview = true,
+                        error = failure.message,
+                        technicalError = failure.technicalDetail
+                    )
+                }
             }
         }
     }
@@ -870,9 +927,11 @@ class PipelineViewModel(
                 }
                 .onFailure { error ->
                     if (generation == connectionGeneration) {
+                        val failure = userFacingFailure(error, "작업 설정을 저장하지 못했습니다.")
                         _uiState.value = _uiState.value.copy(
                             configSaving = false,
-                            error = error.message ?: "작업 설정을 저장하지 못했습니다."
+                            error = failure.message,
+                            technicalError = failure.technicalDetail
                         )
                     }
                 }
@@ -884,7 +943,7 @@ class PipelineViewModel(
     }
 
     fun clearMessage() {
-        _uiState.value = _uiState.value.copy(message = null, error = null)
+        _uiState.value = _uiState.value.copy(message = null, error = null, technicalError = null)
     }
 
     private fun replacePipeline(updated: ManagedPipeline) {

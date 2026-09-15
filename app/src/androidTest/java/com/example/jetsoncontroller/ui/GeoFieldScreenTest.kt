@@ -40,34 +40,44 @@ class GeoFieldScreenTest {
             GeoRunDashboard(FieldState(deviceId = "fixture", runs = runs), emptyList(), "GEO& UI 테스트",
                 0, {}, {}, {}, { newRequests++ }, {}, {}, {}, {}, {}, {})
         } }
-        compose.onNodeWithText("실행 기록을 오른쪽으로 밀면 장치 휴지통으로 옮길 수 있습니다.").assertIsDisplayed()
+        compose.onNodeWithText("기록을 오른쪽으로 밀면 장치 휴지통으로 옮길 수 있습니다.").assertIsDisplayed()
         capture("tasks-all")
         compose.onAllNodesWithText("완료")[0].performClick()
         compose.onNodeWithText("진행 화면 예시").assertDoesNotExist()
         compose.onNodeWithText("완료 화면 예시").assertIsDisplayed()
-        compose.onNodeWithContentDescription("새 작업 시작하기").performClick()
+        compose.onNodeWithContentDescription("새 수집").performClick()
         compose.runOnIdle { assertEquals(1, newRequests) }
     }
 
     @Test fun dateAndTypeFiltersPreserveSingleFileAndFolderTransfers() {
         val now = Instant.now().toString()
-        val entries = listOf(RemoteFileEntry("road.jpg", "road.jpg", RemoteEntryType.FILE, 100, now),
-            RemoteFileEntry("track.csv", "track.csv", RemoteEntryType.FILE, 20, now))
+        val entries = listOf(
+            RemoteFileEntry("road.jpg", "road.jpg", RemoteEntryType.FILE, 100, now),
+            RemoteFileEntry("track.csv", "track.csv", RemoteEntryType.FILE, 20, now),
+            RemoteFileEntry("구간 전체", "full-section", RemoteEntryType.DIRECTORY, null, now)
+        )
         var requested: String? = null
         compose.setContent { JetsonControllerTheme {
             DeviceStorageScreen(DeviceStorageUiState(deviceId = "fixture", controlAvailable = true,
                 currentRoot = RemoteRoot("recordings", "기록", null), entries = entries), true, null,
                 {}, {}, {}, {}, {}, { _, path -> requested = path }, {})
         } }
+        compose.onNodeWithContentDescription("파일 유형 필터").performClick()
         compose.onNodeWithText("이미지").performClick()
         compose.onNodeWithText("road.jpg").assertIsDisplayed()
         compose.onNodeWithText("track.csv").assertDoesNotExist()
-        compose.onNodeWithText("오늘 (1)").assertIsDisplayed()
+        compose.onNodeWithText("오늘").assertIsDisplayed()
         capture("data-images")
-        compose.onNodeWithContentDescription("파일 업로드").performClick()
+        compose.onNodeWithText("선택").performClick()
+        compose.onNodeWithText("road.jpg").performClick()
+        compose.onNodeWithText("서버로 전송").performClick()
         compose.runOnIdle { assertEquals("road.jpg", requested) }
-        compose.onNodeWithText("업로드").performClick()
-        compose.runOnIdle { assertEquals("", requested) }
+        compose.onNodeWithText("취소").performClick()
+        compose.onNodeWithText("전체").performClick()
+        compose.onNodeWithText("선택").performClick()
+        compose.onNodeWithText("구간 전체").performClick()
+        compose.onNodeWithText("서버로 전송").performClick()
+        compose.runOnIdle { assertEquals("full-section", requested) }
     }
 
     private fun capture(name: String) {

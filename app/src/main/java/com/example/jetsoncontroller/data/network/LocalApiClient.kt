@@ -589,7 +589,8 @@ class LocalApiClient(
 
     suspend fun controlPipeline(
         pipelineId: String,
-        action: String
+        action: String,
+        expectedRunId: String? = null
     ): Result<ManagedPipeline> =
         command("자동 실행 작업 제어", query = {
             getPipelines().mapCatching { pipelines ->
@@ -597,7 +598,15 @@ class LocalApiClient(
                     ?: error("현재 작업 상태를 확인할 수 없습니다.")
             }
         }) {
-            requireApi().controlPipeline(pipelineId, action)
+            if (expectedRunId == null) {
+                requireApi().controlPipeline(pipelineId, action)
+            } else {
+                require(action == "stop") { "expectedRunId는 수집 종료 요청에만 사용할 수 있습니다." }
+                requireApi().contextualStopPipeline(
+                    pipelineId,
+                    LocalControlApi.ContextualStopRequest(expectedRunId)
+                )
+            }
         }
 
     suspend fun removePipeline(pipelineId: String): Result<Unit> =

@@ -12,6 +12,7 @@ import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownExcep
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.*
+import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -22,6 +23,7 @@ data class FieldState(
     val routeQuality: RunQuality? = null,
     val historyCurrent: Boolean = false,
     val loading: Boolean = false, val error: String? = null,
+    val technicalError: String? = null,
     val terminalBusy: Boolean = false, val terminalOutput: String = "",
     val captureBusy: Boolean = false, val captureMessage: String? = null,
     val log: String? = null, val deletingRunId: String? = null, val undoTrashId: String? = null,
@@ -49,7 +51,8 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     val online = transport is TransportState.Connected && transport.type != TransportType.BLE && transport.deviceId.equals(id, true)
                     _state.value = if (id != _state.value.deviceId) FieldState(deviceId = id, online = online)
                         else _state.value.copy(online = online, historyCurrent = false, loading = false,
-                            terminalBusy = false, captureBusy = false, deletingRunId = null)
+                            terminalBusy = false, captureBusy = false, deletingRunId = null,
+                            error = null, technicalError = null)
                     if (online) {
                         while (true) { refresh(retainLoaded = true); delay(10_000) }
                     }
@@ -61,7 +64,7 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         val g = generation
         val offset = if (more) _state.value.nextOffset ?: return else 0
         historyJob = viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true)
+            _state.value = _state.value.copy(loading = true, error = null, technicalError = null)
             repository.taskRuns(offset).onSuccess { result ->
                 if (g == generation) {
                     val previous = _state.value
@@ -72,12 +75,15 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     _state.value = previous.copy(runs = merged,
                         nextOffset = if (!more && retainLoaded && previous.runs.size > result.runs.size)
                             previous.nextOffset?.plus(added) else result.nextOffset,
-                        historyCurrent = true, loading = false, error = null)
+                        historyCurrent = true, loading = false, error = null, technicalError = null)
                 }
 
-            }.onFailure { if (g == generation) _state.value = _state.value.copy(loading = false,
-                historyCurrent = if (more) _state.value.historyCurrent else false,
-                error = it.message ?: "기록을 불러오지 못했습니다. 장치 API 업데이트를 확인하세요.") }
+            }.onFailure { error -> if (g == generation) {
+                val failure = userFacingFailure(error, "작업 기록을 불러오지 못했습니다. 다시 시도하세요.")
+                _state.value = _state.value.copy(loading = false,
+                    historyCurrent = if (more) _state.value.historyCurrent else false,
+                    error = failure.message, technicalError = failure.technicalDetail)
+            } }
         }
     }
     fun selectRun(run: TaskRun?) {
@@ -93,7 +99,9 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     }
                 }.onFailure {
                     if (routeResponseIsCurrent(g, generation, request, routeRequestGeneration, _state.value.selectedRun?.id, run.id)) {
-                        _state.value = _state.value.copy(error = it.message)
+                        val failure = userFacingFailure(it, "수집 경로를 불러오지 못했습니다. 다시 시도하세요.")
+                        _state.value = _state.value.copy(error = failure.message,
+                            technicalError = failure.technicalDetail)
                     }
                 }
                 delay(5_000)
@@ -106,7 +114,11 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         logJob = viewModelScope.launch {
             repository.taskRunLog(run.pipelineId, run.logId).onSuccess {
                 if (g == generation) _state.value = _state.value.copy(log = it.content.ifBlank { "저장된 로그가 없습니다." })
-            }.onFailure { if (g == generation) _state.value = _state.value.copy(error = it.message) }
+            }.onFailure { error -> if (g == generation) {
+                val failure = userFacingFailure(error, "저장된 기록을 불러오지 못했습니다. 다시 시도하세요.")
+                _state.value = _state.value.copy(error = failure.message,
+                    technicalError = failure.technicalDetail)
+            } }
         }
     }
     fun stopRoutePolling() { routeRequestGeneration++; routeJob?.cancel() }
@@ -120,7 +132,8 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         routeJob?.cancel()
         routeRequestGeneration++
         logJob?.cancel()
-        _state.value = _state.value.copy(deletingRunId = run.id, loading = false, error = null, message = null)
+        _state.value = _state.value.copy(deletingRunId = run.id, loading = false,
+            error = null, technicalError = null, message = null)
         deleteJob = viewModelScope.launch {
             repository.deleteTaskRun(run.pipelineId, run.logId).onSuccess { trashed ->
                 if (g == generation) {
@@ -139,10 +152,12 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                 }
             }.onFailure {
                 if (g == generation) {
-                    _state.value = _state.value.copy(deletingRunId = null, error =
-                        if (it is JetsonCommandResultUnknownException) {
-                            "휴지통 이동 결과를 확인하지 못했습니다. 자동 재시도하지 않고 작업 이력을 다시 조회합니다."
-                        } else it.message ?: "작업 이력을 휴지통으로 옮기지 못했습니다.")
+                    val failure = userFacingFailure(
+                        it,
+                        "작업 기록을 휴지통으로 옮기지 못했습니다. 다시 확인하세요."
+                    )
+                    _state.value = _state.value.copy(deletingRunId = null,
+                        error = failure.message, technicalError = failure.technicalDetail)
                     refresh()
                 }
             }
@@ -152,7 +167,8 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         if (!_state.value.online || _state.value.deletingRunId != null) return
         val trashId = _state.value.undoTrashId ?: return
         val g = generation
-        _state.value = _state.value.copy(deletingRunId = trashId, message = null, error = null)
+        _state.value = _state.value.copy(deletingRunId = trashId, message = null,
+            error = null, technicalError = null)
         deleteJob?.cancel()
         deleteJob = viewModelScope.launch {
             repository.restoreTrash(trashId).onSuccess { restored ->
@@ -166,14 +182,23 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     refresh()
                 }
             }.onFailure { error ->
-                if (g == generation) _state.value = _state.value.copy(
-                    deletingRunId = null,
-                    error = error.message ?: "작업 이력을 복원하지 못했습니다. 휴지통을 다시 확인하세요."
-                )
+                if (g == generation) {
+                    val failure = userFacingFailure(
+                        error,
+                        "작업 기록을 복원하지 못했습니다. 휴지통을 다시 확인하세요."
+                    )
+                    _state.value = _state.value.copy(deletingRunId = null,
+                        error = failure.message, technicalError = failure.technicalDetail)
+                }
             }
         }
     }
     fun dismissLog() { _state.value = _state.value.copy(log = null) }
+    fun dismissCaptureMessage(shown: String) {
+        if (_state.value.captureMessage == shown) {
+            _state.value = _state.value.copy(captureMessage = null)
+        }
+    }
     fun execute(command: String) {
         if (!_state.value.online || _state.value.terminalBusy || command.isBlank()) return
         val g = generation
@@ -200,11 +225,19 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                 val name = result?.name ?: "GEO_${System.currentTimeMillis()}.jpg"
                 if (mobile) withContext(Dispatchers.IO) { saveToGallery(context.applicationContext, name, bytes) }
                 if (g == generation) _state.value = _state.value.copy(captureMessage = listOfNotNull(
-                    deviceSaved?.let { "장치: $it" }, if (mobile) "모바일: Pictures/GEO&/$name" else null).joinToString("\n"))
+                    deviceSaved?.let { "장치에 저장했습니다." },
+                    if (mobile) "모바일 갤러리에 저장했습니다." else null
+                ).joinToString("\n"))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                if (g == generation) _state.value = _state.value.copy(captureMessage =
-                    (deviceSaved?.let { "장치 저장 완료: $it\n모바일 저장 실패: " } ?: "캡처 실패: ") + error.message)
+                if (g == generation) {
+                    val failure = userFacingFailure(error, "사진을 저장하지 못했습니다. 다시 시도하세요.")
+                    _state.value = _state.value.copy(
+                        captureMessage = deviceSaved?.let { "장치 저장은 완료했습니다.\n${failure.message}" }
+                            ?: failure.message,
+                        technicalError = failure.technicalDetail
+                    )
+                }
             } finally {
                 if (g == generation) _state.value = _state.value.copy(captureBusy = false)
             }

@@ -2,11 +2,8 @@ package com.example.jetsoncontroller.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,13 +18,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.alerts.AlertIconButton
 import com.example.jetsoncontroller.ui.theme.GeoSize
 import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.TextButton
 
 /**
  * The persistent answer to "어느 장치를 조작하고 있나?".
@@ -54,56 +51,55 @@ fun DeviceContextHeader(
     actions: @Composable () -> Unit = {}
 ) {
     val c = LocalGeoColors.current
+    val expandedType = LocalDensity.current.fontScale > 1.3f
     Surface(color = c.canvas, contentColor = c.ink) {
-        Column {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.sm)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
-                        onClick = onDevices,
-                        modifier = Modifier.weight(1f).heightIn(min = GeoSize.minTouchTarget),
-                        contentPadding = PaddingValues(vertical = GeoSpace.xs, horizontal = 0.dp)
+        Column(
+            Modifier.fillMaxWidth().statusBarsPadding()
+                .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.sm)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    onClick = onDevices,
+                    color = androidx.compose.ui.graphics.Color.Transparent,
+                    contentColor = c.ink,
+                    modifier = Modifier.weight(1f).heightIn(min = GeoSize.minTouchTarget)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start
                     ) {
                         Text(
                             deviceName,
                             modifier = Modifier.weight(1f, fill = false),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Icon(
                             Icons.Default.ExpandMore,
                             contentDescription = "다른 장치 선택",
-                            modifier = Modifier.size(GeoSize.iconMd)
+                            modifier = Modifier.size(GeoSize.iconSm)
                         )
                     }
+                }
+                if (!expandedType) StatusBadge(connectionLabel, connectionTone)
+            }
+            if (expandedType) {
+                StatusBadge(connectionLabel, connectionTone)
+                Text(title, style = MaterialTheme.typography.headlineMedium)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     actions()
                     AlertIconButton(unreadCount, onAlerts)
                 }
-                StatusBadge(connectionLabel, connectionTone)
-                Spacer(Modifier.height(GeoSpace.sm))
-                if (showLogo) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
-                    ) {
-                        GeoLogo(Modifier.width(104.dp))
-                        Text(
-                            title,
-                            Modifier.weight(1f),
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    }
-                } else {
-                    Text(title, style = MaterialTheme.typography.headlineSmall)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+                    if (showLogo) GeoLogo(Modifier.width(72.dp))
+                    actions()
+                    AlertIconButton(unreadCount, onAlerts)
                 }
-                Spacer(Modifier.height(GeoSpace.sm))
             }
-            GeoRowDivider()
         }
     }
 }

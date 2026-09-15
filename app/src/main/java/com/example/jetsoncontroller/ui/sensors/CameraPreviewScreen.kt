@@ -35,6 +35,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.CameraSensorStatus
+import com.example.jetsoncontroller.ui.components.AppBanner
+import com.example.jetsoncontroller.ui.components.StatusTone
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +47,8 @@ fun CameraPreviewScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     captureBusy: Boolean = false, captureMessage: String? = null,
-    onCapture: (Boolean, Boolean) -> Unit = { _, _ -> }
+    onCapture: (Boolean, Boolean) -> Unit = { _, _ -> },
+    onDismissCaptureMessage: (String) -> Unit = {}
 ) {
     val active = telemetryFresh && camera.active
     val live = cameraFrameIsLive(active, state.frame != null, state.updatedAtEpochMillis,
@@ -93,7 +96,14 @@ fun CameraPreviewScreen(
                     contentScale = ContentScale.Fit
                 )
             }
-            captureMessage?.let { Text(it, Modifier.align(Alignment.TopCenter).padding(16.dp).background(Color.Black.copy(alpha = 0.8f)), color = Color.White) }
+            captureMessage?.let { shown ->
+                AppBanner(
+                    message = shown,
+                    tone = StatusTone.INFO,
+                    onDismiss = { onDismissCaptureMessage(shown) },
+                    modifier = Modifier.align(Alignment.TopCenter).padding(16.dp)
+                )
+            }
             if (captureBusy) CircularProgressIndicator(Modifier.align(Alignment.Center))
             if (state.isLoading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
