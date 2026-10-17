@@ -45,7 +45,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
                 generation++
                 job?.cancel()
                 _state.value = LocalTrashUiState(deviceId = id, online = online,
-                    error = if (online) null else "장비에 연결한 뒤 휴지통을 확인하세요.")
+                    error = if (online) null else "장치에 연결한 뒤 휴지통을 확인하세요.")
                 if (online) refresh()
             }
         }
@@ -71,7 +71,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
             }.getOrElse {
                 if (expected == generation) _state.value = _state.value.copy(
                     loading = false,
-                    error = retainedError ?: "장비 휴지통 응답을 확인하지 못했습니다. 다시 시도하세요."
+                    error = retainedError ?: "장치 휴지통 응답을 확인하지 못했습니다. 다시 시도하세요."
                 )
                 return@onSuccess
             }
@@ -88,7 +88,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
                 loading = false,
                 error = retainedError ?: userFacingFailure(
                     error,
-                    "장비 휴지통을 불러오지 못했습니다. 다시 시도하세요."
+                    "장치 휴지통을 불러오지 못했습니다. 다시 시도하세요."
                 ).message
             )
         }
@@ -161,7 +161,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
                 }.getOrNull()
                 val valid = validated != null
                 if (!valid) {
-                    failureMessage = "장비의 삭제 확인 응답이 요청과 일치하지 않습니다. 휴지통 상태를 다시 확인하세요."
+                    failureMessage = "장치의 삭제 확인 응답이 요청과 일치하지 않습니다. 휴지통 상태를 다시 확인하세요."
                     break
                 }
                 val purged = validated!!.count { it.state == "PURGED" }

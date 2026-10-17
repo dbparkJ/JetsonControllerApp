@@ -245,18 +245,25 @@ internal fun DirectServerScreen(
     }
 }
 
+/**
+ * Section switch as underline tabs. A filled chip read as an action, so the current section was
+ * easy to confuse with a button; the underline shows only where the operator is.
+ */
 @Composable
 private fun DirectServerTabs(selected: DirectServerSection, onSelect: (DirectServerSection) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        listOf(
-            DirectServerSection.DATA to "수신 결과",
-            DirectServerSection.TRASH to "휴지통",
-            DirectServerSection.PROFILES to "서버 프로필"
-        ).forEach { (section, label) ->
-            FilterChip(selected == section, { onSelect(section) }, label = { Text(label) })
+    val sections = listOf(
+        DirectServerSection.DATA to "수신 결과",
+        DirectServerSection.TRASH to "휴지통",
+        DirectServerSection.PROFILES to "서버 프로필"
+    )
+    val selectedIndex = sections.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    TabRow(selectedTabIndex = selectedIndex) {
+        sections.forEachIndexed { index, (section, label) ->
+            Tab(
+                selected = index == selectedIndex,
+                onClick = { onSelect(section) },
+                text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            )
         }
     }
 }
@@ -276,7 +283,14 @@ private fun ServerDataPane(
     developerModeEnabled: Boolean
 ) {
     if (state.profiles.isEmpty()) {
-        EmptyState("서버 연결 정보가 없습니다", "개발자 모드에서 서버 연결 정보를 등록하거나 관리자에게 요청해 주세요.")
+        EmptyState(
+            "서버 연결 정보가 없습니다",
+            if (developerModeEnabled) {
+                "개발자 모드에서 서버 연결 정보를 등록하거나 관리자에게 요청해 주세요."
+            } else {
+                "관리자에게 서버 연결 정보를 요청하세요."
+            }
+        )
         return
     }
     if (state.capabilities == null && state.jobsSource == null && !state.isConnecting) {
@@ -366,7 +380,7 @@ private fun JobsList(
                         StatusBadge(job.state.serverStateLabel(), job.state.serverStateTone())
                     }
                     if (developerModeEnabled) {
-                        Text("장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
+                        Text("장치 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
                     }
                     Text("${job.fileCount}개 파일 · ${formatBytes(job.totalBytes)}", style = MaterialTheme.typography.bodySmall)
                     Text("서버 관찰 · ${localDateTimeLabel(job.updatedAt)}", style = MaterialTheme.typography.bodySmall)
@@ -406,7 +420,7 @@ private fun JobDetail(
                 Text(job.sourceName, style = MaterialTheme.typography.titleLarge)
                 if (developerModeEnabled) {
                     Text("세션 ${job.sessionId}", style = MaterialTheme.typography.bodySmall)
-                    Text("접근 프로젝트 ${job.accessProjectId ?: job.projectId} · 장비 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
+                    Text("접근 프로젝트 ${job.accessProjectId ?: job.projectId} · 장치 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
                 }
                 job.surveyContext?.let { context ->
                     if (developerModeEnabled) {
@@ -492,7 +506,8 @@ private fun TrashPane(
             )
         }
         val snapshot = serverTrashEmptySnapshot(state)
-        item {
+        // Permanent server deletion is a developer-mode operation, and it is hidden when the server cannot do it.
+        if (developerModeEnabled && state.trashEmptySupported) item {
             Button(
                 onClick = onRequestEmpty,
                 enabled = canMutate && snapshot != null && !state.isLoading && !state.isConnecting,
@@ -570,7 +585,7 @@ private fun ProfilesPane(
 ) {
     var profileId by rememberSaveable { mutableStateOf("") }
     var displayName by rememberSaveable { mutableStateOf("") }
-    var environment by rememberSaveable { mutableStateOf(ServerEnvironment.PRODUCTION) }
+    var environment by rememberSaveable { mutableStateOf(defaultServerEnvironmentChoice()) }
     var baseUrl by rememberSaveable { mutableStateOf("") }
     var employeeId by rememberSaveable { mutableStateOf("") }
     var projectId by rememberSaveable { mutableStateOf("") }
@@ -620,17 +635,23 @@ private fun ProfilesPane(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                 singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
             item {
-                Button(
+                // Save only. Connecting is the separate 연결 action above, and it needs a chosen environment.
+                val chosenEnvironment = environment
+                OutlinedButton(
                     onClick = {
-                        onSave(
-                            ServerEndpointProfile(profileId, displayName, environment, baseUrl, employeeId, projectId),
-                            token
-                        )
-                        token = ""
+                        chosenEnvironment?.let { value ->
+                            onSave(
+                                ServerEndpointProfile(profileId, displayName, value, baseUrl, employeeId, projectId),
+                                token
+                            )
+                            token = ""
+                        }
                     },
-                    enabled = listOf(profileId, displayName, baseUrl, employeeId, projectId, token).all { it.isNotBlank() } && !state.isConnecting,
+                    enabled = chosenEnvironment != null &&
+                        listOf(profileId, displayName, baseUrl, employeeId, projectId, token).all { it.isNotBlank() } &&
+                        !state.isConnecting,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                ) { Text("암호화해 저장하고 연결") }
+                ) { Text("암호화해 저장") }
             }
         }
     }
@@ -655,7 +676,7 @@ private fun ReceiptDialog(
             receipt.surveyContext?.let { context ->
                 if (developerModeEnabled) {
                     Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}")
-                    Text("Run ${context.runId} · 장비 ${context.deviceId}")
+                    Text("Run ${context.runId} · 장치 ${context.deviceId}")
                 } else {
                     Text("조사 실행과 연결됨")
                 }
@@ -668,6 +689,12 @@ private fun ReceiptDialog(
         confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } }
     )
 }
+
+/**
+ * The profile form starts with no environment chosen. A preselected environment would save a
+ * profile against production without the operator having looked at it.
+ */
+internal fun defaultServerEnvironmentChoice(): ServerEnvironment? = null
 
 private fun ServerEnvironment.label(): String = when (this) {
     ServerEnvironment.DEVELOPMENT -> "개발"

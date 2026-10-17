@@ -82,7 +82,7 @@ fun LocalTrashScreen(
     Scaffold(
         snackbarHost = { OperationMessageHost(state.message, onDismissMessage) },
         topBar = { TopAppBar(
-            title = { Text("장비 휴지통") },
+            title = { Text("장치 휴지통") },
             navigationIcon = { IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
             } },
@@ -100,10 +100,10 @@ fun LocalTrashScreen(
                 DismissibleNoticeBanner(
                     noticeKey = "storage.local-trash-retention.v2",
                     message = when {
-                        !state.online -> "장비에 연결하면 복원 가능한 항목과 영구 삭제 지원 여부를 확인할 수 있습니다."
-                        !state.hasLoaded -> "장비에서 휴지통과 영구 삭제 지원 여부를 확인하고 있습니다."
+                        !state.online -> "장치에 연결하면 복원 가능한 항목과 영구 삭제 지원 여부를 확인할 수 있습니다."
+                        !state.hasLoaded -> "장치에서 휴지통과 영구 삭제 지원 여부를 확인하고 있습니다."
                         state.emptySupported -> "복원 가능한 항목은 원래 위치로 되돌릴 수 있습니다. 휴지통을 비우면 표시된 항목이 영구 삭제됩니다."
-                        else -> "이 장비 소프트웨어는 휴지통 비우기를 지원하지 않습니다. 장비 소프트웨어를 업데이트하면 영구 삭제할 수 있습니다."
+                        else -> "이 장치 소프트웨어는 휴지통 비우기를 지원하지 않습니다. 장치 소프트웨어를 업데이트하면 영구 삭제할 수 있습니다."
                     },
                     tone = if (state.emptySupported) StatusTone.WARNING else StatusTone.INFO
                 )
@@ -143,17 +143,17 @@ fun LocalTrashScreen(
                 }
             }
             if (state.entries.isEmpty() && !state.loading && state.online && state.hasLoaded) item {
-                EmptyState("휴지통이 비어 있습니다", "휴지통으로 이동한 장비 데이터와 작업 이력이 여기에 표시됩니다.")
+                EmptyState("휴지통이 비어 있습니다", "휴지통으로 이동한 장치 데이터와 작업 이력이 여기에 표시됩니다.")
             }
         }
     }
 }
 
 private fun categoryLabel(category: String): String = when (category) {
-    "STORAGE" -> "장비 데이터"
+    "STORAGE" -> "장치 데이터"
     "UPLOADED_SOURCE" -> "업로드 원본"
     "RUN_HISTORY" -> "작업 이력"
-    else -> "장비 데이터"
+    else -> "장치 데이터"
 }
 
 private fun stateLabel(state: String): String = when (state) {

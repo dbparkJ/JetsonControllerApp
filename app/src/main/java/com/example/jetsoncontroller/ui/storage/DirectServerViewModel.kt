@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.ui.storage
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.example.jetsoncontroller.ui.userFacingFailure
 import androidx.lifecycle.viewModelScope
 import com.example.jetsoncontroller.data.server.*
 import com.example.jetsoncontroller.data.storage.RecentServerJobsCache
@@ -113,21 +114,26 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         if (section == DirectServerSection.TRASH && repository != null) refreshTrash()
     }
 
+    /**
+     * Saves the profile and its encrypted employee credential. It does not connect: connecting is
+     * the separate [connect] action, so a saved profile can be checked before any request is made.
+     */
     fun saveProfile(profile: ServerEndpointProfile, employeeToken: String) {
         operation?.cancel()
         val generation = requestGeneration.next()
         repository?.logout()
         repository = null
         _uiState.value = _uiState.value.forProfile(profile.profileId)
-        launchOperation(connecting = true, generation = generation) { expected ->
+        launchOperation(connecting = false, generation = generation) { expected ->
             try {
                 store.save(profile, employeeToken)
                 if (requestGeneration.isCurrent(expected)) {
                     _uiState.value = _uiState.value.copy(
                         selectedProfileId = profile.profileId,
-                        section = DirectServerSection.DATA
+                        message = "프로필을 저장했습니다. 연결하려면 연결을 누르세요.",
+                        messageIsError = false,
+                        errorActionLabel = null
                     )
-                    connectNow(profile.profileId, expected)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -192,7 +198,12 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
                 next.jobs().onSuccess { snapshot ->
                     if (!requestGeneration.isCurrent(generation)) return@onSuccess
                     repository = next
-                    publishJobsSnapshot(snapshot, connectionWarning = error.message, generation = generation)
+                    // The raw transport text stays out of the operator message; the cause is classified instead.
+                    publishJobsSnapshot(
+                        snapshot,
+                        connectionWarning = userFacingFailure(error, "서버에 연결하지 못해 저장된 목록을 표시합니다.").message,
+                        generation = generation
+                    )
                 }.onFailure { jobsError ->
                     if (!requestGeneration.isCurrent(generation)) return@onFailure
                     repository = null

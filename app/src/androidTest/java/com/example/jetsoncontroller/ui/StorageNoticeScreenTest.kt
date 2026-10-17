@@ -165,7 +165,8 @@ class StorageNoticeScreenTest {
                         onUndoTrash = {},
                         onRefreshTrash = {},
                         onEmptyTrash = { profile, ids -> request = profile to ids },
-                        onRemoveProfile = {}, onDismissMessage = {}
+                        onRemoveProfile = {}, onDismissMessage = {},
+                        developerModeEnabled = true
                     )
                 }
             }
