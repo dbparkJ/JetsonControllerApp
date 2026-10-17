@@ -6,8 +6,10 @@ import os
 import sqlite3
 import struct
 import tempfile
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1282,6 +1284,136 @@ class ReceiverApiTest(unittest.TestCase):
             json={},
         )
         self.assertEqual(completed.status_code, 200, completed.text)
+
+    def offsets_for(self, session_id: str, paths: list[str]) -> dict[str, int]:
+        response = self.client.post(
+            f"/v1/upload-sessions/{session_id}/files/offsets",
+            headers={**self.auth(), "Content-Type": "application/json"},
+            json={"paths": paths},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return {item["path"]: item["nextOffset"] for item in response.json()["files"]}
+
+    def test_batch_syncs_each_file_and_its_directory_once_before_the_commit(self) -> None:
+        files = [
+            ("camera/a.bin", b"a" * 100),
+            ("camera/b.bin", b"b" * 200),
+            ("camera/c.bin", b"c" * 300),
+        ]
+        created = self.create(self.manifest(files), token=self.token)
+        self.assertEqual(created.status_code, 201, created.text)
+        session_id = created.json()["sessionId"]
+
+        events: list[str] = []
+        events_lock = threading.Lock()
+        local = threading.local()
+        real_fsync = os.fsync
+        real_directory_sync = ReceiverService._fsync_directory
+        real_guard = ReceiverService._guard
+        real_immediate = Database.immediate
+
+        def record(event: str) -> None:
+            with events_lock:
+                events.append(event)
+
+        def recording_fsync(descriptor: int) -> None:
+            # Directory syncs also call os.fsync; they are counted as "dir", not "file".
+            if not getattr(local, "in_directory_sync", False):
+                record("file")
+            return real_fsync(descriptor)
+
+        def recording_directory_sync(path: Path) -> None:
+            record(f"dir:{Path(path).name}")
+            local.in_directory_sync = True
+            try:
+                real_directory_sync(path)
+            finally:
+                local.in_directory_sync = False
+
+        @contextmanager
+        def recording_guard(service, key: str):
+            with real_guard(service, key):
+                if key.startswith("session:"):
+                    record("guard-in")
+                yield
+            if key.startswith("session:"):
+                record("guard-out")
+
+        @contextmanager
+        def recording_immediate(database):
+            record("begin")
+            with real_immediate(database) as connection:
+                yield connection
+            record("commit")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(os, "fsync", recording_fsync))
+            stack.enter_context(
+                patch.object(
+                    ReceiverService,
+                    "_fsync_directory",
+                    staticmethod(recording_directory_sync),
+                )
+            )
+            stack.enter_context(patch.object(ReceiverService, "_guard", recording_guard))
+            stack.enter_context(patch.object(Database, "immediate", recording_immediate))
+            uploaded = self.put_batch(session_id, files)
+
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertEqual(events[0], "guard-in", events)
+        self.assertEqual(events[-1], "guard-out", events)
+        begin = events.index("begin")
+        before_commit = events[:begin]
+        self.assertEqual(before_commit.count("file"), len(files), events)
+        directory_events = [event for event in before_commit if event.startswith("dir:")]
+        self.assertEqual(directory_events, [f"dir:{session_id}"], events)
+        self.assertEqual(
+            sorted(event for event in before_commit if event not in {"guard-in", "file"}),
+            directory_events,
+            events,
+        )
+        self.assertLess(events.index("commit"), events.index("guard-out"), events)
+        self.assertEqual(
+            self.offsets_for(session_id, [path for path, _body in files]),
+            {path: len(body) for path, body in files},
+        )
+
+    def test_failed_file_sync_leaves_the_batch_uncommitted_and_retry_succeeds(self) -> None:
+        files = [("camera/a.bin", b"a" * 100), ("camera/b.bin", b"b" * 200)]
+        created = self.create(self.manifest(files), token=self.token)
+        self.assertEqual(created.status_code, 201, created.text)
+        session_id = created.json()["sessionId"]
+        real_fsync = os.fsync
+        failed_once: list[int] = []
+
+        def flaky_fsync(descriptor: int) -> None:
+            if not failed_once:
+                failed_once.append(descriptor)
+                raise OSError("simulated fsync failure")
+            return real_fsync(descriptor)
+
+        paths = [path for path, _body in files]
+        with patch.object(os, "fsync", flaky_fsync):
+            failed = self.put_batch(session_id, files)
+        self.assertGreaterEqual(failed.status_code, 500)
+        self.assertEqual(self.offsets_for(session_id, paths), {path: 0 for path in paths})
+
+        retried = self.put_batch(session_id, files)
+        self.assertEqual(retried.status_code, 200, retried.text)
+        self.assertEqual(
+            self.offsets_for(session_id, paths),
+            {path: len(body) for path, body in files},
+        )
+
+    def test_new_staging_directories_return_the_parents_that_need_a_sync(self) -> None:
+        base = self.data_root / "directory-sync"
+        base.mkdir(parents=True)
+
+        created = ReceiverService._ensure_directory(base / "x" / "y")
+
+        self.assertEqual(created, [base / "x", base])
+        self.assertTrue((base / "x" / "y").is_dir())
+        self.assertEqual(ReceiverService._ensure_directory(base / "x" / "y"), [])
 
     def test_deferred_hashes_support_batch_and_resumed_chunks(self) -> None:
         files = [
