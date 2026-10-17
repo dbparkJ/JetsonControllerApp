@@ -70,7 +70,8 @@ internal data class TasksHomeUiState(
     val recentEmptyText: String,
     val otherTasks: List<OtherTaskState>,
     val otherTasksNote: String,
-    val otherTasksEmptyText: String
+    val otherTasksEmptyText: String,
+    val ticketSection: ServerTicketUiState? = null
 )
 
 internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {

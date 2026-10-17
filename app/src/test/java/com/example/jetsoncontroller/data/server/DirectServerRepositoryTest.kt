@@ -5,7 +5,9 @@ import com.example.jetsoncontroller.data.storage.RecentServerJobsCache
 import com.example.jetsoncontroller.data.storage.ServerJobsCacheKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -146,6 +148,29 @@ class DirectServerRepositoryTest {
         assertTrue(repository.deviceEventStatus(requestedDevice).isFailure)
     }
 
+    @Test fun `ticket errors read the receiver code from detail and ignore prose`() = runTest {
+        val api = FakeApi({ Response.success(jobsResponse()) })
+        val repository = DirectServerRepository(
+            api, profile, RecentServerJobsCache(temporary.newFolder("ticket-error-cache")), "revision-1"
+        )
+        api.startTicketCall = { _, _, _ ->
+            Response.error(409, "{\"detail\":\"TICKET_NOT_OPEN\"}".toResponseBody("application/json".toMediaType()))
+        }
+        val conflict = repository.startTicket("row-1", "capture/run-1", "device-1").exceptionOrNull()
+        assertEquals("TICKET_NOT_OPEN", (conflict as ServerTicketRequestException).errorCode)
+        assertEquals(409, conflict.statusCode)
+
+        api.startTicketCall = { _, _, _ ->
+            Response.error(403, "{\"detail\":\"Employee role cannot start tickets\"}".toResponseBody("application/json".toMediaType()))
+        }
+        val forbidden = repository.startTicket("row-1", "capture/run-1", "device-1").exceptionOrNull()
+        assertNull((forbidden as ServerTicketRequestException).errorCode)
+    }
+
+    @Test fun `failed ticket reports map to the error state`() {
+        assertEquals(ServerTicketReportState.ERROR, ServerTicketReport(state = "FAILED").normalizedState)
+    }
+
     @Test fun `empty trash rejects missing results and reports availability as unknown`() = runTest {
         val api = FakeApi({ Response.success(jobsResponse()) })
         val repository = DirectServerRepository(
@@ -208,6 +233,8 @@ class DirectServerRepositoryTest {
             { _, _ -> error("unused") }
         var emptyTrashCall: suspend (String, ServerEmptyTrashRequest) -> Response<ServerEmptyTrashResponse> =
             { _, _ -> error("unused") }
+        var startTicketCall: suspend (String, String, ServerTicketStartRequest) -> Response<ServerTicketMutationResponse> =
+            { _, _, _ -> error("unused") }
         override suspend fun jobs(projectId: String, limit: Int, offset: Int) = jobsCall()
         override suspend fun capabilities(): Response<ServerCapabilities> = error("unused")
         override suspend fun files(
@@ -222,6 +249,15 @@ class DirectServerRepositoryTest {
         override suspend fun deviceEventStatus(
             projectId: String, deviceId: String
         ): Response<ServerDeviceEventStatus> = deviceEventStatusCall(projectId, deviceId)
+        override suspend fun tickets(
+            projectId: String, deviceId: String, unit: String?, status: String
+        ): Response<ServerTicketsResponse> = error("unused")
+        override suspend fun startTicket(
+            rowId: String, projectId: String, request: ServerTicketStartRequest
+        ): Response<ServerTicketMutationResponse> = startTicketCall(rowId, projectId, request)
+        override suspend fun completeTicket(
+            rowId: String, projectId: String, request: ServerTicketCompleteRequest
+        ): Response<ServerTicketMutationResponse> = error("unused")
         override suspend fun trash(projectId: String, limit: Int, offset: Int): Response<ServerTrashResponse> = error("unused")
         override suspend fun emptyTrash(
             projectId: String,

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +25,7 @@ import com.example.jetsoncontroller.model.PipelineOutputManifest
 import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.ui.components.*
 import com.example.jetsoncontroller.ui.theme.*
+import com.example.jetsoncontroller.ui.theme.TextButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +38,11 @@ internal fun RunResultScreen(
     uploadDisabledReason: String,
     serverReceiptLabel: String?,
     serverReceiptTone: StatusTone = if (serverReceiptLabel == null) StatusTone.UNKNOWN else StatusTone.SUCCESS,
+    ticketTitle: String? = null,
+    ticketCompletionEnabled: Boolean = false,
+    ticketCompletionMessage: String? = null,
+    ticketCompletionPending: Boolean = false,
+    onReportTicketCompletion: () -> Unit = {},
     online: Boolean,
     developerModeEnabled: Boolean = false,
     unreadCount: Int,
@@ -162,6 +169,16 @@ internal fun RunResultScreen(
                         }
                         val actions: @Composable ColumnScope.() -> Unit = {
                             CollectedFilesAction(run, stored, onOpenFiles)
+                            if (!ticketTitle.isNullOrBlank()) {
+                                Spacer(Modifier.height(GeoSpace.lg))
+                                TicketCompletionAction(
+                                    title = ticketTitle,
+                                    enabled = ticketCompletionEnabled,
+                                    message = ticketCompletionMessage,
+                                    pending = ticketCompletionPending,
+                                    onReport = onReportTicketCompletion
+                                )
+                            }
                             if (!online) {
                                 Spacer(Modifier.height(GeoSpace.lg))
                                 AppBanner(
@@ -205,6 +222,51 @@ internal fun RunResultScreen(
             }
         }
     }
+}
+
+@Composable
+private fun TicketCompletionAction(
+    title: String,
+    enabled: Boolean,
+    message: String?,
+    pending: Boolean,
+    onReport: () -> Unit
+) {
+    val c = LocalGeoColors.current
+    var confirm by remember(title) { mutableStateOf(false) }
+    if (confirm) {
+        val particle = if (hasKoreanFinalConsonant(title.lastOrNull())) "을" else "를"
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("구간 완료 보고") },
+            text = { Text("$title$particle 완료로 보고합니다.") },
+            confirmButton = {
+                TextButton(onClick = { confirm = false; onReport() }) { Text("보고") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("취소") } }
+        )
+    }
+    if (!pending && (enabled || message?.contains("작업자 권한") == true)) {
+        OutlinedButton(
+            onClick = { confirm = true },
+            enabled = enabled,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = GeoSize.secondaryAction)
+        ) { Text("구간 완료 보고") }
+        message?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        }
+    } else if (!message.isNullOrBlank()) {
+        Text(message, style = MaterialTheme.typography.bodySmall, color = c.muted)
+    }
+    if (pending) {
+        Text("완료 보고 전송 대기 중", style = MaterialTheme.typography.bodySmall, color = c.muted)
+    }
+}
+
+private fun hasKoreanFinalConsonant(character: Char?): Boolean {
+    if (character == null || character !in '\uAC00'..'\uD7A3') return false
+    return (character.code - '\uAC00'.code) % 28 != 0
 }
 
 @Composable

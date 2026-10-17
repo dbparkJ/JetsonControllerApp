@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.data.server
 import com.example.jetsoncontroller.data.storage.CachedServerJobs
 import com.example.jetsoncontroller.data.storage.RecentServerJobsCache
 import com.example.jetsoncontroller.data.storage.ServerJobsCacheKey
+import com.google.gson.Gson
 import okhttp3.ResponseBody
 import retrofit2.Response
 import java.io.IOException
@@ -145,6 +146,55 @@ class DirectServerRepository(
         }
     }
 
+    suspend fun tickets(
+        deviceId: String,
+        unit: String? = null,
+        status: String = "open"
+    ): Result<ServerTicketsResponse> = request {
+        require(deviceId.isNotBlank()) { "Device ID is required" }
+        require(status in setOf("open", "all")) { "Ticket status must be open or all" }
+        api.tickets(profile.projectId, deviceId, unit?.takeIf(String::isNotBlank), status)
+            .requiredBody().also { response ->
+                check(response.projectId == null || response.projectId == profile.projectId) {
+                    "Server ticket project mismatch"
+                }
+                check(response.deviceId == null || response.deviceId.equals(deviceId, ignoreCase = true)) {
+                    "Server ticket device mismatch"
+                }
+                check(response.tickets.all { it.rowId.isNotBlank() && it.title.isNotBlank() }) {
+                    "Server ticket identifiers are incomplete"
+                }
+                check(response.tickets.map(ServerTicket::rowId).distinct().size == response.tickets.size) {
+                    "Server returned duplicate ticket rows"
+                }
+            }
+    }
+
+    suspend fun startTicket(
+        rowId: String,
+        runId: String,
+        deviceId: String
+    ): Result<ServerTicketMutationResponse> = request {
+        require(rowId.isNotBlank() && runId.isNotBlank() && deviceId.isNotBlank()) {
+            "Ticket start scope is required"
+        }
+        ticketMutation(
+            api.startTicket(rowId, profile.projectId, ServerTicketStartRequest(runId, deviceId)),
+            rowId, runId, deviceId
+        )
+    }
+
+    suspend fun completeTicket(
+        rowId: String,
+        runId: String
+    ): Result<ServerTicketMutationResponse> = request {
+        require(rowId.isNotBlank() && runId.isNotBlank()) { "Ticket completion scope is required" }
+        ticketMutation(
+            api.completeTicket(rowId, profile.projectId, ServerTicketCompleteRequest(runId)),
+            rowId, runId, null
+        )
+    }
+
     suspend fun trash(offset: Int = 0, limit: Int = 200): Result<ServerTrashResponse> = request {
         api.trash(profile.projectId, limit, offset).requiredBody().let { response ->
             requireEnvironment(response.serverEnvironment)
@@ -228,6 +278,44 @@ class DirectServerRepository(
         check(response.state == state) { "Server lifecycle state mismatch" }
     }
 
+    private fun ticketMutation(
+        response: Response<ServerTicketMutationResponse>,
+        rowId: String,
+        runId: String,
+        deviceId: String?
+    ): ServerTicketMutationResponse {
+        if (!response.isSuccessful) {
+            val error = runCatching {
+                response.errorBody()?.string()?.let {
+                    Gson().fromJson(it, ServerTicketErrorResponse::class.java)
+                }
+            }.getOrNull()
+            if (error?.rowId != null && error.rowId != rowId) ticketScopeMismatch(response.code())
+            if (error?.projectId != null && error.projectId != profile.projectId) ticketScopeMismatch(response.code())
+            if (error?.runId != null && error.runId != runId) ticketScopeMismatch(response.code())
+            if (deviceId != null && error?.deviceId != null &&
+                !error.deviceId.equals(deviceId, ignoreCase = true)
+            ) ticketScopeMismatch(response.code())
+            val code = error?.code ?: error?.detail?.takeIf { it.matches(TICKET_ERROR_CODE) }
+            throw ServerTicketRequestException(response.code(), code, error?.message)
+        }
+        check(response.code() == 202) { "Server ticket report was not accepted with 202" }
+        val body = response.body() ?: return ServerTicketMutationResponse()
+        if (body.rowId != null && body.rowId != rowId) ticketScopeMismatch(response.code())
+        if (body.projectId != null && body.projectId != profile.projectId) ticketScopeMismatch(response.code())
+        if (body.runId != null && body.runId != runId) ticketScopeMismatch(response.code())
+        if (deviceId != null && body.deviceId != null && !body.deviceId.equals(deviceId, true)) {
+            ticketScopeMismatch(response.code())
+        }
+        return body
+    }
+
+    private fun ticketScopeMismatch(statusCode: Int): Nothing = throw ServerTicketRequestException(
+        statusCode,
+        "RESPONSE_SCOPE_MISMATCH",
+        "Server ticket response scope mismatch"
+    )
+
     private fun validateEmptyTrash(response: ServerEmptyTrashResponse, requested: List<String>) {
         requireEnvironment(response.serverEnvironment)
         check(response.projectId == profile.projectId) { "Server trash empty project mismatch" }
@@ -299,3 +387,11 @@ class ServerRequestException(
     val statusCode: Int,
     message: String = "Server request failed ($statusCode)"
 ) : Exception(message)
+
+private val TICKET_ERROR_CODE = Regex("[A-Z0-9_]{1,64}")
+
+class ServerTicketRequestException(
+    val statusCode: Int,
+    val errorCode: String?,
+    message: String?
+) : Exception(message ?: errorCode ?: "Server ticket request failed ($statusCode)")

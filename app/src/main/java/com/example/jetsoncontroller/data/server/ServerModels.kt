@@ -145,6 +145,100 @@ data class ServerDeviceEventStatus(
     val lastSeenAt: String?
 )
 
+enum class ServerTicketState { OPEN, IN_PROGRESS, COMPLETED, UNKNOWN }
+
+enum class ServerTicketReportState { PENDING, SENT, DEDUP, CONFLICT, ERROR, UNKNOWN }
+
+enum class ServerTicketIntegrationState { ACTIVE, NOT_CONFIGURED, ERROR, UNKNOWN }
+
+data class ServerTicketStatus(
+    val name: String? = null,
+    val category: String? = null
+) {
+    val normalizedCategory: ServerTicketState
+        get() = when (category?.uppercase()) {
+            "OPEN", "TODO", "NOT_STARTED" -> ServerTicketState.OPEN
+            "IN_PROGRESS", "IN PROGRESS", "WORKING", "STARTED" -> ServerTicketState.IN_PROGRESS
+            "COMPLETED", "DONE" -> ServerTicketState.COMPLETED
+            else -> ServerTicketState.UNKNOWN
+        }
+}
+
+data class ServerTicketReport(
+    val state: String? = null,
+    val code: String? = null
+) {
+    val normalizedState: ServerTicketReportState
+        get() = when (state?.uppercase()) {
+            "PENDING" -> ServerTicketReportState.PENDING
+            "SENT" -> ServerTicketReportState.SENT
+            "DEDUP", "DEDUPLICATED" -> ServerTicketReportState.DEDUP
+            "CONFLICT" -> ServerTicketReportState.CONFLICT
+            "ERROR", "DEAD", "FAILED" -> ServerTicketReportState.ERROR
+            else -> ServerTicketReportState.UNKNOWN
+        }
+}
+
+data class ServerTicketIntegration(
+    val state: String? = null,
+    val detail: String? = null
+) {
+    val normalizedState: ServerTicketIntegrationState
+        get() = when (state?.uppercase()) {
+            "ACTIVE" -> ServerTicketIntegrationState.ACTIVE
+            "NOT_CONFIGURED" -> ServerTicketIntegrationState.NOT_CONFIGURED
+            "ERROR" -> ServerTicketIntegrationState.ERROR
+            else -> ServerTicketIntegrationState.UNKNOWN
+        }
+}
+
+data class ServerTicket(
+    val rowId: String,
+    val title: String,
+    val project: String? = null,
+    val unit: String? = null,
+    val assignees: List<String> = emptyList(),
+    val dueDate: String? = null,
+    val status: ServerTicketStatus? = null,
+    val revision: String? = null,
+    val updatedAt: String? = null,
+    val runId: String? = null,
+    val report: ServerTicketReport? = null
+)
+
+data class ServerTicketsResponse(
+    val tickets: List<ServerTicket> = emptyList(),
+    val units: List<String> = emptyList(),
+    val deviceUnit: String? = null,
+    val syncedAt: String? = null,
+    val integration: ServerTicketIntegration? = null,
+    val projectId: String? = null,
+    val deviceId: String? = null
+)
+
+data class ServerTicketStartRequest(val runId: String, val deviceId: String)
+
+data class ServerTicketCompleteRequest(val runId: String)
+
+/** Echoes are optional because the receiver may answer 202 with an empty body. */
+data class ServerTicketMutationResponse(
+    val rowId: String? = null,
+    val projectId: String? = null,
+    val runId: String? = null,
+    val deviceId: String? = null
+)
+
+data class ServerTicketErrorResponse(
+    val code: String? = null,
+    /** The receiver answers {"detail": "TICKET_NOT_OPEN"}; prose details are not codes. */
+    val detail: String? = null,
+    val message: String? = null,
+    val rowId: String? = null,
+    val projectId: String? = null,
+    val runId: String? = null,
+    val deviceId: String? = null
+)
+
 data class ServerTrashJob(
     val sessionId: String,
     val clientJobId: String,

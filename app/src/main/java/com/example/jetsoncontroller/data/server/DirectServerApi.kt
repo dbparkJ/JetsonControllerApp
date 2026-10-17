@@ -46,6 +46,28 @@ interface DirectServerApi {
         @Query("deviceId") deviceId: String
     ): Response<ServerDeviceEventStatus>
 
+    @GET("v1/server/tickets")
+    suspend fun tickets(
+        @Query("projectId") projectId: String,
+        @Query("deviceId") deviceId: String,
+        @Query("unit") unit: String? = null,
+        @Query("status") status: String = "open"
+    ): Response<ServerTicketsResponse>
+
+    @POST("v1/server/tickets/{rowId}/start")
+    suspend fun startTicket(
+        @Path("rowId") rowId: String,
+        @Query("projectId") projectId: String,
+        @Body request: ServerTicketStartRequest
+    ): Response<ServerTicketMutationResponse>
+
+    @POST("v1/server/tickets/{rowId}/complete")
+    suspend fun completeTicket(
+        @Path("rowId") rowId: String,
+        @Query("projectId") projectId: String,
+        @Body request: ServerTicketCompleteRequest
+    ): Response<ServerTicketMutationResponse>
+
     @GET("v1/server/trash")
     suspend fun trash(
         @Query("projectId") projectId: String,

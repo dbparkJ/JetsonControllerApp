@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -30,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -55,7 +59,9 @@ internal fun TasksHomeScreen(
     onOpenActiveRun: () -> Unit,
     onOpenRun: (String) -> Unit,
     onOpenHistory: () -> Unit,
-    onOpenTask: (String) -> Unit
+    onOpenTask: (String) -> Unit,
+    onOpenTicket: (String) -> Unit = {},
+    onSelectTicketUnit: (String?) -> Unit = {}
 ) {
     val c = LocalGeoColors.current
     Column(Modifier.fillMaxSize().background(c.canvas)) {
@@ -66,11 +72,88 @@ internal fun TasksHomeScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item { PinnedSurveyCard(state.pinned, runActive = state.activeRun != null, onStartSurvey, onChangeSection) }
+            state.ticketSection?.let { tickets ->
+                item { ServerTicketsSection(tickets, onOpenTicket, onSelectTicketUnit) }
+            }
             state.activeRun?.let { run ->
                 item { ActiveRunCard(run, onOpenActiveRun) }
             }
             item { RecentSection(state.recent, state.recentEmptyText, onOpenRun, onOpenHistory) }
             item { OtherTasksSection(state.otherTasks, state.otherTasksNote, state.otherTasksEmptyText, onOpenTask) }
+        }
+    }
+}
+
+@Composable
+private fun ServerTicketsSection(
+    state: ServerTicketUiState,
+    onOpenTicket: (String) -> Unit,
+    onSelectUnit: (String?) -> Unit
+) {
+    val c = LocalGeoColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("수집 구간", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.ink)
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = state.selectedUnit == null,
+                onClick = { onSelectUnit(null) },
+                label = { Text("전체") }
+            )
+            state.units.forEach { unit ->
+                FilterChip(
+                    selected = state.selectedUnit == unit,
+                    onClick = { onSelectUnit(unit) },
+                    label = { Text(unit) }
+                )
+            }
+        }
+        state.quietError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.muted) }
+        if (state.isLoading && state.tickets.isEmpty()) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = c.primary)
+        } else if (state.visibleTickets.isEmpty()) {
+            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Text("표시할 수집 구간이 없습니다.", style = MaterialTheme.typography.bodyMedium, color = c.muted,
+                    modifier = Modifier.padding(16.dp))
+            }
+        } else {
+            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    state.visibleTickets.forEachIndexed { index, ticket ->
+                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
+                        Column(
+                            Modifier.fillMaxWidth().clickable { onOpenTicket(ticket.rowId) }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text(ticket.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold, color = c.ink, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.size(8.dp))
+                                StatusBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket))
+                            }
+                            Text(
+                                "프로젝트 ${ticket.project?.takeIf(String::isNotBlank) ?: "미정"} · " +
+                                    "호기 ${ticket.unit?.takeIf(String::isNotBlank) ?: "미정"}",
+                                style = MaterialTheme.typography.bodySmall, color = c.muted
+                            )
+                            Text("담당 ${ticket.assignees.orEmpty().filter(String::isNotBlank).joinToString().ifBlank { "미지정" }}",
+                                style = MaterialTheme.typography.bodySmall, color = c.inkStrong)
+                            Text("마감 ${ticket.dueDate?.takeIf(String::isNotBlank) ?: "미정"}",
+                                style = MaterialTheme.typography.bodySmall, color = c.muted)
+                            val reportLabel = state.reportMessages[ticket.rowId] ?: ticketReportStateLabel(ticket)
+                            Text(reportLabel, style = MaterialTheme.typography.bodySmall,
+                                color = if (ticketConflictCopy(ticket) != null ||
+                                    state.reportMessages[ticket.rowId]?.contains("HUMAN_CHANGED") == true
+                                ) c.warning else c.muted)
+                        }
+                    }
+                }
+            }
         }
     }
 }

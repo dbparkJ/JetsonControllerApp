@@ -88,7 +88,8 @@ internal fun SurveyRunScreen(
     onDismissMessage: () -> Unit,
     developerModeEnabled: Boolean = false,
     /** Display name of the selected device. Never the device ID; falls back to a neutral label. */
-    deviceName: String? = null
+    deviceName: String? = null,
+    ticketTitle: String? = null
 ) {
     val c = LocalGeoColors.current
     val displayName = deviceName?.takeIf(String::isNotBlank) ?: "선택한 장치"
@@ -173,6 +174,11 @@ internal fun SurveyRunScreen(
                 verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
             ) {
                 item { PreparationSteps(if (state.preflight == null) 0 else 1) }
+                ticketTitle?.takeIf(String::isNotBlank)?.let { title ->
+                    item {
+                        AppBanner("구간 티켓: $title", StatusTone.INFO)
+                    }
+                }
                 if (state.isLoading || state.operation != null) {
                     item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 }

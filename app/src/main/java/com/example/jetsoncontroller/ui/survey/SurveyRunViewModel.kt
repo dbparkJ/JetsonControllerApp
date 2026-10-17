@@ -120,6 +120,8 @@ internal data class SurveyRunUiState(
     val policyDraft: RunPolicyDraft = RunPolicyDraft(),
     val preflight: PipelinePreflight? = null,
     val acceptedStart: ContextualStartReceipt? = null,
+    /** Client request identity retained so a ticket link can recover even if the run finishes quickly. */
+    val ticketStartRequestId: String? = null,
     /** Last run observed for this device and pipeline, including terminal evidence. */
     val latestRun: PipelineRun? = null,
     /** Monotonic receipt time for [latestRun]'s identity-verified telemetry packet. */
@@ -220,6 +222,7 @@ internal class SurveyRunViewModel(
             policyDraft = RunPolicyDraft(),
             preflight = null,
             acceptedStart = null,
+            ticketStartRequestId = null,
             latestRun = null,
             telemetryReceivedAtElapsedRealtime = null,
             resultAcknowledged = false,
@@ -388,6 +391,7 @@ internal class SurveyRunViewModel(
                     outputRootId = roots.getOrThrow().singleOrNull()?.id.orEmpty()
                 ),
                 acceptedStart = receipt?.takeIf { observedRun?.active == true || unconfirmedRunId != null },
+                ticketStartRequestId = receipt?.clientRequestId,
                 latestRun = observedRun ?: _uiState.value.latestRun,
                 telemetryReceivedAtElapsedRealtime = if (observedRun != null) {
                     telemetryReceiptTime(observedRun, elapsedRealtimeMillis())
@@ -563,15 +567,15 @@ internal class SurveyRunViewModel(
         }
     }
 
-    fun start() {
+    fun start(): PendingContextualStart? {
         val state = _uiState.value
-        val pipelineId = state.pipelineId ?: return
-        val project = state.selectedProject ?: return
-        val section = state.selectedSection ?: return
-        val policy = state.policy ?: return
-        val preflight = state.preflight ?: return
-        val deviceId = state.deviceId ?: return
-        if (!state.canStart) return
+        val pipelineId = state.pipelineId ?: return null
+        val project = state.selectedProject ?: return null
+        val section = state.selectedSection ?: return null
+        val policy = state.policy ?: return null
+        val preflight = state.preflight ?: return null
+        val deviceId = state.deviceId ?: return null
+        if (!state.canStart) return null
         val existing = localState.pendingStart?.takeIf {
             it.pipelineId == pipelineId && it.surveyProjectId == project.surveyProjectId &&
                 it.surveyProjectRevision == project.revision && it.surveySectionId == section.surveySectionId &&
@@ -583,6 +587,7 @@ internal class SurveyRunViewModel(
             section.revision, policy.revision, preflight.preflightId, UUID.randomUUID().toString()
         )
         submitStart(deviceId, pending)
+        return pending
     }
 
     fun retryPendingStart() {
@@ -620,6 +625,7 @@ internal class SurveyRunViewModel(
                     }
                 if (current(expected, pipelineId)) _uiState.value = _uiState.value.copy(
                     acceptedStart = receipt.takeIf { run?.active != false },
+                    ticketStartRequestId = receipt.clientRequestId,
                     latestRun = run ?: _uiState.value.latestRun,
                     telemetryReceivedAtElapsedRealtime = if (run != null) {
                         telemetryReceiptTime(run, elapsedRealtimeMillis())
