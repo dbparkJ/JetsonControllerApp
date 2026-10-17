@@ -699,3 +699,29 @@ DB, `storage/objects`, `token-pepper`, Caddy data를 함께 백업한다. pepper
 ## 복구
 
 애플리케이션 문제는 이전 정상 코드로 되돌린 뒤 설치기를 재실행하고 readiness와 기존 업로드 계약을 검증합니다. 코드 원복을 위해 데이터 루트의 `db/`, `secrets/`, `storage/objects/`, `storage/staging/`을 삭제하지 않습니다. 저장 데이터 복구는 DB·객체·pepper의 일관된 백업을 기준으로 별도 수행합니다.
+
+## GEO& Work 알림
+
+수신 서버 환경 변수와 `PYTHONPATH=upload_receiver`를 설정한 뒤 다음 명령을 실행합니다. Secret은 표준 입력 첫 줄로 전달하며 명령줄 인자나 로그에 넣지 않습니다.
+
+```bash
+python -m upload_receiver.admin configure-geon-work \
+  --webhook-url 'https://<API_HOST>/v1/webhooks/incoming/<INTEGRATION_ID>' \
+  --channel-id '<CHANNEL_UUID>' < '<SECRET_FILE>'
+python -m upload_receiver.admin geon-work-status
+```
+
+설정 파일은 기본 `<data_root>/secrets/geon-work.json`이며 `UPLOAD_RECEIVER_GEON_WORK_CONFIG`로 경로를 바꿀 수 있습니다. 파일은 원자적으로 저장되며 권한은 `0600`입니다. 그룹·다른 사용자 접근 권한과 HTTPS가 아닌 주소는 거부합니다. 파일이 바뀌면 재시작 없이 다시 읽습니다. 서버 시계는 NTP로 동기화합니다.
+
+| 상태 | 운영 조치 |
+|---|---|
+| `ACTIVE` | 정상 전송 중입니다. 조치가 필요하지 않습니다. |
+| `NOT_CONFIGURED` | 알림을 사용할 때 설정 명령을 실행합니다. 장치 이벤트는 저장되지만 알림 행은 만들지 않습니다. |
+| `EXPIRED` / `INTEGRATION_NOT_FOUND` | GEO& Work에서 새 연동을 발급받아 설정을 교체합니다. |
+| `ERROR` / `CONFIG_INSECURE` | 설정 파일 권한을 `0600`으로 수정합니다. |
+| `ERROR` / `CONFIG_INVALID` | 버전 1, HTTPS 주소, 채널 UUID, 비어 있지 않은 secret을 확인합니다. |
+| `ERROR` / `SIGNATURE_REJECTED`, `FORBIDDEN`, `CHANNEL_UNAVAILABLE` | GEO& Work의 서명 설정·연동 권한·채널을 확인하고 설정 파일을 교체합니다. 설정 내용이 바뀔 때까지 전송이 멈춥니다. |
+
+`POST /v1/device-events`는 장치 Bearer 토큰과 `application/json`을 사용합니다. `GET /v1/capabilities`의 `deviceEvents`는 버전 1, 최대 50개·65536바이트, heartbeat 300초를 광고합니다. 장치당 분당 60회 초과 요청은 `429`와 `Retry-After`를 돌려줍니다. 감시 구간의 30분 무응답·복귀와 업로드 완료도 알림으로 기록합니다. 전송 중단 중에는 알림이 대기하며 24시간이 지나면 폐기됩니다.
+
+`GET /v1/server/device-events/status?projectId=<PROJECT_ID>&deviceId=<DEVICE_ID>`는 기존 직원 인증(환경 확인 헤더 포함)을 사용합니다. 프로젝트 권한과 장치 소속이 일치할 때만 연동 상태, 최근 24시간 건수, 마지막 전달·실패·장치 수신 시각을 반환합니다. 권한이나 소속이 다르면 `404`입니다. 관리 상태 명령은 상태·건수만 출력합니다.

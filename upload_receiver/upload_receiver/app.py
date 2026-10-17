@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
+from .device_events import DEVICE_EVENTS_CAPABILITY
+from .outbound import Dispatcher
 from .service import ReceiverError, ReceiverService
 
 
@@ -45,7 +47,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         application.state.receiver = ReceiverService(effective_settings)
-        yield
+        receiver = application.state.receiver
+        dispatcher = Dispatcher(receiver.database, receiver.geon_work, receiver.device_events)
+        application.state.dispatcher = dispatcher
+        dispatcher.start()
+        try:
+            yield
+        finally:
+            await run_in_threadpool(dispatcher.stop)
 
     application = FastAPI(
         title="Jetson Upload Receiver",
@@ -115,6 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             receiver.authenticate, request.headers.get("authorization")
         )
         return {
+            "deviceEvents": DEVICE_EVENTS_CAPABILITY,
             "deferredFileHashes": {
                 "version": 1,
                 "manifestHashMode": "deferred-v1",
@@ -129,6 +139,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "maxPreviewBytes": effective_settings.max_preview_bytes,
             },
         }
+
+    @application.post("/v1/device-events")
+    async def device_events(request: Request):
+        receiver = service(request)
+        device = await run_in_threadpool(receiver.authenticate, request.headers.get("authorization"))
+        await run_in_threadpool(receiver.reserve_device_event_request, device)
+        _require_content_type(request, "application/json")
+        raw = await _bounded_body(request, DEVICE_EVENTS_CAPABILITY["maxBytes"])
+        try:
+            value = json.loads(raw)
+        except (ValueError, UnicodeError, RecursionError) as error:
+            raise ReceiverError(400, "Device event JSON is invalid") from error
+        return await run_in_threadpool(receiver.accept_device_events, device, value)
+
+    @application.get("/v1/server/device-events/status")
+    async def device_events_status(request: Request, projectId: str, deviceId: str):
+        receiver = service(request)
+        actor = await employee(request)
+        return await run_in_threadpool(receiver.device_events_status, actor, projectId, deviceId)
 
     @application.get("/v1/server/capabilities")
     async def server_capabilities(request: Request):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Iterator
 
@@ -141,6 +141,64 @@ CREATE TABLE IF NOT EXISTS audit_events (
 
 CREATE INDEX IF NOT EXISTS audit_events_project_created_idx
 ON audit_events(project_id, created_at DESC, event_id DESC);
+
+CREATE TABLE IF NOT EXISTS device_events (
+    device_id TEXT NOT NULL REFERENCES devices(device_id),
+    event_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    body_json TEXT NOT NULL,
+    PRIMARY KEY (device_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS device_events_run_idx
+ON device_events(device_id, type, json_extract(body_json, '$.runId'), received_at DESC);
+CREATE INDEX IF NOT EXISTS device_events_type_idx
+ON device_events(device_id, type, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS device_presence (
+    device_id TEXT PRIMARY KEY REFERENCES devices(device_id),
+    display_name TEXT,
+    last_seen_at TEXT NOT NULL,
+    on_duty INTEGER NOT NULL CHECK (on_duty IN (0, 1)),
+    active_run_id TEXT,
+    heartbeat_state TEXT NOT NULL CHECK (heartbeat_state IN ('OK', 'MISSING')),
+    missing_since TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outbound_messages (
+    message_id TEXT PRIMARY KEY,
+    target TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    device_id TEXT NOT NULL REFERENCES devices(device_id),
+    incident_key TEXT NOT NULL,
+    status_text TEXT NOT NULL,
+    idempotency_key TEXT,
+    payload_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('PENDING', 'SENDING', 'SENT', 'DEDUP', 'DEAD')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,
+    last_http_status INTEGER,
+    last_error_code TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS outbound_messages_due_idx
+ON outbound_messages(state, next_attempt_at);
+CREATE UNIQUE INDEX IF NOT EXISTS outbound_messages_idempotency_idx
+ON outbound_messages(idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS outbound_messages_incident_idx
+ON outbound_messages(target, incident_key, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS integration_state (
+    target TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    detail TEXT,
+    config_fingerprint TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -148,23 +206,23 @@ class Database:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=10.0)
+    def connect(self, *, timeout: float = 10.0) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=timeout)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA busy_timeout=10000")
+        connection.execute(f"PRAGMA busy_timeout={int(timeout * 1000)}")
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
     def initialize(self) -> None:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.executescript(SCHEMA)
         os.chmod(self.path, 0o600)
 
     @contextmanager
-    def immediate(self) -> Iterator[sqlite3.Connection]:
-        connection = self.connect()
+    def immediate(self, *, timeout: float = 10.0) -> Iterator[sqlite3.Connection]:
+        connection = self.connect(timeout=timeout)
         try:
             connection.execute("BEGIN IMMEDIATE")
             yield connection

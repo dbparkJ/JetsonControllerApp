@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import hmac
 import json
+import logging
 import os
 import posixpath
 import re
@@ -27,6 +28,8 @@ from typing import Deque, Dict, Iterable, Iterator, Mapping
 
 from .config import Settings
 from .database import Database
+from .device_events import DeviceEvents, DeviceEventsError
+from .geon_work import GeonWorkConfiguration, parse_timestamp
 
 
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -109,6 +112,9 @@ class ReceiverService:
         settings.prepare(create_pepper=create_pepper)
         self.database = Database(settings.database_path)
         self.database.initialize()
+        self.geon_work = GeonWorkConfiguration(settings.geon_work_config_path, self.database)
+        self.geon_work.refresh(time.time())
+        self.device_events = DeviceEvents(self.database, self.geon_work)
         self._expected_mount_device = (
             settings.expected_mount.stat().st_dev
             if settings.require_mount and settings.expected_mount is not None
@@ -603,6 +609,35 @@ class ReceiverService:
                     retry_after=60,
                 )
             requests.append(now)
+
+    def reserve_device_event_request(self, device: Device) -> None:
+        try:
+            self.device_events.reserve_request(device.device_id)
+        except DeviceEventsError as error:
+            raise ReceiverError(error.status, error.detail, retry_after=error.retry_after) from error
+
+    def accept_device_events(self, device: Device, value: object) -> Dict[str, object]:
+        try:
+            return self.device_events.accept(device.device_id, value)
+        except DeviceEventsError as error:
+            raise ReceiverError(error.status, error.detail, retry_after=error.retry_after) from error
+
+    def device_events_status(
+        self, employee: Employee, project_id: str, device_id: str
+    ) -> Dict[str, object]:
+        try:
+            project_id = self._require_project_grant(employee, project_id)
+        except ReceiverError as error:
+            if error.status in {400, 403}:
+                raise ReceiverError(404, "Device was not found in the selected project") from error
+            raise
+        with self.database.connect() as connection:
+            if connection.execute(
+                "SELECT 1 FROM project_devices WHERE project_id=? AND device_id=?",
+                (project_id, device_id),
+            ).fetchone() is None:
+                raise ReceiverError(404, "Device was not found in the selected project")
+        return self.device_events.status(device_id, time.time())
 
     def parse_manifest(self, value: object) -> Manifest:
         if not isinstance(value, dict):
@@ -2400,14 +2435,21 @@ class ReceiverService:
             raise RuntimeError("Finalization storage state is inconsistent")
         now = self.timestamp()
         with self.database.immediate() as connection:
-            connection.execute(
+            completed = connection.execute(
                 """
                 UPDATE upload_sessions
                 SET state='COMPLETED', failure_code=NULL, updated_at=?, completed_at=?
                 WHERE session_id=? AND state='FINALIZING'
                 """,
                 (now, now, session_id),
-            )
+            ).rowcount
+        if completed:
+            try:
+                self.device_events.upload_completed(session, parse_timestamp(now))
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "message_id=%s http_status=- error_code=COMPLETION_EVENT_ERROR", session_id
+                )
 
     def _reactivate_failed_session(self, device: Device, session_id: str) -> None:
         with self._guard(f"session:{session_id}"):

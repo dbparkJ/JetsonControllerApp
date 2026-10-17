@@ -30,6 +30,9 @@ EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 class ReceiverApiTest(unittest.TestCase):
     def setUp(self) -> None:
+        dispatcher_start = patch("upload_receiver.app.Dispatcher.start")
+        dispatcher_start.start()
+        self.addCleanup(dispatcher_start.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.data_root = Path(self.temporary.name) / "receiver"
         self.settings = Settings(

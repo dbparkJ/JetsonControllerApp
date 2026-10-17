@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import sys
+import time
 import uuid
 from pathlib import Path
 
 from .config import Settings
+from .geon_work import validate_config
 from .service import ReceiverService
 
 
@@ -131,9 +135,32 @@ def main() -> None:
     cleanup = subparsers.add_parser("cleanup", help="expire old staging sessions")
     cleanup.add_argument("--older-than-hours", type=int, default=72)
 
+    geon = subparsers.add_parser("configure-geon-work", help="configure GEO& Work from stdin")
+    geon.add_argument("--webhook-url", required=True)
+    geon.add_argument("--channel-id", required=True)
+    subparsers.add_parser("geon-work-status", help="show GEO& Work state and counts")
+
     args = parser.parse_args()
     settings = Settings.from_env()
+    if args.command == "configure-geon-work":
+        value = {
+            "version": 1, "webhookUrl": args.webhook_url, "channelId": args.channel_id,
+            "signingSecret": sys.stdin.readline().rstrip("\r\n"),
+        }
+        try:
+            validate_config(value)
+        except (ValueError, TypeError):
+            parser.error("GEO& Work configuration is invalid")
+        _write_secret(
+            settings.geon_work_config_path, json.dumps(value, ensure_ascii=False), force=True
+        )
+        print("GEO& Work configuration written with mode 0600")
+        return
     receiver = ReceiverService(settings, create_pepper=args.command == "init")
+    if args.command == "geon-work-status":
+        status = receiver.device_events.status(None, time.time())
+        print(json.dumps({**status["integration"], "window": status["window"]}))
+        return
     if args.command == "init":
         print(f"Initialized receiver data root: {settings.data_root}")
         return

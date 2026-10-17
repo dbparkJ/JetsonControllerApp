@@ -60,6 +60,7 @@ class Settings:
     readiness_cache_seconds: int = 5
     max_preview_bytes: int = 12 * 1024 * 1024
     server_environment: str = "development"
+    geon_work_config: Path | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -112,6 +113,11 @@ class Settings:
                 "UPLOAD_RECEIVER_MAX_PREVIEW_BYTES", 12 * 1024 * 1024
             ),
             server_environment=_server_environment(),
+            geon_work_config=(
+                Path(os.environ["UPLOAD_RECEIVER_GEON_WORK_CONFIG"]).expanduser()
+                if os.environ.get("UPLOAD_RECEIVER_GEON_WORK_CONFIG")
+                else None
+            ),
         )
 
     @property
@@ -121,6 +127,10 @@ class Settings:
     @property
     def pepper_path(self) -> Path:
         return self.data_root / "secrets" / "token-pepper"
+
+    @property
+    def geon_work_config_path(self) -> Path:
+        return self.geon_work_config or self.data_root / "secrets" / "geon-work.json"
 
     @property
     def staging_root(self) -> Path:
