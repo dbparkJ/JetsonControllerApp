@@ -37,7 +37,9 @@ internal data class PinnedSurveyState(
     val scopeLabel: String?,
     val scopeCaption: String,
     val startEnabled: Boolean,
-    val startBlockedReason: String?
+    val startBlockedReason: String?,
+    /** Choosing a section reads the device's survey context, so it needs a connection. */
+    val changeEnabled: Boolean = true
 )
 
 internal data class ActiveRunState(
@@ -88,9 +90,10 @@ internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
         hasDevice = input.deviceName != null,
         pinned = PinnedSurveyState(
             scopeLabel = scope,
-            scopeCaption = if (scope != null) "마지막으로 고른 구간" else "구간을 골라 주세요",
+            scopeCaption = if (scope != null) "마지막으로 고른 구간" else "아직 고른 구간이 없습니다",
             startEnabled = blockedReason == null,
-            startBlockedReason = blockedReason
+            startBlockedReason = blockedReason,
+            changeEnabled = input.connected && activeRun == null
         ),
         activeRun = activeRun?.let { run ->
             ActiveRunState(
@@ -116,7 +119,7 @@ internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
         } else {
             "작업 등록과 편집은 관리자에게 요청하세요."
         },
-        otherTasksEmptyText = "등록된 다른 작업이 없습니다. 작업 등록은 관리자에게 요청하세요."
+        otherTasksEmptyText = "등록된 다른 작업이 없습니다."
     )
 }
 

@@ -92,15 +92,33 @@ fun ControlNavigationBar(
     enabledSections: Set<ControlSection> = ControlSection.entries.toSet()
 ) {
     if (LocalControlNavigationRailVisible.current) return
+    val c = LocalGeoColors.current
     val selectedTab = selected.tab()
-    NavigationBar(modifier = Modifier.fillMaxWidth()) {
+    // The current tab is shown by colour and weight only; the pill indicator is reserved for status chips.
+    val itemColors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+        selectedIconColor = c.primary,
+        selectedTextColor = c.primary,
+        unselectedIconColor = c.inkSubtle,
+        unselectedTextColor = c.inkSubtle,
+        indicatorColor = androidx.compose.ui.graphics.Color.Transparent
+    )
+    NavigationBar(modifier = Modifier.fillMaxWidth(), containerColor = c.surface) {
         controlEntries.forEach { entry ->
+            val isSelected = selectedTab == entry.section
             NavigationBarItem(
-                selected = selectedTab == entry.section,
+                selected = isSelected,
                 onClick = { onSelect(entry.section) },
                 enabled = entry.section in enabledSections,
                 icon = { Icon(entry.icon, contentDescription = entry.description) },
-                label = { Text(entry.label, style = MaterialTheme.typography.labelMedium) }
+                label = {
+                    Text(
+                        entry.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold
+                            else androidx.compose.ui.text.font.FontWeight.Medium
+                    )
+                },
+                colors = itemColors
             )
         }
     }
@@ -120,11 +138,26 @@ fun ControlNavigationRail(selected: ControlSection, onSelect: (ControlSection) -
         }
     ) {
         controlEntries.forEach { entry ->
+            val isSelected = selectedTab == entry.section
             NavigationRailItem(
-                selected = selectedTab == entry.section,
+                selected = isSelected,
                 onClick = { onSelect(entry.section) },
                 icon = { Icon(entry.icon, contentDescription = entry.description) },
-                label = { Text(entry.label, style = MaterialTheme.typography.labelMedium) }
+                label = {
+                    Text(
+                        entry.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold
+                            else androidx.compose.ui.text.font.FontWeight.Medium
+                    )
+                },
+                colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
+                    selectedIconColor = c.primary,
+                    selectedTextColor = c.primary,
+                    unselectedIconColor = c.inkSubtle,
+                    unselectedTextColor = c.inkSubtle,
+                    indicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                )
             )
         }
     }

@@ -308,26 +308,41 @@ internal fun deviceFlowExitRoute(exit: DeviceFlowExit): String = when (exit) {
 internal data class ConnectionNotice(val message: String, val tone: StatusTone)
 
 /** Screens that cannot work without the device connection. The device root has its own status band instead. */
+// Settings are app preferences and never wait for a device, so they are not listed here.
 private val routesNeedingConnectionNotice = routesRequiringDeviceConnection + setOf(
     Routes.DATA,
-    Routes.SETTINGS,
     Routes.PIPELINE_DETAIL,
     Routes.SENSORS,
     Routes.DEVICE_DETAIL
+)
+
+// Only these screens hold input the operator is writing, so only they promise to keep it.
+private val routesWithEditableInput = setOf(
+    Routes.SURVEY_RUN,
+    Routes.NETWORK_SETTINGS,
+    Routes.UPLOAD_CONFIRM,
+    Routes.PIPELINE_EDITOR,
+    Routes.PIPELINE_CONFIG
 )
 
 internal fun connectionNoticeFor(
     route: String?,
     fullControlConnected: Boolean,
     transportType: TransportType?,
-    registrationRequired: Boolean
-): ConnectionNotice? = when {
-    registrationRequired && deviceRegistrationRedirectAllowed(route) ->
-        ConnectionNotice("장치 인증 정보를 확인할 수 없습니다. QR로 다시 등록해 주세요.", StatusTone.ERROR)
-    fullControlConnected || route !in routesNeedingConnectionNotice -> null
-    transportType == TransportType.BLE ->
-        ConnectionNotice("전체 제어 연결이 필요합니다. 작성한 내용은 유지됩니다.", StatusTone.WARNING)
-    else -> ConnectionNotice("장치 연결을 기다리고 있습니다. 작성한 내용은 유지됩니다.", StatusTone.WARNING)
+    registrationRequired: Boolean,
+    hasRegisteredDevice: Boolean = true
+): ConnectionNotice? {
+    if (registrationRequired && deviceRegistrationRedirectAllowed(route)) {
+        return ConnectionNotice("장치 인증 정보를 확인할 수 없습니다. QR로 다시 등록해 주세요.", StatusTone.ERROR)
+    }
+    // With no registered device there is nothing to wait for; the 장치 root asks for a QR registration.
+    if (!hasRegisteredDevice || fullControlConnected || route !in routesNeedingConnectionNotice) return null
+    val outcome = if (route in routesWithEditableInput) "작성한 내용은 유지됩니다." else "연결되면 최신 정보로 바뀝니다."
+    return if (transportType == TransportType.BLE) {
+        ConnectionNotice("전체 제어 연결이 필요합니다. $outcome", StatusTone.WARNING)
+    } else {
+        ConnectionNotice("장치 연결을 기다리고 있습니다. $outcome", StatusTone.WARNING)
+    }
 }
 
 
@@ -797,7 +812,8 @@ fun JetsonApp(
         route = currentRoute,
         fullControlConnected = fullControlConnected,
         transportType = connectedTransportType,
-        registrationRequired = deviceState.connectionState is ConnectionState.RegistrationRequired
+        registrationRequired = deviceState.connectionState is ConnectionState.RegistrationRequired,
+        hasRegisteredDevice = deviceState.registeredDevices.isNotEmpty()
     )
     NoticeDismissalProvider {
     ConnectionRecoveryLayout(
@@ -1058,7 +1074,9 @@ fun JetsonApp(
                 onSectionSelected = onSectionSelected,
                 onAlertsClick = { navController.navigateSingle(Routes.ALERTS) },
                 onAddDevice = { navController.navigateSingle(Routes.ONBOARDING) },
-                onOtherWays = { navController.navigateSingle(Routes.CONNECTION_HUB) },
+                // A first registration is QR-only; the other thing a phone can do without a device
+                // is read the receiving server's files.
+                onServerFiles = { navController.navigateSingle(Routes.SERVER_STORAGE) },
                 onOpenDevice = { navController.navigateSingle(Routes.DEVICE_DETAIL) },
                 onReconnect = { currentRegisteredDevice?.let(connectRegisteredDevice) },
                 onStartCollection = openSurveyPreparation,

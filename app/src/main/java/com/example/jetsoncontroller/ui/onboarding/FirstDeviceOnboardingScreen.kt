@@ -56,11 +56,8 @@ fun FirstDeviceOnboardingScreen(
                 .padding(horizontal = AppSpacing.screen),
             verticalArrangement = Arrangement.Center
         ) {
-            ConnectionStepper(
-                labels = listOf("장치 등록", "안전한 인증", "Wi-Fi 설정"),
-                currentStep = 0
-            )
-            Spacer(Modifier.height(32.dp))
+            // One description of the steps: the list below. A second stepper with different
+            // names made the same flow read as two flows.
             Text(
                 text = "장치를 등록합니다",
                 style = MaterialTheme.typography.headlineSmall,
@@ -86,15 +83,15 @@ fun FirstDeviceOnboardingScreen(
             OnboardingStep(
                 icon = Icons.Default.CheckCircle,
                 title = "인증 완료",
-                description = "인증 정보는 이 기기에 안전하게 저장됩니다."
+                description = "인증 정보는 이 기기에 안전하게 저장됩니다. 장치 Wi-Fi는 필요할 때 장치 상세에서 설정합니다."
             )
             Spacer(Modifier.height(32.dp))
             Button(
                 onClick = onScanQr,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
                 Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                Text("QR 스캔", modifier = Modifier.padding(start = AppSpacing.small))
+                Text("QR 코드 스캔", modifier = Modifier.padding(start = AppSpacing.small))
             }
         }
     }
@@ -113,17 +110,11 @@ private fun OnboardingStep(
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.large),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            shape = MaterialTheme.shapes.small
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.padding(AppSpacing.medium)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary
+        )
         Column {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(

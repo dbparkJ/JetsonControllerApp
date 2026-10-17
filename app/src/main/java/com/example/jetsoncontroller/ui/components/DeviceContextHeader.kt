@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +49,7 @@ fun DeviceContextHeader(
     onAlerts: () -> Unit = {},
     showLogo: Boolean = false,
     connectionTone: StatusTone = StatusTone.UNKNOWN,
+    onBack: (() -> Unit)? = null,
     actions: @Composable () -> Unit = {}
 ) {
     val c = LocalGeoColors.current
@@ -58,6 +60,12 @@ fun DeviceContextHeader(
                 .padding(horizontal = GeoSpace.gutter, vertical = GeoSpace.sm)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Screens below a tab root show a real back control instead of relying on system Back.
+                if (onBack != null) {
+                    androidx.compose.material3.IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                }
                 Surface(
                     onClick = onDevices,
                     color = androidx.compose.ui.graphics.Color.Transparent,

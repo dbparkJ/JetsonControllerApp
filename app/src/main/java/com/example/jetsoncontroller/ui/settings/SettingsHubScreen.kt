@@ -148,7 +148,6 @@ fun SettingsHubScreen(
         topBar = {
             TopAppBar(
                 title = { Text("설정", style = MaterialTheme.typography.headlineMedium) },
-                actions = { AlertIconButton(unreadCount, onAlerts) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = LocalGeoColors.current.canvas)
             )
         },
@@ -165,7 +164,7 @@ fun SettingsHubScreen(
                         modifier = Modifier.fillMaxWidth(),
                         first = {
                             Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
-                                SettingsGroup("앱 설정") {
+                                SettingsGroup("앱") {
                                     SettingsPreferenceRow(
                                         icon = Icons.Default.Notifications,
                                         title = "알림 기준",
@@ -180,34 +179,36 @@ fun SettingsHubScreen(
                                         value = theme.label,
                                         onClick = { themePickerOpen = true }
                                     )
-                                    GeoRowDivider()
+                                }
+                                SettingsGroup("서버") {
                                     SettingsPreferenceRow(
                                         icon = Icons.Default.Storage,
                                         title = "서버 연결",
                                         value = "프로필 보기",
                                         onClick = onServerStorage
                                     )
-                                    GeoRowDivider()
-                                    SettingsPreferenceRow(
-                                        icon = Icons.AutoMirrored.Filled.HelpOutline,
-                                        title = "도움말",
-                                        onClick = { helpOpen = true }
-                                    )
                                 }
                             }
                         },
                         second = {
                             Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
-                                SettingsPreferenceRow(
-                                    icon = null,
-                                    title = "앱 정보",
-                                    value = "GEO& ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}",
-                                    onClick = {
-                                        developerUnlockTaps = if (developerModeEnabled) 0 else 1
-                                        aboutOpen = true
-                                    },
-                                    standalone = true
-                                )
+                                SettingsGroup("정보") {
+                                    SettingsPreferenceRow(
+                                        icon = Icons.AutoMirrored.Filled.HelpOutline,
+                                        title = "도움말",
+                                        onClick = { helpOpen = true }
+                                    )
+                                    GeoRowDivider()
+                                    SettingsPreferenceRow(
+                                        icon = null,
+                                        title = "앱 정보",
+                                        value = "GEO& ${com.example.jetsoncontroller.BuildConfig.VERSION_NAME}",
+                                        onClick = {
+                                            developerUnlockTaps = if (developerModeEnabled) 0 else 1
+                                            aboutOpen = true
+                                        }
+                                    )
+                                }
                                 if (developerModeEnabled) {
                                     SettingsGroup("고급") {
                                         DeveloperModeRow(

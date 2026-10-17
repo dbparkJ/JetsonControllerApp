@@ -93,7 +93,7 @@ internal fun DevicesHomeScreen(
     onSectionSelected: (ControlSection) -> Unit,
     onAlertsClick: () -> Unit,
     onAddDevice: () -> Unit,
-    onOtherWays: () -> Unit,
+    onServerFiles: () -> Unit,
     onOpenDevice: () -> Unit,
     onReconnect: () -> Unit,
     onStartCollection: () -> Unit,
@@ -160,7 +160,7 @@ internal fun DevicesHomeScreen(
         ) {
             if (current == null || currentConnection == null) {
                 item {
-                    FirstRunCard(onAddDevice = onAddDevice, onOtherWays = onOtherWays)
+                    FirstRunCard(onAddDevice = onAddDevice, onServerFiles = onServerFiles)
                 }
             } else {
                 val figures = deviceFigures(
@@ -260,7 +260,7 @@ private fun DevicesAppBar(
 }
 
 @Composable
-private fun FirstRunCard(onAddDevice: () -> Unit, onOtherWays: () -> Unit) {
+private fun FirstRunCard(onAddDevice: () -> Unit, onServerFiles: () -> Unit) {
     val c = LocalGeoColors.current
     Surface(color = c.surface, contentColor = c.ink, shape = SurfaceShape, modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -280,7 +280,7 @@ private fun FirstRunCard(onAddDevice: () -> Unit, onOtherWays: () -> Unit) {
                 textAlign = TextAlign.Center
             )
             Text(
-                "QR 코드를 스캔하면 장치를 이 휴대폰에 등록합니다.",
+                "장치의 QR 코드를 스캔하면 이 휴대폰에 등록합니다. 처음 등록은 QR 코드로만 할 수 있습니다.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = c.muted,
                 textAlign = TextAlign.Center
@@ -290,10 +290,10 @@ private fun FirstRunCard(onAddDevice: () -> Unit, onOtherWays: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = ControlShape
             ) {
-                Text("QR 코드로 등록", fontWeight = FontWeight.Bold)
+                Text("QR 코드로 장치 등록", fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = onOtherWays) {
-                Text("다른 방법")
+            TextButton(onClick = onServerFiles) {
+                Text("장치 없이 서버 파일 보기")
             }
         }
     }

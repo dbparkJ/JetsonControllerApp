@@ -133,7 +133,14 @@ fun PipelineListScreen(
         topBar = {
             com.example.jetsoncontroller.ui.components.DeviceContextHeader(
                 if (detailId == null) "수집 작업 선택" else "작업 상세", deviceName,
-                if (fresh) "상태 확인됨" else "상태 확인 필요", onBack, unreadCount, onAlerts,
+                when {
+                    fresh -> "최신 상태"
+                    state.controlAvailable -> "확인 중"
+                    else -> "오프라인"
+                },
+                onBack, unreadCount, onAlerts,
+                connectionTone = if (fresh) StatusTone.SUCCESS else StatusTone.UNKNOWN,
+                onBack = onBack,
                 actions = {
                     if (developerModeEnabled && detailId == null) {
                         IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "작업 추가") }
@@ -173,8 +180,8 @@ fun PipelineListScreen(
             }
             if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             if (state.pipelines.isEmpty() && !state.isLoading) item {
-                EmptyState(if (fresh) "등록된 작업이 없습니다" else "작업 상태 확인 필요",
-                    if (fresh) "이 장치에서 사용할 수집 작업이 없습니다." else "연결 후 목록을 다시 확인하세요.",
+                EmptyState(if (fresh) "등록된 작업이 없습니다" else "작업 목록을 불러오지 못했습니다",
+                    if (fresh) "이 장치에서 사용할 수집 작업이 없습니다." else "장치에 연결하면 작업 목록을 다시 불러옵니다.",
                     actionLabel = "작업 추가".takeIf { developerModeEnabled },
                     onAction = onAdd.takeIf { developerModeEnabled })
             }

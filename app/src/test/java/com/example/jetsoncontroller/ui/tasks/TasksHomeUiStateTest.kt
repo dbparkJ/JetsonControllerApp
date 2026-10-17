@@ -65,8 +65,17 @@ class TasksHomeUiStateTest {
         val state = buildTasksHomeUiState(input(survey(section = null)))
 
         assertNull(state.pinned.scopeLabel)
-        assertEquals("구간을 골라 주세요", state.pinned.scopeCaption)
+        assertEquals("아직 고른 구간이 없습니다", state.pinned.scopeCaption)
         assertEquals("구간을 고르면 점검을 시작할 수 있습니다.", state.pinned.startBlockedReason)
+    }
+
+    @Test
+    fun `choosing a section needs a connected device`() {
+        val offline = buildTasksHomeUiState(input(survey(section = null)).copy(connected = false))
+        val online = buildTasksHomeUiState(input(survey(section = null)).copy(connected = true))
+
+        assertFalse(offline.pinned.changeEnabled)
+        assertTrue(online.pinned.changeEnabled)
     }
 
     @Test

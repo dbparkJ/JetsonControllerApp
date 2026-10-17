@@ -333,15 +333,40 @@ class NavigationWorkflowTest {
     @Test
     fun `connection notice is one banner for screens that need the device and never for the root`() {
         assertEquals(
-            ConnectionNotice("장치 연결을 기다리고 있습니다. 작성한 내용은 유지됩니다.", StatusTone.WARNING),
+            ConnectionNotice("장치 연결을 기다리고 있습니다. 연결되면 최신 정보로 바뀝니다.", StatusTone.WARNING),
             connectionNoticeFor(Routes.PIPELINES, fullControlConnected = false, transportType = null, registrationRequired = false)
         )
         assertEquals(
-            "전체 제어 연결이 필요합니다. 작성한 내용은 유지됩니다.",
+            "전체 제어 연결이 필요합니다. 연결되면 최신 정보로 바뀝니다.",
             connectionNoticeFor(Routes.PIPELINES, fullControlConnected = false, transportType = TransportType.BLE, registrationRequired = false)?.message
         )
         assertNull(connectionNoticeFor(Routes.DEVICES, fullControlConnected = false, transportType = null, registrationRequired = false))
         assertNull(connectionNoticeFor(Routes.PIPELINES, fullControlConnected = true, transportType = TransportType.LAN, registrationRequired = false))
+    }
+
+    @Test
+    fun `only screens with input promise to keep it, and settings never wait for a device`() {
+        assertEquals(
+            "장치 연결을 기다리고 있습니다. 작성한 내용은 유지됩니다.",
+            connectionNoticeFor(Routes.SURVEY_RUN, fullControlConnected = false, transportType = null, registrationRequired = false)?.message
+        )
+        assertNull(connectionNoticeFor(Routes.SETTINGS, fullControlConnected = false, transportType = null, registrationRequired = false))
+    }
+
+    @Test
+    fun `no device registered means no connection banner anywhere`() {
+        listOf(Routes.PIPELINES, Routes.SURVEY_RUN, Routes.DATA, Routes.DEVICE_DETAIL).forEach { route ->
+            assertNull(
+                route,
+                connectionNoticeFor(
+                    route,
+                    fullControlConnected = false,
+                    transportType = null,
+                    registrationRequired = false,
+                    hasRegisteredDevice = false
+                )
+            )
+        }
     }
 
     @Test

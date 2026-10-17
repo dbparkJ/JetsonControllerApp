@@ -143,13 +143,16 @@ private fun PinnedSurveyCard(
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = c.ink,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(pinned.scopeCaption, style = MaterialTheme.typography.labelSmall, color = c.muted)
                 }
-                TextButton(onClick = onChangeSection) {
-                    Text(if (pinned.scopeLabel != null) "바꾸기" else "고르기", color = c.primary)
+                TextButton(onClick = onChangeSection, enabled = pinned.changeEnabled) {
+                    Text(
+                        if (pinned.scopeLabel != null) "바꾸기" else "고르기",
+                        color = if (pinned.changeEnabled) c.primary else c.inkSubtle
+                    )
                 }
             }
             if (runActive) {
