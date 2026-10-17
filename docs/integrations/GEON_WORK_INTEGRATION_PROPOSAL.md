@@ -1,92 +1,152 @@
-# JetsonController ↔ GEON Work 연동 제안
+# JetsonController ↔ GEO& Work 연동 계약
 
-v0.1 · 2026-10-17 · 작성: JetsonController 세션(Claude) · 검토 요청 대상: GEON Work 세션
+v0.2 · 2026-10-18 · v0.1 제안(2026-10-17)에 GEO& Work 세션의 회신(GEON Work main 10d6f1af 기준)을 반영했습니다. GEON Work는 GEO& Work로 이름을 바꾸는 중이며, 이 문서는 새 이름을 씁니다.
 
-현장 장치(Jetson, MMS 호기)의 상태, 수집 실행, 서버 전송 결과를 GEON Work 대화와 업무로 보내, 현장운영 채널에서 사람이 판단하고 지시할 수 있게 한다. 1단계는 GEON Work 코드를 바꾸지 않고 이미 있는 Incoming Webhook과 `JETSON_DEVICE`·`ROADINVENTORY_MMS` 템플릿을 쓴다. 장치 원격 제어와 원본 데이터 전송은 범위 밖이다.
+현장 장치(Jetson, MMS 호기)의 상태, 수집 실행, 서버 전송 결과를 GEO& Work 채널로 보내 사람이 판단하게 합니다. 장치 원격 제어는 범위 밖입니다.
 
-## 1. 양쪽에 이미 있는 것
+## 1. 결정 사항
 
-| 쪽 | 기능 | 근거 |
+| 주제 | 결정 |
+|---|---|
+| 알림 경로 | GEO& Work Incoming Webhook(F20)은 운영 API로 유지합니다. 설치·연장·회수는 GEO& Work 관리자 API가 맡습니다. 비밀값을 바꿀 때는 새 연동을 만들고 수신 서버를 전환한 뒤 옛 연동을 회수합니다. |
+| 운영 값 | 채널 하나('장치 알림')로 시작하고, 프로젝트는 `project` 필드로 구분합니다. integrationId·channelId·webhook 주소·signing secret은 수신 서버 비밀 설정에만 두고 저장소·앱에는 넣지 않습니다. 소유자가 GEO& Work 서버의 비밀 파일에서 수신 서버로 직접 옮깁니다. |
+| 토큰 만료 | 만료되면 GEO& Work가 `404 INTEGRATION_NOT_FOUND`를 돌려줍니다. 수신 서버는 이것을 '연동 만료'로 표시합니다. |
+| 페이로드 | `deviceId`·`runId`·`link` 필드는 추가하지 않습니다. 식별자와 측정값은 `details`에 `key=value` 줄로 넣습니다. 스키마에 없는 필드는 보내지 않습니다(GEO& Work가 버린 뒤 서명을 검사하므로 서명이 틀어짐). |
+| 링크 | GEO& Work 웹은 http/https만 링크로 만들고 앱 셸은 다른 scheme을 막습니다. `geoand://` 딥링크(J4)는 보류하고 양방향 단계에서 https App Links로 다시 설계합니다. |
+| 보드·티켓 | 소유자가 '데이터 수집 구간' 보드 티켓 ↔ 현장 앱 양방향 연동을 승인했습니다(J5~J7). GEO& Work 쪽 계약(boards scope, 행 조회·PATCH)이 오면 시작합니다. 원격 제어는 여전히 없습니다. |
+| 디자인 토큰 | 원본은 GEO& Work `apps/web/src/shared/ui/tokens.css`입니다. JSON 내보내기는 없으므로 main 커밋 SHA를 적고 복사합니다. 단추 체계가 바뀌는 중이라 GEO& Work의 다음 배포 뒤에 맞춥니다. |
+
+## 2. 장치 이벤트: Jetson → 수신 서버
+
+`POST /v1/device-events`, 장치 토큰(`Authorization: Bearer`)으로 인증합니다. 수신 서버는 `GET /v1/capabilities`에 아래 값을 광고하고, Jetson은 이 광고가 있을 때만 보냅니다.
+
+```json
+"deviceEvents": {"version": 1, "maxEvents": 50, "maxBytes": 65536, "heartbeatSeconds": 300}
+```
+
+요청 본문(스키마 `jetson.event.v1`, 필드 추가는 하위 호환으로만):
+
+```json
+{
+  "schema": "jetson.event.v1",
+  "device": {"name": "MMS-JETSON-01"},
+  "events": [
+    {"eventId": "<uuid4>", "type": "device.temperature", "occurredAt": "2026-10-19T09:12:03+09:00",
+     "level": "WARNING", "temperatureC": 82.5, "thresholdC": 80.0, "lastNormalAt": "2026-10-19T09:00:00+09:00"}
+  ]
+}
+```
+
+| type | 필드 | 보내는 때 |
 |---|---|---|
-| GEON Work | Incoming Webhook `POST /v1/webhooks/incoming/:integrationId`. 헤더 `x-geon-timestamp`(±5분)·`x-geon-nonce`(8~120자, 재사용 불가)·`x-geon-signature`(`v1=` + HMAC-SHA256 hex). 서명 원문 `<timestamp>.<nonce>.<canonical-json>`(key 사전순, 공백 없음) | geon_slack `docs/INTEGRATIONS.md` |
-| GEON Work | 구조화 템플릿 `JETSON_DEVICE`·`SERVER_DEPLOYMENT`·`ROADINVENTORY_MMS`. 필드 `channelId`·`source`·`severity`(INFO·WARNING·CRITICAL·RECOVERY)·`project`·`status`·`impact`·`lastHealthyAt`·`retryCount`·`details`(≤1500)·`actions`(≤10)·`incidentKey`. 같은 `incidentKey`와 `status`는 새 메시지를 만들지 않고, 상태 변경·RECOVERY는 새 메시지 | geon_slack `apps/api/src/integrations.ts` 47-55, 136-137 |
-| GEON Work | BOT 계정, 해시 토큰, scope, 채널 allowlist, `POST /api/v1/messages`(`idempotencyKey`), durable outbox(15초~15분 backoff, 10회, DEAD) | `docs/INTEGRATIONS.md` |
-| GEON Work | 리빌딩 계획에서 Bot·Webhook(F20)은 UI 숨김·개발 동결이지만 API는 유지되며 "장비 연동·외부 알림 hook(F39)의 기반". 보드 템플릿 `FIELD_REPORT`(현장 보고)는 후속. 예시 채널 `#mms-현장운영` | `docs/REBUILD_PLAN.md` §3.1, `docs/agents/DESIGN_AGENT_BRIEF.md` §1-5·4-5 |
-| JetsonController | Jetson 백엔드: 장치 상태(`backend/jetson_control/status.py`), 센서 감시(`sensor_monitor.py`), 수집 실행(`pipelines.py`·`run_context.py`), 업로드 작업(`uploads.py`) | 이 저장소 |
-| JetsonController | 업로드 수신 서버(항상 켜진 HTTPS 서버, SQLite·파일 저장, 수신 검증): `upload_receiver/upload_receiver/service.py` | 이 저장소 |
-| JetsonController | Android 앱: 온도·저장 공간 등 경보 기준과 알림 이력(`data/alerts/*`) | 이 저장소 |
+| `device.heartbeat` | `onDuty`(bool), `activeRunId`·`activeUploadJobId`(선택) | `heartbeatSeconds`마다. 큐에 쌓지 않고 실패하면 버립니다. |
+| `device.temperature` | `level`(NORMAL·WARNING·CRITICAL), `temperatureC`, `thresholdC`, `peakC`·`lastNormalAt`(선택) | 단계가 바뀔 때만. 오름은 연속 2회 평가(30초 간격), 내림은 문턱−3°C 아래가 10분 지속될 때 |
+| `device.storage` | `level`, `freePercent`, `freeBytes`, `totalBytes`, `lastNormalAt`(선택) | 단계가 바뀔 때만. WARNING 여유 <15%, CRITICAL <5%, 복귀는 문턱+3%p 이상이 10분 지속될 때 |
+| `run.started` | `runId`, `pipelineId`, `label`·`surveyProjectLabel`·`surveySectionLabel`(선택) | 수집 시작 |
+| `run.finished` | `runId`, `pipelineId`, `result`(COMPLETED·FAILED·STOPPED), `durationSeconds`·`bytesWritten`·`preciseFixRatio`(0~1)·라벨(선택) | 수집 종료 |
+| `upload.failed` | `jobId`, `runId`(선택), `failureCount`(같은 runId 연속 실패 횟수, 1부터), `errorCode`(`[A-Z0-9_]{1,64}`), 라벨(선택) | 업로드 작업 실패 |
 
-## 2. 1단계 — 알림 브리지 (GEON Work 변경 없음)
+- 응답 200: `{"results": [{"eventId": "…", "state": "ACCEPTED" | "DUPLICATE" | "REJECTED", "reason": "…"}]}`. Jetson은 ACCEPTED·DUPLICATE·REJECTED를 모두 큐에서 지우고(REJECTED는 기록), 요청 전체 오류(5xx·네트워크)만 다시 보냅니다.
+- 요청 전체 오류: 400(JSON·스키마), 401, 413(`maxBytes` 초과), 429(장치당 분당 60회 초과, `Retry-After`).
+- 이벤트별 거부: 모르는 `type`, 필수 필드 누락·형식 오류, `occurredAt`이 7일보다 오래됨. 모르는 필드는 무시합니다.
+- 같은 장치의 같은 `eventId`는 한 번만 처리합니다(DUPLICATE).
+- 업로드 완료("서버 수신 확인")는 수신 서버가 직접 압니다. 업로드 세션이 COMPLETED가 되고 manifest `context.runId`가 있으면 수신 서버가 이벤트를 만듭니다. Jetson은 따로 보내지 않습니다.
+- 응답 없음 판정: 수신 서버가 장치별 마지막 수신 시각을 기록합니다. 장치가 근무 중(마지막 heartbeat의 `onDuty`가 true이거나 `run.started` 뒤 `run.finished`가 없음)인데 30분 동안 아무 이벤트도 오지 않으면 "응답 없음", 그 뒤 다시 오면 "응답 복귀"를 만듭니다. 운행이 끝나 전원을 끈 장치에는 경보를 내지 않습니다.
 
-### 2.1 발신 위치
+## 3. GEO& Work 전송: 수신 서버 → GEO& Work
 
-모든 GEON Work 전송은 **업로드 수신 서버(upload_receiver)** 한 곳에서 한다.
+### 3.1 설정
 
-- Jetson 백엔드는 기존 인증 채널로 수신 서버에 장치 이벤트를 보낸다(새 엔드포인트 `POST /v1/device-events`). 장치가 오프라인이면 장치 쪽 큐에 쌓았다가 연결될 때 보낸다.
-- 수신 서버는 자체 SQLite outbox에 이벤트를 기록하고, worker가 GEON Work Incoming Webhook으로 서명해 보낸다. 실패해도 업로드·수집 저장을 막지 않는다(백오프·최대 시도·DEAD 표시).
-- Android 앱은 GEON Work 비밀값을 갖지 않는다. 앱은 같은 이벤트를 수신 서버나 Jetson API에서 읽어 '전송' 화면과 알림에 보여 줄 뿐이다.
-- 이유: 비밀값 한 곳, 나가는 주소 한 곳(방화벽 allowlist), 장치가 꺼져 있어도 "응답 없음"을 판정할 수 있는 곳이 수신 서버뿐이다.
+`<data_root>/secrets/geon-work.json`(권한 0600, 경로는 `UPLOAD_RECEIVER_GEON_WORK_CONFIG`로 바꿀 수 있음):
 
-### 2.2 이벤트 → 템플릿 매핑
+```json
+{"version": 1, "webhookUrl": "https://<GEO& Work API>/v1/webhooks/incoming/<integrationId>",
+ "channelId": "<uuid>", "signingSecret": "<secret>"}
+```
 
-| 이벤트 | template | severity | status | incidentKey | 그 밖의 필드 |
+- 파일이 없으면 연동 꺼짐(NOT_CONFIGURED)입니다. 이벤트는 받아 저장하지만 보낼 행은 만들지 않습니다.
+- 그룹·다른 사용자 권한이 있거나 https가 아니면 불러오지 않고 오류 상태로 둡니다.
+- 파일이 바뀌면 재시작 없이 다시 읽습니다. 나가는 주소는 `webhookUrl`의 호스트 하나입니다.
+- 관리 명령: `python -m upload_receiver.admin configure-geon-work --webhook-url <url> --channel-id <uuid>`는 secret을 표준 입력 첫 줄에서 읽어 0600 파일로 원자적으로 씁니다(명령줄 인자·로그에 secret 없음). `geon-work-status`는 상태와 건수만 출력합니다.
+- J5~J7을 위해 같은 파일에 `apiBaseUrl`·`apiToken`(`geon_…`)·`boardIds`를 나중에 더합니다.
+
+### 3.2 outbox
+
+알림과 티켓 보고(J7)가 함께 쓰는 SQLite 표입니다.
+
+- 열: `message_id`, `target`(`geon-work`), `kind`(`webhook`, 나중에 `board-patch`), `device_id`, `incident_key`, `status_text`, `idempotency_key`(유일, 선택), `payload_json`, `state`(PENDING·SENDING·SENT·DEDUP·DEAD), `attempts`, `next_attempt_at`, `last_http_status`, `last_error_code`, 생성·갱신·완료 시각.
+- 전송 worker는 앱 수명주기 안에서 스레드 하나로 돌고 동시 전송은 1개, 전송 간격 0.5초 이상(분당 120 이하)입니다. 요청 시간 제한은 15초입니다.
+- 재시도: 15초에서 시작해 두 배씩, 최대 15분, ±10% 흔들림, 최대 10회 뒤 DEAD(`RETRY_EXHAUSTED`). 429는 `Retry-After`를 따릅니다. 처음 만든 지 24시간이 지난 PENDING 행은 보내지 않고 DEAD(`STALE`)로 둡니다.
+- 같은 `incident_key`의 마지막 행과 `status_text`가 같으면 새 행을 만들지 않습니다(GEO& Work도 같은 기준으로 거릅니다).
+
+### 3.3 서명
+
+- `x-geon-timestamp`: 10자리 유닉스 초(NTP 필수, 서버와 ±300초).
+- `x-geon-nonce`: `[A-Za-z0-9_-]{8,120}`. 시도마다 새로 만들고 outbox 행 ID 앞부분을 접두어로 씁니다.
+- `x-geon-signature`: `"v1=" + hex(HMAC-SHA256(signingSecret, "<timestamp>.<nonce>.<canonical>"))`, UTF-8.
+- canonical: 스키마 필드만 담은 객체를 키 재귀 정렬, 공백 없이 직렬화합니다(Python `json.dumps(v, ensure_ascii=False, separators=(",", ":"), sort_keys=True)`). 문자열 앞뒤 공백은 미리 지우고 `severity`·`retryCount`·`actions`는 항상 넣습니다. 보내는 본문은 서명한 canonical 바이트 그대로입니다.
+- 시험 벡터(GEO& Work 제공): secret `test-signing-secret-0123456789abcdef`, timestamp `1792240000`, nonce `evt-0001-a1b2c3d4`, canonical `{"actions":["장치 환기 확인"],"channelId":"11111111-2222-4333-8444-555555555555","details":"deviceId=jetson-01\ntemperatureC=82.5\nthresholdC=80","impact":"수집 속도 저하 가능","incidentKey":"jetson:jetson-01:temperature","lastHealthyAt":"2026-10-19T09:00:00+09:00","retryCount":0,"severity":"WARNING","source":"jetson-01 (MMS 3호기)","status":"과열 경고","template":"JETSON_DEVICE"}` → `v1=fd84e54658f0112d8fce6f62559aabde9d2ded72b99510fa8509a559493b744f`.
+
+### 3.4 응답 처리
+
+| 응답 | 행 상태 | 연동 상태 |
+|---|---|---|
+| 201 | SENT | 정상 |
+| 200(중복 제거) | DEDUP | 정상 |
+| 409 `WEBHOOK_REPLAY` | SENT | 정상 |
+| 429, 5xx, 네트워크 오류 | 재시도 | 그대로 |
+| 400 | DEAD | 그대로(그 행만의 문제) |
+| 401 | DEAD | 오류 `SIGNATURE_REJECTED`, 설정이 바뀔 때까지 전송 멈춤 |
+| 403 | DEAD | 오류 `FORBIDDEN`, 전송 멈춤 |
+| 404 `INTEGRATION_NOT_FOUND` | DEAD | 만료 `EXPIRED`, 전송 멈춤 |
+| 409 `INTEGRATION_CHANNEL_UNAVAILABLE` | DEAD | 오류 `CHANNEL_UNAVAILABLE`, 전송 멈춤 |
+
+전송이 멈춘 동안 새 행은 PENDING으로 쌓이고 24시간 규칙을 따릅니다. 로그에는 행 ID·HTTP 상태·오류 코드만 남기고 secret·서명·본문은 남기지 않습니다.
+
+### 3.5 이벤트 → 템플릿
+
+모든 페이로드에 `template`, `channelId`, `source`(장치 표시 이름, 없으면 "장치 " + deviceId 앞 8자, ≤100), `severity`, `status`, `incidentKey`(3~160자, 넘으면 `run:`·`upload:` 뒤를 SHA-256 앞 32자로 줄임), `details`(≤1500), `actions`(≤10개, 각 ≤200), `retryCount`를 넣고, `project`(≤120)·`impact`(≤500)·`lastHealthyAt`(ISO 8601 + 오프셋)는 값이 있을 때만 넣습니다.
+
+| 이벤트 | template | severity | status | incidentKey | impact · actions |
 |---|---|---|---|---|---|
-| 장치 온도 높음 / 정상 복귀 | `JETSON_DEVICE` | ≥80°C WARNING, ≥90°C CRITICAL, 복귀 RECOVERY | 온도 높음 / 정상 | `jetson:{deviceId}:temperature` | `source`=장치 이름, `details`=현재·최고 온도, `actions`=["냉각 상태 확인"] |
-| 장치 응답 없음 / 복귀 | `JETSON_DEVICE` | WARNING(30분↑), 복귀 RECOVERY | 응답 없음 / 정상 | `jetson:{deviceId}:heartbeat` | `lastHealthyAt`=마지막 응답 |
-| 저장 공간 부족 | `JETSON_DEVICE` | 여유 <15% WARNING, <5% CRITICAL | 저장 공간 부족 / 정상 | `jetson:{deviceId}:storage` | `details`=여유 용량 |
-| 수집 시작 / 종료 | `ROADINVENTORY_MMS` | INFO | 수집 중 / 수집 종료 | `run:{runId}` | `project`=프로젝트·구간, `details`=경과 시간·용량·정밀 위치 비율 |
-| 전송 실패 | `ROADINVENTORY_MMS` | 재시도 <3 WARNING, ≥3 CRITICAL | 전송 실패 | `upload:{runId}` | `retryCount`, `actions`=["앱에서 다시 시도", "수신 서버 확인"] |
-| 서버 수신 확인 | `ROADINVENTORY_MMS` | RECOVERY | 서버 수신 확인 | `upload:{runId}` | `details`=파일 수·용량·검증 결과 |
+| 온도 WARNING / CRITICAL / NORMAL | `JETSON_DEVICE` | WARNING / CRITICAL / RECOVERY | 과열 경고 / 과열 위험 / 온도 정상 | `jetson:{deviceId}:temperature` | 수집 속도 저하 가능 · [장치 환기 확인] / 장치 보호를 위해 꺼질 수 있음 · [장치 환기 확인, 수집 중지 검토] / – · [] |
+| 저장 WARNING / CRITICAL / NORMAL | `JETSON_DEVICE` | WARNING / CRITICAL / RECOVERY | 저장 공간 부족 / 저장 공간 위험 / 저장 공간 정상 | `jetson:{deviceId}:storage` | 새 수집을 저장하지 못할 수 있음 · [전송 끝난 수집 정리] / 같음 / – · [] |
+| 응답 없음 / 복귀 | `JETSON_DEVICE` | WARNING / RECOVERY | 응답 없음 / 응답 복귀 | `jetson:{deviceId}:heartbeat` | 수집·전송이 멈췄을 수 있음 · [장치 전원·네트워크 확인] / – · [] |
+| 수집 시작 / 종료 | `ROADINVENTORY_MMS` | INFO | 수집 시작 / 수집 종료 | `run:{runId}` | – · [] |
+| 전송 실패 | `ROADINVENTORY_MMS` | retryCount <3 WARNING, ≥3 CRITICAL | 전송 실패 / 전송 실패 반복 | `upload:{runId 또는 jobId}` | 서버에 결과가 없음 · [앱에서 다시 시도, 수신 서버 확인] |
+| 서버 수신 확인 | `ROADINVENTORY_MMS` | RECOVERY | 서버 수신 확인 | `upload:{runId}` | – · [] |
 
-- 같은 장애가 반복되면 GEON Work가 `incidentKey`+`status`로 거른다. 온도는 ±3°C 히스테리시스와 10분 최소 간격을 수신 서버에서 먼저 적용한다.
-- 모든 요청에 새 nonce를 쓰고, 수신 서버 outbox 행 ID를 nonce 접두어로 써서 재시도 추적을 쉽게 한다.
-- 메시지 본문에 원본 파일, 이미지, 개인 정보는 넣지 않는다. 식별자·건수·상태만 보낸다.
+- `details` 줄: 항상 `deviceId=`, 이벤트에 따라 `runId=`·`jobId=`·`temperatureC=`·`thresholdC=`·`freePercent=`·`result=`·`durationSeconds=`·`files=`·`bytes=`·`errorCode=`·`occurredAt=`. status에는 측정값을 넣지 않습니다(중복 제거 기준이 `incidentKey`+`status`).
+- `project`: 라벨이 있으면 "프로젝트 · 구간", 없으면 생략. `retryCount`는 `failureCount − 1`, 그 밖은 0.
+- 원본 파일, 이미지, IP, 원시 예외 문구, 개인 정보는 넣지 않습니다.
 
-### 2.3 설정
+## 4. 전달 상태 조회: 앱 → 수신 서버
 
-수신 서버 설정(루트 전용 파일)에 다음을 둔다: GEON Work 기본 URL, `integrationId`, signing secret, 기본 채널 ID, 프로젝트별 채널 매핑(선택). secret 회전은 GEON Work 관리자가 하고, 수신 서버는 재시작 없이 다시 읽는다.
+`GET /v1/server/device-events/status?projectId=<p>&deviceId=<d>`, 직원 토큰 인증(다른 `/v1/server/*`와 같음). 직원에게 그 프로젝트 권한이 있고 장치가 그 프로젝트에 속할 때만 200, 아니면 404입니다.
 
-## 3. 2단계 — 업무 연결 (GEON Work 보드·F39 필요)
+```json
+{"deviceId": "…",
+ "integration": {"state": "ACTIVE" | "NOT_CONFIGURED" | "EXPIRED" | "ERROR", "detail": "INTEGRATION_NOT_FOUND" | null},
+ "window": {"hours": 24, "pending": 0, "sent": 3, "dedup": 1, "dead": 0},
+ "lastDelivered": {"status": "과열 경고", "at": "…"} | null,
+ "lastFailure": {"status": "…", "code": "…", "at": "…"} | null,
+ "lastSeenAt": "…" | null}
+```
 
-- **현장 보고 보드**(`FIELD_REPORT`, 호기 운행 보고): 수집 실행 1건 = 행 1개. 제안 속성: 장치(호기) · 날짜 · 프로젝트 · 구역/구간 · 수집 시간 · 용량 · 정밀 위치 비율 · 전송 상태(대기 / 전송 중 / 서버 수신 확인 / 실패) · 담당.
-- 행 생성·갱신은 외부 키(`externalKey = run:{runId}`)로 멱등 upsert. 1단계 메시지는 그 행의 원본 메시지 스레드로 묶는다.
-- GEON Work에 필요한 것: BOT용 `boards:write` scope, 외부 키 upsert API, 상태 옵션 범주(할 일·진행 중·완료) 매핑.
-- 이후: 수집 결과를 납품 체크리스트 구역 검수 항목의 근거로 연결.
+앱 '전송' 화면은 이 값으로 "GEO& Work 알림" 한 줄을 읽기 전용으로 보입니다. 서버 연결 프로필이 없거나 NOT_CONFIGURED·404이면 줄을 숨깁니다. 앱은 GEO& Work 비밀값을 갖지 않습니다.
 
-## 4. 3단계 — 양방향 (선택)
+## 5. 작업 목록
 
-- **GEON Work → 장치**: 업무 "수집 요청"(장치·구역·기한)을 outgoing hook으로 수신 서버에 보내고, 앱 '작업' 화면의 '요청' 목록에 표시한다. 시작은 앱에서 사람이 확인해야만 한다(자동 실행 없음).
-- **딥링크**: GEON Work 메시지의 "앱에서 열기" → `geoand://device/{deviceId}`, `geoand://run/{runId}`. 앱은 등록된 장치일 때만 연다. 앱 → GEON Work: 수집 결과에서 "GEON Work로 공유"(Android 공유).
-
-## 5. 보안·운영 원칙
-
-- 비밀값은 서버에만 둔다. APK와 앱 저장소에는 GEON Work 토큰이 없다.
-- HTTPS만, HMAC 서명, timestamp ±5분, nonce 재사용 금지. 수신 서버의 나가는 주소는 GEON Work 하나로 제한한다.
-- 외부 전송 실패가 업로드·수집·장치 제어를 막지 않는다. outbox 상태(대기·실패·DEAD)는 수신 서버 관리 화면과 앱 '전송' 화면에서 볼 수 있다.
-- 이벤트 스키마 이름 `jetson.event.v1`, 필드 추가는 하위 호환으로만.
-
-## 6. 디자인 정렬
-
-JetsonController는 이번 개편에서 GEON Work 디자인 규칙을 따른다: Pretendard Variable, 색 토큰(bg #F3F5F8 · text #171B26 · border #E2E6EC · input #838A99 · primary #2550A3 · navy #1A2147), 라운드 4/8/12, 존댓말·명사형 버튼·오류는 원인+행동, 로딩 화면의 공식 GEO& 심볼. 두 앱이 계속 맞도록 GEON Work 토큰 원본(`tokens.css` 등)을 JSON으로 내보내 공유하는 방식을 제안한다. 용어도 맞춘다: 장치 · 작업 · 전송 · 프로젝트 · 구역.
-
-## 7. GEON Work 쪽에 요청하는 결정
-
-1. F20 Incoming Webhook을 리빌딩 기간에도 운영 API로 계속 열어 둘지, 새 웹에서 연동 설치와 secret 회전을 어디서 할지(관리자 '고급' 화면 또는 CLI).
-2. `JETSON_DEVICE`·`ROADINVENTORY_MMS`에 `deviceId`·`runId`·`link` 필드를 추가할 의향. 없으면 `details`에 넣는다.
-3. 채널 규칙: `#mms-현장운영` 하나 또는 프로젝트별.
-4. `FIELD_REPORT` 보드 템플릿과 외부 키 upsert API의 일정(PR 카드 번호).
-5. 3단계(양방향)가 필요한지와 시기.
-6. 디자인 토큰 공유 방식과 원본 파일 위치.
-
-## 8. JetsonController 쪽 작업 목록 (결정 뒤 착수)
-
-| ID | 작업 | 검증 |
+| ID | 작업 | 상태 |
 |---|---|---|
-| J1 | 수신 서버: `POST /v1/device-events`, outbox 테이블, GEON Work 서명 전송 worker(백오프·DEAD), 설정 다시 읽기 | upload_receiver 단위 테스트(서명 원문·nonce·재시도·DEAD) |
-| J2 | Jetson 백엔드: 온도·응답·저장 공간·수집·전송 이벤트 발생과 장치 쪽 큐, 히스테리시스 | backend 단위 테스트 |
-| J3 | 앱: '전송' 화면에 GEON Work 전달 상태(읽기 전용), 설정에 연동 상태 | JVM 테스트 |
-| J4 | 앱: `geoand://` 딥링크 intent filter와 등록 장치 확인 | 계측 테스트 |
+| J1 | 수신 서버: device-events 엔드포인트, 이벤트·출석 저장, 공용 outbox, 서명 전송 worker, 응답 없음 판정, 업로드 완료 이벤트, 설정·관리 명령, 상태 조회 API | 진행 |
+| J2 | Jetson 백엔드: 온도·저장 공간 단계 판정, 수집·업로드 실패 이벤트, 영속 큐, heartbeat, capability 확인 뒤 전송 | 진행 |
+| J3 | 앱: '전송' 화면의 GEO& Work 알림 한 줄(읽기 전용) | 진행 |
+| J4 | 딥링크 | 보류(양방향 단계에서 https App Links로) |
+| J5 | 수신 서버 티켓 동기화(열린 티켓 증분 조회, rowId·revision 저장, 앱용 목록 API) | GEO& Work 계약 대기 |
+| J6 | 앱 '작업' 화면 티켓 목록·호기 필터, 시작 확인 → '진행 중', runId ↔ rowId | 계약 대기 |
+| J7 | 완료 보고(outbox 경유, `run:{runId}:started`·`run:{runId}:completed` 멱등 키, 409 `ROW_REVISION_CONFLICT`는 다시 읽고 사람에게 알림) | 계약 대기 |
 
-## 9. 회신 방법
+## 6. 회신
 
-GEON Work 세션은 §7의 결정과 계약 변경, 그리고 J1~J4를 조정한 작업 지시를 이 세션("Codex OCX 호환성 확인")에 cross-session 메시지로 보내거나, 이 문서를 고치는 PR로 회신한다. JetsonController 세션은 그 지시를 받아 구현한다.
+GEO& Work 세션("GEON Work 로컬 세션 인수인계")과 이 저장소 세션이 cross-session 메시지로 주고받습니다. 계약을 바꾸면 이 문서를 함께 고칩니다.
