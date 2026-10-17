@@ -32,6 +32,10 @@ val diagnosticsBuildId = providers.gradleProperty("diagnosticsBuildId")
     .orElse("local-unidentified").get()
     .takeIf { it.matches(Regex("[A-Za-z0-9._-]{1,80}")) } ?: "local-unidentified"
 
+// Optional package suffix for a side-by-side debug install; validated so it stays a legal id part.
+val debugApplicationIdSuffix = providers.gradleProperty("debugApplicationIdSuffix").orNull
+    ?.takeIf { it.matches(Regex("\\.[a-z][a-z0-9_]{0,30}")) }
+
 android {
     namespace = "com.example.jetsoncontroller"
     compileSdk {
@@ -44,6 +48,7 @@ android {
         targetSdk = 37
         versionCode = 26
         versionName = "1.18.0"
+        manifestPlaceholders["appLabel"] = "@string/app_name"
 
         buildConfigField("String", "VWORLD_API_KEY", "\"$escapedVworldApiKey\"")
         buildConfigField("String", "DIAGNOSTICS_BUILD_ID", "\"$diagnosticsBuildId\"")
@@ -55,6 +60,16 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Side-by-side debug install for a phone whose existing build was signed with another
+            // key, e.g. -PdebugApplicationIdSuffix=.redesign. Unset keeps the normal package.
+            if (debugApplicationIdSuffix != null) {
+                applicationIdSuffix = debugApplicationIdSuffix
+                versionNameSuffix = "-side"
+                // A distinct launcher label keeps the two installs apart ('&' is not XML-safe here).
+                manifestPlaceholders["appLabel"] = "장치 관리 시험판"
+            }
+        }
         release {
             optimization {
                 enable = false
