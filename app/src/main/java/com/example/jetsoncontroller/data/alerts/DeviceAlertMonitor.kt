@@ -60,8 +60,8 @@ class DeviceAlertMonitor(
                     publishAlert(
                         notificationId = STORAGE_NOTIFICATION_ID,
                         channelId = HEALTH_CHANNEL_ID,
-                        title = "Jetson 저장공간 경고",
-                        message = "저장공간 사용량이 ${status.storagePercent}%입니다. 수집 데이터를 확인하세요.",
+                        title = alertTitle(alertDeviceName(), "저장 공간 경고"),
+                        message = "저장 공간 사용량이 ${status.storagePercent}%입니다. 수집 데이터를 확인하세요.",
                         destination = AlertDestination.STORAGE,
                         severity = AlertSeverity.WARNING,
                         showSystemNotification = decision.notifyStorage
@@ -72,8 +72,8 @@ class DeviceAlertMonitor(
                     publishAlert(
                         notificationId = TEMPERATURE_NOTIFICATION_ID,
                         channelId = HEALTH_CHANNEL_ID,
-                        title = "Jetson 온도 경고",
-                        message = "장비 온도가 ${status.temperatureC} C입니다. 냉각 상태를 확인하세요.",
+                        title = alertTitle(alertDeviceName(), "온도 높음"),
+                        message = "온도가 ${formatCelsius(status.temperatureC)}입니다. 냉각 상태를 확인하세요.",
                         destination = AlertDestination.SENSORS,
                         severity = AlertSeverity.WARNING,
                         showSystemNotification = decision.notifyTemperature
@@ -115,7 +115,7 @@ class DeviceAlertMonitor(
                                         pipeline.id
                                     ),
                                     channelId = PIPELINE_CHANNEL_ID,
-                                    title = "작업 시작됨",
+                                    title = alertTitle(alertDeviceName(), "작업 시작됨"),
                                     message = "${pipeline.label} 작업이 실행을 시작했습니다.",
                                     destination = AlertDestination.PIPELINES,
                                     severity = AlertSeverity.INFO,
@@ -131,7 +131,7 @@ class DeviceAlertMonitor(
                                         pipeline.id
                                     ),
                                     channelId = PIPELINE_CHANNEL_ID,
-                                    title = "작업 오류 종료",
+                                    title = alertTitle(alertDeviceName(), "작업 오류 종료"),
                                     message = "${pipeline.label} 작업이 오류로 종료되었습니다. 로그를 확인하세요.",
                                     destination = AlertDestination.PIPELINES,
                                     severity = AlertSeverity.ERROR,
@@ -169,7 +169,7 @@ class DeviceAlertMonitor(
                                         job.id
                                     ),
                                     channelId = UPLOAD_CHANNEL_ID,
-                                    title = "업로드 시작됨",
+                                    title = alertTitle(alertDeviceName(), "업로드 시작됨"),
                                     message = "${uploadDisplayName(job)} 데이터를 서버로 전송하기 시작했습니다.",
                                     destination = AlertDestination.UPLOAD_QUEUE,
                                     severity = AlertSeverity.INFO,
@@ -179,7 +179,7 @@ class DeviceAlertMonitor(
                         }
                         if (settings.uploadEndedEnabled) {
                             decision.ended.forEach { job ->
-                                val (title, message) = uploadEndMessage(job)
+                                val (title, message) = uploadEndMessage(alertDeviceName(), job)
                                 publishAlert(
                                     notificationId = uploadNotificationId(
                                         UPLOAD_ENDED_NOTIFICATION_BASE,
@@ -213,16 +213,16 @@ class DeviceAlertMonitor(
         manager.createNotificationChannel(
             NotificationChannel(
                 HEALTH_CHANNEL_ID,
-                "Jetson 장비 경고",
+                "장치 경고",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "저장공간 및 장비 온도 임계치 알림"
+                description = "저장 공간과 장치 온도 기준 알림"
             }
         )
         manager.createNotificationChannel(
             NotificationChannel(
                 UPLOAD_CHANNEL_ID,
-                "Jetson 업로드 알림",
+                "장치 업로드 알림",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "수집 데이터 업로드 시작 및 종료 알림"
@@ -231,7 +231,7 @@ class DeviceAlertMonitor(
         manager.createNotificationChannel(
             NotificationChannel(
                 PIPELINE_CHANNEL_ID,
-                "Jetson 작업 알림",
+                "장치 작업 알림",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "자동 실행 작업 시작 및 오류 종료 알림"
@@ -285,13 +285,28 @@ class DeviceAlertMonitor(
     private fun uploadDisplayName(job: UploadJob): String =
         job.relativePath.substringAfterLast('/').ifBlank { "수집 데이터" }
 
-    private fun uploadEndMessage(job: UploadJob): Pair<String, String> {
+    /** The device the alert is about: the connected device first, then the registered one. */
+    private fun alertDeviceName(): String {
+        val connected = repository.transportState.value as? TransportState.Connected
+        val deviceId = connected?.deviceId ?: repository.selectedDeviceId.value
+        val registeredName = repository.registeredDevices.value
+            .firstOrNull { deviceId != null && it.deviceId.equals(deviceId, ignoreCase = true) }
+            ?.deviceName
+        val connectedName = connected?.deviceName?.takeIf { it.isNotBlank() }
+        return readableDeviceName(connectedName ?: registeredName)
+    }
+
+    private fun uploadEndMessage(deviceName: String, job: UploadJob): Pair<String, String> {
         val name = uploadDisplayName(job)
         return when (job.state) {
-            UploadJobState.COMPLETED -> "업로드 완료" to "$name 데이터 전송이 완료되었습니다."
-            UploadJobState.FAILED -> "업로드 종료" to "$name 데이터 전송이 실패했습니다."
-            UploadJobState.CANCELLED -> "업로드 종료" to "$name 데이터 전송이 취소되었습니다."
-            else -> "업로드 종료" to "$name 데이터 전송이 종료되었습니다."
+            UploadJobState.COMPLETED ->
+                alertTitle(deviceName, "업로드 완료") to "$name 데이터 전송이 완료되었습니다."
+            UploadJobState.FAILED ->
+                alertTitle(deviceName, "업로드 실패") to "$name 데이터 전송이 실패했습니다."
+            UploadJobState.CANCELLED ->
+                alertTitle(deviceName, "업로드 취소됨") to "$name 데이터 전송이 취소되었습니다."
+            else ->
+                alertTitle(deviceName, "업로드 종료") to "$name 데이터 전송이 종료되었습니다."
         }
     }
 
