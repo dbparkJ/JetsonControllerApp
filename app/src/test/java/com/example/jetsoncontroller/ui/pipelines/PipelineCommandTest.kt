@@ -100,7 +100,7 @@ class PipelineCommandTest {
 
             verify(repo, times(1)).controlPipeline("task", "stop", "capture/run-0001")
             assertEquals(
-                "장비 소프트웨어 업데이트가 필요합니다. 수집은 종료되지 않았습니다.",
+                "장치 소프트웨어 업데이트가 필요합니다. 수집은 종료되지 않았습니다.",
                 vm.uiState.value.error
             )
             assertEquals("unknown", vm.uiState.value.pendingActions["task"])

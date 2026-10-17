@@ -45,7 +45,7 @@ fun UploadConfirmScreen(
     onManageTargets: () -> Unit,
     onConfirm: (String) -> Unit,
     deviceId: String? = null,
-    deviceName: String = "선택된 장비 없음",
+    deviceName: String = "선택된 장치 없음",
     developerModeEnabled: Boolean = false
 ) {
     val colors = LocalGeoColors.current
