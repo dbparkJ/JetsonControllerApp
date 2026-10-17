@@ -98,7 +98,7 @@ class SettingsDeveloperModeScreenTest {
         onDeveloperModeChange: (Boolean) -> Unit
     ) {
         SettingsHubScreen(
-            state = DashboardUiState(deviceName = "테스트 장비"),
+            state = DashboardUiState(deviceName = "테스트 장치"),
             deviceId = "test-device",
             unreadCount = 0,
             onDevices = {}, onAlerts = {}, onNetwork = {}, onSensors = {},

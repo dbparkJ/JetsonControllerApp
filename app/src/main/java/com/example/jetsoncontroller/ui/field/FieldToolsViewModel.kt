@@ -54,7 +54,10 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     routeRequestGeneration++
                     historyJob?.cancel(); routeJob?.cancel(); logJob?.cancel(); terminalJob?.cancel(); captureJob?.cancel(); deleteJob?.cancel()
                     networkJob?.cancel(); sensorTestJob?.cancel()
-                    val online = transport is TransportState.Connected && transport.type != TransportType.BLE && transport.deviceId.equals(id, true)
+                    // Field tools are HTTP calls, so they need the shared full-control rule (LAN or Wi-Fi Direct).
+                    val online = transport is TransportState.Connected &&
+                        com.example.jetsoncontroller.ui.connection.hasFullControl(transport.type) &&
+                        transport.deviceId.equals(id, true)
                     _state.value = if (id != _state.value.deviceId) FieldState(deviceId = id, online = online)
                         else _state.value.copy(online = online, historyCurrent = false, loading = false,
                             terminalBusy = false, captureBusy = false, deletingRunId = null,

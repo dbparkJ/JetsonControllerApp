@@ -85,13 +85,16 @@ import com.example.jetsoncontroller.ui.settings.AlertSettingsScreen
 import com.example.jetsoncontroller.ui.diagnostics.ConnectionDiagnosticsScreen
 import com.example.jetsoncontroller.ui.settings.AlertSettingsViewModel
 import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlNavigationRail
 import com.example.jetsoncontroller.ui.components.LocalControlNavigationRailVisible
 import com.example.jetsoncontroller.ui.components.NoticeDismissalProvider
 import com.example.jetsoncontroller.ui.settings.rememberDeveloperModePreference
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -124,6 +127,15 @@ internal object Routes {
 
     const val DEVICE_DETAIL =
         "device_detail"
+
+    /** 작업 root: pinned field collection, the running card, recent receipts, other tasks. */
+    const val TASKS = "tasks"
+
+    /** 전송 root: uploads in progress, queued, failed and confirmed by the server. */
+    const val TRANSFERS = "transfers"
+
+    /** Read-only task detail for normal operators. */
+    const val TASK_DETAIL = "task_detail/{pipelineId}"
 
     const val NETWORK_SETTINGS =
         "network_settings"
@@ -222,6 +234,8 @@ private val developerOnlyRoutes = setOf(
 
 private val routesWithPrimaryNavigation = setOf(
     Routes.DEVICES,
+    Routes.TASKS,
+    Routes.TRANSFERS,
     Routes.DATA,
     Routes.SETTINGS,
     Routes.PIPELINES,
@@ -262,10 +276,10 @@ internal fun NavHostController.navigateSingle(route: String) {
     navigate(route) { launchSingleTop = true }
 }
 
-/** The route each primary tab opens. The 작업 and 전송 roots are replaced once their screens are rebuilt. */
+/** The route each primary tab opens. */
 internal fun tabRoute(section: ControlSection): String = when (section.tab()) {
-    ControlSection.TASKS -> Routes.PIPELINES
-    ControlSection.TRANSFERS -> Routes.UPLOAD_QUEUE
+    ControlSection.TASKS -> Routes.TASKS
+    ControlSection.TRANSFERS -> Routes.TRANSFERS
     ControlSection.SETTINGS -> Routes.SETTINGS
     else -> Routes.DEVICES
 }
@@ -650,6 +664,37 @@ fun JetsonApp(
         }
     }
 
+    // "수집 시작" from the device root, the device detail and the pinned card on the 작업 root:
+    // open the preparation screen of the field-collection task directly (the last one opened, or
+    // the only task on the device). Only when it cannot be told apart does the task list open.
+    val openSurveyPreparation: () -> Unit = openSurvey@ {
+        val pipelines = pipelineState.pipelines
+        val pipeline = surveyRunState.pipelineId?.takeIf(String::isNotBlank)?.let { id ->
+            pipelines.firstOrNull { it.id == id }
+        } ?: pipelines.singleOrNull()
+        if (pipeline == null) {
+            navController.navigate(Routes.PIPELINES) { launchSingleTop = true }
+            return@openSurvey
+        }
+        when (surveyOpenDecision(surveyRunState, pipeline.id)) {
+            SurveyOpenDecision.REQUESTED_PIPELINE -> {
+                surveyRunViewModel.open(pipeline.id, pipeline.label)
+                navController.navigate("survey_run/${Uri.encode(pipeline.id)}") { launchSingleTop = true }
+            }
+            SurveyOpenDecision.CURRENT_ACTIVE ->
+                navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
+            SurveyOpenDecision.CURRENT_RESULT ->
+                navController.navigate(Routes.RUN_RESULT) { launchSingleTop = true }
+            SurveyOpenDecision.WAIT_FOR_RESTORE -> Unit
+        }
+    }
+    val selectedRegisteredDeviceName = deviceState.registeredDevices.firstOrNull {
+        it.deviceId.equals(selectedDeviceId, ignoreCase = true)
+    }?.deviceName
+    val uploadJobById: (String) -> com.example.jetsoncontroller.model.UploadJob? = { jobId ->
+        (listOfNotNull(uploadState.currentJob) + uploadState.queue).firstOrNull { it.id == jobId }
+    }
+
     // Tabs open their roots directly. The 작업 tab no longer chooses between screens by hidden
     // state; the collection screens are reached from the task root itself.
     val onSectionSelected: (ControlSection) -> Unit = { section ->
@@ -1016,10 +1061,10 @@ fun JetsonApp(
                 onOtherWays = { navController.navigateSingle(Routes.CONNECTION_HUB) },
                 onOpenDevice = { navController.navigateSingle(Routes.DEVICE_DETAIL) },
                 onReconnect = { currentRegisteredDevice?.let(connectRegisteredDevice) },
-                onStartCollection = { navigateToTaskStart(navController) },
+                onStartCollection = openSurveyPreparation,
                 onViewRun = { navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true } },
                 onSelectDevice = connectRegisteredDevice,
-                onAttentionClick = { navigateToTab(navController, Routes.UPLOAD_QUEUE) },
+                onAttentionClick = { navigateToTab(navController, Routes.TRANSFERS) },
                 onSameNetwork = {
                     repository.startLanDiscovery()
                     currentRegisteredDevice?.let(connectRegisteredDevice)
@@ -1063,7 +1108,7 @@ fun JetsonApp(
                         }
                     }
                 },
-                onStartCollection = { navigateToTaskStart(navController) },
+                onStartCollection = openSurveyPreparation,
                 onViewRun = { navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true } },
                 onCamera = { navController.navigateSingle(Routes.CAMERA_PREVIEW) },
                 onGnss = {
@@ -1339,6 +1384,127 @@ fun JetsonApp(
             )
         }
 
+        composable(Routes.TRANSFERS) {
+            LaunchedEffect(selectedDeviceId, fullControlConnected) {
+                if (fullControlConnected) uploadViewModel.loadQueue()
+            }
+            val transfersState = com.example.jetsoncontroller.ui.transfers.buildTransfersHomeUiState(
+                com.example.jetsoncontroller.ui.transfers.TransfersHomeInput(
+                    deviceName = selectedRegisteredDeviceName,
+                    transport = (transportState as? TransportState.Connected)
+                        ?.takeIf { it.deviceId.equals(selectedDeviceId, ignoreCase = true) }
+                        ?.type,
+                    upload = uploadState,
+                    runs = fieldState.runs,
+                    developerModeEnabled = developerModeEnabled
+                )
+            )
+            androidx.compose.material3.Scaffold(
+                containerColor = com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.canvas,
+                bottomBar = { ControlNavigationBar(ControlSection.TRANSFERS, onSectionSelected) }
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    com.example.jetsoncontroller.ui.transfers.TransfersHomeScreen(
+                        state = transfersState,
+                        onPickFiles = { navController.navigate(Routes.DATA) { launchSingleTop = true } },
+                        onOpenServerFiles = {
+                            navController.navigate(Routes.SERVER_STORAGE) { launchSingleTop = true }
+                        },
+                        onOpenTransfer = { jobId ->
+                            uploadJobById(jobId)?.let { job ->
+                                uploadViewModel.openJob(job)
+                                navController.navigate(Routes.UPLOAD_PROGRESS) { launchSingleTop = true }
+                            }
+                        },
+                        onCancelTransfer = { jobId ->
+                            uploadJobById(jobId)?.let { job ->
+                                uploadViewModel.openJob(job)
+                                uploadViewModel.cancelCurrentUpload()
+                            }
+                        },
+                        onRetryTransfer = { jobId -> uploadJobById(jobId)?.let(uploadViewModel::retryJob) }
+                    )
+                }
+            }
+        }
+
+        composable(Routes.TASKS) {
+            StatusPollingLifecycleEffect(dashboardViewModel)
+            LaunchedEffect(selectedDeviceId, fullControlConnected) {
+                if (fullControlConnected) pipelineViewModel.refresh()
+            }
+            val tasksState = com.example.jetsoncontroller.ui.tasks.buildTasksHomeUiState(
+                com.example.jetsoncontroller.ui.tasks.TasksHomeInput(
+                    deviceName = selectedRegisteredDeviceName,
+                    connected = fullControlConnected,
+                    survey = surveyRunState,
+                    runs = fieldState.runs,
+                    uploadJobs = uploadState.queue,
+                    pipelines = pipelineState.pipelines,
+                    developerModeEnabled = developerModeEnabled
+                )
+            )
+            androidx.compose.material3.Scaffold(
+                containerColor = com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.canvas,
+                bottomBar = { ControlNavigationBar(ControlSection.TASKS, onSectionSelected) }
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    com.example.jetsoncontroller.ui.tasks.TasksHomeScreen(
+                        state = tasksState,
+                        onSelectDevice = { navigateToDeviceRoot(navController) },
+                        onStartSurvey = openSurveyPreparation,
+                        onChangeSection = openSurveyPreparation,
+                        onOpenActiveRun = {
+                            navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
+                        },
+                        onOpenRun = {
+                            navController.navigate(Routes.TASK_HISTORY) { launchSingleTop = true }
+                        },
+                        onOpenHistory = {
+                            navController.navigate(Routes.TASK_HISTORY) { launchSingleTop = true }
+                        },
+                        onOpenTask = { pipelineId ->
+                            navController.navigate("task_detail/${Uri.encode(pipelineId)}") {
+                                launchSingleTop = true
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        composable(
+            route = Routes.TASK_DETAIL,
+            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
+        ) { entry ->
+            val pipelineId = entry.arguments?.getString("pipelineId").orEmpty()
+            val pipeline = pipelineState.pipelines.firstOrNull { it.id == pipelineId }
+            if (pipeline == null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.canvas)
+                ) {
+                    com.example.jetsoncontroller.ui.components.GeoStateBlock(
+                        title = "작업 정보를 찾을 수 없습니다",
+                        impact = "장치에 연결된 상태에서 작업 목록을 다시 열어 보세요.",
+                        tone = com.example.jetsoncontroller.ui.components.StatusTone.UNKNOWN,
+                        primaryLabel = "작업으로 돌아가기",
+                        onPrimary = { navController.popBackStack() }
+                    )
+                }
+            } else {
+                com.example.jetsoncontroller.ui.tasks.TaskDetailScreen(
+                    pipeline = pipeline,
+                    connected = fullControlConnected,
+                    developerModeEnabled = developerModeEnabled,
+                    onBack = { navController.popBackStack() },
+                    onOpenLogs = { navController.navigate("pipeline_logs/${Uri.encode(pipeline.id)}") },
+                    onOpenConfig = { navController.navigate("pipeline_config/${Uri.encode(pipeline.id)}") }
+                )
+            }
+        }
+
         composable(Routes.UPLOAD_QUEUE) {
             UploadQueueScreen(
                 queue = uploadState.queue,
@@ -1475,7 +1641,8 @@ fun JetsonApp(
                 },
                 onRetryPendingStart = surveyRunViewModel::retryPendingStart,
                 onDismissMessage = surveyRunViewModel::clearMessage,
-                developerModeEnabled = developerModeEnabled
+                developerModeEnabled = developerModeEnabled,
+                deviceName = selectedRegisteredDeviceName
             )
         }
 
@@ -1516,6 +1683,13 @@ fun JetsonApp(
                 onDevices = { navigateToDeviceRoot(navController) },
                 onAlerts = { navController.navigate(Routes.ALERTS) },
                 onBack = { navController.popBackStack() },
+                // The run ending does not move the operator; the screen offers this button instead.
+                onOpenResult = {
+                    navController.navigate(Routes.RUN_RESULT) {
+                        popUpTo(Routes.ACTIVE_RUN) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
                 onRefresh = { surveyRunViewModel.refresh(); pipelineViewModel.refresh() },
                 onStop = {
                     activeRun?.let { confirmedRun ->
@@ -2124,9 +2298,10 @@ internal fun serverReceiptPresentation(
 }
 
 private fun controlSectionForRoute(route: String?): ControlSection = when (route) {
-    Routes.PIPELINES, Routes.SURVEY_RUN, Routes.ACTIVE_RUN, Routes.RUN_RESULT, Routes.TASK_HISTORY ->
+    Routes.TASKS, Routes.TASK_DETAIL, Routes.PIPELINES, Routes.SURVEY_RUN, Routes.ACTIVE_RUN,
+    Routes.RUN_RESULT, Routes.TASK_HISTORY ->
         ControlSection.TASKS
-    Routes.UPLOAD_QUEUE, Routes.DATA -> ControlSection.TRANSFERS
+    Routes.TRANSFERS, Routes.UPLOAD_QUEUE, Routes.DATA -> ControlSection.TRANSFERS
     Routes.SETTINGS, Routes.ALERT_SETTINGS -> ControlSection.SETTINGS
     else -> ControlSection.DEVICES
 }
@@ -2142,8 +2317,8 @@ private fun alertDestinationRoute(destination: AlertDestination): String = when 
     AlertDestination.DASHBOARD -> Routes.DEVICES
     AlertDestination.STORAGE -> Routes.DATA
     AlertDestination.SENSORS -> Routes.SENSORS
-    AlertDestination.PIPELINES -> Routes.PIPELINES
-    AlertDestination.UPLOAD_QUEUE -> Routes.UPLOAD_QUEUE
+    AlertDestination.PIPELINES -> Routes.TASKS
+    AlertDestination.UPLOAD_QUEUE -> Routes.TRANSFERS
 }
 
 internal fun deviceRegistrationRedirectAllowed(currentRoute: String?): Boolean =

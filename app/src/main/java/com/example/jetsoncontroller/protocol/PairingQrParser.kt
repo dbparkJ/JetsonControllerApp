@@ -55,7 +55,7 @@ object PairingQrParser {
         val deviceId =
             parameters["id"]
                 ?: throw IllegalArgumentException(
-                    "장비 ID가 없습니다."
+                    "장치 ID가 없습니다."
                 )
 
         val normalizedId = try {
@@ -64,14 +64,14 @@ object PairingQrParser {
                 .lowercase()
         } catch (_: IllegalArgumentException) {
             throw IllegalArgumentException(
-                "장비 ID 형식이 올바르지 않습니다."
+                "장치 ID 형식이 올바르지 않습니다."
             )
         }
 
         val secret =
             parameters["key"]
                 ?: throw IllegalArgumentException(
-                    "장비 인증 정보가 없습니다."
+                    "장치 인증 정보가 없습니다."
                 )
 
         require(
@@ -79,7 +79,7 @@ object PairingQrParser {
                 Regex("^[0-9a-fA-F]{64}$")
             )
         ) {
-            "장비 인증 정보 형식이 올바르지 않습니다."
+            "장치 인증 정보 형식이 올바르지 않습니다."
         }
 
         return PairingInfo(

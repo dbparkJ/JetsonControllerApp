@@ -855,7 +855,7 @@ class LocalApiClient(
             error
         )
         is JetsonSessionExpiredException -> JetsonAuthenticationRecoveryException(
-            "장치과 인증 정보를 동기화하지 못했습니다. " +
+            "장치와 인증 정보를 동기화하지 못했습니다. " +
                 "저장된 장치를 QR로 다시 등록해 주세요.",
             error
         )

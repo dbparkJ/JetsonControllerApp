@@ -95,7 +95,7 @@ fun AlertSettingsScreen(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("장비 상태") },
+                    text = { Text("장치 상태") },
                     icon = { Icon(Icons.Default.Thermostat, contentDescription = null) }
                 )
                 Tab(
@@ -188,7 +188,7 @@ private fun NotificationPermissionBanner(onRequestPermission: () -> Unit) {
                 )
             }
             Text(
-                "설정한 장비 및 작업 알림을 받으려면 권한을 허용해 주세요.",
+                "설정한 장치 및 작업 알림을 받으려면 권한을 허용해 주세요.",
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -233,7 +233,7 @@ private fun HealthAlertSettings(
         item {
             ThresholdSetting(
                 icon = Icons.Default.Thermostat,
-                title = "장비 온도",
+                title = "장치 온도",
                 enabled = settings.temperatureEnabled,
                 value = settings.temperatureThresholdC.toFloat(),
                 valueLabel = { "$it C 이상" },

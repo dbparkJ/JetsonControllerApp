@@ -64,9 +64,9 @@ fun GeoLogo(modifier: Modifier = Modifier, backgroundColor: Color = MaterialThem
 @Composable
 fun GeoDeviceSummary(state: DashboardUiState, onClick: () -> Unit, showMetrics: Boolean = true) {
     val c = LocalGeoColors.current
-    val connection = com.example.jetsoncontroller.ui.connection.userConnectionStage(
-        state.isOnline,
-        state.transportType
+    val connection = com.example.jetsoncontroller.ui.connection.deviceConnectionUi(
+        isOnline = state.isOnline,
+        transportType = state.transportType
     )
     Surface(
         onClick = onClick,
@@ -168,14 +168,4 @@ fun GeoLoadingScene(modifier: Modifier = Modifier) {
             )
         }
     }
-}
-
-/**
- * Former launch screen. The app now uses [GeoLoadingScene]; this alias keeps the debug
- * gallery and the instrumented tests compiling until they are moved to the new name.
- */
-@Deprecated("Use GeoLoadingScene", ReplaceWith("GeoLoadingScene()"))
-@Composable
-fun GeoWelcomeScene() {
-    GeoLoadingScene()
 }

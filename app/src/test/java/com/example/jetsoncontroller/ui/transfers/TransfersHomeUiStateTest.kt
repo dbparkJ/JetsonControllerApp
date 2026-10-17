@@ -35,7 +35,7 @@ class TransfersHomeUiStateTest {
         val state = buildTransfersHomeUiState(input(transport = TransportType.WIFI_DIRECT))
 
         assertEquals(
-            "Wi-Fi Direct 연결에서는 서버 업로드를 시작할 수 없습니다. LAN으로 연결해 주세요.",
+            "장치에 직접 연결(Wi-Fi Direct)한 상태에서는 서버로 보낼 수 없습니다. 같은 네트워크(LAN)로 연결해 주세요.",
             state.explanation
         )
     }

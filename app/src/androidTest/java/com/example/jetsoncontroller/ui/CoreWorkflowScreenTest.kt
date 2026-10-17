@@ -105,7 +105,7 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithContentDescription("저장된 장비 삭제").performClick()
+        composeRule.onNodeWithContentDescription("저장된 장치 삭제").performClick()
         composeRule.onNodeWithText("MMS-Test 등록을 삭제할까요?").assertIsDisplayed()
         composeRule.onNodeWithText("취소").assertIsDisplayed()
     }

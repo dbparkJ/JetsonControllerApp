@@ -70,7 +70,7 @@ fun DeviceListScreen(
             icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
             title = { Text("${device.deviceName} 등록을 삭제할까요?") },
             text = {
-                Text("저장된 인증 정보가 삭제됩니다. 다시 연결하려면 장비 QR을 재등록해야 합니다.")
+                Text("저장된 인증 정보가 삭제됩니다. 다시 연결하려면 장치 QR을 재등록해야 합니다.")
             },
             confirmButton = {
                 TextButton(
@@ -93,7 +93,7 @@ fun DeviceListScreen(
                     Column {
                         Text("Bluetooth")
                         Text(
-                            "Jetson 장비 검색",
+                            "Jetson 장치 검색",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -115,7 +115,7 @@ fun DeviceListScreen(
                                 strokeWidth = 2.dp
                             )
                         } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "BLE 장비 검색")
+                            Icon(Icons.Default.Refresh, contentDescription = "BLE 장치 검색")
                         }
                     }
                 }
@@ -144,9 +144,9 @@ fun DeviceListScreen(
                     Icon(Icons.Default.Add, contentDescription = null)
                     Text(
                         text = if (state.connectionState is ConnectionState.RegistrationRequired) {
-                            "현재 장비 QR 인증"
+                            "현재 장치 QR 인증"
                         } else {
-                            "QR로 새 장비 등록"
+                            "QR로 새 장치 등록"
                         },
                         modifier = Modifier.padding(start = 8.dp)
                     )
@@ -159,7 +159,7 @@ fun DeviceListScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         InlineMessage(
-                            message = "주변 기기 권한을 허용해야 Bluetooth 장비를 검색할 수 있습니다.",
+                            message = "주변 기기 권한을 허용해야 Bluetooth 장치를 검색할 수 있습니다.",
                             isError = false
                         )
                         FilledTonalButton(
@@ -184,7 +184,7 @@ fun DeviceListScreen(
             if (state.registeredDevices.isNotEmpty()) {
                 item {
                     Spacer(Modifier.height(10.dp))
-                    SectionHeader("등록된 장비")
+                    SectionHeader("등록된 장치")
                 }
                 items(
                     items = state.registeredDevices,
@@ -209,7 +209,7 @@ fun DeviceListScreen(
             item {
                 Spacer(Modifier.height(10.dp))
                 SectionHeader(
-                    title = "주변 장비",
+                    title = "주변 장치",
                     trailing = {
                         Text(
                             "${state.devices.size}개",
@@ -236,7 +236,7 @@ fun DeviceListScreen(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            if (state.isScanning) "주변 장비를 찾고 있습니다" else "검색된 장비가 없습니다",
+                            if (state.isScanning) "주변 장치를 찾고 있습니다" else "검색된 장치가 없습니다",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -305,7 +305,7 @@ private fun RegisteredDeviceRow(
                 }
             }
             IconButton(onClick = onForget, enabled = !reconnecting) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "저장된 장비 삭제")
+                Icon(Icons.Default.DeleteOutline, contentDescription = "저장된 장치 삭제")
             }
         }
     }

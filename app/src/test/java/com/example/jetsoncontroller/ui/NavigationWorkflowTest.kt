@@ -297,8 +297,10 @@ class NavigationWorkflowTest {
         assertEquals(Routes.DEVICES, startRoute())
         assertEquals(Routes.DEVICES, tabRoute(ControlSection.DEVICES))
         assertEquals(Routes.DEVICES, tabRoute(ControlSection.OVERVIEW))
-        assertEquals(Routes.PIPELINES, tabRoute(ControlSection.TASKS))
-        assertEquals(Routes.UPLOAD_QUEUE, tabRoute(ControlSection.TRANSFERS))
+        assertEquals(Routes.TASKS, tabRoute(ControlSection.TASKS))
+        assertEquals(Routes.TASKS, tabRoute(ControlSection.COLLECTION))
+        assertEquals(Routes.TRANSFERS, tabRoute(ControlSection.TRANSFERS))
+        assertEquals(Routes.TRANSFERS, tabRoute(ControlSection.DATA))
         assertEquals(Routes.SETTINGS, tabRoute(ControlSection.SETTINGS))
         assertNotEquals(Routes.CONNECTION_HUB, startRoute())
     }

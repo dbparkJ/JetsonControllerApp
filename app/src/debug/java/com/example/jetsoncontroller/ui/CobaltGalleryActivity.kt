@@ -110,7 +110,7 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
     } }
     JetsonControllerTheme(darkTheme = dark) {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            Text("DEBUG 시안 · 장비 통신 없음", style = MaterialTheme.typography.labelSmall,
+            Text("DEBUG 시안 · 장치 통신 없음", style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.fillMaxWidth().padding(4.dp), color = MaterialTheme.colorScheme.error)
             BoxWithConstraints(Modifier.weight(1f)) {
                 val rail = maxWidth >= 840.dp
@@ -125,7 +125,7 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
                     onSelect = select
                 )
                 Box(Modifier.weight(1f)) { when (screen) {
-                    "welcome" -> com.example.jetsoncontroller.ui.components.GeoWelcomeScene()
+                    "welcome" -> com.example.jetsoncontroller.ui.components.GeoLoadingScene()
                     "tasks", "detail" -> PipelineListScreen(
                         state = PipelineUiState(deviceId = "demo", controlAvailable = true, pipelines = sample,
                             observedAtMillis = now, pendingActions = mapOf("gnss" to "start")),

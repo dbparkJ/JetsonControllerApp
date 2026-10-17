@@ -60,7 +60,7 @@ class PairingQrParserTest {
             )
         }
 
-        assertEquals("장비 ID 형식이 올바르지 않습니다.", error.message)
+        assertEquals("장치 ID 형식이 올바르지 않습니다.", error.message)
     }
 
     @Test
@@ -71,6 +71,6 @@ class PairingQrParserTest {
             )
         }
 
-        assertEquals("장비 인증 정보 형식이 올바르지 않습니다.", error.message)
+        assertEquals("장치 인증 정보 형식이 올바르지 않습니다.", error.message)
     }
 }
