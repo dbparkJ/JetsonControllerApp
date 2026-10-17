@@ -18,6 +18,7 @@ from .auth import RequestAuthenticator, sign_hello, sign_response
 from .commands import CommandDisabled, CommandError, CommandRunner
 from .config import DeviceConfig, RuntimePaths
 from .diagnostics import DiagnosticsStore, RequestEvidenceMiddleware, safe_direct_network
+from .device_events import DeviceEventService
 from .filesystem import FileTooLarge, StorageRegistry, WorkspaceRegistry
 from .local_trash import LocalTrashManager, TrashConflict, register_local_trash_routes
 from .network import WifiProvisioner, validate_wifi_credentials
@@ -375,6 +376,16 @@ def create_app(
 
     status_snapshots = StatusSnapshotService(status_service)
     diagnostics = DiagnosticsStore(runtime_paths.state_dir, "api")
+    device_events = DeviceEventService(
+        state_dir=runtime_paths.state_dir,
+        device_name=device_config.device_name,
+        upload_manager=uploads,
+        status_snapshots=status_snapshots,
+        run_context=run_context,
+    )
+    set_upload_event_sink = getattr(uploads, "set_event_sink", None)
+    if callable(set_upload_event_sink):
+        set_upload_event_sink(device_events.on_upload_transition)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -383,8 +394,10 @@ def create_app(
             await run_in_threadpool(status_snapshots.refresh)
             status_snapshots.start()
             try:
+                device_events.start()
                 yield
             finally:
+                await run_in_threadpool(device_events.stop)
                 await run_in_threadpool(status_snapshots.stop)
         finally:
             await run_in_threadpool(diagnostics.close)
@@ -401,6 +414,7 @@ def create_app(
     app.state.authenticator = request_auth
     app.state.status_collector = status_service
     app.state.status_snapshots = status_snapshots
+    app.state.device_events = device_events
     app.state.sensor_bridge = sensor_bridge
     app.state.command_runner = commands
     app.state.storage = storage_service
@@ -822,6 +836,8 @@ def create_app(
                 preflight_id=body.preflight_id,
                 client_request_id=body.client_request_id,
             )
+            if result.get("outcome") == "START_ACCEPTED":
+                device_events.on_run_started(result["run"])
             run = await run_in_threadpool(
                 run_context.get_run, str(result["run"]["runId"])
             )
@@ -1063,7 +1079,7 @@ def create_app(
         body: SaveUploadTargetRequest,
     ) -> Dict[str, object]:
         try:
-            return uploads.save_http_target(
+            saved = uploads.save_http_target(
                 target_id=target_id,
                 label=body.label,
                 base_url=body.base_url,
@@ -1075,6 +1091,9 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=500, detail=str(error)) from error
+        # A newly configured receiver can enable device events without a restart.
+        device_events.start()
+        return saved
 
     @app.delete(
         "/v1/upload/targets/{target_id}",
@@ -1084,13 +1103,14 @@ def create_app(
     def delete_upload_target(target_id: str) -> Response:
         try:
             uploads.delete_http_target(target_id)
-            return Response(status_code=204)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Upload target not found") from error
         except UploadConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        device_events.start()
+        return Response(status_code=204)
 
     @app.get("/v1/upload/library/sessions", dependencies=authenticated)
     def upload_library_sessions(

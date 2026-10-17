@@ -436,6 +436,26 @@ AAD = "JETSONWIFI2|" || deviceUuidBytes
 - receiver 완료 처리에서 수 TiB 전체 SHA-256 검증을 기다릴 수 있도록 완료 응답 read timeout만 24시간이며, 세션/offset/청크 요청은 기존 60초 timeout을 유지한다.
 - 로컬 삭제는 설정 root 안의 `.jetson-control-trash`로 동일 filesystem rename하고 전이 journal을 `/var/lib/jetson-control/local-trash`에 fsync한다. 예약 경로는 목록·읽기·upload에서 숨기며 symlink parent를 따르지 않는다. 복원은 기존 목적지를 덮어쓰지 않는다. `GET /v1/trash`는 `emptySupported: true`와 항목별 `purgeSupported`를 제공한다. 비우기는 `{confirmed:true, trashIds:[...]}`의 명시적 스냅샷만 처리하며 새로 들어온 항목은 삭제하지 않는다. `PURGING` journal은 재시작 시 반복 가능하게 재개되고 `PURGED` 항목은 기본 목록에서 숨긴다. 자동 purge는 없다.
 
+## 장치 이벤트
+
+백엔드는 업로드 수신 서버가 `GET /v1/capabilities`에서 `deviceEvents.version: 1`을 광고할 때 `POST /v1/device-events`로 장치 heartbeat, 온도·저장 공간 단계 변경, 수집 시작·종료, 업로드 실패를 보냅니다. heartbeat는 capability 주기마다 전송하고 큐에는 넣지 않습니다. 시작한 수집은 재시작 뒤에도 추적해 종료 상태를 보냅니다.
+
+이 기능을 사용할 수신 대상을 `/etc/jetson-control/upload_targets.json`에서 선택하려면 해당 target에 다음 설정을 추가합니다. 여러 target 중 하나만 표시되도록 `deviceEvents`를 한 곳에만 둡니다.
+
+```json
+"deviceEvents": true
+```
+
+표시된 target이 없으면 설정된 target이 하나일 때 그 대상을 사용하며, 대상이 없거나 모호하면 이벤트 전송 worker를 시작하지 않습니다. 재전송 대기 이벤트와 미완료 수집 기록은 `/var/lib/jetson-control/device-events/queue.json`에 원자 저장되며, 파일은 장치 상태 디렉터리 아래 권한 `0600`으로 보관합니다. 24시간 지난 이벤트는 전송 전에 버립니다.
+
+상태와 전송 결과는 API 서비스 journal에서 확인합니다.
+
+```bash
+journalctl -u jetson-control-api.service -n 100 --no-pager
+```
+
+수신 서버가 이벤트를 거부한 이유, 전체 요청 오류, target/capability 비활성화가 기록됩니다. token과 이벤트 본문은 로그에 쓰지 않습니다.
+
 ## Python 수집 작업
 
 작업 등록, 스냅샷 배포, 실행별 로그, 센서 모니터와 실제 수집의 장치 인계, 시간 동기화·FAN API는 [파이프라인 운영](PIPELINES.md)에 정리되어 있습니다.

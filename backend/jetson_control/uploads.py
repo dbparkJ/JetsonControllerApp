@@ -94,6 +94,7 @@ class UploadTarget:
     token_file: Optional[Path] = None
     verify_tls: bool = True
     editable: bool = False
+    device_events: bool = False
 
 
 @dataclass(frozen=True)
@@ -246,6 +247,7 @@ class UploadManager:
         allow_local_targets: bool = False,
         max_concurrent_jobs: int = DEFAULT_MAX_CONCURRENT_JOBS,
         trash: Optional[LocalTrashManager] = None,
+        event_sink: Optional[Callable[[Mapping[str, object], str, Optional[str]], None]] = None,
     ) -> None:
         if max_concurrent_jobs < 1:
             raise ValueError("max_concurrent_jobs must be at least 1")
@@ -266,8 +268,53 @@ class UploadManager:
         # a complete earlier state; progress-only changes wait here for the next save.
         self._unsaved_jobs: Dict[str, Dict[str, object]] = {}
         self._last_job_save: Dict[str, float] = {}
+        self._event_sink = event_sink
+        self._event_lock = threading.Lock()
+        self._pending_terminal_events: List[Tuple[Dict[str, object], str, Optional[str]]] = []
         self._job_clock: Callable[[], float] = time.perf_counter
         self._recover_interrupted_jobs()
+
+    def set_event_sink(
+        self,
+        event_sink: Optional[Callable[[Mapping[str, object], str, Optional[str]], None]],
+    ) -> None:
+        """Attach a terminal transition listener and deliver transitions seen during recovery."""
+        with self._event_lock:
+            self._event_sink = event_sink
+            pending = self._pending_terminal_events
+            self._pending_terminal_events = []
+        if event_sink is not None:
+            for job, state, error_code in pending:
+                self._deliver_terminal_event(event_sink, job, state, error_code)
+
+    def _notify_terminal_transition(
+        self,
+        job: Mapping[str, object],
+        state: str,
+        error_code: Optional[str] = None,
+    ) -> None:
+        if state not in TERMINAL_STATES:
+            return
+        snapshot = dict(job)
+        with self._event_lock:
+            sink = self._event_sink
+            if sink is None:
+                self._pending_terminal_events.append((snapshot, state, error_code))
+                return
+        self._deliver_terminal_event(sink, snapshot, state, error_code)
+
+    @staticmethod
+    def _deliver_terminal_event(
+        sink: Callable[[Mapping[str, object], str, Optional[str]], None],
+        job: Mapping[str, object],
+        state: str,
+        error_code: Optional[str],
+    ) -> None:
+        try:
+            sink(job, state, error_code)
+        except Exception:
+            # Event reporting must not alter upload completion or its API response.
+            return
 
     def targets(self) -> Dict[str, UploadTarget]:
         targets = self._load_targets(self.targets_path, editable=False)
@@ -309,6 +356,7 @@ class UploadManager:
             label = str(value.get("label", target_id)).strip()
             if not label:
                 raise ValueError(f"Upload target {target_id!r} needs a label")
+            device_events = value.get("deviceEvents") is True
 
             if target_type == "local":
                 if not self.allow_local_targets:
@@ -322,6 +370,7 @@ class UploadManager:
                     kind="local",
                     path=Path(path_text).expanduser().resolve(),
                     editable=editable,
+                    device_events=device_events,
                 )
             elif target_type == "http":
                 base_url = str(value.get("base_url", "")).strip().rstrip("/")
@@ -356,6 +405,7 @@ class UploadManager:
                     token_file=Path(token_text).expanduser().resolve(),
                     verify_tls=verify_tls,
                     editable=editable,
+                    device_events=device_events,
                 )
             else:
                 raise ValueError(f"Upload target {target_id!r} has an unsupported type")
@@ -1401,6 +1451,7 @@ class UploadManager:
             job["errorMessage"] = None
             job["updatedAt"] = self._timestamp()
             self._save_job(job)
+            self._notify_terminal_transition(job, "CANCELLED")
         return self.get(job_id)
 
     def _run_job(
@@ -1453,18 +1504,21 @@ class UploadManager:
             pass
         except Exception as error:
             if cancellation.is_set():
-                self._update(
+                job = self._update(
                     job_id,
                     state="CANCELLED",
                     currentFile=None,
                     errorMessage=None,
                 )
             else:
-                self._update(
+                job = self._update(
                     job_id,
                     state="FAILED",
                     currentFile=None,
                     errorMessage=self._public_error(error),
+                )
+                self._notify_terminal_transition(
+                    job, "FAILED", self._failure_code(error)
                 )
         finally:
             try:
@@ -2499,6 +2553,7 @@ class UploadManager:
         bytes_total: int,
         files_total: int,
     ) -> None:
+        completed: Optional[Dict[str, object]] = None
         with self._lock:
             job = self.get(job_id)
             if cancellation.is_set():
@@ -2516,6 +2571,9 @@ class UploadManager:
             )
             job["updatedAt"] = self._timestamp()
             self._save_job(job)
+            completed = dict(job)
+        if completed is not None:
+            self._notify_terminal_transition(completed, "COMPLETED")
 
     def _update(self, job_id: str, **changes: object) -> Dict[str, object]:
         with self._lock:
@@ -2596,6 +2654,9 @@ class UploadManager:
                     job["errorMessage"] = self._public_error(error)
                     job["updatedAt"] = self._timestamp()
                     self._save_job(job)
+                    self._notify_terminal_transition(
+                        job, "FAILED", self._failure_code(error)
+                    )
 
         for job_id, source, target, cancellation in recovered:
             self._launch_worker(job_id, source, target, cancellation)
@@ -2746,6 +2807,30 @@ class UploadManager:
         if isinstance(error, ValueError):
             return str(error)
         return "Unexpected upload failure"
+
+    @staticmethod
+    def _failure_code(error: Exception) -> str:
+        """Map existing failure classes to a stable, message-free event code."""
+        if isinstance(error, UploadReceiverHttpError):
+            status = getattr(error, "status_code", 0)
+            return f"RECEIVER_HTTP_{status}" if 100 <= status <= 599 else "RECEIVER_HTTP_ERROR"
+        if isinstance(error, UploadVerificationMismatch):
+            return "VERIFICATION_MISMATCH"
+        if isinstance(error, UploadCapacityExceeded):
+            return "CAPACITY_EXCEEDED"
+        if isinstance(error, UploadConflict):
+            return "UPLOAD_CONFLICT"
+        if isinstance(error, PermissionError):
+            return "PERMISSION_DENIED"
+        if isinstance(error, OSError):
+            return "STORAGE_IO"
+        if isinstance(error, UploadLibraryUnavailable):
+            return "RECEIVER_UNAVAILABLE"
+        if isinstance(error, ValueError):
+            return "INVALID_UPLOAD"
+        if isinstance(error, RuntimeError):
+            return "UPLOAD_RUNTIME"
+        return "UNEXPECTED_FAILURE"
 
 
 class UploadCancelled(Exception):
