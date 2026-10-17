@@ -71,6 +71,8 @@ Windows에서는 `gradlew.bat`를 사용합니다. APK는 `app/build/outputs/apk
 
 도우미가 입력값을 화면에 표시하지 않고 Git에서 제외된 `local.properties`의 `vworld.apiKey`에 저장합니다. 읽기 우선순위는 Gradle 속성 `VWORLD_API_KEY` → 같은 이름의 환경변수 → `local.properties`입니다. 키는 APK에 포함되는 클라이언트 키이므로 배포 범위에 맞게 관리합니다.
 
+기기에 배포하는 APK는 `./gradlew :app:assembleDebug -PrequireVworldKey=true`로 빌드합니다. 이 옵션은 지도 키가 누락되면 빌드를 중단합니다. 연결된 기기에서 `VWorldMapConnectivityTest`를 실행하면 설치된 앱의 설정으로 일반·위성 타일 응답과 이미지 디코딩을 함께 확인합니다.
+
 ## Jetson 설치와 첫 연결
 
 Jetson에서 저장소를 준비한 뒤 아래 명령의 `<user>`를 센서 장치에 접근할 Linux 계정으로 바꿉니다. 최초 설치는 시스템 패키지·BlueZ·백엔드 서비스를 함께 구성합니다.

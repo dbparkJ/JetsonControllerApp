@@ -25,6 +25,9 @@ data class FieldState(
     val loading: Boolean = false, val error: String? = null,
     val technicalError: String? = null,
     val terminalBusy: Boolean = false, val terminalOutput: String = "",
+    val network: DeviceNetworkDiagnostics? = null, val networkBusy: Boolean = false,
+    val networkError: String? = null, val testingSensor: String? = null,
+    val sensorTests: Map<String, SensorTestResult> = emptyMap(), val sensorTestError: String? = null,
     val captureBusy: Boolean = false, val captureMessage: String? = null,
     val log: String? = null, val deletingRunId: String? = null, val undoTrashId: String? = null,
     val message: String? = null
@@ -41,6 +44,8 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
     private var terminalJob: Job? = null
     private var captureJob: Job? = null
     private var deleteJob: Job? = null
+    private var networkJob: Job? = null
+    private var sensorTestJob: Job? = null
     init {
         viewModelScope.launch {
             combine(repository.selectedDeviceId, repository.transportState) { id, transport -> id to transport }
@@ -48,10 +53,13 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     generation++
                     routeRequestGeneration++
                     historyJob?.cancel(); routeJob?.cancel(); logJob?.cancel(); terminalJob?.cancel(); captureJob?.cancel(); deleteJob?.cancel()
+                    networkJob?.cancel(); sensorTestJob?.cancel()
                     val online = transport is TransportState.Connected && transport.type != TransportType.BLE && transport.deviceId.equals(id, true)
                     _state.value = if (id != _state.value.deviceId) FieldState(deviceId = id, online = online)
                         else _state.value.copy(online = online, historyCurrent = false, loading = false,
                             terminalBusy = false, captureBusy = false, deletingRunId = null,
+                            network = null, networkBusy = false, networkError = null,
+                            testingSensor = null, sensorTests = emptyMap(), sensorTestError = null,
                             error = null, technicalError = null)
                     if (online) {
                         while (true) { refresh(retainLoaded = true); delay(10_000) }
@@ -210,6 +218,34 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     terminalOutput = it.output + "\n종료 코드: ${it.exitCode}" +
                         (if (it.timedOut) " · 15초 시간 제한" else "") + (if (it.truncated) " · 출력 제한 64KB" else ""))
             }.onFailure { if (g == generation) _state.value = _state.value.copy(terminalBusy = false, terminalOutput = it.message ?: "명령 실패") }
+        }
+    }
+    fun refreshNetwork() {
+        if (!_state.value.online || networkJob?.isActive == true) return
+        val g = generation
+        _state.value = _state.value.copy(networkBusy = true, networkError = null)
+        networkJob = viewModelScope.launch {
+            repository.getDeveloperNetwork().onSuccess {
+                if (g == generation) _state.value = _state.value.copy(network = it, networkBusy = false)
+            }.onFailure {
+                if (g == generation) _state.value = _state.value.copy(network = null, networkBusy = false,
+                    networkError = it.message ?: "IP 주소를 불러오지 못했습니다.")
+            }
+        }
+    }
+    fun testSensor(sensor: String) {
+        if (!_state.value.online || _state.value.testingSensor != null || sensor !in setOf("camera", "gps")) return
+        val g = generation
+        _state.value = _state.value.copy(testingSensor = sensor, sensorTestError = null,
+            sensorTests = _state.value.sensorTests - sensor)
+        sensorTestJob = viewModelScope.launch {
+            repository.testSensor(sensor).onSuccess {
+                if (g == generation) _state.value = _state.value.copy(testingSensor = null,
+                    sensorTests = _state.value.sensorTests + (sensor to it))
+            }.onFailure {
+                if (g == generation) _state.value = _state.value.copy(testingSensor = null,
+                    sensorTestError = it.message ?: "센서 테스트를 실행하지 못했습니다.")
+            }
         }
     }
     fun capture(context: Context, device: Boolean, mobile: Boolean) {

@@ -401,6 +401,8 @@ class LocalApiClient(
 
 
     suspend fun taskRuns(offset: Int) = request("작업 기록 조회") { requireApi().taskRuns(offset) }
+    suspend fun getDeveloperNetwork() = request("장치 IP 주소 조회") { requireApi().getDeveloperNetwork() }
+    suspend fun testSensor(sensor: String) = request("센서 테스트") { requireApi().testSensor(sensor) }
     suspend fun deleteTaskRun(pipelineId: String, logId: String) = command("작업 이력 휴지통 이동", query = {
         observeTrashThen { taskRuns(0) }
     }, serverFailureMayBeApplied = true) {

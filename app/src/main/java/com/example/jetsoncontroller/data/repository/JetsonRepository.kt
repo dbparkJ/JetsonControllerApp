@@ -1616,6 +1616,8 @@ class JetsonRepository(
 
 
     suspend fun taskRuns(offset: Int = 0) = withIpSession { it.taskRuns(offset) }
+    suspend fun getDeveloperNetwork() = withIpSession { it.getDeveloperNetwork() }
+    suspend fun testSensor(sensor: String) = withIpSession { it.testSensor(sensor) }
     suspend fun deleteTaskRun(pipelineId: String, logId: String) = withIpSession { it.deleteTaskRun(pipelineId, logId) }
     suspend fun taskRoute(pipelineId: String, logId: String) = withIpSession { it.taskRoute(pipelineId, logId) }
     suspend fun taskRunLog(pipelineId: String, logId: String) = withIpSession { it.taskRunLog(pipelineId, logId) }

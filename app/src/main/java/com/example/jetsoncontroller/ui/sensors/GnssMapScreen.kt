@@ -697,6 +697,7 @@ private class VWorldMapController {
     private var lastDeviceTitle: String? = null
     private var lastCameraPositions: Pair<LatLng?, LatLng?>? = null
     private var positioned = false
+    private var initialViewportSet = false
     private var styleReady = false
     private var styleGeneration = 0L
     private var pendingDevicePosition: LatLng? = null
@@ -720,6 +721,14 @@ private class VWorldMapController {
         pendingDeviceMarkerTitle = deviceMarkerTitle
         ensureMarkerIcons(mapView)
         mapView.getMapAsync { readyMap ->
+            if (!initialViewportSet) {
+                // The basemap remains visible before GPS/phone location is available.
+                readyMap.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(36.5, 127.5))
+                    .zoom(7.0)
+                    .build()
+                initialViewportSet = true
+            }
             if (currentLayer != layer) {
                 deviceMarker?.let(readyMap::removeMarker)
                 mobileMarker?.let(readyMap::removeMarker)

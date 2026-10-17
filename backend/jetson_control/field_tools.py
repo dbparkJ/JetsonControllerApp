@@ -269,6 +269,8 @@ def register_field_routes(
     trash=None,
 ):
     terminal_lock = threading.Lock()
+    from .developer_tools import register_developer_routes
+    register_developer_routes(app, authenticated, sensor_bridge)
 
     @app.get('/v1/task-runs', dependencies=authenticated)
     async def history(offset: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100)):

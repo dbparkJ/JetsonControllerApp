@@ -66,6 +66,12 @@ interface LocalControlApi {
     @GET("/v1/status")
     suspend fun getStatus(): Response<JetsonStatus>
 
+    @GET("/v1/developer/network")
+    suspend fun getDeveloperNetwork(): Response<DeviceNetworkDiagnostics>
+
+    @POST("/v1/developer/sensors/{sensor}/test")
+    suspend fun testSensor(@Path("sensor") sensor: String): Response<SensorTestResult>
+
     @GET("/v1/camera/preview/frame")
     suspend fun getCameraPreviewFrame(
         @Query("afterRevision") afterRevision: Long? = null,

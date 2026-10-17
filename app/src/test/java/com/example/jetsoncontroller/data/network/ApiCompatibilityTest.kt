@@ -17,6 +17,23 @@ import java.io.IOException
 
 class ApiCompatibilityTest {
     @Test
+    fun `developer diagnostics preserve interface names and sensor outcome`() {
+        val gson = Gson()
+        val network = gson.fromJson(
+            """{"interfaces":[{"interface":"tailscale0","kind":"Tailscale","address":"100.76.81.78","family":"IPv4","apiUrl":"https://100.76.81.78:8765"}],"checkedAtEpochMillis":1791964115363}""",
+            com.example.jetsoncontroller.model.DeviceNetworkDiagnostics::class.java
+        )
+        assertEquals("tailscale0", network.interfaces.single().interfaceName)
+        assertEquals("100.76.81.78", network.interfaces.single().address)
+        val result = gson.fromJson(
+            """{"sensor":"gps","state":"NO_DATA","message":"No new sample","details":["USB detected"],"durationSeconds":5.0,"checkedAtEpochMillis":1791964115363}""",
+            com.example.jetsoncontroller.model.SensorTestResult::class.java
+        )
+        assertEquals("NO_DATA", result.state)
+        assertEquals(listOf("USB detected"), result.details)
+    }
+
+    @Test
     fun `all Retrofit service signatures are resolvable`() {
         Retrofit.Builder()
             .baseUrl("https://127.0.0.1/")

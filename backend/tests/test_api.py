@@ -5,7 +5,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -352,6 +352,23 @@ class ApiContractTest(unittest.TestCase):
                 "X-Signature": signature,
             },
         )
+
+    def test_developer_diagnostics_use_authenticated_signed_responses(self) -> None:
+        with patch('jetson_control.developer_tools.network_addresses', return_value={
+            'interfaces': [{'interface': 'wlan0', 'address': '111.111.111.45'}],
+        }):
+            response = self.signed_request('GET', '/v1/developer/network')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['interfaces'][0]['address'], '111.111.111.45')
+        self.assertEqual(response.headers['X-Response-Signature'], sign_response(
+            self.config.bootstrap_secret, self.config.device_id, self.auth.boot_nonce,
+            'request-0001', self.request_timestamp, 200, response.content,
+        ))
+        with patch('jetson_control.developer_tools.test_sensor', return_value={'sensor': 'gps', 'state': 'PASSED'}):
+            response = self.signed_request('POST', '/v1/developer/sensors/gps/test')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['state'], 'PASSED')
+        self.assertIn('X-Response-Signature', response.headers)
 
     def test_hello_and_authenticated_status(self) -> None:
         hello = self.client.get("/v1/hello")

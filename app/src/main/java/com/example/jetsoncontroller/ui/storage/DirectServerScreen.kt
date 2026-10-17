@@ -68,7 +68,8 @@ internal fun DirectServerScreen(
     onRemoveProfile: () -> Unit,
     onDismissMessage: () -> Unit,
     developerModeEnabled: Boolean = false,
-    onDeviceData: () -> Unit = {}
+    onDeviceData: () -> Unit = {},
+    onJetsonServerProxy: (() -> Unit)? = null
 ) {
     BackHandler(onBack = onBack)
     val dialogDensity = LocalDensity.current
@@ -173,6 +174,15 @@ internal fun DirectServerScreen(
                 onServerClick = {}
             )
             DirectServerTabs(state.section, onSection)
+            if (state.profiles.isEmpty() && developerModeEnabled && onJetsonServerProxy != null) {
+                AppBanner(
+                    "현재 연결된 장치를 통해 기존 서버 파일을 조회할 수 있습니다.",
+                    StatusTone.INFO,
+                    actionLabel = "연결된 장치로 서버 파일 보기",
+                    onAction = onJetsonServerProxy,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
             state.mutationMessage?.let { message ->
                 AppBanner(
                     message,

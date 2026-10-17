@@ -165,6 +165,12 @@ Storage root 예시:
 
 ## Local Control API
 
+개발자 모드의 **개발자 도구**에서 장치 IP 주소와 카메라·GPS 테스트를 사용할 수 있습니다. LAN 또는 Wi-Fi Direct 연결이 필요합니다.
+
+- `GET /v1/developer/network`: 활성 Wi-Fi, 유선, Wi-Fi Direct, Tailscale의 IPv4/IPv6 주소와 API URL을 조회합니다.
+- `POST /v1/developer/sensors/camera/test`, `POST /v1/developer/sensors/gps/test`: 5초간 기존 센서 모니터의 브리지에서 새 데이터 수신을 확인합니다. 카메라는 프레임과 유효한 새 JPEG 프리뷰, GPS는 새 샘플을 검사하며 위치 fix 유무를 별도로 안내합니다.
+- 결과는 `PASSED`, `NO_DATA`, `NOT_DETECTED`, `STALE`로 구분합니다. USB 인식·시리얼 포트·센서 오류와 최근 USB 과전류 증거를 함께 표시합니다. 테스트는 장치 포트를 새로 열거나 수집 작업을 시작하지 않습니다. 두 endpoint 모두 기존 TLS/HMAC 인증을 사용합니다.
+
 API는 `https://0.0.0.0:8765`에서 LAN과 Wi-Fi Direct 요청을 받는다. 설치 script가 장비별 self-signed 인증서를 만들며 Android는 평문 HTTP를 거부한다.
 
 | Method | Path | 인증 | 역할 |

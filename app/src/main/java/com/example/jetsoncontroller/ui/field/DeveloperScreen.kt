@@ -65,7 +65,11 @@ fun DeveloperScreen(
     developerModeEnabled: Boolean = true,
     onDeveloperModeChange: (Boolean) -> Unit = {},
     onDeveloperDisabled: () -> Unit = {},
-    onAdminTools: () -> Unit = {}
+    onAdminTools: () -> Unit = {},
+    onRefreshNetwork: () -> Unit = {},
+    onTestSensor: (String) -> Unit = {},
+    onCameraPreview: () -> Unit = {},
+    onGpsMap: () -> Unit = {}
 ) {
     if (!developerModeEnabled) {
         LaunchedEffect(Unit) { onDeveloperDisabled() }
@@ -75,6 +79,10 @@ fun DeveloperScreen(
     var confirm by remember(state.deviceId, state.online) { mutableStateOf(false) }
     var terminalExpanded by rememberSaveable { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(state.deviceId, state.online) {
+        if (state.online) onRefreshNetwork()
+    }
 
     if (confirm) {
         AlertDialog(
@@ -162,6 +170,9 @@ fun DeveloperScreen(
                             Switch(checked = true, onCheckedChange = null)
                         }
                     }
+                }
+                item {
+                    DeveloperDiagnosticsPanel(state, onRefreshNetwork, onTestSensor, onCameraPreview, onGpsMap)
                 }
                 item {
                     Surface(

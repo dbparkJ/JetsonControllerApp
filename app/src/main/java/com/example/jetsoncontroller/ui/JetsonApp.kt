@@ -1163,7 +1163,10 @@ fun JetsonApp(
                 developerModeEnabled = developerModeEnabled,
                 onDeviceData = {
                     navController.navigate(Routes.DATA) { launchSingleTop = true }
-                }
+                },
+                onJetsonServerProxy = if (developerModeEnabled && serverStorageState.controlAvailable) {
+                    { navController.navigate(Routes.SERVER_PROXY_STORAGE) { launchSingleTop = true } }
+                } else null
             )
         }
 
@@ -1832,7 +1835,11 @@ fun JetsonApp(
                         launchSingleTop = true
                     }
                 },
-                onAdminTools = { navController.navigate(Routes.ADMIN_TOOLS) })
+                onAdminTools = { navController.navigate(Routes.ADMIN_TOOLS) },
+                onRefreshNetwork = fieldToolsViewModel::refreshNetwork,
+                onTestSensor = fieldToolsViewModel::testSensor,
+                onCameraPreview = { navController.navigate(Routes.CAMERA_PREVIEW) },
+                onGpsMap = { navController.navigate(Routes.GNSS_MAP) })
         }
 
         composable(Routes.ALERT_SETTINGS) {

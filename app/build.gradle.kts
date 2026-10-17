@@ -19,6 +19,13 @@ val escapedVworldApiKey = vworldApiKey
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
 
+// Device deployments opt in so a missing local setting cannot silently ship a blank map.
+if (providers.gradleProperty("requireVworldKey").orNull == "true") {
+    require(vworldApiKey.isNotBlank()) {
+        "VWorld map configuration is required for this APK. Configure vworld.apiKey or VWORLD_API_KEY."
+    }
+}
+
 // Explicit provenance, separate from versionCode and the installed APK digest.
 // Restrict caller input so build metadata cannot introduce arbitrary log content.
 val diagnosticsBuildId = providers.gradleProperty("diagnosticsBuildId")
