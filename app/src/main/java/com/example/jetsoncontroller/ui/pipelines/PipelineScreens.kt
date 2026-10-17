@@ -107,7 +107,7 @@ fun PipelineListScreen(
     onOutput: (ManagedPipeline) -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
     onClearMessage: () -> Unit,
-    deviceName: String = state.deviceId ?: "선택된 장비 없음",
+    deviceName: String = "선택한 장치",
     unreadCount: Int = 0,
     onAlerts: () -> Unit = {},
     onDetails: (ManagedPipeline) -> Unit = onLogs,
@@ -174,7 +174,7 @@ fun PipelineListScreen(
             if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             if (state.pipelines.isEmpty() && !state.isLoading) item {
                 EmptyState(if (fresh) "등록된 작업이 없습니다" else "작업 상태 확인 필요",
-                    if (fresh) "이 장비에서 사용할 수집 작업이 없습니다." else "연결 후 목록을 다시 확인하세요.",
+                    if (fresh) "이 장치에서 사용할 수집 작업이 없습니다." else "연결 후 목록을 다시 확인하세요.",
                     actionLabel = "작업 추가".takeIf { developerModeEnabled },
                     onAction = onAdd.takeIf { developerModeEnabled })
             }
@@ -233,7 +233,7 @@ private fun TaskStateCard(
                 Button(shape = MaterialTheme.shapes.small, onClick = onDetails, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = if (confirmedRunning) androidx.compose.material3.ButtonDefaults.buttonColors(c.accent, c.onAccent) else androidx.compose.material3.ButtonDefaults.buttonColors()) { Text("상태 보기") }
             } else if (developerModeEnabled) {
-                Text(pipeline.description.ifBlank { "장비의 실제 실행 상태와 결과를 확인합니다." }, style = MaterialTheme.typography.bodyLarge)
+                Text(pipeline.description.ifBlank { "장치의 실제 실행 상태와 결과를 확인합니다." }, style = MaterialTheme.typography.bodyLarge)
                 Text("실행 파일: ${pipeline.entrypoint}", style = MaterialTheme.typography.bodyMedium)
                 pipeline.execution?.let { execution ->
                     com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
@@ -367,7 +367,7 @@ fun PipelineEditorScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text("부팅 시 자동 실행", fontWeight = FontWeight.SemiBold)
-                            Text("기본 꺼짐 · 장비 재부팅 후 상태를 확인하고 직접 시작",
+                            Text("기본 꺼짐 · 장치 재부팅 후 상태를 확인하고 직접 시작",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -759,8 +759,8 @@ fun PipelineConfigScreen(
     if (confirmReload) {
         AlertDialog(
             onDismissRequest = { confirmReload = false },
-            title = { Text("장비 설정을 다시 불러올까요?") },
-            text = { Text("작성 중인 설정 초안을 장비의 현재 설정으로 바꿉니다.") },
+            title = { Text("장치 설정을 다시 불러올까요?") },
+            text = { Text("작성 중인 설정 초안을 장치의 현재 설정으로 바꿉니다.") },
             confirmButton = { Button(shape = MaterialTheme.shapes.small, onClick = { confirmReload = false; onReload() }) { Text("다시 불러오기") } },
             dismissButton = { TextButton(onClick = { confirmReload = false }) { Text("초안 유지") } }
         )
@@ -816,7 +816,7 @@ fun PipelineConfigScreen(
                 if (state.configNeedsReview) {
                     item {
                         OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { confirmReload = true }, enabled = state.controlAvailable) {
-                            Text("장비 설정 다시 불러오기")
+                            Text("장치 설정 다시 불러오기")
                         }
                     }
                 }

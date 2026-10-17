@@ -160,7 +160,7 @@ class PipelineViewModel(
                         error = null,
                         technicalError = null,
                         message = if (current.configSaving || current.busyPipelineId != null) {
-                            "요청 결과를 확인하지 못했습니다. 재연결 후 장비의 반영 상태를 확인합니다."
+                            "요청 결과를 확인하지 못했습니다. 재연결 후 장치의 반영 상태를 확인합니다."
                         } else current.message
                     )
                 }
@@ -477,11 +477,11 @@ class PipelineViewModel(
             if (timeSync.isFailure) {
                 val error = timeSync.exceptionOrNull()
                 val failure = error?.let {
-                    userFacingFailure(it, "장비 시간을 맞추지 못했습니다. 연결을 확인하고 다시 시도하세요.")
+                    userFacingFailure(it, "장치 시간을 맞추지 못했습니다. 연결을 확인하고 다시 시도하세요.")
                 }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = failure?.message ?: "장비 시간을 맞추지 못했습니다. 다시 시도하세요.",
+                    error = failure?.message ?: "장치 시간을 맞추지 못했습니다. 다시 시도하세요.",
                     technicalError = failure?.technicalDetail
                 )
                 return@launch
@@ -537,12 +537,12 @@ class PipelineViewModel(
                 if (timeSync.isFailure) {
                     val error = timeSync.exceptionOrNull()
                     val failure = error?.let {
-                        userFacingFailure(it, "장비 시간을 맞추지 못했습니다. 연결을 확인하고 다시 시도하세요.")
+                        userFacingFailure(it, "장치 시간을 맞추지 못했습니다. 연결을 확인하고 다시 시도하세요.")
                     }
                     _uiState.value = _uiState.value.copy(
                         busyPipelineId = null,
                         pendingActions = _uiState.value.pendingActions - pipeline.id,
-                        error = failure?.message ?: "장비 시간을 맞추지 못했습니다. 다시 시도하세요.",
+                        error = failure?.message ?: "장치 시간을 맞추지 못했습니다. 다시 시도하세요.",
                         technicalError = failure?.technicalDetail
                     )
                     return@launch
@@ -565,12 +565,12 @@ class PipelineViewModel(
                                 ?.statusCode == 404
                         val failure = if (exactStopUnsupported) {
                             com.example.jetsoncontroller.ui.UserFacingFailure(
-                                "장비 소프트웨어 업데이트가 필요합니다. 수집은 종료되지 않았습니다.",
+                                "장치 소프트웨어 업데이트가 필요합니다. 수집은 종료되지 않았습니다.",
                                 error.message.orEmpty()
                             )
                         } else userFacingFailure(
                             error,
-                            "장비가 요청을 처리했는지 확인하지 못했습니다. 상태를 다시 확인하세요."
+                            "장치가 요청을 처리했는지 확인하지 못했습니다. 상태를 다시 확인하세요."
                         )
                         _uiState.value = _uiState.value.copy(
                             busyPipelineId = null,
@@ -860,8 +860,8 @@ class PipelineViewModel(
                     configFields = if (conflict || (current.configHasChanges && !applied)) current.configFields else document.fields,
                     originalConfigValues = if (conflict) current.originalConfigValues else remote,
                     message = when {
-                        conflict -> "장비 설정이 변경되었습니다. 초안을 유지했습니다. 내용을 확인한 뒤 장비 설정을 다시 불러와 주세요."
-                        applied -> "재연결 후 장비에서 설정 반영을 확인했습니다."
+                        conflict -> "장치 설정이 변경되었습니다. 초안을 유지했습니다. 내용을 확인한 뒤 장치 설정을 다시 불러와 주세요."
+                        applied -> "재연결 후 장치에서 설정 반영을 확인했습니다."
                         else -> current.message
                     }
                 )
@@ -869,7 +869,7 @@ class PipelineViewModel(
                 if (generation == connectionGeneration) {
                     val failure = userFacingFailure(
                         error,
-                        "장비 설정을 확인하지 못했습니다. 다시 불러온 후 저장해 주세요."
+                        "장치 설정을 확인하지 못했습니다. 다시 불러온 후 저장해 주세요."
                     )
                     _uiState.value = _uiState.value.copy(
                         detailLoading = false,

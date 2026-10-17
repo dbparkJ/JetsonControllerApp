@@ -182,7 +182,7 @@ internal class SurveyRunViewModel(
                             previous.activeRun?.runId ?: previous.unconfirmedRunId
                         } else previous.unconfirmedRunId,
                         error = if (connection.online) null else
-                            "장비에 다시 연결하면 현재 실행 상태를 확인합니다."
+                            "장치에 다시 연결하면 현재 실행 상태를 확인합니다."
                     )
                 } else {
                     localState = SurveyRunLocalState()
@@ -193,7 +193,7 @@ internal class SurveyRunViewModel(
                         pipelineLabel = previous.pipelineLabel.takeIf { sameDevice }.orEmpty(),
                         restoringLocalState = true,
                         error = if (connection.online) null else
-                            "장비에 연결한 뒤 조사 정보를 확인하세요."
+                            "장치에 연결한 뒤 조사 정보를 확인하세요."
                     )
                 }
                 loadDeviceState(expected, connection.deviceId, connection.online, pipelineId)
@@ -414,7 +414,7 @@ internal class SurveyRunViewModel(
                     storedSelection != null && (selectedProject == null || selectedSection == null) ->
                         "저장된 프로젝트·구간 버전이 변경되었습니다. 현재 항목을 다시 선택하세요."
                     unconfirmedRunId != null ->
-                        "최근 시작한 실행의 현재 상태를 확인하지 못했습니다. 같은 장비에서 상태를 다시 불러오세요."
+                        "최근 시작한 실행의 현재 상태를 확인하지 못했습니다. 같은 장치에서 상태를 다시 불러오세요."
                     else -> null
                 },
                 technicalError = policy.exceptionOrNull()?.takeIf {
@@ -552,7 +552,7 @@ internal class SurveyRunViewModel(
                 if (!current(expected, expectedPipeline)) return@onSuccess
                 if (!preflightMatches(checked, state.deviceId, pipelineId, project, section, policy)) {
                     _uiState.value = _uiState.value.copy(operation = null, preflight = null,
-                        error = "점검 결과의 장비·프로젝트·구간·정책이 현재 선택과 다릅니다. 다시 확인하세요.")
+                        error = "점검 결과의 장치·프로젝트·구간·정책이 현재 선택과 다릅니다. 다시 확인하세요.")
                 } else _uiState.value = _uiState.value.copy(
                     preflight = checked,
                     operation = null,
@@ -805,7 +805,7 @@ internal fun acceptedStartMatches(
 
 internal fun surveyErrorMessage(code: String?, fallback: String?): String = when (code) {
     "CONTEXT_LOCKED" -> "수집 실행이 끝날 때까지 프로젝트·구간·정책을 변경할 수 없습니다."
-    "ACTIVE_RUN_CONTEXT_MISMATCH" -> "장비에서 다른 프로젝트·구간의 수집이 실행 중입니다. 현재 실행을 확인하세요."
+    "ACTIVE_RUN_CONTEXT_MISMATCH" -> "장치에서 다른 프로젝트·구간의 수집이 실행 중입니다. 현재 실행을 확인하세요."
     "REVISION_REQUIRED", "REVISION_MISMATCH" -> "서버에서 항목이 변경되었습니다. 최신 버전을 다시 불러와 확인하세요."
     "PREFLIGHT_STALE", "PREFLIGHT_MISMATCH" -> "시작 전 점검 근거가 현재 선택과 다릅니다. 다시 점검하세요."
     "PREFLIGHT_NOT_READY" -> "시작 전 점검이 만료되었거나 준비되지 않았습니다. 다시 점검하세요."

@@ -32,8 +32,6 @@ private val activeUploadStates = setOf(
     UploadJobState.UPLOADING
 )
 
-private const val ACTIVE_QUEUE_POLL_INTERVAL_MILLIS = 1_000L
-private const val FULL_HISTORY_POLL_INTERVAL_MILLIS = 15_000L
 private const val CURRENT_UPLOAD_JOB_ID_KEY = "currentUploadJobId"
 
 data class UploadUiState(
@@ -51,7 +49,9 @@ data class UploadUiState(
     val isLoading: Boolean = false,
     val isSavingTarget: Boolean = false,
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    /** Recent progress observations of the active job, used for speed and remaining time. */
+    val transferSamples: List<TransferSample> = emptyList()
 )
 
 class UploadViewModel(
@@ -157,20 +157,65 @@ class UploadViewModel(
         }
     }
 
+    /**
+     * Every second: one read of the active job (not the whole active list). Every
+     * [FULL_HISTORY_POLL_INTERVAL_MILLIS]: the full history, which is the only read that returns
+     * every job.
+     */
     private fun startQueuePolling(generation: Long) {
         queuePollingJob?.cancel()
         queuePollingJob = viewModelScope.launch {
             var elapsedSinceFullHistoryRefresh = 0L
             while (generation == connectionGeneration) {
-                delay(ACTIVE_QUEUE_POLL_INTERVAL_MILLIS)
-                refreshQueue(generation, reportFailure = false, activeOnly = true)
-                elapsedSinceFullHistoryRefresh += ACTIVE_QUEUE_POLL_INTERVAL_MILLIS
-                if (elapsedSinceFullHistoryRefresh >= FULL_HISTORY_POLL_INTERVAL_MILLIS) {
+                delay(ACTIVE_JOB_POLL_INTERVAL_MILLIS)
+                elapsedSinceFullHistoryRefresh += ACTIVE_JOB_POLL_INTERVAL_MILLIS
+                val state = _uiState.value
+                activeJobToPoll(
+                    currentJob = state.currentJob,
+                    queue = state.queue,
+                    currentJobPollRunning = currentPollingJob?.isActive == true
+                )?.let { jobId -> pollSingleJob(jobId, generation) }
+                if (historyRefreshDue(elapsedSinceFullHistoryRefresh)) {
                     refreshQueue(generation, reportFailure = false, activeOnly = false)
                     elapsedSinceFullHistoryRefresh = 0L
                 }
             }
         }
+    }
+
+    /** Reads one job and keeps it current in the queue. Failures stay silent on this path. */
+    private suspend fun pollSingleJob(jobId: String, generation: Long) {
+        repository.getUploadJob(jobId)
+            .onSuccess { job ->
+                if (generation != connectionGeneration) return@onSuccess
+                val state = _uiState.value
+                if (state.currentJob?.id == job.id) {
+                    applyCurrentJob(job)
+                } else {
+                    _uiState.value = state.copy(queue = replaceQueuedJob(state.queue, job))
+                }
+            }
+    }
+
+    /** Applies a poll of the current job: queue entry, verification and one progress sample. */
+    private fun applyCurrentJob(job: UploadJob) {
+        val state = _uiState.value
+        val observed = if (job.bytesTransferred != null && isActiveUploadState(job.state)) {
+            TransferSample(
+                jobId = job.id,
+                bytesTransferred = job.bytesTransferred,
+                observedAtMillis = monotonicMillis()
+            )
+        } else {
+            null
+        }
+        _uiState.value = state.copy(
+            currentJob = job,
+            queue = upsertJob(state.queue, job),
+            verification = job.verification,
+            transferSamples = observed?.let { appendTransferSample(state.transferSamples, it) }
+                ?: state.transferSamples
+        )
     }
 
     private suspend fun refreshQueue(
@@ -288,7 +333,7 @@ class UploadViewModel(
                 if (generation == connectionGeneration && _uiState.value.linkedRunId == linkedRunId) {
                     _uiState.value = _uiState.value.copy(
                         isCalculatingSource = false,
-                        error = "선택한 실행의 장비·결과 폴더·업로드 컨텍스트가 현재 전송 위치와 일치하지 않습니다."
+                        error = "선택한 실행의 장치·결과 폴더·업로드 컨텍스트가 현재 전송 위치와 일치하지 않습니다."
                     )
                 }
                 return@launch
@@ -373,7 +418,7 @@ class UploadViewModel(
                             _uiState.value = _uiState.value.copy(
                                 isLoading = false,
                                 currentJob = null,
-                                error = "업로드 작업이 장비 실행 컨텍스트를 그대로 확인하지 못했습니다. 작업 목록에서 서버 상태를 확인하세요."
+                                error = "업로드 작업이 장치 실행 컨텍스트를 그대로 확인하지 못했습니다. 작업 목록에서 서버 상태를 확인하세요."
                             )
                             loadQueue(generation)
                             return@onSuccess
@@ -411,11 +456,7 @@ class UploadViewModel(
                     .onSuccess { job ->
                         if (generation != connectionGeneration) return@onSuccess
                         rememberCurrentJobId(job.id)
-                        _uiState.value = _uiState.value.copy(
-                            currentJob = job,
-                            queue = upsertJob(_uiState.value.queue, job),
-                            verification = job.verification
-                        )
+                        applyCurrentJob(job)
                         if (job.state !in activeUploadStates) return@launch
                     }
                     .onFailure { error ->
@@ -425,9 +466,16 @@ class UploadViewModel(
                             )
                         }
                     }
-                delay(1_000)
+                delay(ACTIVE_JOB_POLL_INTERVAL_MILLIS)
             }
         }
+    }
+
+    /** Retries a failed job from the transfers list, making it the current job first. */
+    fun retryJob(job: UploadJob) {
+        if (job.state != UploadJobState.FAILED) return
+        openJob(job)
+        retryCurrentUpload()
     }
 
     fun cancelCurrentUpload() {
@@ -810,6 +858,9 @@ private fun upsertJob(queue: List<UploadJob>, job: UploadJob): List<UploadJob> {
     val remaining = queue.filterNot { it.id == job.id }
     return listOf(job) + remaining
 }
+
+/** Monotonic clock for progress samples, so wall-clock changes never produce a negative rate. */
+private fun monotonicMillis(): Long = System.nanoTime() / 1_000_000L
 
 internal fun filterActiveUploadJobs(jobs: List<UploadJob>): List<UploadJob> =
     jobs.filter { it.state in activeUploadStates }

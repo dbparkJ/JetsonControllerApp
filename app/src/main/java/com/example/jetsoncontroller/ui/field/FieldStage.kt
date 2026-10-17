@@ -38,7 +38,7 @@ enum class FieldStage(
     /** 연결은 됐지만 어느 구간을 조사할지 정하지 않았다. */
     NEEDS_SURVEY(1),
 
-    /** 조사 범위는 정해졌고 장비 점검을 하지 않았다. */
+    /** 조사 범위는 정해졌고 장치 점검을 하지 않았다. */
     NEEDS_PREFLIGHT(2),
 
     /** 점검까지 통과했고 시작만 남았다. */
@@ -77,7 +77,7 @@ data class FieldStageInput(
     val preflightReady: Boolean = false,
     /** "자전거도로 정기 조사 · A구간" 같은 사람이 읽는 조사 범위. */
     val surveyLabel: String? = null,
-    /** "00:42:18" 같은 경과 시간. 장비가 준 값이 없으면 null. */
+    /** "00:42:18" 같은 경과 시간. 장치가 준 값이 없으면 null. */
     val elapsedLabel: String? = null,
     /** 마지막으로 장치 상태를 확인한 시각. "09:41" 형식. */
     val lastObservedLabel: String? = null,

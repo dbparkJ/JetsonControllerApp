@@ -86,15 +86,19 @@ internal fun SurveyRunScreen(
     onStart: () -> Unit,
     onRetryPendingStart: () -> Unit,
     onDismissMessage: () -> Unit,
-    developerModeEnabled: Boolean = false
+    developerModeEnabled: Boolean = false,
+    /** Display name of the selected device. Never the device ID; falls back to a neutral label. */
+    deviceName: String? = null
 ) {
     val c = LocalGeoColors.current
+    val displayName = deviceName?.takeIf(String::isNotBlank) ?: "선택한 장치"
     var confirmStart by remember(state.deviceId, state.pipelineId, state.preflight?.preflightId) {
         mutableStateOf(false)
     }
     if (confirmStart) {
         StartConfirmationDialog(
             state = state,
+            deviceName = displayName,
             developerModeEnabled = developerModeEnabled,
             onDismiss = { confirmStart = false },
             onConfirm = { confirmStart = false; onStart() }
@@ -172,14 +176,7 @@ internal fun SurveyRunScreen(
                 if (state.isLoading || state.operation != null) {
                     item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 }
-                if (!state.online) {
-                    item {
-                        AppBanner(
-                            "장치 연결이 끊겼습니다. 다시 연결한 뒤 장치 점검을 진행해 주세요.",
-                            StatusTone.ERROR
-                        )
-                    }
-                }
+                // Connection state is reported once by the app shell's banner, not repeated here.
                 if (state.contextLocked) {
                     item {
                         AppBanner(
@@ -223,9 +220,9 @@ internal fun SurveyRunScreen(
                         },
                         second = {
                             if (state.preflight != null) {
-                                PreflightPane(state.preflight, developerModeEnabled)
+                                PreflightPane(state.preflight, displayName, developerModeEnabled)
                             } else {
-                                CollectionTaskPane(state)
+                                CollectionTaskPane(state, displayName)
                             }
                             if (developerModeEnabled) {
                                 Spacer(Modifier.height(GeoSpace.lg))
@@ -243,6 +240,7 @@ internal fun SurveyRunScreen(
     }
 }
 
+/** Three phases shown as underlined tabs. The underline marks the current phase; no numbers. */
 @Composable
 private fun PreparationSteps(currentStep: Int) {
     val c = LocalGeoColors.current
@@ -250,7 +248,7 @@ private fun PreparationSteps(currentStep: Int) {
         listOf("조사 선택", "장치 점검", "수집").forEachIndexed { index, label ->
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
                 Text(
-                    "${index + 1}  $label",
+                    label,
                     style = MaterialTheme.typography.labelMedium,
                     color = if (index == currentStep) c.primary else c.muted
                 )
@@ -274,6 +272,7 @@ private fun PreparationSteps(currentStep: Int) {
 @Composable
 private fun StartConfirmationDialog(
     state: SurveyRunUiState,
+    deviceName: String,
     developerModeEnabled: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
@@ -286,7 +285,7 @@ private fun StartConfirmationDialog(
         title = { Text("수집을 시작할까요?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
-                ConfirmRow("장비", state.deviceId.orEmpty())
+                ConfirmRow("장치", deviceName)
                 ConfirmRow("프로젝트", state.selectedProject?.label ?: "선택 없음")
                 ConfirmRow("구간", state.selectedSection?.label ?: "선택 없음")
                 if (developerModeEnabled) {
@@ -452,7 +451,7 @@ private fun SurveyContextPane(
 }
 
 @Composable
-private fun CollectionTaskPane(state: SurveyRunUiState) {
+private fun CollectionTaskPane(state: SurveyRunUiState, deviceName: String) {
     val c = LocalGeoColors.current
     Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
         Text("수집 작업", style = MaterialTheme.typography.labelMedium, color = c.muted)
@@ -462,8 +461,11 @@ private fun CollectionTaskPane(state: SurveyRunUiState) {
             color = c.ink
         )
         Text(
-            state.deviceId?.let { "$it · ${if (state.online) "연결됨" else "연결 확인 필요"}" }
-                ?: "선택한 장치 없음",
+            if (state.deviceId == null) {
+                "선택한 장치 없음"
+            } else {
+                "$deviceName · ${if (state.online) "연결됨" else "오프라인"}"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = if (state.online) c.success else c.muted
         )
@@ -697,7 +699,7 @@ private fun NumericPolicyField(label: String, value: String, onValue: (String) -
  * reported a failure and a sensor that never answered call for different actions.
  */
 @Composable
-private fun PreflightPane(preflight: PipelinePreflight?, developerModeEnabled: Boolean) {
+private fun PreflightPane(preflight: PipelinePreflight?, deviceName: String, developerModeEnabled: Boolean) {
     val c = LocalGeoColors.current
     val tone = when {
         preflight == null -> StatusTone.INFO
@@ -719,14 +721,14 @@ private fun PreflightPane(preflight: PipelinePreflight?, developerModeEnabled: B
         }
         if (preflight == null) {
             Text(
-                "프로젝트·구간과 저장된 정책으로 장비 시간, 저장 공간, 센서를 실제로 조회해 점검합니다. 확인 팝업이 아니라 장비의 응답입니다.",
+                "프로젝트·구간과 저장된 정책으로 장치 시간, 저장 공간, 센서를 실제로 조회해 점검합니다. 확인 팝업이 아니라 장치의 응답입니다.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = c.muted
             )
         } else {
             Surface(color = c.surface, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
                 Column(Modifier.fillMaxWidth().padding(GeoSpace.xl)) {
-                    CheckInfoRow("장치 연결 확인", preflight.deviceId, StatusTone.SUCCESS)
+                    CheckInfoRow("장치 연결 확인", deviceName, StatusTone.SUCCESS)
                     HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
                     CheckInfoRow(
                         "장치 시간 확인",
@@ -835,9 +837,9 @@ private fun ActiveRunCard(run: com.example.jetsoncontroller.model.PipelineRun) {
 // =====================================================================================
 
 internal fun startReadinessLabel(state: SurveyRunUiState): String = when {
-    !state.online -> "장비 연결 확인 필요"
+    !state.online -> "장치 연결이 끊겨 점검할 수 없습니다"
     state.pendingStart != null -> "수집 시작 여부를 확인하고 있습니다"
-    state.unconfirmedRunId != null -> "최근 실행 상태 미확인 · 같은 장비에서 재조회 필요"
+    state.unconfirmedRunId != null -> "최근 실행 상태 미확인 · 같은 장치에서 재조회 필요"
     state.contextLocked -> "현재 실행이 끝날 때까지 조사 범위 잠김"
     !state.selectionComplete -> "프로젝트와 조사 구간 선택 필요"
     state.policy == null -> "수집 작업 설정 확인 필요"
@@ -888,7 +890,11 @@ private fun requirementLabel(requirement: String): String = when (requirement.up
 
 private fun checkLabel(state: String): String = when (state.uppercase()) {
     "PASSED", "READY", "AVAILABLE", "CURRENT", "ACTIVE" -> "확인됨"
-    "FAILED", "MISSING", "STALE", "LOST", "ERROR" -> "확인 필요"
+    "FAILED" -> "점검 실패"
+    "MISSING" -> "찾을 수 없음"
+    "STALE" -> "오래된 정보"
+    "LOST" -> "응답 없음"
+    "ERROR" -> "점검 오류"
     "NOT_CONFIGURED" -> "미설정"
     else -> "상태 미확인"
 }

@@ -66,11 +66,14 @@ internal fun ActiveRunScreen(
     onCamera: () -> Unit,
     onMap: () -> Unit,
     onHome: () -> Unit = {},
+    /** Opens the result of this run in place. The screen never navigates on its own when a run ends. */
+    onOpenResult: () -> Unit = {},
     elapsedRealtimeMillis: () -> Long = SystemElapsedRealtimeMillis
 ) {
     val c = LocalGeoColors.current
     val awaitingStart = pendingStart || unconfirmedRunId != null
     val confirmedActive = run?.active == true && online && !awaitingStart
+    val ended = run?.let { !it.active && !awaitingStart } == true
     val telemetry = verifiedRunTelemetry(run)
     var displayedDuration by remember(run?.runId) { mutableStateOf(telemetry?.durationMillis) }
     var nowElapsed by remember(run?.runId) {
@@ -170,6 +173,7 @@ internal fun ActiveRunScreen(
                         when {
                             pendingStart -> "시작 확인 중"
                             confirmedActive -> "수집 중"
+                            ended -> "수집 종료"
                             else -> "수집 상태"
                         }
                     )
@@ -223,6 +227,11 @@ internal fun ActiveRunScreen(
                                     enabled = !stopInProgress,
                                     icon = Icons.Default.Refresh
                                 )
+                                ended -> GeoPrimaryAction(
+                                    label = "결과 보기",
+                                    onClick = onOpenResult,
+                                    icon = Icons.Default.Storage
+                                )
                                 !online -> GeoPrimaryAction("다시 연결", onDevices, icon = Icons.Default.Refresh)
                                 run == null || !stopAvailable -> GeoPrimaryAction(
                                     "수집 상태 다시 확인", onRefresh, enabled = online && !stopInProgress,
@@ -258,6 +267,9 @@ internal fun ActiveRunScreen(
                     }
                     run == null -> item {
                         UnknownRunContent(online = online, onRefresh = onRefresh, onDevices = onDevices)
+                    }
+                    ended -> item {
+                        RunEndedContent(run, deviceName, online)
                     }
                     else -> item {
                         ActiveWorkspace(
@@ -342,6 +354,40 @@ private fun UnknownRunContent(online: Boolean, onRefresh: () -> Unit, onDevices:
             tone = StatusTone.UNKNOWN,
             actionLabel = if (online) "다시 확인" else "다시 연결",
             onAction = if (online) onRefresh else onDevices
+        )
+    }
+}
+
+/**
+ * Shown in place when the run has finished. The result is one tap away through the bottom
+ * action, which the operator chooses; nothing here moves the screen.
+ */
+@Composable
+private fun RunEndedContent(run: PipelineRun, deviceName: String, online: Boolean) {
+    val c = LocalGeoColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)) {
+        Text("수집이 끝났습니다", style = MaterialTheme.typography.headlineMedium, color = c.ink)
+        Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+            Text(
+                run.contextSnapshot.surveyProjectLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = c.muted
+            )
+            Text(
+                run.contextSnapshot.surveySectionLabel,
+                style = MaterialTheme.typography.titleLarge,
+                color = c.ink
+            )
+            Text(
+                "$deviceName · ${if (online) "연결됨" else "오프라인"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.muted
+            )
+        }
+        Text(
+            "결과 보기에서 장치 저장과 서버 수신 상태를 확인하세요.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = c.muted
         )
     }
 }
