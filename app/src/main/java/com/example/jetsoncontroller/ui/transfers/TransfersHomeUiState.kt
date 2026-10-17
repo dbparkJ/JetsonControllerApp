@@ -1,14 +1,18 @@
 package com.example.jetsoncontroller.ui.transfers
 
+import com.example.jetsoncontroller.data.server.ServerDeviceEventIntegrationState
+import com.example.jetsoncontroller.data.server.ServerDeviceEventStatus
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.data.transport.canStartServerUpload
 import com.example.jetsoncontroller.data.transport.serverUploadUnavailableMessage
 import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
+import com.example.jetsoncontroller.ui.components.formatGeoDateTime
 import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.tasks.UnnamedDeviceLabel
 import com.example.jetsoncontroller.ui.tasks.formatTaskTime
+import com.example.jetsoncontroller.ui.tasks.parseInstantOrNull
+import com.example.jetsoncontroller.ui.tasks.UnnamedDeviceLabel
 import com.example.jetsoncontroller.ui.upload.TransferRate
 import com.example.jetsoncontroller.ui.upload.UploadUiState
 import com.example.jetsoncontroller.ui.upload.approximateRemainingLabel
@@ -18,6 +22,7 @@ import com.example.jetsoncontroller.ui.upload.transferRateLabel
 import com.example.jetsoncontroller.ui.upload.transferSamplesFor
 import com.example.jetsoncontroller.ui.upload.uploadProgressBytesLabel
 import com.example.jetsoncontroller.ui.userFacingConnectionMessage
+import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 
@@ -32,7 +37,14 @@ internal data class TransfersHomeInput(
     val upload: UploadUiState,
     val runs: List<TaskRun>,
     val developerModeEnabled: Boolean,
-    val zone: ZoneId = ZoneId.systemDefault()
+    val zone: ZoneId = ZoneId.systemDefault(),
+    val deviceEventStatus: ServerDeviceEventStatus? = null,
+    val now: Instant = Instant.now()
+)
+
+internal data class DeviceEventNoticeState(
+    val text: String,
+    val tone: StatusTone
 )
 
 internal data class ActiveTransferState(
@@ -68,6 +80,7 @@ internal data class TransfersHomeUiState(
     /** One line that says why uploads may be unavailable. Always present. */
     val explanation: String,
     val explanationTone: StatusTone,
+    val deviceEventNotice: DeviceEventNoticeState?,
     val active: ActiveTransferState?,
     val queued: List<TransferRowState>,
     val failed: List<FailedTransferState>,
@@ -108,6 +121,7 @@ internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHome
     return TransfersHomeUiState(
         explanation = explanation,
         explanationTone = explanationTone,
+        deviceEventNotice = deviceEventNoticeFor(input.deviceEventStatus, input.now, input.zone),
         active = active,
         queued = queued,
         failed = failed,
@@ -118,6 +132,53 @@ internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHome
             null
         }
     )
+}
+
+/** Read-only GEO& Work delivery state, with integration failures taking precedence over counts. */
+internal fun deviceEventNoticeFor(
+    status: ServerDeviceEventStatus?,
+    now: Instant,
+    zone: ZoneId
+): DeviceEventNoticeState? {
+    status ?: return null
+    return when (status.integration.normalizedState) {
+        ServerDeviceEventIntegrationState.EXPIRED -> DeviceEventNoticeState(
+            "GEO& Work 연동이 만료되었습니다. 관리자에게 연동 연장을 요청하세요.",
+            StatusTone.ERROR
+        )
+        ServerDeviceEventIntegrationState.ERROR -> DeviceEventNoticeState(
+            "GEO& Work 알림을 보내지 못하고 있습니다. 수신 서버 관리자에게 알려 주세요.",
+            StatusTone.ERROR
+        )
+        ServerDeviceEventIntegrationState.ACTIVE -> when {
+            status.window.dead > 0 -> DeviceEventNoticeState(
+                "GEO& Work 알림 ${String.format(Locale.US, "%,d", status.window.dead)}건을 보내지 못했습니다. 수신 서버 관리자에게 알려 주세요.",
+                StatusTone.WARNING
+            )
+            status.window.pending > 0 -> DeviceEventNoticeState(
+                "GEO& Work 알림 ${String.format(Locale.US, "%,d", status.window.pending)}건을 보내는 중입니다.",
+                StatusTone.PENDING
+            )
+            status.lastDelivered != null -> {
+                val deliveredAt = parseInstantOrNull(status.lastDelivered.at) ?: return null
+                val deliveredTime = formatGeoDateTime(
+                    deliveredAt.toEpochMilli(),
+                    now.toEpochMilli(),
+                    zone
+                )
+                DeviceEventNoticeState(
+                    "GEO& Work에 알림을 보냈습니다 · $deliveredTime ${status.lastDelivered.status}",
+                    StatusTone.SUCCESS
+                )
+            }
+            else -> DeviceEventNoticeState(
+                "GEO& Work 알림이 켜져 있습니다.",
+                StatusTone.INFO
+            )
+        }
+        ServerDeviceEventIntegrationState.NOT_CONFIGURED,
+        ServerDeviceEventIntegrationState.UNKNOWN -> null
+    }
 }
 
 private fun isInFlight(state: UploadJobState): Boolean =

@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.jetsoncontroller.ui.components.AppBanner
 import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.components.statusVisuals
@@ -146,7 +147,14 @@ internal fun TransfersHomeScreen(
                     }
                 }
             }
-            item { ExplanationLine(state.explanation, state.explanationTone) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    state.deviceEventNotice?.let { notice ->
+                        AppBanner(message = notice.text, tone = notice.tone)
+                    }
+                    ExplanationLine(state.explanation, state.explanationTone)
+                }
+            }
         }
     }
 }

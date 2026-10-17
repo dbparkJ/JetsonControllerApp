@@ -127,6 +127,25 @@ class DirectServerRepositoryTest {
         assertEquals(2, result.response!!.results.size)
     }
 
+    @Test fun `device event status uses the selected project and verifies the device`() = runTest {
+        val requestedDevice = "00000000-0000-0000-0000-000000000001"
+        val api = FakeApi({ Response.success(jobsResponse()) }).apply {
+            deviceEventStatusCall = { projectId, deviceId ->
+                assertEquals("road-alpha", projectId)
+                assertEquals(requestedDevice, deviceId)
+                Response.success(deviceEventStatus(requestedDevice))
+            }
+        }
+        val repository = DirectServerRepository(
+            api, profile, RecentServerJobsCache(temporary.newFolder("device-event-cache")), "revision-1"
+        )
+
+        assertEquals(requestedDevice, repository.deviceEventStatus(requestedDevice).getOrThrow().deviceId)
+
+        api.deviceEventStatusCall = { _, _ -> Response.success(deviceEventStatus("another-device")) }
+        assertTrue(repository.deviceEventStatus(requestedDevice).isFailure)
+    }
+
     @Test fun `empty trash rejects missing results and reports availability as unknown`() = runTest {
         val api = FakeApi({ Response.success(jobsResponse()) })
         val repository = DirectServerRepository(
@@ -175,7 +194,18 @@ class DirectServerRepositoryTest {
         refreshedAt = "2026-09-14T00:00:00Z"
     )
 
+    private fun deviceEventStatus(deviceId: String) = ServerDeviceEventStatus(
+        deviceId = deviceId,
+        integration = ServerDeviceEventIntegration("ACTIVE"),
+        window = ServerDeviceEventWindow(24, 0, 3, 1, 0),
+        lastDelivered = null,
+        lastFailure = null,
+        lastSeenAt = null
+    )
+
     private class FakeApi(var jobsCall: () -> Response<ServerJobsResponse>) : DirectServerApi {
+        var deviceEventStatusCall: suspend (String, String) -> Response<ServerDeviceEventStatus> =
+            { _, _ -> error("unused") }
         var emptyTrashCall: suspend (String, ServerEmptyTrashRequest) -> Response<ServerEmptyTrashResponse> =
             { _, _ -> error("unused") }
         override suspend fun jobs(projectId: String, limit: Int, offset: Int) = jobsCall()
@@ -189,6 +219,9 @@ class DirectServerRepositoryTest {
         override suspend fun receipt(
             sessionId: String, projectId: String
         ): Response<ServerReceipt> = error("unused")
+        override suspend fun deviceEventStatus(
+            projectId: String, deviceId: String
+        ): Response<ServerDeviceEventStatus> = deviceEventStatusCall(projectId, deviceId)
         override suspend fun trash(projectId: String, limit: Int, offset: Int): Response<ServerTrashResponse> = error("unused")
         override suspend fun emptyTrash(
             projectId: String,

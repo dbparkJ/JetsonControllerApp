@@ -95,6 +95,56 @@ data class ServerReceipt(
     val accessProjectId: String? = null
 )
 
+enum class ServerDeviceEventIntegrationState {
+    ACTIVE,
+    NOT_CONFIGURED,
+    EXPIRED,
+    ERROR,
+    UNKNOWN
+}
+
+data class ServerDeviceEventIntegration(
+    val state: String?,
+    val detail: String? = null
+) {
+    val normalizedState: ServerDeviceEventIntegrationState
+        get() = when (state?.uppercase()) {
+            "ACTIVE" -> ServerDeviceEventIntegrationState.ACTIVE
+            "NOT_CONFIGURED" -> ServerDeviceEventIntegrationState.NOT_CONFIGURED
+            "EXPIRED" -> ServerDeviceEventIntegrationState.EXPIRED
+            "ERROR" -> ServerDeviceEventIntegrationState.ERROR
+            else -> ServerDeviceEventIntegrationState.UNKNOWN
+        }
+}
+
+data class ServerDeviceEventWindow(
+    val hours: Int,
+    val pending: Int,
+    val sent: Int,
+    val dedup: Int,
+    val dead: Int
+)
+
+data class ServerDeviceEventDelivery(
+    val status: String,
+    val at: String
+)
+
+data class ServerDeviceEventFailure(
+    val status: String,
+    val code: String,
+    val at: String
+)
+
+data class ServerDeviceEventStatus(
+    val deviceId: String,
+    val integration: ServerDeviceEventIntegration,
+    val window: ServerDeviceEventWindow,
+    val lastDelivered: ServerDeviceEventDelivery?,
+    val lastFailure: ServerDeviceEventFailure?,
+    val lastSeenAt: String?
+)
+
 data class ServerTrashJob(
     val sessionId: String,
     val clientJobId: String,

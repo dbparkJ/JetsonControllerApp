@@ -13,6 +13,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -1406,6 +1407,34 @@ fun JetsonApp(
             LaunchedEffect(selectedDeviceId, fullControlConnected) {
                 if (fullControlConnected) uploadViewModel.loadQueue()
             }
+            val transfersLifecycleOwner = LocalLifecycleOwner.current
+            val selectedServerCredentialRevision = directServerState.profiles.firstOrNull {
+                it.profile.profileId == directServerState.selectedProfileId
+            }?.credentialRevision
+            LaunchedEffect(
+                selectedDeviceId,
+                directServerState.selectedProfileId,
+                selectedServerCredentialRevision,
+                transfersLifecycleOwner
+            ) {
+                val deviceId = selectedDeviceId?.takeIf(String::isNotBlank)
+                val profileId = directServerState.selectedProfileId?.takeIf(String::isNotBlank)
+                if (deviceId != null && profileId != null) {
+                    transfersLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                        while (true) {
+                            directServerViewModel.refreshDeviceEventStatus(profileId, deviceId)
+                            delay(60_000L)
+                        }
+                    }
+                }
+            }
+            val deviceEventStatus = directServerState.deviceEventStatuses.firstOrNull { snapshot ->
+                snapshot.profileId == directServerState.selectedProfileId &&
+                    snapshot.deviceId.equals(selectedDeviceId, ignoreCase = true) &&
+                    directServerState.profiles.firstOrNull {
+                        it.profile.profileId == snapshot.profileId
+                    }?.credentialRevision == snapshot.credentialRevision
+            }?.status
             val transfersState = com.example.jetsoncontroller.ui.transfers.buildTransfersHomeUiState(
                 com.example.jetsoncontroller.ui.transfers.TransfersHomeInput(
                     deviceName = selectedRegisteredDeviceName,
@@ -1414,7 +1443,8 @@ fun JetsonApp(
                         ?.type,
                     upload = uploadState,
                     runs = fieldState.runs,
-                    developerModeEnabled = developerModeEnabled
+                    developerModeEnabled = developerModeEnabled,
+                    deviceEventStatus = deviceEventStatus
                 )
             )
             androidx.compose.material3.Scaffold(

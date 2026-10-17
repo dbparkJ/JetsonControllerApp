@@ -40,6 +40,12 @@ interface DirectServerApi {
         @Query("projectId") projectId: String
     ): Response<ServerReceipt>
 
+    @GET("v1/server/device-events/status")
+    suspend fun deviceEventStatus(
+        @Query("projectId") projectId: String,
+        @Query("deviceId") deviceId: String
+    ): Response<ServerDeviceEventStatus>
+
     @GET("v1/server/trash")
     suspend fun trash(
         @Query("projectId") projectId: String,

@@ -39,6 +39,13 @@ internal data class DirectServerPreview(
     val bytes: ByteArray
 )
 
+internal data class DeviceEventStatusSnapshot(
+    val profileId: String,
+    val credentialRevision: String,
+    val deviceId: String,
+    val status: ServerDeviceEventStatus
+)
+
 internal data class DirectServerUiState(
     val profiles: List<StoredServerProfile> = emptyList(),
     val selectedProfileId: String? = null,
@@ -55,6 +62,7 @@ internal data class DirectServerUiState(
     val filesTruncated: Boolean = false,
     val preview: DirectServerPreview? = null,
     val receipt: ServerReceipt? = null,
+    val deviceEventStatuses: List<DeviceEventStatusSnapshot> = emptyList(),
     val trash: List<ServerTrashJob> = emptyList(),
     val trashEmptySupported: Boolean = false,
     val trashTotal: Int = 0,
@@ -219,6 +227,54 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
 
     fun refreshJobs() {
         if (repository == null) connect() else launchOperation { expected -> refreshJobsNow(expected) }
+    }
+
+    /** Fetches the read-only relay state with the saved employee profile, without connecting the tab. */
+    suspend fun refreshDeviceEventStatus(expectedProfileId: String, deviceId: String) {
+        if (expectedProfileId.isBlank() || deviceId.isBlank() ||
+            _uiState.value.selectedProfileId != expectedProfileId
+        ) return
+
+        val result = try {
+            val connection = store.connection(expectedProfileId) ?: return
+            if (connection.profile.profileId != expectedProfileId ||
+                _uiState.value.selectedProfileId != expectedProfileId
+            ) return
+            DirectServerRepository(
+                DirectServerApiFactory.create(connection.profile, connection.employeeToken),
+                connection.profile,
+                cache,
+                connection.credentialRevision
+            ).deviceEventStatus(deviceId).map { status -> connection to status }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return
+        }
+
+        result.onSuccess { (connection, status) ->
+            val current = _uiState.value
+            val currentCredentialRevision = current.profiles.firstOrNull {
+                it.profile.profileId == expectedProfileId
+            }?.credentialRevision
+            if (current.selectedProfileId != expectedProfileId ||
+                (currentCredentialRevision != null &&
+                    currentCredentialRevision != connection.credentialRevision)
+            ) return@onSuccess
+            val snapshot = DeviceEventStatusSnapshot(
+                profileId = expectedProfileId,
+                credentialRevision = connection.credentialRevision,
+                deviceId = deviceId,
+                status = status
+            )
+            _uiState.value = current.copy(
+                deviceEventStatuses = current.deviceEventStatuses.filterNot {
+                    it.profileId == expectedProfileId &&
+                        it.credentialRevision == connection.credentialRevision &&
+                        it.deviceId.equals(deviceId, ignoreCase = true)
+                } + snapshot
+            )
+        }
     }
 
     fun loadMoreJobs() {
@@ -562,7 +618,8 @@ internal fun DirectServerUiState.forProfile(profileId: String): DirectServerUiSt
     DirectServerUiState(
         profiles = profiles,
         selectedProfileId = profileId,
-        section = section
+        section = section,
+        deviceEventStatuses = deviceEventStatuses
     )
 
 internal fun DirectServerUiState.withJobsSnapshot(

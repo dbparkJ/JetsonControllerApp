@@ -128,6 +128,23 @@ class DirectServerRepository(
         }
     }
 
+    suspend fun deviceEventStatus(deviceId: String): Result<ServerDeviceEventStatus> = request {
+        require(deviceId.isNotBlank()) { "Device ID is required" }
+        api.deviceEventStatus(profile.projectId, deviceId).requiredBody().also { response ->
+            check(response.deviceId.equals(deviceId, ignoreCase = true)) {
+                "Server device event status device mismatch"
+            }
+            check(response.window.hours >= 0 && response.window.pending >= 0 &&
+                response.window.sent >= 0 && response.window.dedup >= 0 && response.window.dead >= 0
+            ) { "Server device event status counts are invalid" }
+            response.lastDelivered?.let {
+                check(it.status.isNotBlank() && it.at.isNotBlank()) {
+                    "Server device event delivery status is incomplete"
+                }
+            }
+        }
+    }
+
     suspend fun trash(offset: Int = 0, limit: Int = 200): Result<ServerTrashResponse> = request {
         api.trash(profile.projectId, limit, offset).requiredBody().let { response ->
             requireEnvironment(response.serverEnvironment)

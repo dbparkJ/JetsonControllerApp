@@ -1,6 +1,12 @@
 package com.example.jetsoncontroller.ui.transfers
 
+import com.example.jetsoncontroller.data.server.ServerDeviceEventDelivery
+import com.example.jetsoncontroller.data.server.ServerDeviceEventIntegration
+import com.example.jetsoncontroller.data.server.ServerDeviceEventIntegrationState
+import com.example.jetsoncontroller.data.server.ServerDeviceEventStatus
+import com.example.jetsoncontroller.data.server.ServerDeviceEventWindow
 import com.example.jetsoncontroller.data.transport.TransportType
+import com.google.gson.Gson
 import com.example.jetsoncontroller.model.SurveyContextSnapshot
 import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.UploadContext
@@ -10,6 +16,8 @@ import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.upload.TransferSample
 import com.example.jetsoncontroller.ui.upload.UploadUiState
+import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +29,112 @@ private const val TRANSFER_TEST_DEVICE_ID = "7f3a9c2e-1b4d-4e8a-9c0f-00000000abc
 private const val MIB = 1_048_576L
 
 class TransfersHomeUiStateTest {
+
+    @Test
+    fun `expired GEO and Work integration shows the exact error message`() {
+        val notice = deviceEventNoticeFor(status("EXPIRED", dead = 4), NOW, SEOUL)
+
+        assertEquals(StatusTone.ERROR, notice?.tone)
+        assertEquals(
+            "GEO& Work 연동이 만료되었습니다. 관리자에게 연동 연장을 요청하세요.",
+            notice?.text
+        )
+    }
+
+    @Test
+    fun `GEO and Work integration error takes priority over queue counts`() {
+        val notice = deviceEventNoticeFor(status("ERROR", dead = 4, pending = 3), NOW, SEOUL)
+
+        assertEquals(StatusTone.ERROR, notice?.tone)
+        assertEquals(
+            "GEO& Work 알림을 보내지 못하고 있습니다. 수신 서버 관리자에게 알려 주세요.",
+            notice?.text
+        )
+    }
+
+    @Test
+    fun `dead delivery count takes priority over pending and uses grouped numbers`() {
+        val notice = deviceEventNoticeFor(status("ACTIVE", dead = 1_234, pending = 7), NOW, SEOUL)
+
+        assertEquals(StatusTone.WARNING, notice?.tone)
+        assertEquals(
+            "GEO& Work 알림 1,234건을 보내지 못했습니다. 수신 서버 관리자에게 알려 주세요.",
+            notice?.text
+        )
+    }
+
+    @Test
+    fun `pending delivery count uses grouped numbers`() {
+        val notice = deviceEventNoticeFor(status("ACTIVE", pending = 2_345), NOW, SEOUL)
+
+        assertEquals(StatusTone.PENDING, notice?.tone)
+        assertEquals("GEO& Work 알림 2,345건을 보내는 중입니다.", notice?.text)
+    }
+
+    @Test
+    fun `last delivered status uses the selected zone and app date format`() {
+        val notice = deviceEventNoticeFor(
+            status("ACTIVE", lastDelivered = ServerDeviceEventDelivery("과열 경고", "2026-10-14T23:02:00Z")),
+            NOW,
+            SEOUL
+        )
+
+        assertEquals(StatusTone.SUCCESS, notice?.tone)
+        assertEquals("GEO& Work에 알림을 보냈습니다 · 10월 15일 08:02 과열 경고", notice?.text)
+    }
+
+    @Test
+    fun `active integration without failures or a delivery is informational`() {
+        val notice = deviceEventNoticeFor(status("ACTIVE"), NOW, SEOUL)
+
+        assertEquals(StatusTone.INFO, notice?.tone)
+        assertEquals("GEO& Work 알림이 켜져 있습니다.", notice?.text)
+    }
+
+    @Test
+    fun `unconfigured unknown and missing GEO and Work status hide the row`() {
+        assertNull(deviceEventNoticeFor(status("NOT_CONFIGURED"), NOW, SEOUL))
+        assertNull(deviceEventNoticeFor(status("A_FUTURE_STATE"), NOW, SEOUL))
+        assertNull(deviceEventNoticeFor(null, NOW, SEOUL))
+    }
+
+    @Test
+    fun `status DTO parses the documented JSON and maps future states to unknown`() {
+        val json = """{
+            "deviceId":"$TRANSFER_TEST_DEVICE_ID",
+            "integration":{"state":"FUTURE_STATE","detail":null},
+            "window":{"hours":24,"pending":2,"sent":3,"dedup":1,"dead":0},
+            "lastDelivered":{"status":"과열 경고","at":"2026-10-14T23:02:00Z"},
+            "lastFailure":null,
+            "lastSeenAt":null
+        }"""
+
+        val parsed = Gson().fromJson(json, ServerDeviceEventStatus::class.java)
+
+        assertEquals(TRANSFER_TEST_DEVICE_ID, parsed.deviceId)
+        assertEquals(2, parsed.window.pending)
+        assertEquals(ServerDeviceEventIntegrationState.UNKNOWN, parsed.integration.normalizedState)
+        assertEquals("과열 경고", parsed.lastDelivered?.status)
+    }
+
+    private fun status(
+        state: String,
+        pending: Int = 0,
+        dead: Int = 0,
+        lastDelivered: ServerDeviceEventDelivery? = null
+    ) = ServerDeviceEventStatus(
+        deviceId = TRANSFER_TEST_DEVICE_ID,
+        integration = ServerDeviceEventIntegration(state),
+        window = ServerDeviceEventWindow(hours = 24, pending = pending, sent = 0, dedup = 0, dead = dead),
+        lastDelivered = lastDelivered,
+        lastFailure = null,
+        lastSeenAt = null
+    )
+
+    private companion object {
+        val NOW: Instant = Instant.parse("2026-10-18T12:00:00Z")
+        val SEOUL: ZoneId = ZoneId.of("Asia/Seoul")
+    }
 
     @Test
     fun `explanation says uploads need the same network when the phone is on LAN`() {
