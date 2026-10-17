@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.field
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -7,17 +8,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.PipelineOutputManifest
 import com.example.jetsoncontroller.model.PipelineRun
@@ -146,20 +147,18 @@ internal fun RunResultScreen(
                         val stack = maxWidth < 600.dp || LocalDensity.current.fontScale > 1.3f
                         val summary: @Composable ColumnScope.() -> Unit = {
                             ResultHero(run, finishedTone, deviceName)
+                            Spacer(Modifier.height(GeoSpace.lg))
+                            RunReceiptStrip(pipelineRunReceiptCells(run, serverReceiptTone))
+                            Spacer(Modifier.height(GeoSpace.sm))
+                            Text(
+                                receiptNote(finishedTone, storedTone, serverReceiptLabel, serverReceiptTone),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = c.muted
+                            )
                             Spacer(Modifier.height(GeoSpace.xl))
                             ResultMetrics(run)
                             Spacer(Modifier.height(GeoSpace.lg))
                             RunQualityEvidence(run.quality)
-                            Spacer(Modifier.height(GeoSpace.lg))
-                            ReceiptCard(
-                                run = run,
-                                manifest = manifest,
-                                finishedTone = finishedTone,
-                                storedTone = storedTone,
-                                serverReceiptLabel = serverReceiptLabel,
-                                serverReceiptTone = serverReceiptTone,
-                                developerModeEnabled = developerModeEnabled
-                            )
                         }
                         val actions: @Composable ColumnScope.() -> Unit = {
                             CollectedFilesAction(run, stored, onOpenFiles)
@@ -270,77 +269,64 @@ private fun ResultHero(run: PipelineRun, tone: StatusTone, deviceName: String) {
     }
 }
 
+/**
+ * The run receipt as three cells in one row: 수집 종료 → 장치 저장 → 서버 수신. Each cell carries
+ * its own status tone and short state word, so the operator reads the whole chain at a glance.
+ */
 @Composable
-private fun ReceiptCard(
-    run: PipelineRun,
-    manifest: PipelineOutputManifest?,
+internal fun RunReceiptStrip(cells: List<RunReceiptCell>, modifier: Modifier = Modifier) {
+    val c = LocalGeoColors.current
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
+        cells.forEach { cell ->
+            val visuals = statusVisuals(cell.tone)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .background(visuals.container, RoundedCornerShape(GeoRadius.sm))
+                    .padding(horizontal = GeoSpace.sm, vertical = GeoSpace.md),
+                verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
+                    Icon(visuals.icon, contentDescription = null, tint = visuals.content, modifier = Modifier.size(16.dp))
+                    Text(
+                        cell.title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = c.inkSubtle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    cell.value,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = visuals.content,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+/** One sentence under the receipt. It names what is still unresolved, and never reads silence as failure. */
+private fun receiptNote(
     finishedTone: StatusTone,
     storedTone: StatusTone,
     serverReceiptLabel: String?,
-    serverReceiptTone: StatusTone,
-    developerModeEnabled: Boolean
-) {
-    val finishedDetail = when (finishedTone) {
-        StatusTone.SUCCESS -> "장치에서 실행 종료를 확인했습니다."
-        StatusTone.PENDING -> "장치의 종료 응답을 기다리고 있습니다."
-        StatusTone.WARNING, StatusTone.ERROR -> if (developerModeEnabled && run.exitCode != null) {
-            "정상적으로 끝나지 않았습니다. exit ${run.exitCode}"
-        } else "정상적으로 끝나지 않았습니다."
-        else -> "장치의 종료 결과를 확인하지 못했습니다."
-    }
-    val storedDetail = when (storedTone) {
-        StatusTone.SUCCESS -> manifest?.let { "${it.fileCount}개 파일 · ${formatBytes(it.bytesTotal)}" } ?: "저장 확인됨"
-        StatusTone.PENDING -> "장치에서 파일 목록을 확인하고 있습니다."
-        StatusTone.WARNING, StatusTone.ERROR -> "장치 저장 결과를 다시 확인해 주세요."
-        else -> "장치에 저장되었는지 아직 확인하지 못했습니다."
-    }
-    val serverTitle = when (serverReceiptTone) {
-        StatusTone.SUCCESS -> "서버 수신 확인"
-        StatusTone.PENDING -> "서버 수신 확인 중"
-        StatusTone.WARNING, StatusTone.ERROR -> "서버 수신 확인 필요"
-        else -> "서버 수신 미확인"
-    }
-    val serverDetail = serverReceiptLabel ?: when (serverReceiptTone) {
-        StatusTone.PENDING -> "서버의 수신 결과를 확인하고 있습니다."
-        StatusTone.WARNING, StatusTone.ERROR -> "서버의 수신 결과를 다시 확인해 주세요."
-        else -> "서버의 수신 결과를 확인해 주세요."
-    }
-
-    val c = LocalGeoColors.current
-    Surface(color = c.surface, shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(GeoSpace.xl)) {
-            ReceiptRow(statusVisuals(finishedTone).icon, finishedTone, "수집 종료 확인", finishedDetail)
-            HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
-            ReceiptRow(Icons.Default.Storage, storedTone, storedTitle(storedTone), storedDetail)
-            HorizontalDivider(Modifier.padding(vertical = GeoSpace.lg), color = c.border)
-            ReceiptRow(Icons.Default.Cloud, serverReceiptTone, serverTitle, serverDetail)
-        }
-    }
-}
-
-private fun storedTitle(tone: StatusTone): String = when (tone) {
-    StatusTone.SUCCESS -> "장치 저장 완료"
-    StatusTone.PENDING -> "장치 저장 확인 중"
-    StatusTone.WARNING, StatusTone.ERROR -> "장치 저장 확인 필요"
-    else -> "장치 저장 미확인"
-}
-
-@Composable
-private fun ReceiptRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    tone: StatusTone,
-    title: String,
-    detail: String
-) {
-    val c = LocalGeoColors.current
-    val visuals = statusVisuals(tone)
-    Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.md), verticalAlignment = Alignment.Top) {
-        Icon(icon, contentDescription = null, tint = visuals.content, modifier = Modifier.size(GeoSize.iconMd))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = c.ink)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = c.muted)
-        }
-    }
+    serverReceiptTone: StatusTone
+): String = when {
+    finishedTone == StatusTone.WARNING || finishedTone == StatusTone.ERROR ->
+        "정상적으로 끝나지 않았습니다. 장치 저장 결과를 확인해 주세요."
+    finishedTone == StatusTone.PENDING -> "장치의 종료 응답을 기다리고 있습니다."
+    storedTone == StatusTone.PENDING -> "장치에서 파일 목록을 확인하고 있습니다."
+    storedTone == StatusTone.WARNING || storedTone == StatusTone.ERROR ->
+        "장치 저장 결과를 다시 확인해 주세요."
+    serverReceiptTone == StatusTone.SUCCESS -> serverReceiptLabel ?: "서버에서 이 수집의 수신을 확인했습니다."
+    serverReceiptTone == StatusTone.PENDING -> "서버의 수신 결과를 확인하고 있습니다."
+    serverReceiptTone == StatusTone.WARNING || serverReceiptTone == StatusTone.ERROR ->
+        "서버의 수신 결과를 다시 확인해 주세요."
+    else -> "서버의 수신 결과는 아직 확인되지 않았습니다. 수신 상태를 다시 확인해 주세요."
 }
 
 @Composable
@@ -374,6 +360,7 @@ private fun TechnicalResultDetails(run: PipelineRun, manifest: PipelineOutputMan
         GeoIdentifier("경로", "${run.output.rootId}/${run.output.path}")
         GeoIdentifier("Run", run.runId)
         GeoIdentifier("Output", run.output.outputId)
+        run.exitCode?.let { GeoIdentifier("종료 코드", it.toString()) }
         manifest?.let { ExpectationSection(it) }
     }
 }

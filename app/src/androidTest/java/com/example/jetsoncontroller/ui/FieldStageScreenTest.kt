@@ -168,11 +168,13 @@ class FieldStageScreenTest {
             )
         } }
 
-        compose.onNodeWithText("수집 종료 확인").assertIsDisplayed()
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("장치 저장 완료"))
-        compose.onNodeWithText("장치 저장 완료").assertIsDisplayed()
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("서버 수신 미확인"))
-        compose.onNodeWithText("서버 수신 미확인").assertIsDisplayed()
+        compose.onNodeWithText("수집 종료").assertIsDisplayed()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("장치 저장"))
+        compose.onNodeWithText("장치 저장").assertIsDisplayed()
+        compose.onNodeWithText("저장 확인").assertIsDisplayed()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("서버 수신"))
+        compose.onNodeWithText("서버 수신").assertIsDisplayed()
+        compose.onNodeWithText("미확인").assertIsDisplayed()
         capture("result-terminal")
         compose.onNodeWithText("파일 전송 준비").assertIsEnabled().performClick()
         compose.onNodeWithText("/data/raw/run-1").assertDoesNotExist()
