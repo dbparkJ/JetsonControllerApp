@@ -51,6 +51,8 @@ Android 앱
 
 Windows에서는 `gradlew.bat`를 사용합니다. APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다. 연결된 테스트 기기의 UI·네트워크 시험은 `./gradlew :app:connectedDebugAndroidTest`로 별도 실행합니다.
 
+기기에 이미 다른 서명 키로 만든 앱이 설치되어 있으면 덮어쓰기 설치가 거부됩니다. 기존 앱의 데이터(등록 장치·서버 프로필)를 지우지 않고 시험하려면 `-PdebugApplicationIdSuffix=.redesign`처럼 접미사를 주어 별도 패키지("장치 관리 시험판")로 설치합니다.
+
 ### Jetson / Linux ARM64에서 빌드
 
 [setup-mobile-build-env.sh](scripts/setup-mobile-build-env.sh)는 이미 준비된 SDK·Gradle·QEMU·AAPT2 실행 환경을 저장소의 `.mobile-build/`로 복사해 재사용합니다. 필요한 원본 도구가 설치된 환경에서 실행합니다.
