@@ -33,14 +33,14 @@ private fun OperationalStatesPreview() {
             StatusBadge("온라인", StatusTone.SUCCESS)
             AppBanner("저장 공간을 확인해 주세요.", StatusTone.WARNING)
             AppBanner(
-                message = "Jetson과 연결할 수 없습니다.",
+                message = "장치와 연결할 수 없습니다.",
                 tone = StatusTone.ERROR,
                 actionLabel = "다시 연결",
                 onAction = {},
                 onDismiss = {}
             )
             ConnectionStepper(
-                labels = listOf("장비 찾기", "연결", "장비 확인", "인증", "상태 동기화"),
+                labels = listOf("장치 찾기", "연결", "장치 확인", "인증", "상태 동기화"),
                 currentStep = 2
             )
         }

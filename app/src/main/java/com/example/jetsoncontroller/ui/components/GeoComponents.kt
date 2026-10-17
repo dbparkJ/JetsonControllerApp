@@ -50,9 +50,9 @@ import com.example.jetsoncontroller.ui.theme.OutlinedButton
 /**
  * A grouped block of related content.
  *
- * Separation comes from a hairline border on a flat surface rather than from a shadow
- * or a tonal tint. Shadows disappear outdoors and tonal tints pulled the previous
- * design's "raised" surfaces toward the primary hue, which competed with status colour.
+ * Separation comes from the tone step between the canvas and this white surface. No
+ * border and no shadow: a 1dp outline on every card made the screens look like forms,
+ * and shadows disappear outdoors. Dividers between rows inside a section are still used.
  *
  * Pass [tone] only when the *whole section* carries that status — it draws a coloured
  * rule down the leading edge, which reads before any text does. Do not tint the section
@@ -72,7 +72,6 @@ fun GeoSection(
         modifier = modifier.fillMaxWidth(),
         color = c.surface,
         contentColor = c.ink,
-        border = BorderStroke(GeoSize.hairline, c.border),
         shape = MaterialTheme.shapes.medium
     ) {
         Row(Modifier.height(IntrinsicSize.Min)) {
@@ -97,27 +96,25 @@ fun GeoSection(
 // Headers and rows
 // =====================================================================================
 
-/** A section title, optionally preceded by a quiet eyebrow and followed by one action. */
+/**
+ * A section title followed by one optional action.
+ *
+ * [eyebrow] is accepted so existing call sites compile, but it is no longer rendered:
+ * the redesign drops the small label above titles, so a title stands on its own.
+ */
 @Composable
 fun GeoSectionHeader(
     title: String,
     modifier: Modifier = Modifier,
-    eyebrow: String? = null,
+    @Suppress("UNUSED_PARAMETER") eyebrow: String? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
-    val c = LocalGeoColors.current
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(Modifier.weight(1f)) {
-            if (eyebrow != null) {
-                Text(eyebrow, style = GeoType.eyebrow, color = c.muted)
-                Spacer(Modifier.height(2.dp))
-            }
-            Text(title, style = MaterialTheme.typography.titleMedium)
-        }
+        Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
         trailing?.invoke()
     }
 }
@@ -214,7 +211,6 @@ fun GeoStatusTile(
         modifier = modifier.fillMaxWidth().heightIn(min = 112.dp),
         color = c.surface,
         contentColor = c.ink,
-        border = BorderStroke(GeoSize.hairline, c.border),
         shape = MaterialTheme.shapes.medium
     ) {
         Column(

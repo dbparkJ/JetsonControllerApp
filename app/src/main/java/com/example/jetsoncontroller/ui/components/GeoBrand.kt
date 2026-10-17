@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -15,6 +14,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.ui.dashboard.*
-import com.example.jetsoncontroller.ui.theme.GeoSize
 import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.theme.GeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -73,7 +72,6 @@ fun GeoDeviceSummary(state: DashboardUiState, onClick: () -> Unit, showMetrics: 
         onClick = onClick,
         color = c.surface,
         contentColor = c.ink,
-        border = BorderStroke(GeoSize.hairline, c.border),
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -119,54 +117,65 @@ fun GeoDeviceSummary(state: DashboardUiState, onClick: () -> Unit, showMetrics: 
 }
 
 /**
- * The launch screen, shown while the app restores its device list and connection.
+ * The loading state shown while the registered-device list is restored.
  *
- * It is a brand moment and a loading state at once, so it says what the product does in
- * one line and shows that work is in progress. It does not claim a connection or a
- * device state, because at this point the app has established neither.
+ * It uses the GEON Work loading composition: the canvas, the GEO& symbol, the app name
+ * and one line that says what is happening. No device photo, slogan or navy fill, and it
+ * makes no claim about a connection because the app has not established one yet. The
+ * caller decides when to show it (see MainActivity: only past 300 ms).
  */
 @Composable
-fun GeoWelcomeScene() {
+fun GeoLoadingScene(modifier: Modifier = Modifier) {
     val c = LocalGeoColors.current
     Surface(
-        Modifier
+        modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) { awaitPointerEvent().changes.forEach { it.consume() } }
                 }
             },
-        color = c.hero,
-        contentColor = c.heroText
+        color = c.canvas,
+        contentColor = c.ink
     ) {
         Column(
             Modifier.fillMaxSize().padding(GeoSpace.xxxl),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (LocalGeoDarkTheme.current) {
-                GeoLogo(Modifier.widthIn(max = 260.dp).fillMaxWidth(), backgroundColor = c.hero)
-            } else {
-                Surface(color = c.surface, shape = MaterialTheme.shapes.medium) {
-                    GeoLogo(
-                        Modifier.padding(horizontal = GeoSpace.lg, vertical = GeoSpace.sm)
-                            .widthIn(max = 260.dp).fillMaxWidth(),
-                        backgroundColor = c.surface
-                    )
-                }
-            }
-            Spacer(Modifier.height(GeoSpace.md))
-            Text("도로관리장치 제어", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(GeoSpace.huge))
-            Image(painterResource(R.drawable.geo_device), "GEO& 도로관리장치", Modifier.size(220.dp))
-            Spacer(Modifier.height(GeoSpace.xxxl))
+            Image(
+                painterResource(R.drawable.geo_symbol),
+                contentDescription = null,
+                modifier = Modifier.size(72.dp)
+            )
+            Spacer(Modifier.height(GeoSpace.lg))
             Text(
-                "현장의 데이터를, 더 빠르고 더 안전하게",
+                stringResource(R.string.app_name),
+                style = MaterialTheme.typography.titleMedium,
+                color = c.ink
+            )
+            Spacer(Modifier.height(GeoSpace.sm))
+            Text(
+                "장치 정보를 불러오는 중입니다.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = c.heroMuted
+                color = c.muted
             )
             Spacer(Modifier.height(GeoSpace.xl))
-            CircularProgressIndicator(Modifier.size(24.dp), color = c.heroText, strokeWidth = 2.dp)
+            CircularProgressIndicator(
+                Modifier.size(24.dp),
+                color = c.primary,
+                strokeWidth = 2.dp
+            )
         }
     }
+}
+
+/**
+ * Former launch screen. The app now uses [GeoLoadingScene]; this alias keeps the debug
+ * gallery and the instrumented tests compiling until they are moved to the new name.
+ */
+@Deprecated("Use GeoLoadingScene", ReplaceWith("GeoLoadingScene()"))
+@Composable
+fun GeoWelcomeScene() {
+    GeoLoadingScene()
 }
