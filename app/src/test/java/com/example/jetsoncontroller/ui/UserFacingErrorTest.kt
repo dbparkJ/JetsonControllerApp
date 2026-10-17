@@ -32,7 +32,7 @@ class UserFacingErrorTest {
 
         val failure = userFacingFailure(ConnectException(raw))
 
-        assertTrue(failure.message.contains("장비에 연결할 수 없습니다"))
+        assertTrue(failure.message.contains("장치에 연결할 수 없습니다"))
         assertFalse(failure.message.contains("111.111.111.110"))
         assertFalse(failure.message.contains("ConnectException"))
         assertTrue(failure.technicalDetail.contains(raw))

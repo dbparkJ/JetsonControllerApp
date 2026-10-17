@@ -53,7 +53,7 @@ class TaskFlowScreenTest {
             deviceId = "A",
             controlAvailable = true,
             observedAtMillis = 1000,
-            error = "장비에 연결할 수 없습니다. 같은 네트워크인지 확인하고 다시 시도하세요.",
+            error = "장치에 연결할 수 없습니다. 같은 네트워크인지 확인하고 다시 시도하세요.",
             technicalError = "ConnectException: /111.111.111.110:44181"
         )
         compose.setContent { JetsonControllerTheme {

@@ -90,7 +90,7 @@ class LanDiscoveryManager(private val context: Context) {
                             "JetsonLAN",
                             "NSD resolve failed for ${serviceInfo.serviceName}: $errorCode"
                         )
-                        _error.value = "LAN 장비 주소 확인 실패: $errorCode"
+                        _error.value = "LAN 장치 주소 확인 실패: $errorCode"
                     }
                     override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
                         val attributes = serviceInfo.attributes.mapValues { (_, value) ->
@@ -156,12 +156,12 @@ class LanDiscoveryManager(private val context: Context) {
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
             discoveryActive = false
             _isDiscovering.value = false
-            _error.value = "같은 네트워크 장비 검색 시작 실패: $errorCode"
+            _error.value = "같은 네트워크 장치 검색 시작 실패: $errorCode"
         }
         override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
             discoveryActive = false
             _isDiscovering.value = false
-            _error.value = "같은 네트워크 장비 검색 중지 실패: $errorCode"
+            _error.value = "같은 네트워크 장치 검색 중지 실패: $errorCode"
         }
     }
 
@@ -188,7 +188,7 @@ class LanDiscoveryManager(private val context: Context) {
             discoveryActive = false
             Log.e("JetsonLAN", "NSD discovery failed", error)
             _isDiscovering.value = false
-            _error.value = "같은 네트워크 장비 검색을 시작하지 못했습니다."
+            _error.value = "같은 네트워크 장치 검색을 시작하지 못했습니다."
         }
     }
 

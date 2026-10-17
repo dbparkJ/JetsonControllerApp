@@ -7,15 +7,15 @@ import okio.Buffer
 import java.io.IOException
 
 class JetsonSessionExpiredException : IOException(
-    "Jetson 인증 세션이 만료되었습니다."
+    "장치 인증 세션이 만료되었습니다."
 )
 
 class JetsonEndpointUnavailableException : IOException(
-    "이 기능을 사용하려면 Jetson 백엔드 업데이트가 필요합니다."
+    "이 기능을 사용하려면 장치 소프트웨어 업데이트가 필요합니다."
 )
 
 class JetsonResponseSignatureException : IOException(
-    "Jetson 응답 서명이 일치하지 않습니다."
+    "장치 응답 서명이 일치하지 않습니다."
 )
 
 class JetsonAuthenticationRecoveryException(
@@ -24,7 +24,7 @@ class JetsonAuthenticationRecoveryException(
 ) : IOException(message, cause)
 
 class JetsonUnsignedServerErrorException(statusCode: Int) : IOException(
-    "Jetson 백엔드 오류 응답을 인증할 수 없습니다. " +
+    "장치 소프트웨어 오류 응답을 인증할 수 없습니다. " +
         "백엔드를 업데이트한 뒤 다시 시도하세요. (HTTP $statusCode)"
 )
 
@@ -32,7 +32,7 @@ internal fun unsignedResponseException(statusCode: Int): IOException = when (sta
     401 -> JetsonSessionExpiredException()
     404, 405 -> JetsonEndpointUnavailableException()
     in 500..599 -> JetsonUnsignedServerErrorException(statusCode)
-    else -> IOException("Jetson 응답 인증에 실패했습니다. (HTTP $statusCode)")
+    else -> IOException("장치 응답 인증에 실패했습니다. (HTTP $statusCode)")
 }
 
 class HttpAuthInterceptor : Interceptor {
@@ -75,7 +75,7 @@ class HttpAuthInterceptor : Interceptor {
 
         val currentSession = session ?: run {
             trace?.record("api_auth", mapOf("authenticated" to false, "reasonCode" to "AUTHENTICATION"), incident = true)
-            throw IOException("Jetson API 인증 세션이 준비되지 않았습니다.")
+            throw IOException("장치 API 인증 세션이 준비되지 않았습니다.")
         }
         val canonicalPath = buildString {
             append(request.url.encodedPath)

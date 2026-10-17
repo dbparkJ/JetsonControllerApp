@@ -22,7 +22,7 @@ class BleAdvertisementMergerTest {
             BleAdvertisementMerger.isJetsonDevice(uuidOnly)
         )
         assertEquals(
-            "MMS 장비 (7F3A)",
+            "MMS 장치 (7F3A)",
             BleAdvertisementMerger.displayName(
                 metadata = uuidOnly,
                 address = "AA:BB:CC:DD:7F:3A"

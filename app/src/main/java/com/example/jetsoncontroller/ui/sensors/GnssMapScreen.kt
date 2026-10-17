@@ -184,7 +184,11 @@ fun GnssMapScreen(
     if (showDetails) {
         ModalBottomSheet(
             onDismissRequest = { showDetails = false },
-            sheetState = detailSheetState
+            sheetState = detailSheetState,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(
+                topStart = com.example.jetsoncontroller.ui.theme.GeoRadius.lg,
+                topEnd = com.example.jetsoncontroller.ui.theme.GeoRadius.lg
+            )
         ) {
             CompositionLocalProvider(LocalDensity provides contentDensity) {
                 Column(
@@ -230,7 +234,7 @@ fun GnssMapScreen(
                     showMobileMarker = mobileAvailability == MobileLocationAvailability.ACTIVE,
                     layer = layer,
                     apiKey = BuildConfig.VWORLD_API_KEY,
-                    deviceMarkerTitle = "장비 위치 · ${locationQualityLabel(locationQualityBand(gnss.rtkStatus ?: gnss.fixType))}"
+                    deviceMarkerTitle = "장치 위치 · ${locationQualityLabel(locationQualityBand(gnss.rtkStatus ?: gnss.fixType))}"
                 )
             }
 
@@ -478,7 +482,7 @@ private fun GnssStatusBand(
                     }
                 )
                 Text(
-                    if (gnssActive) "장비 위치 최근 수신" else "데이터 대기",
+                    if (gnssActive) "장치 위치 최근 수신" else "데이터 대기",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -486,7 +490,7 @@ private fun GnssStatusBand(
 
             PositionStatusRow(
                 markerColor = JetsonMarkerColor,
-                title = "장비 위치",
+                title = "장치 위치",
                 stateText = deviceLocationAvailabilityLabel(deviceAvailability),
                 coordinateText = gnssCoordinateText(
                     gnss,

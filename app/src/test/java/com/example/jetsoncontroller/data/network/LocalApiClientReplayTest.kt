@@ -435,7 +435,7 @@ class LocalApiClientReplayTest {
             val result = client.getStatus()
 
             assertTrue("An existing session must retain its authenticated device identity", result.isFailure)
-            assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("장비"))
+            assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("장치"))
             assertEquals("Reject the new hello identity before issuing a new authenticated read", 1, backend.queries.get())
             assertEquals(2, backend.hellos.get())
             assertEquals(0, backend.mutations.get())

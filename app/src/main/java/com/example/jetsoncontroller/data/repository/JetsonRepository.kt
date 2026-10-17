@@ -470,7 +470,7 @@ class JetsonRepository(
         generation: Long,
         preserveGroupOnFailure: Boolean
     ) {
-        var lastErrorMessage = "Jetson API가 응답하지 않습니다."
+        var lastErrorMessage = "장치 API가 응답하지 않습니다."
 
         repeat(WIFI_DIRECT_API_MAX_ATTEMPTS) { attempt ->
             if (!wifiDirectAttemptIsCurrent(generation, host, expectedDeviceId)) {
@@ -513,7 +513,7 @@ class JetsonRepository(
             }
 
             lastErrorMessage = result.exceptionOrNull()?.message
-                ?: "Jetson API가 응답하지 않습니다."
+                ?: "장치 API가 응답하지 않습니다."
             wifiDirectManager.markApiError(lastErrorMessage)
             if (preserveGroupOnFailure && isDirectTrustFailure(result.exceptionOrNull())) {
                 ConnectionDiagnostics.record("recovery_state", mapOf(
@@ -575,10 +575,10 @@ class JetsonRepository(
             candidateClient.updateEndpoint(host, LOCAL_API_PORT)
             val hello = candidateClient.hello().getOrThrow()
             require(hello.deviceId.equals(expectedDeviceId, ignoreCase = true)) {
-                "선택한 장비와 Wi-Fi Direct API 장비 ID가 일치하지 않습니다."
+                "선택한 장치와 Wi-Fi Direct API 장치 ID가 일치하지 않습니다."
             }
             require(credentialStore.getSecret(hello.deviceId) != null) {
-                "API 장비가 등록되어 있지 않습니다. 먼저 QR로 장비를 등록해 주세요."
+                "API 장치가 등록되어 있지 않습니다. 먼저 QR로 장치를 등록해 주세요."
             }
             val status = candidateClient.getStatus().getOrThrow()
             val capabilities = candidateClient.getCapabilities().getOrThrow()
@@ -586,7 +586,7 @@ class JetsonRepository(
                 candidateClient.synchronizeSystemTime(System.currentTimeMillis())
             }
             Result.success(WifiDirectApiProbe(candidateClient, hello, status, capabilities))
-        } ?: Result.failure(IllegalStateException("장비 확인 시간이 초과되었습니다. 장비 서비스를 확인해 주세요."))
+        } ?: Result.failure(IllegalStateException("장치 확인 시간이 초과되었습니다. 장치 서비스를 확인해 주세요."))
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
@@ -766,7 +766,7 @@ class JetsonRepository(
         val transport = transportCoordinator.currentTransport()
             ?: run {
                 _controlOperation.value = ControlOperationState(
-                    message = "Jetson 연결을 먼저 확인해 주세요.",
+                    message = "장치 연결을 먼저 확인해 주세요.",
                     isError = true
                 )
                 return false
@@ -784,7 +784,7 @@ class JetsonRepository(
             )
             _controlOperation.value = ControlOperationState(
                 message = if (accepted) {
-                    "$operationName 요청을 Jetson에 전송했습니다."
+                    "$operationName 요청을 장치에 전송했습니다."
                 } else {
                     "$operationName 요청을 전송하지 못했습니다."
                 },
@@ -799,7 +799,7 @@ class JetsonRepository(
             transportCoordinator.applyResponse(request) {
                 result.onSuccess {
                     _controlOperation.value = ControlOperationState(
-                        message = "$operationName 요청을 장비가 수락했습니다. 상태에서 결과를 확인해 주세요."
+                        message = "$operationName 요청을 장치가 수락했습니다. 상태에서 결과를 확인해 주세요."
                     )
                 }
                 .onFailure { error ->
@@ -862,7 +862,7 @@ class JetsonRepository(
                     markIpTransportOffline(error.message, preserveDirectGroup = sameDirectLink)
                     if (sameDirectLink) {
                         pendingWifiDirectTargetDeviceId = deviceId
-                        reportWifiDirectApiError(error.message ?: "Jetson API 연결을 다시 확인하고 있습니다.")
+                        reportWifiDirectApiError(error.message ?: "장치 API 연결을 다시 확인하고 있습니다.")
                         if (!isDirectTrustFailure(error)) {
                             launchWifiDirectApiRecovery(host!!, deviceId!!)
                         }
@@ -882,7 +882,7 @@ class JetsonRepository(
     ): Result<Unit> {
         val transport = transportCoordinator.currentTransport()
             ?: return Result.failure(
-                IllegalStateException("Jetson 연결을 먼저 확인해 주세요.")
+                IllegalStateException("장치 연결을 먼저 확인해 주세요.")
             )
 
         val sessionRequest = transportCoordinator.beginRequest("wifi-provision")
@@ -895,7 +895,7 @@ class JetsonRepository(
                         CommandCodec.encode(JetsonCommand.SET_WIFI, payload)
                     )
                 ) {
-                    "Jetson에 Wi-Fi 설정을 전송하지 못했습니다. Bluetooth 연결을 확인하세요."
+                    "장치에 Wi-Fi 설정을 전송하지 못했습니다. Bluetooth 연결을 확인하세요."
                 }
             }
         } else {
@@ -906,7 +906,7 @@ class JetsonRepository(
             client.configureWifi(request).map { Unit }
         }
         if (!transportCoordinator.isCurrent(sessionRequest)) {
-            throw CancellationException("장비 연결이 변경되었습니다.")
+            throw CancellationException("장치 연결이 변경되었습니다.")
         }
         result.onSuccess {
             beginWifiProvisioningHandoff(transport.type)
@@ -1183,7 +1183,7 @@ class JetsonRepository(
         if (automaticAttemptKey != null && explicitWifiDirectRequested.get()) return
         if (!isLanEndpointCandidate(endpoint, wifiDirectManager.state.value.groupOwnerAddress)) {
             if (automaticAttemptKey == null) {
-                _lanConnectionError.value = "같은 네트워크에서 사용할 수 있는 장비 주소를 찾지 못했습니다. 다시 검색해 주세요."
+                _lanConnectionError.value = "같은 네트워크에서 사용할 수 있는 장치 주소를 찾지 못했습니다. 다시 검색해 주세요."
             }
             return
         }
@@ -1215,14 +1215,14 @@ class JetsonRepository(
                         }
                         if (!hello.deviceId.equals(endpoint.deviceId, ignoreCase = true)) {
                             publishUserVisibleError(
-                                "검색된 장비 ID와 API 장비 ID가 일치하지 않습니다."
+                                "검색된 장치 ID와 API 장치 ID가 일치하지 않습니다."
                             )
                             return@onSuccess
                         }
 
                         if (credentialStore.getSecret(hello.deviceId) == null) {
                             publishUserVisibleError(
-                                "이 장비는 앱에 등록되어 있지 않습니다. 먼저 BLE/QR 등록을 완료해 주세요."
+                                "이 장치는 앱에 등록되어 있지 않습니다. 먼저 BLE/QR 등록을 완료해 주세요."
                             )
                             return@onSuccess
                         }
@@ -1234,7 +1234,7 @@ class JetsonRepository(
                         if (statusResult.isFailure) {
                             publishUserVisibleError(
                                 statusResult.exceptionOrNull()?.message
-                                    ?: "Jetson API 인증에 실패했습니다."
+                                    ?: "장치 API 인증에 실패했습니다."
                             )
                             return@onSuccess
                         }
@@ -1250,7 +1250,7 @@ class JetsonRepository(
                         if (capabilitiesResult.isFailure) {
                             publishUserVisibleError(
                                 capabilitiesResult.exceptionOrNull()?.message
-                                    ?: "Jetson 기능 정보를 확인하지 못했습니다."
+                                    ?: "장치 기능 정보를 확인하지 못했습니다."
                             )
                             return@onSuccess
                         }
@@ -1313,7 +1313,7 @@ class JetsonRepository(
                     true
                 }
                 if (completed == null && transportCoordinator.connectionAttemptIsCurrent(generation)) {
-                    publishUserVisibleError("장비 확인 시간이 초과되었습니다. 장비 서비스를 확인해 주세요.")
+                    publishUserVisibleError("장치 확인 시간이 초과되었습니다. 장치 서비스를 확인해 주세요.")
                 }
             } finally {
                 if (connectingLanGeneration == generation) {
@@ -1429,7 +1429,7 @@ class JetsonRepository(
         transportCoordinator.disconnect()
         clearReachableDeviceState()
         _lanConnectionError.value = message?.takeIf { it.isNotBlank() }
-            ?.let { "Jetson 응답이 없어 오프라인으로 전환했습니다." }
+            ?.let { "장치 응답이 없어 오프라인으로 전환했습니다." }
         pendingWifiDirectTargetDeviceId = null
         if (preserveDirectGroup) return
         wifiDirectManager.cancelConnect()
@@ -1802,11 +1802,11 @@ class JetsonRepository(
         }
 
         if (!transportCoordinator.isCurrent(sessionRequest)) {
-            throw CancellationException("장비 연결이 변경되었습니다.")
+            throw CancellationException("장치 연결이 변경되었습니다.")
         }
         val controlled = client.controlPipeline(pipelineId, action, expectedRunId)
         if (!transportCoordinator.isCurrent(sessionRequest)) {
-            throw CancellationException("장비 연결이 변경되어 작업 결과를 다시 확인해야 합니다.")
+            throw CancellationException("장치 연결이 변경되어 작업 결과를 다시 확인해야 합니다.")
         }
         // A lost response does not prove that start/restart failed. A verified
         // same-session read can preserve the prepared relay without promoting
@@ -1918,7 +1918,7 @@ class JetsonRepository(
         val request = transportCoordinator.beginRequest("feature") ?: return missingIpConnection()
         val result = call(client)
         if (client !== activeIpClient || !transportCoordinator.isCurrent(request)) {
-            throw CancellationException("장비 연결이 변경되어 이전 응답을 폐기했습니다.")
+            throw CancellationException("장치 연결이 변경되어 이전 응답을 폐기했습니다.")
         }
         return result
     }
@@ -1930,12 +1930,12 @@ class JetsonRepository(
         val client = activeIpClient ?: return missingIpConnection()
         val request = transportCoordinator.beginRequest("feature") ?: return missingIpConnection()
         if (!request.deviceId.equals(expectedDeviceId, ignoreCase = true)) {
-            return Result.failure(IllegalStateException("선택한 장비 연결이 변경되었습니다. 휴지통을 다시 확인하세요."))
+            return Result.failure(IllegalStateException("선택한 장치 연결이 변경되었습니다. 휴지통을 다시 확인하세요."))
         }
         val result = call(client)
         if (client !== activeIpClient || !transportCoordinator.isCurrent(request) ||
             !request.deviceId.equals(expectedDeviceId, ignoreCase = true)) {
-            throw CancellationException("장비 연결이 변경되어 이전 응답을 폐기했습니다.")
+            throw CancellationException("장치 연결이 변경되어 이전 응답을 폐기했습니다.")
         }
         return result
     }

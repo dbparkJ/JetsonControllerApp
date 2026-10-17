@@ -67,7 +67,7 @@ fun WifiDirectScreen(
                     Column {
                         Text("Wi-Fi Direct")
                         Text(
-                            "공유기 없이 Jetson 연결",
+                            "공유기 없이 장치 연결",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -90,7 +90,7 @@ fun WifiDirectScreen(
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "장비 다시 검색")
+                                Icon(Icons.Default.Refresh, contentDescription = "장치 다시 검색")
                             }
                         }
                     }
@@ -108,7 +108,7 @@ fun WifiDirectScreen(
                 item {
                     Column(Modifier.padding(20.dp)) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Text(if (state.cleaningUp) "이전 연결 정리 중" else "장비 연결 준비 중")
+                        Text(if (state.cleaningUp) "이전 연결 정리 중" else "장치 연결 준비 중")
                         TextButton(onClick = onCancel, enabled = !state.cleaningUp) { Text("연결 취소") }
                     }
                 }
@@ -125,7 +125,7 @@ fun WifiDirectScreen(
                 !permissionGranted -> item {
                     EmptyState(
                         title = "주변 기기 권한이 필요합니다",
-                        message = "가까운 Jetson을 검색하고 연결하기 위해 권한을 허용하세요.",
+                        message = "가까운 장치를 검색하고 연결하기 위해 권한을 허용하세요.",
                         actionLabel = "권한 허용",
                         onAction = onPermissionClick
                     )
@@ -149,7 +149,7 @@ fun WifiDirectScreen(
                             }
                             Spacer(Modifier.height(22.dp))
                             SectionHeader(
-                                title = "주변 장비",
+                                title = "주변 장치",
                                 trailing = {
                                     Text(
                                         if (state.discovering) "검색 중" else "${state.peers.size}대",
@@ -169,11 +169,11 @@ fun WifiDirectScreen(
                         item {
                             EmptyState(
                                 title = if (state.discovering) {
-                                    "Jetson을 찾고 있습니다"
+                                    "장치를 찾고 있습니다"
                                 } else {
-                                    "검색된 장비가 없습니다"
+                                    "검색된 장치가 없습니다"
                                 },
-                                message = "Jetson의 Wi-Fi Direct 서비스와 Android 위치 서비스를 확인하세요.",
+                                message = "장치의 Wi-Fi Direct 서비스와 Android 위치 서비스를 확인하세요.",
                                 actionLabel = if (state.discovering) null else "다시 검색",
                                 onAction = if (state.discovering) null else onDiscoveryClick
                             )
@@ -214,12 +214,12 @@ private fun DirectConnectionSummary(state: WifiDirectState) {
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    if (state.enabled) "직접 연결 사용 가능" else "Wi-Fi Direct 확인 필요",
+                    if (state.enabled) "직접 연결 사용 가능" else "Wi-Fi Direct가 꺼져 있습니다",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "장비에 직접 연결합니다. 공유기 연결과 서버 업로드가 중단될 수 있습니다.",
+                    "장치에 직접 연결합니다. 공유기 연결과 서버 업로드가 중단될 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -248,14 +248,14 @@ private fun ConnectedPanel(
                 Icon(Icons.Default.Router, contentDescription = null)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        state.apiDeviceName ?: "Jetson 직접 연결",
+                        state.apiDeviceName ?: "장치 직접 연결",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        state.groupOwnerAddress ?: "장비 주소 확인 중",
+                        state.groupOwnerAddress ?: "장치 주소 확인 중",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -267,12 +267,12 @@ private fun ConnectedPanel(
                 WifiDirectApiStatus.CHECKING -> {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(10.dp))
-                    Text("장비 인증과 제어 연결을 확인하고 있습니다.")
+                    Text("장치 인증과 제어 연결을 확인하고 있습니다.")
                 }
 
                 WifiDirectApiStatus.READY -> {
                     Text(
-                        "장비 인증을 마쳤습니다. 전체 제어를 사용할 수 있습니다.",
+                        "장치 인증을 마쳤습니다. 전체 제어를 사용할 수 있습니다.",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -280,14 +280,14 @@ private fun ConnectedPanel(
 
                 WifiDirectApiStatus.ERROR -> {
                     Text(
-                        text = state.apiError ?: "Jetson API에 연결하지 못했습니다.",
+                        text = state.apiError ?: "장치에 연결하지 못했습니다.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = onRetryApi, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("장비 다시 확인", modifier = Modifier.padding(start = 8.dp))
+                        Text("장치 다시 확인", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }

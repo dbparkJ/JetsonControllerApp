@@ -50,7 +50,7 @@ fun SensorScreen(
     onCameraClick: () -> Unit,
     onGnssClick: () -> Unit,
     onSectionSelected: (ControlSection) -> Unit,
-    deviceName: String = "선택된 장비 없음",
+    deviceName: String = "선택된 장치 없음",
     onDevices: () -> Unit = {},
     onAlerts: () -> Unit = {},
     unreadCount: Int = 0
@@ -58,7 +58,7 @@ fun SensorScreen(
     Scaffold(
         containerColor = LocalGeoColors.current.canvas,
         topBar = { DeviceContextHeader(
-            "센서 상태", deviceName, if (deviceOnline) "장비 응답 기준" else "현재 상태 미확인",
+            "센서 상태", deviceName, if (deviceOnline) "장치 응답 기준" else "현재 상태 미확인",
             onDevices, unreadCount, onAlerts,
             connectionTone = if (deviceOnline) StatusTone.SUCCESS else StatusTone.UNKNOWN) },
         bottomBar = {
