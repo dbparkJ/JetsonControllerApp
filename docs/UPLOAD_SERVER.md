@@ -700,7 +700,7 @@ DB, `storage/objects`, `token-pepper`, Caddy data를 함께 백업한다. pepper
 
 애플리케이션 문제는 이전 정상 코드로 되돌린 뒤 설치기를 재실행하고 readiness와 기존 업로드 계약을 검증합니다. 코드 원복을 위해 데이터 루트의 `db/`, `secrets/`, `storage/objects/`, `storage/staging/`을 삭제하지 않습니다. 저장 데이터 복구는 DB·객체·pepper의 일관된 백업을 기준으로 별도 수행합니다.
 
-## GEO& Work 알림
+## GEO& Work 알림·수집 티켓
 
 수신 서버 환경 변수와 `PYTHONPATH=upload_receiver`를 설정한 뒤 다음 명령을 실행합니다. Secret은 표준 입력 첫 줄로 전달하며 명령줄 인자나 로그에 넣지 않습니다.
 
@@ -725,3 +725,42 @@ python -m upload_receiver.admin geon-work-status
 `POST /v1/device-events`는 장치 Bearer 토큰과 `application/json`을 사용합니다. `GET /v1/capabilities`의 `deviceEvents`는 버전 1, 최대 50개·65536바이트, heartbeat 300초를 광고합니다. 장치당 분당 60회 초과 요청은 `429`와 `Retry-After`를 돌려줍니다. 감시 구간의 30분 무응답·복귀와 업로드 완료도 알림으로 기록합니다. 전송 중단 중에는 알림이 대기하며 24시간이 지나면 폐기됩니다.
 
 `GET /v1/server/device-events/status?projectId=<PROJECT_ID>&deviceId=<DEVICE_ID>`는 기존 직원 인증(환경 확인 헤더 포함)을 사용합니다. 프로젝트 권한과 장치 소속이 일치할 때만 연동 상태, 최근 24시간 건수, 마지막 전달·실패·장치 수신 시각을 반환합니다. 권한이나 소속이 다르면 `404`입니다. 관리 상태 명령은 상태·건수만 출력합니다.
+
+### 수집 티켓 설정
+
+같은 비밀 파일에 선택적인 `tickets` 블록을 둡니다. 웹훅과 티켓 설정은 각각 생략할 수 있고 전송 중지 상태도 독립적입니다. 두 설정 명령은 서로의 블록을 보존합니다. API 토큰은 `geon_`으로 시작하고 공백이 없어야 하며, 표준 입력 첫 줄로만 전달합니다.
+
+```json
+{"version": 1, "tickets": {"apiBaseUrl": "https://<API_HOST>", "apiToken": "<API_TOKEN>", "boardId": "<BOARD_UUID>"}}
+```
+
+```bash
+python -m upload_receiver.admin configure-geon-work-tickets \
+  --api-base-url 'https://<API_HOST>' --board-id '<BOARD_UUID>' < '<TOKEN_FILE>'
+python -m upload_receiver.admin set-device-unit --device-id '<DEVICE_UUID>' --unit '<호기 선택지 이름>'
+python -m upload_receiver.admin geon-work-status
+```
+
+상태 명령의 `tickets`에는 연동 상태·오류 코드와 마지막 동기화 시각 `syncedAt`이 나옵니다. 시작 및 티켓 설정 변경 시 보드 속성·상태를 이름으로 확인합니다. 프로젝트(TEXT), 호기(SELECT), 담당(PERSON), 마감(DATE), 상태(STATUS), 수집 작업자(TEXT), runId(TEXT), 수집 시간·용량(GB)·정밀 위치 비율(NUMBER)과 상태 할 일·진행 중·완료가 필요합니다. 처음 열린 행 전체를 받고 이후 120초마다 5초 겹침을 두고 변경된 완료·보관 행까지 갱신합니다. 보드 조회와 PATCH는 합쳐서 최소 0.5초 간격이며 `429`의 `Retry-After`를 따릅니다.
+
+### 앱용 티켓 API
+
+직원 Bearer 토큰과 기존 환경 확인 헤더·프로젝트 권한이 필요합니다. `deviceId`를 지정하면 해당 프로젝트 소속이어야 합니다. 목록의 프로젝트 표시는 보드의 조사 메타데이터이며 서버 접근 프로젝트와 별개입니다.
+
+| 경로 | 요청·응답 |
+|---|---|
+| `GET /v1/server/tickets?projectId=&deviceId=&unit=&status=open` | `tickets`, 보드 순서의 `units`, `deviceUnit`, `syncedAt`, `integration`을 반환합니다. `status=all`은 완료·보관 행도 포함합니다. 모르는 호기는 빈 목록입니다. |
+| `POST /v1/server/tickets/{rowId}/start?projectId=` | OPERATOR·ADMIN, 본문 `{"runId":"<RUN_ID>","deviceId":"<DEVICE_UUID>"}`. 열린 티켓을 연결하고 진행 중 보고를 예약합니다. |
+| `POST /v1/server/tickets/{rowId}/complete?projectId=` | OPERATOR·ADMIN, 본문 `{"runId":"<RUN_ID>"}`. 연결된 runId의 업로드 세션이 이 서버에서 COMPLETED일 때만 완료 보고를 예약합니다. 아니면 `409 UPLOAD_NOT_CONFIRMED`입니다. |
+
+두 POST는 `202 {rowId, runId, report}`를 반환하며 같은 보고의 재전송은 중복 예약되지 않습니다. 티켓의 `report`는 `type`(STARTED·COMPLETED), `state`, `code`를 담습니다. 보고 전에는 `null`입니다. 업로드 실패는 티켓 상태를 바꾸지 않습니다.
+
+| 보고·연동 상태 | 운영 조치 |
+|---|---|
+| 보고 `PENDING` | 전송 대기 또는 재시도 중입니다. 연결 복구를 기다립니다. |
+| 보고 `SENT` | GEO& Work 반영 또는 동일 요청 재생 확인이 끝났습니다. |
+| 보고 `CONFLICT` / `HUMAN_CHANGED` | GEO& Work에서 사람이 변경한 상태·runId를 확인하고 담당자와 조정합니다. 자동 덮어쓰기는 하지 않습니다. |
+| 보고 `FAILED` | `code`로 보관된 행·유효하지 않은 속성·재시도 소진 등을 확인하고 GEO& Work 또는 서버 설정을 수정합니다. |
+| 티켓 연동 `ERROR` | `BOARD_SCHEMA_MISMATCH`는 위 속성·형식·상태 선택지를 확인합니다. 인증·보드 권한 오류는 연동 토큰과 대상 보드 권한을 확인합니다. 설정 내용을 갱신하면 구조 확인과 동기화를 다시 시작합니다. |
+
+PATCH 본문과 멱등 키는 최초 전송 전에 저장하여 네트워크·429·5xx 재시도에서 그대로 사용합니다. revision 충돌이 나도 이전 상태와 runId가 안전하게 일치할 때만 최신 revision과 새 `:attempt{n}` 키로 재시도합니다.

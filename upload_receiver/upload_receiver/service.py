@@ -29,7 +29,7 @@ from typing import Deque, Dict, Iterable, Iterator, Mapping
 from .config import Settings
 from .database import Database
 from .device_events import DeviceEvents, DeviceEventsError
-from .geon_work import GeonWorkConfiguration, parse_timestamp
+from .geon_work import GeonWorkConfiguration, TicketsConfiguration, parse_timestamp
 
 
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -115,6 +115,10 @@ class ReceiverService:
         self.geon_work = GeonWorkConfiguration(settings.geon_work_config_path, self.database)
         self.geon_work.refresh(time.time())
         self.device_events = DeviceEvents(self.database, self.geon_work)
+        self.ticket_configuration = TicketsConfiguration(settings.geon_work_config_path, self.database)
+        self.ticket_configuration.refresh(time.time())
+        from .ticket_api import TicketAPI
+        self.tickets = TicketAPI(self)
         self._expected_mount_device = (
             settings.expected_mount.stat().st_dev
             if settings.require_mount and settings.expected_mount is not None

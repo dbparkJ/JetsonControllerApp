@@ -199,6 +199,46 @@ CREATE TABLE IF NOT EXISTS integration_state (
     config_fingerprint TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ticket_sync (
+    target TEXT PRIMARY KEY,
+    config_fingerprint TEXT NOT NULL,
+    schema_json TEXT,
+    synced_at TEXT,
+    max_updated_at TEXT,
+    destination TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS board_tickets (
+    row_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    project TEXT,
+    unit TEXT,
+    assignees_json TEXT NOT NULL,
+    due_date TEXT,
+    status_id TEXT NOT NULL,
+    status_name TEXT NOT NULL,
+    status_category TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT,
+    run_id TEXT,
+    synced_at TEXT NOT NULL,
+    destination TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS device_units (
+    device_id TEXT PRIMARY KEY REFERENCES devices(device_id),
+    unit TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ticket_runs (
+    row_id TEXT NOT NULL REFERENCES board_tickets(row_id),
+    run_id TEXT NOT NULL UNIQUE,
+    device_id TEXT NOT NULL REFERENCES devices(device_id),
+    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+    employee_display_name TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    PRIMARY KEY (row_id, run_id)
+);
 """
 
 

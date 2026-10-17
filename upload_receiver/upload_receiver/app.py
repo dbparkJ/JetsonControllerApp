@@ -15,6 +15,7 @@ from .config import Settings
 from .device_events import DEVICE_EVENTS_CAPABILITY
 from .outbound import Dispatcher
 from .service import ReceiverError, ReceiverService
+from .tickets import TicketSync
 
 
 async def _bounded_body(request: Request, limit: int) -> bytes:
@@ -48,13 +49,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI):
         application.state.receiver = ReceiverService(effective_settings)
         receiver = application.state.receiver
-        dispatcher = Dispatcher(receiver.database, receiver.geon_work, receiver.device_events)
+        ticket_sync = TicketSync(receiver.database, receiver.ticket_configuration)
+        application.state.ticket_sync = ticket_sync
+        dispatcher = Dispatcher(receiver.database, receiver.geon_work, receiver.device_events,
+                                tickets=ticket_sync)
         application.state.dispatcher = dispatcher
         dispatcher.start()
+        ticket_sync.start()
         try:
             yield
         finally:
             await run_in_threadpool(dispatcher.stop)
+            await run_in_threadpool(ticket_sync.stop)
 
     application = FastAPI(
         title="Jetson Upload Receiver",
@@ -164,6 +170,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         receiver = service(request)
         principal = await employee(request)
         return await run_in_threadpool(receiver.server_identity, principal)
+
+    @application.get("/v1/server/tickets")
+    async def tickets(request: Request, projectId: str, deviceId: str | None = None,
+                      unit: str | None = None, status: str = "open"):
+        actor = await employee(request)
+        return await run_in_threadpool(service(request).tickets.list, actor, projectId,
+                                       deviceId, unit, status)
+
+    async def ticket_report(request, project_id, row_id, kind):
+        actor = await employee(request)
+        _require_content_type(request, "application/json")
+        raw = await _bounded_body(request, 4096)
+        try:
+            value = json.loads(raw)
+        except (ValueError, UnicodeError, RecursionError) as error:
+            raise ReceiverError(400, "Ticket report JSON is invalid") from error
+        action = getattr(service(request).tickets, kind)
+        result = await run_in_threadpool(action, actor, project_id, row_id, value)
+        return JSONResponse(status_code=202, content=result)
+
+    @application.post("/v1/server/tickets/{row_id}/start")
+    async def start_ticket(row_id: str, request: Request, projectId: str):
+        return await ticket_report(request, projectId, row_id, "start")
+
+    @application.post("/v1/server/tickets/{row_id}/complete")
+    async def complete_ticket(row_id: str, request: Request, projectId: str):
+        return await ticket_report(request, projectId, row_id, "complete")
 
     @application.get("/v1/server/jobs")
     async def server_jobs(

@@ -23,6 +23,12 @@ LOGGER = logging.getLogger(__name__)
 ERROR_CODE_PATTERN = re.compile(r"^[A-Z0-9_]{1,64}$")
 
 
+class PayloadRejected(ValueError):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 def enqueue(
     connection, device_id: str, payload: Mapping[str, object], now: float,
     *, target: str = "geon-work", kind: str = "webhook",
@@ -68,6 +74,7 @@ class SendResult:
     status: int
     error_code: str | None = None
     retry_after: str | None = None
+    data: dict | None = field(default=None, repr=False, compare=False)
 
 
 def http_sender(request: OutboundRequest) -> SendResult:
@@ -86,8 +93,9 @@ def http_sender(request: OutboundRequest) -> SendResult:
         connection.request(request.method, path, request.body, dict(request.headers))
         response = connection.getresponse()
         retry_after = response.getheader("Retry-After")
-        raw = response.read(65536)
+        raw = response.read(4 * 1024 * 1024 + 1)
         code = None
+        value = None
         try:
             value = json.loads(raw)
             if isinstance(value, dict):
@@ -96,7 +104,8 @@ def http_sender(request: OutboundRequest) -> SendResult:
                     code = value["error"].get("code")
         except (ValueError, UnicodeError):
             pass
-        return SendResult(response.status, _safe_code(code), retry_after)
+        return SendResult(response.status, _safe_code(code), retry_after,
+                          value if isinstance(value, dict) else None)
     finally:
         connection.close()
 
@@ -118,7 +127,7 @@ def webhook_request(
 
 
 class Dispatcher:
-    """One claim/send at a time. Request builders can later add Bearer PATCH kinds."""
+    """One durable claim/send at a time, with pause state scoped to each target."""
 
     def __init__(
         self, database: Database, configuration: GeonWorkConfiguration, events,
@@ -126,6 +135,7 @@ class Dispatcher:
         clock: Callable[[], float] = time.time,
         jitter: Callable[[float, float], float] = random.uniform,
         request_builders: Mapping[str, Callable] | None = None,
+        tickets=None,
     ) -> None:
         self.database = database
         self.configuration = configuration
@@ -134,6 +144,9 @@ class Dispatcher:
         self.clock = clock
         self.jitter = jitter
         self.request_builders = dict(request_builders or {"webhook": webhook_request})
+        self.tickets = tickets
+        if tickets is not None:
+            self.request_builders["board-patch"] = tickets.build_request
         self._guard = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -162,8 +175,11 @@ class Dispatcher:
     def run_once(self, now: float) -> bool:
         if not self._guard.acquire(blocking=False):
             return False
+        board_reserved = False
         try:
             config = self.configuration.refresh(now)
+            if self.tickets is not None:
+                self.tickets.configuration.refresh(now)
             if self._last_judgement is None or now - self._last_judgement >= 60:
                 self.events.judge_heartbeats(now, config=config)
                 self._last_judgement = now
@@ -172,31 +188,50 @@ class Dispatcher:
                 if not self._recovered:
                     connection.execute(
                         """UPDATE outbound_messages SET state='PENDING', updated_at=?
-                           WHERE target='geon-work' AND state='SENDING'""", (at,),
+                           WHERE target IN ('geon-work', 'geon-work-tickets')
+                           AND state='SENDING'""", (at,),
                     )
                     self._recovered = True
                 connection.execute(
                     """UPDATE outbound_messages SET state='DEAD', last_error_code='STALE',
-                       updated_at=?, completed_at=? WHERE target='geon-work'
+                       updated_at=?, completed_at=? WHERE target IN ('geon-work', 'geon-work-tickets')
                        AND state='PENDING' AND created_at<=?""",
                     (at, at, timestamp(now - 86400)),
                 )
-                integration = connection.execute(
-                    "SELECT * FROM integration_state WHERE target='geon-work'"
-                ).fetchone()
                 if (
-                    config is None or integration["state"] != "ACTIVE"
-                    or self._stop.is_set()
+                    self._stop.is_set()
                     or (self._last_send is not None and now - self._last_send < 0.5)
                 ):
                     return False
                 placeholders = ",".join("?" for _ in self.request_builders)
-                row = connection.execute(
-                    f"""SELECT * FROM outbound_messages WHERE target='geon-work'
-                        AND state='PENDING' AND next_attempt_at<=? AND kind IN ({placeholders})
-                        ORDER BY next_attempt_at, rowid LIMIT 1""",
+                candidates = connection.execute(
+                    f"""SELECT m.* FROM outbound_messages m
+                        JOIN integration_state i ON i.target=m.target AND i.state='ACTIVE'
+                        WHERE m.target IN ('geon-work', 'geon-work-tickets')
+                        AND m.state='PENDING' AND m.next_attempt_at<=? AND m.kind IN ({placeholders})
+                        AND NOT (m.kind='board-patch' AND EXISTS (
+                            SELECT 1 FROM outbound_messages earlier
+                            WHERE earlier.target=m.target AND earlier.incident_key=m.incident_key
+                              AND earlier.rowid<m.rowid AND earlier.state IN ('PENDING','SENDING')
+                        ))
+                        ORDER BY m.next_attempt_at, m.rowid""",
                     (at, *self.request_builders),
-                ).fetchone()
+                ).fetchall()
+                row = None
+                # A paused/rate-limited integration cannot starve another target.
+                for candidate in candidates:
+                    if candidate["target"] == "geon-work":
+                        if config is None or candidate["kind"] == "board-patch":
+                            continue
+                    elif (self.tickets is None or candidate["kind"] != "board-patch"
+                          or not self.tickets.ready(connection)):
+                        continue
+                    elif not self.tickets.rate.reserve(now):
+                        continue
+                    else:
+                        board_reserved = True
+                    row = candidate
+                    break
                 if row is None:
                     return False
                 message = dict(row)
@@ -212,21 +247,34 @@ class Dispatcher:
                     """UPDATE outbound_messages SET state='SENDING', attempts=?, updated_at=?
                        WHERE message_id=?""", (message["attempts"], at, message["message_id"]),
                 )
-                fingerprint = integration["config_fingerprint"]
+                fingerprint = connection.execute(
+                    "SELECT config_fingerprint FROM integration_state WHERE target=?",
+                    (message["target"],),
+                ).fetchone()[0]
             self._last_send = now
             try:
                 request = self.request_builders[message["kind"]](config, message, now)
-            except Exception:
-                self._finish(message, now, None, "INVALID_PAYLOAD", None, fingerprint)
+            except Exception as error:
+                if board_reserved:
+                    code = error.code if isinstance(error, PayloadRejected) else "INVALID_PAYLOAD"
+                    self.tickets.finish(message, now, SendResult(400, code), fingerprint)
+                else:
+                    self._finish(message, now, None, "INVALID_PAYLOAD", None, fingerprint)
                 return True
             try:
+                if board_reserved:
+                    self.tickets.rate.defer(max(now, self.tickets.clock()) + 0.5)
                 result = self.sender(request)
                 status, code, retry_after = (
                     result.status, _safe_code(result.error_code), result.retry_after,
                 )
             except Exception:
                 status, code, retry_after = None, "NETWORK_ERROR", None
-            self._finish(message, now, status, code, retry_after, fingerprint)
+                result = SendResult(0, code)
+            if board_reserved:
+                self.tickets.finish(message, max(now, self.tickets.clock()), result, fingerprint)
+            else:
+                self._finish(message, now, status, code, retry_after, fingerprint)
             return True
         except Exception:
             # A failed result write leaves SENDING durable. Reclaim it on the
@@ -234,6 +282,8 @@ class Dispatcher:
             self._recovered = False
             raise
         finally:
+            if board_reserved:
+                self.tickets.rate.release()
             self._guard.release()
 
     def _finish(self, message, now, status, code, retry_after, fingerprint) -> None:
@@ -282,8 +332,8 @@ class Dispatcher:
             if pause:
                 connection.execute(
                     """UPDATE integration_state SET state=?, detail=?, updated_at=?
-                       WHERE target='geon-work' AND config_fingerprint=?""",
-                    (pause, code, at, fingerprint),
+                       WHERE target=? AND config_fingerprint=?""",
+                    (pause, code, at, message["target"], fingerprint),
                 )
         LOGGER.info(
             "message_id=%s http_status=%s error_code=%s", message["message_id"], status, code,

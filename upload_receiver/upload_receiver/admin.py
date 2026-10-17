@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 
 from .config import Settings
-from .geon_work import validate_config
+from .geon_work import validate_config, validate_tickets_config
 from .service import ReceiverService
 
 
@@ -138,18 +138,36 @@ def main() -> None:
     geon = subparsers.add_parser("configure-geon-work", help="configure GEO& Work from stdin")
     geon.add_argument("--webhook-url", required=True)
     geon.add_argument("--channel-id", required=True)
+    tickets = subparsers.add_parser("configure-geon-work-tickets", help="configure board tickets from stdin")
+    tickets.add_argument("--api-base-url", required=True)
+    tickets.add_argument("--board-id", required=True)
+    unit = subparsers.add_parser("set-device-unit", help="set a device's board unit name")
+    unit.add_argument("--device-id", required=True)
+    unit.add_argument("--unit", required=True)
     subparsers.add_parser("geon-work-status", help="show GEO& Work state and counts")
 
     args = parser.parse_args()
     settings = Settings.from_env()
-    if args.command == "configure-geon-work":
-        value = {
-            "version": 1, "webhookUrl": args.webhook_url, "channelId": args.channel_id,
-            "signingSecret": sys.stdin.readline().rstrip("\r\n"),
-        }
+    if args.command in ("configure-geon-work", "configure-geon-work-tickets"):
         try:
-            validate_config(value)
-        except (ValueError, TypeError):
+            try:
+                value = json.loads(settings.geon_work_config_path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                value = {"version": 1}
+            if (not isinstance(value, dict) or type(value.get("version")) is not int
+                    or value["version"] != 1):
+                raise ValueError()
+            secret = sys.stdin.readline().rstrip("\r\n")
+            if args.command == "configure-geon-work":
+                webhook = {"version": 1, "webhookUrl": args.webhook_url,
+                           "channelId": args.channel_id, "signingSecret": secret}
+                validate_config(webhook)
+                value.update(webhook)
+            else:
+                section = {"apiBaseUrl": args.api_base_url, "boardId": args.board_id, "apiToken": secret}
+                validate_tickets_config(section)
+                value["tickets"] = section
+        except (OSError, ValueError, TypeError):
             parser.error("GEO& Work configuration is invalid")
         _write_secret(
             settings.geon_work_config_path, json.dumps(value, ensure_ascii=False), force=True
@@ -159,7 +177,12 @@ def main() -> None:
     receiver = ReceiverService(settings, create_pepper=args.command == "init")
     if args.command == "geon-work-status":
         status = receiver.device_events.status(None, time.time())
-        print(json.dumps({**status["integration"], "window": status["window"]}))
+        print(json.dumps({**status["integration"], "window": status["window"],
+                          "tickets": receiver.tickets.status()}))
+        return
+    if args.command == "set-device-unit":
+        receiver.tickets.set_device_unit(args.device_id, args.unit)
+        print(f"Configured device unit: {args.device_id}")
         return
     if args.command == "init":
         print(f"Initialized receiver data root: {settings.data_root}")
