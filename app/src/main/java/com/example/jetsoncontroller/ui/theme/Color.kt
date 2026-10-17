@@ -112,20 +112,20 @@ val GeoLight = GeoColors(
     canvas = GeoPalette.N50,
     surface = GeoPalette.N0,
     surfaceRaised = GeoPalette.N0,
-    surfaceSunken = GeoPalette.N100,
+    surfaceSunken = GeoPalette.N25,
     subtle = GeoPalette.N100,
     overlay = Color(0x66101822),
 
-    ink = GeoPalette.N800,
-    inkStrong = GeoPalette.N900,
+    ink = GeoPalette.InkLight,
+    inkStrong = GeoPalette.InkLight,
     muted = GeoPalette.N600,
     inkSubtle = GeoPalette.N500,
 
     border = GeoPalette.N200,
     borderStrong = GeoPalette.N300,
-    // Tuned to 3.18:1 against the surface — the platform minimum for a non-text
-    // control boundary. GeoPalette.N400 measured 2.95:1 and would have failed.
-    controlBorder = Color(0xFF88919F),
+    // 3.46:1 against the white surface, above the 3:1 minimum for a non-text control
+    // boundary. The previous #88919F was the boundary tuned for the old palette.
+    controlBorder = GeoPalette.ControlBorderLight,
     focusRing = GeoPalette.Brand500,
 
     primary = GeoPalette.Brand500,
@@ -137,7 +137,7 @@ val GeoLight = GeoColors(
     onAccent = GeoPalette.Brand700,
     accentGreen = GeoPalette.BrandGreen,
 
-    hero = GeoPalette.Brand700,
+    hero = GeoPalette.HeroNavy,
     heroText = GeoPalette.N0,
     heroMuted = GeoPalette.Brand200,
 
@@ -156,9 +156,9 @@ val GeoLight = GeoColors(
     dangerBorder = GeoPalette.CriticalLightBorder,
     onDanger = GeoPalette.N0,
 
-    info = GeoPalette.Brand600,
-    infoBg = GeoPalette.Brand50,
-    infoBorder = GeoPalette.Brand200,
+    info = GeoPalette.InfoLightFg,
+    infoBg = GeoPalette.InfoLightBg,
+    infoBorder = GeoPalette.InfoLightBorder,
 
     pending = GeoPalette.PendingLightFg,
     pendingBg = GeoPalette.PendingLightBg,

@@ -29,16 +29,23 @@ object GeoSpace {
     val row = 12.dp
 }
 
+/**
+ * Corner radii. One rule per role: surfaces 12dp, controls 8dp, sheets and dialogs 16dp,
+ * and a pill only for status chips.
+ */
 object GeoRadius {
-    /** Badges, chips, small inline surfaces. */
+    /** Small inner tiles and thumbnails that sit inside a surface. */
     val xs = 6.dp
-    /** Buttons, inputs, list rows. */
-    val sm = 10.dp
-    /** Section surfaces and cards. */
-    val md = 14.dp
-    /** Full-bleed panels, bottom sheets. */
-    val lg = 18.dp
-    val xl = 24.dp
+    /** Controls: buttons, text fields, inline actions. */
+    val sm = 8.dp
+    /** Surfaces: sections, status tiles, device cards. */
+    val md = 12.dp
+    /** Sheets (top corners) and dialogs. */
+    val lg = 16.dp
+    /** Same as [lg]; kept so existing call sites keep compiling. */
+    val xl = 16.dp
+    /** Status chips only. Any height-limited shape with this radius renders as a pill. */
+    val pill = 999.dp
 }
 
 object GeoSize {
@@ -46,11 +53,10 @@ object GeoSize {
     val minTouchTarget = 48.dp
 
     /**
-     * Primary field actions (시작 · 중지 · 전송). Taller than the platform minimum so a
-     * standing operator can hit them without looking. Project standard, not a platform
-     * requirement — see the design system doc.
+     * Primary field actions (시작 · 중지 · 전송). The one filled action on a screen,
+     * sized for a standing operator without making the screen feel like a poster.
      */
-    val primaryAction = 56.dp
+    val primaryAction = 52.dp
 
     /** Secondary actions on the same screen as a primary action. */
     val secondaryAction = 48.dp

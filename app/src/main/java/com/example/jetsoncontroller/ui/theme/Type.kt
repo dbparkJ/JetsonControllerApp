@@ -1,30 +1,49 @@
 package com.example.jetsoncontroller.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.example.jetsoncontroller.R
 
 /**
  * GEO& Field System — type scale.
  *
- * Font choice: the platform sans-serif is kept on purpose. On the target Android
- * devices it resolves to Roboto with a Noto Sans KR fallback, which is the most
- * reliable Hangul rendering available without shipping a licensed face. Bundling a
- * webfont would add weight for no legibility gain and would need a licence review.
+ * Font: Pretendard variable (`res/font/pretendard_variable.ttf`, SIL OFL — see
+ * docs/licenses/Pretendard-OFL.txt). One variable file serves every weight: each
+ * [FontWeight] below is bound to the same resource with an explicit `wght` setting, so
+ * the rendered weight does not depend on which static face the platform would pick.
+ * Pretendard covers Hangul and Latin in one face, which keeps the Korean and the
+ * numeric values in a row visually matched.
  *
- * Three problems in the previous scale are fixed here:
+ * Sizes and line heights are the scale the screens were laid out against and are kept
+ * unchanged. Korean needs more leading than Latin at the same size, so every line height
+ * is roughly 1.45× the font size.
  *
- *  - `bodyLarge` and `bodyMedium` were both 16/24, so "body" and "emphasised body"
- *    were the same thing and screens had no mid-level step to reach for.
- *  - Korean needs more leading than Latin at the same size, so every line height is
- *    raised to roughly 1.45× the font size instead of the previous 1.35×.
- *  - Numbers (용량 · 시간 · 파일 수) were rendered with proportional figures, so a value
- *    ticking from 19% to 20% shifted the row. [GeoType.numeric] uses tabular figures.
+ * Numbers (용량 · 시간 · 파일 수) use tabular figures via `fontFeatureSettings = "tnum"`,
+ * so a value ticking from 19% to 20% does not shift its row.
  */
+@OptIn(ExperimentalTextApi::class)
+private fun pretendard(weight: FontWeight): Font = Font(
+    resId = R.font.pretendard_variable,
+    weight = weight,
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight))
+)
+
+/** Pretendard at the four weights the product uses (400, 500, 600, 700). */
+val PretendardFamily: FontFamily = FontFamily(
+    pretendard(FontWeight.Normal),
+    pretendard(FontWeight.Medium),
+    pretendard(FontWeight.SemiBold),
+    pretendard(FontWeight.Bold)
+)
+
 private val Base = TextStyle(
-    fontFamily = FontFamily.SansSerif,
+    fontFamily = PretendardFamily,
     letterSpacing = 0.sp
 )
 
@@ -85,7 +104,10 @@ object GeoType {
         lineHeight = 19.sp
     )
 
-    /** Section eyebrow above a title. Short, quiet, never carries a unique meaning. */
+    /**
+     * Former section eyebrow. Kept for source compatibility only: the redesign removed
+     * eyebrow labels above section titles, so no screen should render this style.
+     */
     val eyebrow: TextStyle = Base.copy(
         fontSize = 12.sp,
         lineHeight = 16.sp,

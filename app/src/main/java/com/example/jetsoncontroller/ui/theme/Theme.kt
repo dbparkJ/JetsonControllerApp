@@ -67,17 +67,16 @@ private fun geoScheme(dark: Boolean): ColorScheme {
 }
 
 /**
- * Corner radii are deliberately tighter than the previous 20/24/28dp set. Heavily
- * rounded surfaces read as a consumer app; this is an operations tool that has to look
- * trustworthy at a glance and pack dense status information without wasting the
- * corners of every row.
+ * Material shape slots mapped onto the GEO& radius roles. Controls (text fields, buttons,
+ * chips) are 8dp, surfaces (cards, the medium slot) 12dp, and sheets and dialogs 16dp.
+ * Status chips are not in this scale; they use [GeoRadius.pill] directly.
  */
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(GeoRadius.xs),
+    extraSmall = RoundedCornerShape(GeoRadius.sm),
     small = RoundedCornerShape(GeoRadius.sm),
     medium = RoundedCornerShape(GeoRadius.md),
     large = RoundedCornerShape(GeoRadius.lg),
-    extraLarge = RoundedCornerShape(GeoRadius.xl)
+    extraLarge = RoundedCornerShape(GeoRadius.lg)
 )
 
 @Composable
