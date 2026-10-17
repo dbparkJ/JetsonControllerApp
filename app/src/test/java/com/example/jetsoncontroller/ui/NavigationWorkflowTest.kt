@@ -11,11 +11,13 @@ import com.example.jetsoncontroller.model.UploadContext
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
+import com.example.jetsoncontroller.ui.components.ControlSection
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.field.runOutputStored
 import com.example.jetsoncontroller.ui.survey.SurveyRunUiState
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -274,6 +276,78 @@ class NavigationWorkflowTest {
         `when`(output.manifestState).thenReturn("FINAL")
         `when`(manifest.runId).thenReturn("other-run")
         assertFalse(runOutputStored(run))
+    }
+
+    @Test
+    fun `legacy destinations map onto the four primary tabs`() {
+        assertEquals(ControlSection.DEVICES, ControlSection.OVERVIEW.tab())
+        assertEquals(ControlSection.DEVICES, ControlSection.SENSORS.tab())
+        assertEquals(ControlSection.TASKS, ControlSection.COLLECTION.tab())
+        assertEquals(ControlSection.TASKS, ControlSection.PIPELINES.tab())
+        assertEquals(ControlSection.TRANSFERS, ControlSection.DATA.tab())
+        assertEquals(ControlSection.SETTINGS, ControlSection.SETTINGS.tab())
+        assertEquals(
+            setOf(ControlSection.DEVICES, ControlSection.TASKS, ControlSection.TRANSFERS, ControlSection.SETTINGS),
+            ControlSection.entries.map { it.tab() }.toSet()
+        )
+    }
+
+    @Test
+    fun `the app starts on the device root and each tab opens its root`() {
+        assertEquals(Routes.DEVICES, startRoute())
+        assertEquals(Routes.DEVICES, tabRoute(ControlSection.DEVICES))
+        assertEquals(Routes.DEVICES, tabRoute(ControlSection.OVERVIEW))
+        assertEquals(Routes.PIPELINES, tabRoute(ControlSection.TASKS))
+        assertEquals(Routes.UPLOAD_QUEUE, tabRoute(ControlSection.TRANSFERS))
+        assertEquals(Routes.SETTINGS, tabRoute(ControlSection.SETTINGS))
+        assertNotEquals(Routes.CONNECTION_HUB, startRoute())
+    }
+
+    @Test
+    fun `connection attempt completion returns to the device root`() {
+        assertEquals(Routes.DEVICES, deviceFlowExitRoute(DeviceFlowExit.CONNECTION_COMPLETED))
+    }
+
+    @Test
+    fun `finished pairing returns to the device root`() {
+        assertEquals(Routes.DEVICES, deviceFlowExitRoute(DeviceFlowExit.PAIRING_READY))
+    }
+
+    @Test
+    fun `cancelled pairing returns to the device root`() {
+        assertEquals(Routes.DEVICES, deviceFlowExitRoute(DeviceFlowExit.PAIRING_CANCELLED))
+    }
+
+    @Test
+    fun `disconnecting from the device detail returns to the device root`() {
+        assertEquals(Routes.DEVICES, deviceFlowExitRoute(DeviceFlowExit.DETAIL_DISCONNECTED))
+    }
+
+    @Test
+    fun `back from the device detail returns to the device root`() {
+        assertEquals(Routes.DEVICES, deviceFlowExitRoute(DeviceFlowExit.DETAIL_BACK))
+    }
+
+    @Test
+    fun `connection notice is one banner for screens that need the device and never for the root`() {
+        assertEquals(
+            ConnectionNotice("장치 연결을 기다리고 있습니다. 작성한 내용은 유지됩니다.", StatusTone.WARNING),
+            connectionNoticeFor(Routes.PIPELINES, fullControlConnected = false, transportType = null, registrationRequired = false)
+        )
+        assertEquals(
+            "전체 제어 연결이 필요합니다. 작성한 내용은 유지됩니다.",
+            connectionNoticeFor(Routes.PIPELINES, fullControlConnected = false, transportType = TransportType.BLE, registrationRequired = false)?.message
+        )
+        assertNull(connectionNoticeFor(Routes.DEVICES, fullControlConnected = false, transportType = null, registrationRequired = false))
+        assertNull(connectionNoticeFor(Routes.PIPELINES, fullControlConnected = true, transportType = TransportType.LAN, registrationRequired = false))
+    }
+
+    @Test
+    fun `registration problems show an error banner instead of moving the operator to onboarding`() {
+        val notice = connectionNoticeFor(Routes.DEVICES, fullControlConnected = false, transportType = null, registrationRequired = true)
+        assertEquals(StatusTone.ERROR, notice?.tone)
+        assertTrue(notice?.message.orEmpty().contains("QR"))
+        assertNull(connectionNoticeFor("server_storage", fullControlConnected = false, transportType = null, registrationRequired = true))
     }
 
     private fun terminalRun(runId: String, deviceId: String, pipelineId: String): PipelineRun =
