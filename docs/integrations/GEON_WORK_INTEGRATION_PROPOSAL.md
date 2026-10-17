@@ -1,6 +1,6 @@
 # JetsonController ↔ GEO& Work 연동 계약
 
-v0.2 · 2026-10-18 · v0.1 제안(2026-10-17)에 GEO& Work 세션의 회신(GEON Work main 10d6f1af 기준)을 반영했습니다. GEON Work는 GEO& Work로 이름을 바꾸는 중이며, 이 문서는 새 이름을 씁니다.
+v0.3 · 2026-10-18 · v0.1 제안(2026-10-17)에 GEO& Work 세션의 회신(GEON Work main 10d6f1af 기준)과 티켓 계약(6e5dc0d6)을 반영했습니다. GEON Work는 GEO& Work로 이름을 바꾸는 중이며, 이 문서는 새 이름을 씁니다.
 
 현장 장치(Jetson, MMS 호기)의 상태, 수집 실행, 서버 전송 결과를 GEO& Work 채널로 보내 사람이 판단하게 합니다. 장치 원격 제어는 범위 밖입니다.
 
@@ -141,7 +141,44 @@ v0.2 · 2026-10-18 · v0.1 제안(2026-10-17)에 GEO& Work 세션의 회신(GEON
 
 앱 '전송' 화면은 이 값으로 "GEO& Work 알림" 한 줄을 읽기 전용으로 보입니다. 서버 연결 프로필이 없거나 NOT_CONFIGURED·404이면 줄을 숨깁니다. 앱은 GEO& Work 비밀값을 갖지 않습니다.
 
-## 5. 작업 목록
+## 5. 수집 구간 티켓 (J5~J7)
+
+GEO& Work 계약(2026-10-18, GEON Work 커밋 6e5dc0d6, 운영 배포 전)과 이 저장소의 설계입니다. 운영 배포 전에는 이 계약을 흉내 낸 가짜 서버로 시험합니다.
+
+### 5.1 GEO& Work 쪽 계약
+
+- 알림과 별도 연동 'JetsonController 수집 티켓', scope `boards:read`·`boards:write`, 대상 보드는 '데이터 수집 구간' 하나입니다. bot은 그 보드의 업무 행만 고칠 수 있습니다.
+- 헤더 `Authorization: Bearer geon_…`(그 연동의 apiToken). token별 분당 120회(세 경로 합산), 429 `RATE_LIMITED`는 `Retry-After` 뒤 같은 키·같은 본문으로 재시도합니다.
+- `GET /api/v1/boards/:boardId` → `{id, name, properties[], statusOptions[]}`. 속성 id는 하드코딩하지 않고 이름으로 찾습니다.
+- `GET /api/v1/boards/:boardId/rows?status=open|all&updatedSince=<RFC3339>&cursor=&limit=1~100` → `{items[], nextCursor}`. 행: `id, title, values{속성UUID:{type,value}}, status{id,name,category}, assignees[], dueDate, revision, updatedAt, archivedAt`.
+- `PATCH /api/v1/boards/:boardId/rows/:rowId` `{expectedRevision, idempotencyKey(8~120자), status?, values?, comment?(1~2000자)}` → `{row, event, deduplicated}`.
+- 같은 idempotencyKey는 본문·보드·행이 완전히 같을 때만 재전송으로 처리됩니다. 본문이 다르면 409 `IDEMPOTENCY_KEY_CONFLICT`.
+- 409 `ROW_REVISION_CONFLICT`는 응답의 `current`를 봅니다. 사람이 상태를 바꿨으면 덮어쓰지 않고 알립니다. 진행해도 되면 `current.revision`과 새 키(`…:attempt2`)로 다시 보냅니다.
+- 그 밖의 400대(`VALIDATION_ERROR`, `INTEGRATION_STATUS_INVALID`, `PROPERTY_VALUE_INVALID`, `INTEGRATION_BOARD_FORBIDDEN`, `BOARD_ARCHIVED`, `ROW_ARCHIVED` 등)는 재시도하지 않고 DEAD + 경고입니다. 429·5xx·네트워크 오류만 백오프합니다.
+- 보드 구성: 행 제목 = 구간 이름. 속성 프로젝트(TEXT), 호기(SELECT), 담당(PERSON), 마감(DATE), 상태(STATUS: 할 일·진행 중·완료). 결과 속성 수집 작업자(TEXT), runId(TEXT), 수집 시간(NUMBER, 시간), 용량(NUMBER, GB), 정밀 위치 비율(NUMBER, %).
+
+### 5.2 수신 서버 (J5·J7)
+
+- 설정: `geon-work.json`에 `"tickets": {"apiBaseUrl": "https://<GEO& Work API>", "apiToken": "geon_…", "boardId": "<uuid>"}`를 더합니다. 운영 값은 소유자가 비밀 파일로 옮깁니다. 나가는 주소는 `webhookUrl`·`apiBaseUrl`의 호스트뿐입니다.
+- 보드 구조 확인: 시작할 때와 설정이 바뀔 때 보드를 읽어 위 속성과 상태 선택지를 이름으로 찾습니다. 하나라도 없으면 티켓 상태 `ERROR`(`BOARD_SCHEMA_MISMATCH`)로 두고 PATCH를 보내지 않습니다.
+- 동기화: 처음에는 `status=open` 전체, 그 뒤 2분마다 `status=all&updatedSince=<마지막 최대 updatedAt − 5초>`로 `nextCursor`가 없을 때까지 받아 `board_tickets`에 행 id·revision·제목·프로젝트·호기·담당·마감·상태·runId·보관 여부를 저장합니다.
+- 장치 ↔ 호기: 관리 명령 `set-device-unit --device-id <uuid> --unit <호기 선택지 이름>`으로 정합니다. 앱의 호기 필터 기본값이 됩니다.
+- 앱용 API(직원 토큰, 다른 `/v1/server/*`와 같은 프로젝트 권한 검사):
+  - `GET /v1/server/tickets?projectId=&deviceId=&unit=&status=open|all` → `{tickets[], units[], deviceUnit, syncedAt, integration{state, detail}}`. 티켓에는 `rowId, title, project, unit, assignees[], dueDate, status{name, category}, revision, updatedAt, runId, report{state, code}`이 들어갑니다.
+  - `POST /v1/server/tickets/{rowId}/start?projectId=` `{runId, deviceId}`: OPERATOR·ADMIN만. 장치가 그 프로젝트에 속해야 하고 티켓이 열려 있어야 합니다(아니면 409 `TICKET_NOT_OPEN`, 다른 runId가 진행 중이면 409 `TICKET_IN_PROGRESS`). runId ↔ rowId를 저장하고 outbox에 키 `run:{runId}:started`, 상태 "진행 중", 값 runId·수집 작업자(직원 표시 이름), 댓글 "수집 시작 · {호기} · {장치 이름}"을 넣습니다. 202를 돌려주고, 같은 요청 재전송은 같은 결과입니다.
+  - `POST /v1/server/tickets/{rowId}/complete?projectId=` `{runId}`: 그 runId의 업로드 세션이 COMPLETED("서버 수신 확인")일 때만(아니면 409 `UPLOAD_NOT_CONFIRMED`). 키 `run:{runId}:completed`, 상태 "완료", 값 수집 시간(`run.finished` durationSeconds ÷ 3600, 소수 둘째 자리)·용량(세션 바이트 ÷ 10^9, 소수 둘째 자리)·정밀 위치 비율(preciseFixRatio × 100, 소수 첫째 자리) 중 아는 값만, 댓글 "수집 완료 · 작업자 {이름} · {수집 시간}시간 · {용량} GB · 파일 {n}개".
+- 전송: J1 outbox의 `board-patch` 종류, Bearer 인증, 보내기 직전의 최신 revision을 씁니다. 성공하면 응답 `row`로 로컬 행을 갱신합니다(`deduplicated: true`면 DEDUP).
+- 409 `ROW_REVISION_CONFLICT`: `current`의 상태가 우리가 기대한 이전 상태(시작은 할 일, 또는 같은 runId의 진행 중 / 완료는 진행 중)이고 runId 속성이 비었거나 같으면 `current.revision`과 키 `…:attempt{n}`으로 다시 보냅니다. 아니면 DEAD(`HUMAN_CHANGED`)로 두고 티켓 보고 상태를 충돌로 표시합니다. 자동으로 덮어쓰지 않습니다.
+- 업로드가 실패하면 티켓은 그대로 '진행 중'입니다. 경고는 장치 알림 `upload:{runId}`가 맡습니다.
+
+### 5.3 앱 (J6)
+
+- '작업' 루트에 "수집 구간" 목록과 호기 필터(기본: 현재 장치의 호기, 모르면 전체)를 둡니다. 서버 연결 프로필이 없으면 목록을 숨깁니다.
+- 구간을 고르면 확인 대화상자("{구간} 수집을 시작합니다. 티켓이 '진행 중'으로 바뀝니다.") 뒤 기존 수집 시작 흐름으로 갑니다. Jetson이 run을 시작해 runId가 생기면 시작 보고를 보냅니다. 휴대폰이 오프라인이면 보고를 저장했다가 다시 보냅니다.
+- 수집 결과 영수증에서 "서버 수신 확인"이 된 뒤에만 "구간 완료 보고"를 보입니다. 업로드가 실패하면 버튼 대신 '진행 중 유지' 안내를 보입니다.
+- VIEWER는 목록만 보고 시작·완료 보고 단추는 이유와 함께 비활성입니다. 충돌(`HUMAN_CHANGED`)은 "다른 사람이 먼저 바꿨습니다. GEO& Work에서 확인해 주세요."로 보입니다.
+
+## 6. 작업 목록
 
 | ID | 작업 | 상태 |
 |---|---|---|
@@ -149,10 +186,10 @@ v0.2 · 2026-10-18 · v0.1 제안(2026-10-17)에 GEO& Work 세션의 회신(GEON
 | J2 | Jetson 백엔드: 온도·저장 공간 단계 판정, 수집·업로드 실패 이벤트, 영속 큐, heartbeat, capability 확인 뒤 전송 | 진행 |
 | J3 | 앱: '전송' 화면의 GEO& Work 알림 한 줄(읽기 전용) | 진행 |
 | J4 | 딥링크 | 보류(양방향 단계에서 https App Links로) |
-| J5 | 수신 서버 티켓 동기화(열린 티켓 증분 조회, rowId·revision 저장, 앱용 목록 API) | GEO& Work 계약 대기 |
-| J6 | 앱 '작업' 화면 티켓 목록·호기 필터, 시작 확인 → '진행 중', runId ↔ rowId | 계약 대기 |
-| J7 | 완료 보고(outbox 경유, `run:{runId}:started`·`run:{runId}:completed` 멱등 키, 409 `ROW_REVISION_CONFLICT`는 다시 읽고 사람에게 알림) | 계약 대기 |
+| J5 | 수신 서버 티켓 동기화(열린 티켓 증분 조회, rowId·revision 저장, 앱용 목록 API) | 계약 받음(§5), J1 병합 뒤 착수 |
+| J6 | 앱 '작업' 화면 티켓 목록·호기 필터, 시작 확인 → '진행 중', runId ↔ rowId | 계약 받음(§5), J3 병합 뒤 착수 |
+| J7 | 완료 보고(outbox 경유, `run:{runId}:started`·`run:{runId}:completed` 멱등 키, 409 `ROW_REVISION_CONFLICT`는 다시 읽고 사람에게 알림) | 계약 받음(§5), J5와 함께 |
 
-## 6. 회신
+## 7. 회신
 
 GEO& Work 세션("GEON Work 로컬 세션 인수인계")과 이 저장소 세션이 cross-session 메시지로 주고받습니다. 계약을 바꾸면 이 문서를 함께 고칩니다.
