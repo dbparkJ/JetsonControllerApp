@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.JetsonController" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      The Android 12+ system splash shows only the canvas tone and the GEO& symbol.
+      The in-app loading scene appears only if device restore takes longer than 300 ms.
+      values-night/themes.xml supplies the dark canvas.
+    -->
+    <style name="Theme.JetsonController" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">#F3F5F8</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    </style>
 </resources>

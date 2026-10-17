@@ -11,11 +11,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.example.jetsoncontroller.ui.JetsonApp
 import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+
+/** The loading scene is shown only when the device restore has taken longer than this. */
+internal const val LOADING_SCENE_DELAY_MS = 300L
 
 internal object BluetoothPermissionPolicy {
 
@@ -59,9 +66,6 @@ internal object BluetoothPermissionPolicy {
 
 class MainActivity :
     ComponentActivity() {
-
-    private var showWelcome by mutableStateOf(true)
-    private var backgroundAt = 0L
 
     private var bluetoothPermissionGranted
         by mutableStateOf(false)
@@ -178,7 +182,6 @@ class MainActivity :
             savedInstanceState
         )
 
-        showWelcome = savedInstanceState == null
         refreshPermissionState()
 
         val app =
@@ -196,7 +199,23 @@ class MainActivity :
                     refreshPermissionState()
                 }
 
+            // Number of registered devices, read from the same store the repository
+            // restores from. Null until that read completes.
+            var registeredDeviceCount by remember { mutableStateOf<Int?>(null) }
             LaunchedEffect(Unit) {
+                registeredDeviceCount = runCatching {
+                    app.credentialStore.registeredDevices.first().size
+                }.getOrElse { app.repository.registeredDevices.value.size }
+            }
+
+            // Permissions are requested at launch only when a device is registered. With no
+            // device, the 장치 root's first-run card asks through the existing callbacks.
+            var launchPermissionChecked by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(registeredDeviceCount) {
+                val count = registeredDeviceCount ?: return@LaunchedEffect
+                if (launchPermissionChecked) return@LaunchedEffect
+                launchPermissionChecked = true
+                if (count == 0) return@LaunchedEffect
                 val missingConnectivityPermissions = connectivityPermissions().filter {
                     ContextCompat.checkSelfPermission(
                         this@MainActivity,
@@ -205,6 +224,18 @@ class MainActivity :
                 }
                 if (missingConnectivityPermissions.isNotEmpty()) {
                     permissionLauncher.launch(missingConnectivityPermissions.toTypedArray())
+                }
+            }
+
+            // The loading scene appears only if the restore is still running after 300 ms.
+            // A fast restore never shows it, so there is no fixed splash delay.
+            var showLoading by remember { mutableStateOf(false) }
+            LaunchedEffect(registeredDeviceCount) {
+                if (registeredDeviceCount == null) {
+                    delay(LOADING_SCENE_DELAY_MS)
+                    showLoading = true
+                } else {
+                    showLoading = false
                 }
             }
 
@@ -272,12 +303,8 @@ class MainActivity :
                         }
                     }
                 )
-                if (showWelcome) {
-                    com.example.jetsoncontroller.ui.components.GeoWelcomeScene()
-                    LaunchedEffect(showWelcome) {
-                        kotlinx.coroutines.delay(1600)
-                        showWelcome = false
-                    }
+                if (showLoading) {
+                    com.example.jetsoncontroller.ui.components.GeoLoadingScene()
                 }
                 }
             }
@@ -286,14 +313,12 @@ class MainActivity :
 
     override fun onResume() {
         super.onResume()
-        if (backgroundAt > 0 && android.os.SystemClock.elapsedRealtime() - backgroundAt >= 30 * 60 * 1000L) showWelcome = true
         ConnectionDiagnostics.record("app_foreground", mapOf("foreground" to true))
         ConnectionDiagnostics.recordPowerState(this)
         refreshPermissionState()
     }
 
     override fun onStop() {
-        backgroundAt = android.os.SystemClock.elapsedRealtime()
         ConnectionDiagnostics.record("app_background", mapOf("foreground" to false))
         ConnectionDiagnostics.recordPowerState(this)
         super.onStop()
