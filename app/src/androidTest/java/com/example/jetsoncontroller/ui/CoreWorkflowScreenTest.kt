@@ -142,9 +142,9 @@ class CoreWorkflowScreenTest {
         }
 
         composeRule.onNode(hasScrollAction()).performScrollToNode(
-            hasText("제어 가능", substring = true)
+            hasText("연결됨", substring = true)
         )
-        composeRule.onNodeWithText("제어 가능", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("연결됨", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("이 장치 열기").assertIsDisplayed()
         composeRule.onAllNodesWithText("온라인").assertCountEquals(0)
     }

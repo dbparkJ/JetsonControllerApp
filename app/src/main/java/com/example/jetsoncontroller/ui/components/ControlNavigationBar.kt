@@ -11,10 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -33,15 +33,38 @@ import com.example.jetsoncontroller.ui.theme.GeoBreakpoint
 import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
+/**
+ * Destinations of the bottom bar and the side rail. The four primary tabs are
+ * DEVICES, TASKS, TRANSFERS and SETTINGS. The other values are legacy names that
+ * screens written for the older shell still pass; [tab] maps each one onto a tab.
+ */
 enum class ControlSection {
-    OVERVIEW,
-    COLLECTION,
-    DATA,
+    /** 장치: the device root. It is also the start destination. */
+    DEVICES,
+    /** 작업: collection tasks. */
+    TASKS,
+    /** 전송: uploads and server receipts. */
+    TRANSFERS,
+    /** 설정: app preferences. */
     SETTINGS,
-    /** Legacy task destinations now belong to Collection. */
+    /** Legacy: the old home. Maps to [DEVICES]. */
+    OVERVIEW,
+    /** Legacy: the old collection tab. Maps to [TASKS]. */
+    COLLECTION,
+    /** Legacy: the old files tab. Maps to [TRANSFERS]. */
+    DATA,
+    /** Legacy: task destinations. Maps to [TASKS]. */
     PIPELINES,
-    /** Sensor detail is reached from Home or Settings. */
-    SENSORS
+    /** Legacy: sensor detail, reached from the device. Maps to [DEVICES]. */
+    SENSORS;
+
+    /** The primary tab that owns this destination. */
+    fun tab(): ControlSection = when (this) {
+        DEVICES, OVERVIEW, SENSORS -> DEVICES
+        TASKS, COLLECTION, PIPELINES -> TASKS
+        TRANSFERS, DATA -> TRANSFERS
+        SETTINGS -> SETTINGS
+    }
 }
 
 private data class NavEntry(
@@ -52,22 +75,16 @@ private data class NavEntry(
 )
 
 private val controlEntries = listOf(
-    NavEntry(ControlSection.OVERVIEW, Icons.Default.Home, "홈", "홈"),
-    NavEntry(ControlSection.COLLECTION, Icons.Default.PlayCircle, "수집", "수집 시작 또는 현재 수집 확인"),
-    NavEntry(ControlSection.DATA, Icons.Default.FolderOpen, "파일", "장치와 서버 파일"),
-    NavEntry(ControlSection.SETTINGS, Icons.Default.Settings, "설정", "앱과 장치 설정")
+    NavEntry(ControlSection.DEVICES, Icons.Default.Devices, "장치", "연결된 장치와 상태"),
+    NavEntry(ControlSection.TASKS, Icons.Default.PlayCircle, "작업", "수집 작업 시작과 진행"),
+    NavEntry(ControlSection.TRANSFERS, Icons.Default.Upload, "전송", "서버 전송과 수신 확인"),
+    NavEntry(ControlSection.SETTINGS, Icons.Default.Settings, "설정", "앱과 서버 설정")
 )
 
 /** Set by the app shell when the same destinations are available in a side rail. */
 val LocalControlNavigationRailVisible = compositionLocalOf { false }
 
-private fun normalized(section: ControlSection): ControlSection = when (section) {
-    ControlSection.PIPELINES -> ControlSection.COLLECTION
-    ControlSection.SENSORS -> ControlSection.SETTINGS
-    else -> section
-}
-
-/** Four short destinations from the approved Figma shell. */
+/** Four tabs in the bottom bar, as in the approved device console shell. */
 @Composable
 fun ControlNavigationBar(
     selected: ControlSection,
@@ -75,11 +92,11 @@ fun ControlNavigationBar(
     enabledSections: Set<ControlSection> = ControlSection.entries.toSet()
 ) {
     if (LocalControlNavigationRailVisible.current) return
+    val selectedTab = selected.tab()
     NavigationBar(modifier = Modifier.fillMaxWidth()) {
         controlEntries.forEach { entry ->
-            val isSelected = normalized(selected) == entry.section
             NavigationBarItem(
-                selected = isSelected,
+                selected = selectedTab == entry.section,
                 onClick = { onSelect(entry.section) },
                 enabled = entry.section in enabledSections,
                 icon = { Icon(entry.icon, contentDescription = entry.description) },
@@ -89,10 +106,11 @@ fun ControlNavigationBar(
     }
 }
 
-/** Optional rail for windows at least 840dp wide. */
+/** Optional rail for windows at least 840dp wide. It shows the same four tabs. */
 @Composable
 fun ControlNavigationRail(selected: ControlSection, onSelect: (ControlSection) -> Unit) {
     val c = LocalGeoColors.current
+    val selectedTab = selected.tab()
     NavigationRail(
         // The tablet root scale turns the Material 80dp rail into the approved 88dp rail.
         modifier = Modifier.width(80.dp),
@@ -103,7 +121,7 @@ fun ControlNavigationRail(selected: ControlSection, onSelect: (ControlSection) -
     ) {
         controlEntries.forEach { entry ->
             NavigationRailItem(
-                selected = normalized(selected) == entry.section,
+                selected = selectedTab == entry.section,
                 onClick = { onSelect(entry.section) },
                 icon = { Icon(entry.icon, contentDescription = entry.description) },
                 label = { Text(entry.label, style = MaterialTheme.typography.labelMedium) }

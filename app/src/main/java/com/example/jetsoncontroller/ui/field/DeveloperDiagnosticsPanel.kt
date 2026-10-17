@@ -63,7 +63,7 @@ internal fun DeveloperDiagnosticsPanel(
                 ) { Text(if (state.testingSensor == sensor) "$label 테스트 중…" else "$label 테스트") }
                 state.sensorTests[sensor]?.let { result ->
                     val passed = result.state == "PASSED"
-                    Text("$label: ${if (passed) "수신 확인" else "확인 필요"}",
+                    Text("$label: ${if (passed) "수신 확인" else "미확인"}",
                         color = if (passed) LocalGeoColors.current.ink else LocalGeoColors.current.danger)
                     Text(result.message)
                     SelectionContainer {

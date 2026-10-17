@@ -59,12 +59,12 @@ internal fun assessDashboardHealth(
             status.metricValidity.filterValues { it.validity != "valid" }.forEach { (name, metric) ->
                 issueKeys += healthIssueKey(DashboardHealthIssue.UNAVAILABLE_METRICS, name, metric.validity)
             }
-            add("일부 장비 지표를 확인하지 못했거나 이전 측정값입니다.")
+            add("일부 장치 지표를 확인하지 못했거나 이전 측정값입니다.")
         }
         if (status.metricIsValid("temperatureC") && status.temperatureC >= 80f) {
             issueKinds += DashboardHealthIssue.HIGH_TEMPERATURE
             issueKeys += DashboardHealthIssue.HIGH_TEMPERATURE.name
-            add("장비 온도가 ${status.temperatureC.toInt()} C로 높습니다.")
+            add("장치 온도가 ${status.temperatureC.toInt()}°C로 높습니다.")
         }
         if (status.metricIsValid("storagePercent") && status.storagePercent >= 90) {
             issueKinds += DashboardHealthIssue.STORAGE_PRESSURE

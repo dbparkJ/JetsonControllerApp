@@ -326,8 +326,8 @@ class DeviceListViewModel(
                     repository.stopScan()
                     reconnectState.value = ReconnectState(
                         error =
-                            "Jetson 장비가 여러 대 검색되었습니다. " +
-                                "${device.deviceName} 장비만 켠 뒤 다시 시도해 주세요."
+                            "Jetson 장치가 여러 대 검색되었습니다. " +
+                                "${device.deviceName} 장치만 켠 뒤 다시 시도해 주세요."
                     )
                 }
 
@@ -344,8 +344,8 @@ class DeviceListViewModel(
                     repository.stopScan()
                     reconnectState.value = ReconnectState(
                         error =
-                            "${device.deviceName} 장비를 찾지 못했습니다. " +
-                                "장비가 켜져 있는지 확인하세요."
+                            "${device.deviceName} 장치를 찾지 못했습니다. " +
+                                "장치가 켜져 있는지 확인하세요."
                     )
                 }
             }

@@ -48,17 +48,17 @@ internal fun operationalSummary(
     val transitional = pipelines.filter {
         it.state in setOf(PipelineState.STARTING, PipelineState.STOPPING, PipelineState.RETRYING)
     }
-    val connectionStage = com.example.jetsoncontroller.ui.connection.userConnectionStage(
+    val connectionStage = com.example.jetsoncontroller.ui.connection.deviceConnectionUi(
         state.isOnline,
         state.transportType
     )
     val connection = OperationalSignal(
-        title = "앱 ↔ 장비",
+        title = "앱 ↔ 장치",
         value = connectionStage.label,
         detail = when {
             state.fullControlAvailable -> "인증된 제어 경로"
             state.isOnline -> "기본 연결 · 전체 제어 필요"
-            else -> "장비 연결을 확인하세요"
+            else -> "장치 연결을 확인하세요"
         },
         tone = when {
             state.fullControlAvailable -> StatusTone.SUCCESS
@@ -132,7 +132,7 @@ internal fun operationalSummary(
         else -> OperationalSignal(
             title = "인터넷 · 서버",
             value = "현재 상태 미확인",
-            detail = "장비 Wi-Fi와 별도로 확인합니다",
+            detail = "장치 Wi-Fi와 별도로 확인합니다",
             tone = StatusTone.INFO
         )
     }
@@ -140,8 +140,8 @@ internal fun operationalSummary(
     val nextAction = when {
         !state.fullControlAvailable -> HomeNextAction(
             eyebrow = "다음 행동",
-            title = "장비 제어 연결 확인",
-            detail = "선택 장비와 인증된 LAN 또는 직접 연결을 확인하세요.",
+            title = "장치 제어 연결 확인",
+            detail = "선택 장치와 인증된 LAN 또는 직접 연결을 확인하세요.",
             buttonLabel = "연결 방법 보기",
             destination = HomeActionDestination.CONNECTION
         )

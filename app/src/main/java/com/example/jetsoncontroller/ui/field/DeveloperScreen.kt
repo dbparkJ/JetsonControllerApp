@@ -62,7 +62,7 @@ fun DeveloperScreen(
     onExecute: (String) -> Unit,
     onLogs: () -> Unit,
     onDiagnostics: () -> Unit,
-    developerModeEnabled: Boolean = true,
+    developerModeEnabled: Boolean = false,
     onDeveloperModeChange: (Boolean) -> Unit = {},
     onDeveloperDisabled: () -> Unit = {},
     onAdminTools: () -> Unit = {},

@@ -101,8 +101,8 @@ class TaskFlowScreenTest {
             navigation = rememberNavController()
             Column {
                 TextButton(onClick = { navigateToTaskStart(navigation) }) { Text("작업 탭") }
-                NavHost(navigation, startDestination = "dashboard") {
-                    composable("dashboard") { Text("홈 화면") }
+                NavHost(navigation, startDestination = Routes.DEVICES) {
+                    composable(Routes.DEVICES) { Text("홈 화면") }
                     composable("pipelines") {
                         var expanded by rememberSaveable { mutableStateOf(false) }
                         Column {
@@ -119,7 +119,7 @@ class TaskFlowScreenTest {
         compose.onNodeWithText("작업 탭").performClick()
         compose.onNodeWithText("상세로 이동").performClick()
         compose.runOnIdle { navigation.navigate("settings") {
-            popUpTo("dashboard") { saveState = true }; restoreState = true
+            popUpTo(Routes.DEVICES) { saveState = true }; restoreState = true
         } }
         compose.onNodeWithText("작업 탭").performClick()
         compose.onNodeWithText("작업 선택 첫 화면").assertIsDisplayed()
@@ -133,9 +133,9 @@ class TaskFlowScreenTest {
         compose.setContent { JetsonControllerTheme {
             navigation = rememberNavController()
             Column {
-                TextButton(onClick = { navigateToDashboard(navigation) }) { Text("홈 탭") }
-                NavHost(navigation, startDestination = "dashboard") {
-                    composable("dashboard") {
+                TextButton(onClick = { resetToDeviceRoot(navigation) }) { Text("홈 탭") }
+                NavHost(navigation, startDestination = Routes.DEVICES) {
+                    composable(Routes.DEVICES) {
                         var expanded by rememberSaveable { mutableStateOf(false) }
                         Column {
                             Text(if (expanded) "홈 펼침 상태" else "대시보드 첫 화면")
@@ -149,7 +149,7 @@ class TaskFlowScreenTest {
         } }
         compose.runOnIdle {
             navigation.navigate("sensors")
-            navigation.navigate("settings") { popUpTo("dashboard") { saveState = true }; restoreState = true }
+            navigation.navigate("settings") { popUpTo(Routes.DEVICES) { saveState = true }; restoreState = true }
         }
         compose.onNodeWithText("홈 탭").performClick()
         compose.onNodeWithText("대시보드 첫 화면").assertIsDisplayed()

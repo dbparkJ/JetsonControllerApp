@@ -115,6 +115,33 @@ fun NetworkSettingsScreen(
     var manualEntryExpanded by rememberSaveable { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var connectionInfoOpen by rememberSaveable { mutableStateOf(false) }
+    // B2: applying Wi-Fi to the device drops the current link, so the operator confirms the
+    // device, the new network and the consequence before anything is sent.
+    var submitConfirmOpen by rememberSaveable { mutableStateOf(false) }
+    val requestSubmit: () -> Unit = { submitConfirmOpen = true }
+    if (submitConfirmOpen) {
+        val targetNetwork = state.ssid.takeIf { it.isNotBlank() }
+            ?: state.selectedAccessPointSsid
+            ?: "선택한 네트워크"
+        AlertDialog(
+            onDismissRequest = { submitConfirmOpen = false },
+            title = { Text("장치 Wi-Fi 변경") },
+            text = {
+                Text(
+                    "$deviceName 장치를 \"$targetNetwork\" 네트워크에 연결하도록 설정합니다.\n" +
+                        "적용하면 지금 연결이 끊길 수 있습니다."
+                )
+            },
+            confirmButton = {
+                Button(onClick = { submitConfirmOpen = false; onSubmit() }) {
+                    Text("적용")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { submitConfirmOpen = false }) { Text("취소") }
+            }
+        )
+    }
 
     if (connectionInfoOpen) {
         AlertDialog(
@@ -255,7 +282,7 @@ fun NetworkSettingsScreen(
                             onSelectAccessPoint(accessPoint)
                         },
                         onPasswordChange = onPasswordChange,
-                        onSubmit = onSubmit
+                        onSubmit = requestSubmit
                     )
                     HorizontalDivider()
                 }
@@ -290,7 +317,7 @@ fun NetworkSettingsScreen(
                         onSsidChange = onSsidChange,
                         onPasswordChange = onPasswordChange,
                         onHiddenChange = onHiddenChange,
-                        onSubmit = onSubmit
+                        onSubmit = requestSubmit
                     )
                 }
             }

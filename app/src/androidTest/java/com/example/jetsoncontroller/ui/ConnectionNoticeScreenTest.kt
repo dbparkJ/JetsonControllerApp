@@ -18,16 +18,17 @@ import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
 
-/** Presentation-only disconnection state; never creates a Repository or sends commands. */
+/** Presentation-only connection notice: never creates a Repository or sends commands. */
 class ConnectionNoticeScreenTest {
     @get:Rule val compose = createComposeRule()
-    private val notice = "장비 연결을 기다리고 있습니다. 작성한 내용은 유지됩니다."
+    private val notice = "장치 연결을 기다리고 있습니다. 작성한 내용은 유지됩니다."
 
-    @Test fun noticeDoesNotMoveTabsOrRepeatAcrossRoutesRestorationAndDeviceSwitches() {
+    @Test fun bannerAppearsWhileDisconnectedAndLeavesTabsWhereTheyWereAndResolvesOnce() {
         var connected by mutableStateOf(true)
         var device by mutableStateOf("A")
         var message by mutableStateOf<String?>(notice)
@@ -38,60 +39,56 @@ class ConnectionNoticeScreenTest {
                 ConnectionRecoveryLayout(device, connected, message, { resolved++ }) { modifier ->
                     Scaffold(modifier = modifier.testTag("screen"), bottomBar = {
                         Box(Modifier.testTag("navigation")) {
-                            ControlNavigationBar(ControlSection.OVERVIEW, {})
+                            ControlNavigationBar(ControlSection.DEVICES, {})
                         }
                     }) { padding -> Text("현재 화면", Modifier.padding(padding)) }
                 }
             }
         }
         val navigation = compose.onNodeWithTag("navigation").fetchSemanticsNode().boundsInRoot
-        val screen = compose.onNodeWithTag("screen").fetchSemanticsNode().boundsInRoot
-        assertEquals(screen.bottom, navigation.bottom)
+        compose.onAllNodesWithText(notice).assertCountEquals(0)
         compose.runOnIdle { connected = false }
         compose.onNodeWithText(notice).assertIsDisplayed()
         assertEquals(navigation, compose.onNodeWithTag("navigation").fetchSemanticsNode().boundsInRoot)
-        assertEquals(screen, compose.onNodeWithTag("screen").fetchSemanticsNode().boundsInRoot)
         compose.onNodeWithText("연결 문제 해결").performClick()
         compose.runOnIdle { assertEquals(1, resolved) }
-        compose.runOnIdle { message = null }
-        compose.runOnIdle { message = notice }
-        compose.onAllNodesWithText(notice).assertCountEquals(0)
         restoration.emulateSavedInstanceStateRestore()
-        compose.onAllNodesWithText(notice).assertCountEquals(0)
+        compose.onNodeWithText(notice).assertIsDisplayed()
         compose.runOnIdle { device = "B" }
         compose.onNodeWithText(notice).assertIsDisplayed()
-        compose.onNodeWithText("연결 문제 해결").performClick()
-        compose.runOnIdle { device = "A" }
-        compose.onAllNodesWithText(notice).assertCountEquals(0)
         compose.runOnIdle { connected = true }
-        compose.runOnIdle { connected = false }
-        compose.onNodeWithText(notice).assertIsDisplayed()
-        compose.runOnIdle { assertEquals(2, resolved) }
+        compose.onAllNodesWithText(notice).assertCountEquals(0)
+        compose.runOnIdle { message = null }
+        compose.runOnIdle { assertEquals(1, resolved) }
     }
 
-    @Test fun noticeExpiresAndLeavesFourPrimaryTabsAtTheBottom() {
+    @Test fun contentStartsBelowTheBannerSoTheBannerNeverCoversATitle() {
         compose.setContent {
-            JetsonControllerTheme(darkTheme = true) {
+            JetsonControllerTheme {
                 ConnectionRecoveryLayout("A", false, notice, {}) { modifier ->
-                    Scaffold(modifier = modifier, bottomBar = {
-                        Box(Modifier.testTag("navigation")) {
-                            ControlNavigationBar(ControlSection.OVERVIEW, {})
-                        }
-                    }) { padding -> Text("통신 없는 화면 테스트", Modifier.padding(padding)) }
+                    Scaffold(modifier = modifier) { padding ->
+                        Text("화면 제목", Modifier.testTag("title").padding(padding))
+                    }
                 }
             }
         }
-        compose.onNodeWithText(notice).assertIsDisplayed()
-        val navigation = compose.onNodeWithTag("navigation").fetchSemanticsNode().boundsInRoot
+        val banner = compose.onNodeWithText(notice).fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithTag("title").fetchSemanticsNode().boundsInRoot
+        assertTrue(title.top >= banner.bottom)
         capture("notice-visible")
-        compose.waitUntil(timeoutMillis = 15_000) {
-            compose.onAllNodesWithText(notice).fetchSemanticsNodes().isEmpty()
+    }
+
+    @Test fun deviceRootShowsTheFourPrimaryTabsAtTheBottom() {
+        compose.setContent {
+            JetsonControllerTheme(darkTheme = true) {
+                Scaffold(bottomBar = { ControlNavigationBar(ControlSection.DEVICES, {}) }) { padding ->
+                    Text("현재 화면", Modifier.padding(padding))
+                }
+            }
         }
-        listOf("홈", "수집", "파일", "설정").forEach {
+        listOf("장치", "작업", "전송", "설정").forEach {
             compose.onNodeWithText(it).assertIsDisplayed()
         }
-        assertEquals(navigation, compose.onNodeWithTag("navigation").fetchSemanticsNode().boundsInRoot)
-        capture("notice-expired")
     }
 
     private fun capture(name: String) {
