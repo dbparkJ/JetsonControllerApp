@@ -18,6 +18,7 @@ import time
 import unicodedata
 import uuid
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,6 +37,8 @@ CONTENT_RANGE_PATTERN = re.compile(r"^bytes ([0-9]+)-([0-9]+)/([0-9]+)$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FILE_BATCH_MAGIC = b"JETSONBATCH1\n"
 DEFERRED_FILE_HASH_MODE = "deferred-v1"
+# Files of one batch are written and fsynced by up to this many threads.
+STAGING_SYNC_WORKERS = 4
 CONTENT_DIGEST_MAGIC = b"JETSON-UPLOAD-CONTENT-V1\x00"
 CONTEXT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$")
 OUTPUT_CONTEXT_FIELDS = (
@@ -998,15 +1001,18 @@ class ReceiverService:
                     )
 
             pending = [entry for entry in rows if entry[2] == 0 and entry[3] > 0]
-            for item, row, _next_offset, _size_bytes, _sha256 in pending:
-                staging_path = self._key_path(
-                    row["staging_key"],
-                    self.settings.staging_root,
-                )
-                self._reconcile_staging_file(staging_path, 0, session_id)
-                self._durable_write(staging_path, 0, item.body)
-
             if pending:
+                # Durability order: every staged file is written and fsynced, each directory
+                # that gained an entry is fsynced once, and only then is the batch committed.
+                staged: list[tuple[Path, bytes]] = []
+                for item, row, _next_offset, _size_bytes, _sha256 in pending:
+                    staging_path = self._key_path(
+                        row["staging_key"],
+                        self.settings.staging_root,
+                    )
+                    self._reconcile_staging_file(staging_path, 0, session_id)
+                    staged.append((staging_path, item.body))
+                self._write_staging_files(staged)
                 now = self.timestamp()
                 with self.database.immediate() as connection:
                     for item, _row, _next_offset, size_bytes, sha256 in pending:
@@ -2995,7 +3001,46 @@ class ReceiverService:
 
     def _durable_write(self, path: Path, offset: int, body: bytes) -> None:
         self.ensure_storage_available()
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for directory in dict.fromkeys(self._write_and_sync_file(path, offset, body)):
+            self._fsync_directory(directory)
+
+    def _write_staging_files(self, staged: list[tuple[Path, bytes]]) -> None:
+        """Write whole staged files and make them durable before the caller commits.
+
+        Every file is fsynced, using a small bounded pool when several are written.
+        Each directory that gained an entry is fsynced once for the whole batch.
+        The caller's session guard stays held until all threads have finished.
+        """
+        if not staged:
+            return
+        changed: list[Path] = []
+        if len(staged) == 1:
+            changed.extend(self._write_and_sync_file(staged[0][0], 0, staged[0][1]))
+        else:
+            with ThreadPoolExecutor(
+                max_workers=min(STAGING_SYNC_WORKERS, len(staged)),
+                thread_name_prefix="staging-sync",
+            ) as executor:
+                futures = [
+                    executor.submit(self._write_and_sync_file, path, 0, body)
+                    for path, body in staged
+                ]
+                try:
+                    for future in futures:
+                        changed.extend(future.result())
+                except BaseException:
+                    for future in futures:
+                        future.cancel()
+                    raise
+        for directory in sorted(set(changed)):
+            self._fsync_directory(directory)
+
+    def _write_and_sync_file(self, path: Path, offset: int, body: bytes) -> list[Path]:
+        """Write body at offset, fsync the file, and return directories whose entries changed.
+
+        The caller fsyncs the returned directories; they are not synced here.
+        """
+        changed = self._ensure_directory(path.parent)
         existed = path.exists()
         flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
         descriptor = os.open(path, flags, 0o600)
@@ -3011,7 +3056,19 @@ class ReceiverService:
         finally:
             os.close(descriptor)
         if not existed:
-            self._fsync_directory(path.parent)
+            changed.append(path.parent)
+        return changed
+
+    @staticmethod
+    def _ensure_directory(directory: Path) -> list[Path]:
+        """Create directory and any missing parents; return parents whose entries are new."""
+        missing: list[Path] = []
+        current = directory
+        while not current.exists():
+            missing.append(current)
+            current = current.parent
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return [created.parent for created in missing]
 
     def _create_empty_file(self, path: Path) -> None:
         self.ensure_storage_available()

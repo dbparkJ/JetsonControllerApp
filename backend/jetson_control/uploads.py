@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import functools
 import http.client
 import hashlib
 import ipaddress
@@ -40,6 +41,31 @@ CLIENT_MAX_BATCH_FILES = 256
 HASH_PROGRESS_INTERVAL_SECONDS = 0.5
 HTTP_JSON_MAX_RESPONSE_BYTES = 1024 * 1024
 HTTP_LIBRARY_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+HTTP_TIMEOUT_SECONDS = 60
+# The receiver's uvicorn closes idle keep-alive connections after about 5 seconds,
+# so a connection idle longer than this is replaced before it is reused.
+HTTP_KEEPALIVE_MAX_IDLE_SECONDS = 3.0
+# Errors meaning the peer closed a reused connection while it was idle.
+HTTP_STALE_CONNECTION_ERRORS = (
+    http.client.RemoteDisconnected,
+    http.client.CannotSendRequest,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    BrokenPipeError,
+)
+# Job progress reaches disk at most this often; state changes are written at once.
+JOB_STATE_PERSIST_INTERVAL_SECONDS = 1.0
+PROGRESS_ONLY_JOB_FIELDS = frozenset(
+    {
+        "bytesTransferred",
+        "filesTransferred",
+        "bytesPrepared",
+        "filesPrepared",
+        "currentFile",
+        "throughputBytesPerSecond",
+        "etaSeconds",
+    }
+)
 CONTENT_DIGEST_MAGIC = b"JETSON-UPLOAD-CONTENT-V1\x00"
 SOURCE_IDENTITY_MAGIC = b"JETSON-UPLOAD-SOURCE-IDENTITY-V1\x00"
 OUTPUT_CONTEXT_FILE = ".jetson-output-context.json"
@@ -82,6 +108,134 @@ class TransferProgress:
     acknowledged_this_run: int = 0
 
 
+@functools.lru_cache(maxsize=2)
+def _tls_client_context(verify_tls: bool) -> ssl.SSLContext:
+    """Return the client TLS context for one verification mode, built once per process."""
+    if verify_tls:
+        return ssl.create_default_context()
+    return ssl._create_unverified_context()
+
+
+class _UploadHttpClient:
+    """One reusable HTTP(S) connection to an upload target.
+
+    A job owns one client and uses it only from its worker thread. A response is
+    read to completion before its connection is reused. Any other outcome closes
+    the connection, so the next request starts from a clean http.client state.
+    """
+
+    def __init__(
+        self,
+        connect: Callable[[], Tuple[http.client.HTTPConnection, str]],
+        *,
+        keep_alive: bool,
+    ) -> None:
+        self._connect = connect
+        self._keep_alive = keep_alive
+        self._connection: Optional[http.client.HTTPConnection] = None
+        self._base_path = ""
+        self._connection_used = False
+        self._last_used = 0.0
+
+    def __enter__(self) -> "_UploadHttpClient":
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._discard()
+
+    def request(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        body: Optional[bytes],
+        headers: Dict[str, str],
+        read_limit: int,
+        response_timeout: Optional[float] = None,
+    ) -> Tuple[int, bytes]:
+        if (
+            self._connection is not None
+            and time.monotonic() - self._last_used > HTTP_KEEPALIVE_MAX_IDLE_SECONDS
+        ):
+            self._discard()
+        retried = False
+        while True:
+            reusing = self._connection is not None and self._connection_used
+            if self._connection is None:
+                self._connection, self._base_path = self._connect()
+                self._connection_used = False
+            try:
+                status, data, reusable = self._exchange(
+                    method,
+                    endpoint,
+                    body,
+                    headers,
+                    read_limit,
+                    response_timeout,
+                )
+            except HTTP_STALE_CONNECTION_ERRORS:
+                self._discard()
+                if not reusing or retried:
+                    raise
+                # The peer closed the idle connection; repeat this request once on a new one.
+                retried = True
+                continue
+            except BaseException:
+                self._discard()
+                raise
+            if reusable and self._keep_alive:
+                self._connection_used = True
+                self._last_used = time.monotonic()
+            else:
+                self._discard()
+            return status, data
+
+    def _exchange(
+        self,
+        method: str,
+        endpoint: str,
+        body: Optional[bytes],
+        headers: Dict[str, str],
+        read_limit: int,
+        response_timeout: Optional[float],
+    ) -> Tuple[int, bytes, bool]:
+        connection = self._connection
+        if connection is None:
+            raise RuntimeError("HTTP connection is not open")
+        connection.request(
+            method,
+            f"{self._base_path}{endpoint}",
+            body=body,
+            headers=headers,
+        )
+        if response_timeout is not None and connection.sock is not None:
+            connection.sock.settimeout(response_timeout)
+        response = connection.getresponse()
+        data = response.read(read_limit)
+        status = response.status
+        if response_timeout is not None and self._keep_alive and connection.sock is not None:
+            connection.sock.settimeout(HTTP_TIMEOUT_SECONDS)
+        reusable = (
+            200 <= status < 300 and response.isclosed() and not response.will_close
+            if self._keep_alive
+            else False
+        )
+        return status, data, reusable
+
+    def _discard(self) -> None:
+        connection = self._connection
+        self._connection = None
+        self._connection_used = False
+        if connection is not None:
+            try:
+                connection.close()
+            except OSError:
+                pass
+
+
 class UploadManager:
     def __init__(
         self,
@@ -108,6 +262,11 @@ class UploadManager:
         self._lock = threading.RLock()
         self._cancellations: Dict[str, threading.Event] = {}
         self._transfer_progress: Dict[str, TransferProgress] = {}
+        # Latest job state not yet written to disk, keyed by job id. Disk always holds
+        # a complete earlier state; progress-only changes wait here for the next save.
+        self._unsaved_jobs: Dict[str, Dict[str, object]] = {}
+        self._last_job_save: Dict[str, float] = {}
+        self._job_clock: Callable[[], float] = time.perf_counter
         self._recover_interrupted_jobs()
 
     def targets(self) -> Dict[str, UploadTarget]:
@@ -1124,7 +1283,12 @@ class UploadManager:
         jobs = []
         for path in self.jobs_dir.glob("*.json"):
             try:
-                job = self._reconcile_source_trash(self._load_path(path))
+                job = self._load_path(path)
+                with self._lock:
+                    pending = self._unsaved_jobs.get(str(job.get("id")))
+                if pending is not None:
+                    job = dict(pending)
+                job = self._reconcile_source_trash(job)
                 if not active_only or job.get("state") in ACTIVE_STATES:
                     jobs.append(job)
             except (OSError, ValueError, json.JSONDecodeError):
@@ -1134,6 +1298,10 @@ class UploadManager:
 
     def get(self, job_id: str) -> Dict[str, object]:
         validate_config_id(job_id, "upload job")
+        with self._lock:
+            pending = self._unsaved_jobs.get(job_id)
+            if pending is not None:
+                return self._reconcile_source_trash(dict(pending))
         path = self.jobs_dir / f"{job_id}.json"
         if not path.exists():
             raise KeyError(job_id)
@@ -1299,10 +1467,17 @@ class UploadManager:
                     errorMessage=self._public_error(error),
                 )
         finally:
+            try:
+                # Write the last progress the job reached. If this fails, the last
+                # saved state stays on disk, and the server offset still governs resume.
+                self._flush_job(job_id)
+            except OSError:
+                pass
             with self._lock:
                 if self._cancellations.get(job_id) is cancellation:
                     self._cancellations.pop(job_id, None)
                 self._transfer_progress.pop(job_id, None)
+                self._last_job_save.pop(job_id, None)
 
     def _copy_to_local_target(
         self,
@@ -1350,8 +1525,24 @@ class UploadManager:
         target: UploadTarget,
         cancellation: threading.Event,
     ) -> None:
+        # One persistent connection carries the whole job and is closed when its HTTP work ends.
+        client = self._http_client(target, keep_alive=True)
+        try:
+            self._run_http_upload(job_id, source, files, target, cancellation, client)
+        finally:
+            client.close()
+
+    def _run_http_upload(
+        self,
+        job_id: str,
+        source: Path,
+        files: List[Path],
+        target: UploadTarget,
+        cancellation: threading.Event,
+        client: "_UploadHttpClient",
+    ) -> None:
         token = self._read_target_token(target)
-        capabilities = self._http_receiver_capabilities(target, token)
+        capabilities = self._http_receiver_capabilities(target, token, client=client)
         deferred_hashes = self._supports_deferred_file_hashes(capabilities)
         if deferred_hashes:
             manifest_files = [
@@ -1381,7 +1572,7 @@ class UploadManager:
         if deferred_hashes:
             manifest["hashMode"] = DEFERRED_FILE_HASH_MODE
         response = self._http_json_with_retry(
-            target, token, "POST", "/v1/upload-sessions", manifest
+            target, token, "POST", "/v1/upload-sessions", manifest, client=client
         )
         session_id = str(response.get("sessionId", ""))
         try:
@@ -1412,6 +1603,7 @@ class UploadManager:
                     token=token,
                     session_id=session_id,
                     cancellation=cancellation,
+                    client=client,
                 )
             else:
                 self._upload_http_files_batched(
@@ -1423,6 +1615,7 @@ class UploadManager:
                     session_id=session_id,
                     cancellation=cancellation,
                     limits=batch_limits,
+                    client=client,
                 )
             self._raise_if_cancelled(job_id, cancellation)
             self._http_json_with_retry(
@@ -1432,6 +1625,7 @@ class UploadManager:
                 f"/v1/upload-sessions/{session_id}/complete",
                 {},
                 response_timeout=HTTP_COMPLETE_RESPONSE_TIMEOUT,
+                client=client,
             )
         except Exception as error:
             if not isinstance(error, UploadCancelled) and not cancellation.is_set():
@@ -1443,6 +1637,7 @@ class UploadManager:
                     "DELETE",
                     f"/v1/upload-sessions/{session_id}",
                     None,
+                    client=client,
                 )
             except Exception:
                 pass
@@ -1508,6 +1703,8 @@ class UploadManager:
         self,
         target: UploadTarget,
         token: str,
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> Dict[str, object]:
         try:
             return self._http_json(
@@ -1516,6 +1713,7 @@ class UploadManager:
                 "GET",
                 "/v1/capabilities",
                 None,
+                client=client,
             )
         except UploadReceiverHttpError as error:
             if error.status_code in {404, 405}:
@@ -1540,6 +1738,7 @@ class UploadManager:
         token: str,
         session_id: str,
         cancellation: threading.Event,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> None:
         transferred = 0
         for index, source_file in enumerate(files, start=1):
@@ -1555,6 +1754,7 @@ class UploadManager:
                 transferred=transferred,
                 job_id=job_id,
                 cancellation=cancellation,
+                client=client,
             )
             self._update(job_id, filesTransferred=index)
 
@@ -1568,6 +1768,7 @@ class UploadManager:
         session_id: str,
         cancellation: threading.Event,
         limits: FileBatchLimits,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> None:
         transferred = 0
         files_transferred = 0
@@ -1581,6 +1782,7 @@ class UploadManager:
                 token,
                 session_id,
                 relative_paths,
+                client=client,
             )
             batch_files: List[Tuple[str, Path, int]] = []
             for source_file, relative_path in zip(group, relative_paths):
@@ -1621,6 +1823,7 @@ class UploadManager:
                         transferred=transferred,
                         job_id=job_id,
                         cancellation=cancellation,
+                        client=client,
                     )
                     files_transferred += 1
                     self._update(job_id, filesTransferred=files_transferred)
@@ -1639,6 +1842,7 @@ class UploadManager:
                 session_id,
                 body,
                 [path for path, _source_file, _size in batch_files],
+                client=client,
             )
             expected_offsets = {path: size for path, _source_file, size in batch_files}
             if acknowledged != expected_offsets:
@@ -1743,6 +1947,7 @@ class UploadManager:
         transferred: int,
         job_id: str,
         cancellation: threading.Event,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> int:
         size = source_file.stat().st_size
         status_response = self._http_json_with_retry(
@@ -1752,6 +1957,7 @@ class UploadManager:
             f"/v1/upload-sessions/{session_id}/files/offset?"
             + urlencode({"path": relative_path}),
             None,
+            client=client,
         )
         try:
             offset = int(status_response.get("nextOffset", 0))
@@ -1771,6 +1977,7 @@ class UploadManager:
             transferred=transferred,
             job_id=job_id,
             cancellation=cancellation,
+            client=client,
         )
 
     def _http_put_file_from_offset(
@@ -1785,6 +1992,7 @@ class UploadManager:
         transferred: int,
         job_id: str,
         cancellation: threading.Event,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> int:
         if source_file.stat().st_size != file_size:
             raise OSError("Source file changed during upload")
@@ -1806,6 +2014,7 @@ class UploadManager:
                     file_size=file_size,
                     offset=offset,
                     chunk=chunk,
+                    client=client,
                 )
                 if next_offset <= offset or next_offset > offset + len(chunk):
                     raise RuntimeError("Upload receiver acknowledged an invalid offset")
@@ -1828,6 +2037,8 @@ class UploadManager:
         token: str,
         session_id: str,
         relative_paths: List[str],
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> Dict[str, int]:
         response = self._http_json_with_retry(
             target,
@@ -1835,6 +2046,7 @@ class UploadManager:
             "POST",
             f"/v1/upload-sessions/{session_id}/files/offsets",
             {"paths": relative_paths},
+            client=client,
         )
         return self._parse_file_offsets(response, relative_paths)
 
@@ -1871,6 +2083,8 @@ class UploadManager:
         session_id: str,
         body: bytes,
         expected_paths: List[str],
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> Dict[str, int]:
         last_error: Optional[Exception] = None
         for delay in HTTP_RETRY_DELAYS:
@@ -1882,6 +2096,7 @@ class UploadManager:
                     token,
                     session_id,
                     body,
+                    client=client,
                 )
                 return self._parse_file_offsets(response, expected_paths)
             except (OSError, http.client.HTTPException, RuntimeError) as error:
@@ -1894,33 +2109,32 @@ class UploadManager:
         token: str,
         session_id: str,
         body: bytes,
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> Dict[str, object]:
-        connection, base_path = self._http_connection(target)
-        request_path = f"{base_path}/v1/upload-sessions/{session_id}/files/batch"
+        status, response_body = self._send_http(
+            target,
+            client,
+            "PUT",
+            f"/v1/upload-sessions/{session_id}/files/batch",
+            body=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/vnd.jetson.upload-batch-v1",
+                "Content-Length": str(len(body)),
+                "X-Batch-SHA256": hashlib.sha256(body).hexdigest(),
+            },
+            read_limit=4 * 1024 * 1024,
+        )
+        if status < 200 or status >= 300:
+            raise RuntimeError("Upload receiver rejected a file batch")
         try:
-            connection.request(
-                "PUT",
-                request_path,
-                body=body,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/vnd.jetson.upload-batch-v1",
-                    "Content-Length": str(len(body)),
-                    "X-Batch-SHA256": hashlib.sha256(body).hexdigest(),
-                },
-            )
-            response = connection.getresponse()
-            response_body = response.read(4 * 1024 * 1024)
-            if response.status < 200 or response.status >= 300:
-                raise RuntimeError("Upload receiver rejected a file batch")
             parsed = json.loads(response_body.decode("utf-8"))
-            if not isinstance(parsed, dict):
-                raise RuntimeError("Upload receiver returned an invalid batch response")
-            return parsed
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise RuntimeError("Upload receiver returned an invalid batch response") from error
-        finally:
-            connection.close()
+        if not isinstance(parsed, dict):
+            raise RuntimeError("Upload receiver returned an invalid batch response")
+        return parsed
 
     def _put_chunk_with_retry(
         self,
@@ -1931,6 +2145,8 @@ class UploadManager:
         file_size: int,
         offset: int,
         chunk: bytes,
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> int:
         last_error: Optional[Exception] = None
         for delay in HTTP_RETRY_DELAYS:
@@ -1945,6 +2161,7 @@ class UploadManager:
                     file_size,
                     offset,
                     chunk,
+                    client=client,
                 )
             except (OSError, http.client.HTTPException, RuntimeError) as error:
                 last_error = error
@@ -1956,6 +2173,7 @@ class UploadManager:
                         f"/v1/upload-sessions/{session_id}/files/offset?"
                         + urlencode({"path": relative_path}),
                         None,
+                        client=client,
                     )
                     remote_offset = int(status_response.get("nextOffset", -1))
                     if remote_offset > offset:
@@ -1973,36 +2191,35 @@ class UploadManager:
         file_size: int,
         offset: int,
         chunk: bytes,
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> int:
-        connection, base_path = self._http_connection(target)
-        request_path = (
-            f"{base_path}/v1/upload-sessions/{session_id}/files?"
-            + urlencode({"path": relative_path, "offset": offset})
+        request_path = f"/v1/upload-sessions/{session_id}/files?" + urlencode(
+            {"path": relative_path, "offset": offset}
         )
         end_offset = offset + len(chunk) - 1
+        status, response_body = self._send_http(
+            target,
+            client,
+            "PUT",
+            request_path,
+            body=chunk,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(chunk)),
+                "Content-Range": f"bytes {offset}-{end_offset}/{file_size}",
+                "X-Chunk-SHA256": hashlib.sha256(chunk).hexdigest(),
+            },
+            read_limit=1024 * 1024,
+        )
+        if status < 200 or status >= 300:
+            raise RuntimeError("Upload receiver rejected a data chunk")
         try:
-            connection.request(
-                "PUT",
-                request_path,
-                body=chunk,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/octet-stream",
-                    "Content-Length": str(len(chunk)),
-                    "Content-Range": f"bytes {offset}-{end_offset}/{file_size}",
-                    "X-Chunk-SHA256": hashlib.sha256(chunk).hexdigest(),
-                },
-            )
-            response = connection.getresponse()
-            response_body = response.read(1024 * 1024)
-            if response.status < 200 or response.status >= 300:
-                raise RuntimeError("Upload receiver rejected a data chunk")
             parsed = json.loads(response_body.decode("utf-8"))
             return int(parsed["nextOffset"])
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise RuntimeError("Upload receiver returned an invalid chunk response") from error
-        finally:
-            connection.close()
 
     def _http_json(
         self,
@@ -2013,10 +2230,11 @@ class UploadManager:
         value: Optional[Dict[str, object]],
         response_timeout: Optional[float] = None,
         max_response_bytes: int = HTTP_JSON_MAX_RESPONSE_BYTES,
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> Dict[str, object]:
         if max_response_bytes < 1:
             raise ValueError("HTTP response size limit is invalid")
-        connection, base_path = self._http_connection(target)
         body = None if value is None else json.dumps(
             value, ensure_ascii=True, separators=(",", ":")
         ).encode("utf-8")
@@ -2024,24 +2242,26 @@ class UploadManager:
         if body is not None:
             headers["Content-Type"] = "application/json"
             headers["Content-Length"] = str(len(body))
-        try:
-            connection.request(method, f"{base_path}{endpoint}", body=body, headers=headers)
-            if response_timeout is not None and connection.sock is not None:
-                connection.sock.settimeout(response_timeout)
-            response = connection.getresponse()
-            if response.status < 200 or response.status >= 300:
-                raise UploadReceiverHttpError(response.status)
-            response_body = response.read(max_response_bytes + 1)
-            if len(response_body) > max_response_bytes:
-                raise RuntimeError("Upload receiver response is too large")
-            if not response_body:
-                return {}
-            parsed = json.loads(response_body.decode("utf-8"))
-            if not isinstance(parsed, dict):
-                raise RuntimeError("Upload receiver returned an invalid response")
-            return parsed
-        finally:
-            connection.close()
+        status, response_body = self._send_http(
+            target,
+            client,
+            method,
+            endpoint,
+            body=body,
+            headers=headers,
+            read_limit=max_response_bytes + 1,
+            response_timeout=response_timeout,
+        )
+        if status < 200 or status >= 300:
+            raise UploadReceiverHttpError(status)
+        if len(response_body) > max_response_bytes:
+            raise RuntimeError("Upload receiver response is too large")
+        if not response_body:
+            return {}
+        parsed = json.loads(response_body.decode("utf-8"))
+        if not isinstance(parsed, dict):
+            raise RuntimeError("Upload receiver returned an invalid response")
+        return parsed
 
     def _http_json_with_retry(
         self,
@@ -2051,6 +2271,8 @@ class UploadManager:
         endpoint: str,
         value: Optional[Dict[str, object]],
         response_timeout: Optional[float] = None,
+        *,
+        client: Optional["_UploadHttpClient"] = None,
     ) -> Dict[str, object]:
         last_error: Optional[Exception] = None
         for delay in HTTP_RETRY_DELAYS:
@@ -2064,6 +2286,7 @@ class UploadManager:
                     endpoint,
                     value,
                     response_timeout=response_timeout,
+                    client=client,
                 )
             except (OSError, http.client.HTTPException, RuntimeError) as error:
                 last_error = error
@@ -2121,21 +2344,59 @@ class UploadManager:
         if target.base_url is None:
             raise ValueError("HTTP upload target URL is missing")
         parsed = urlsplit(target.base_url)
-        timeout = 60
+        timeout = HTTP_TIMEOUT_SECONDS
         if parsed.scheme == "https":
-            context = (
-                ssl.create_default_context()
-                if target.verify_tls
-                else ssl._create_unverified_context()
-            )
             connection = http.client.HTTPSConnection(
-                parsed.hostname, parsed.port or 443, timeout=timeout, context=context
+                parsed.hostname,
+                parsed.port or 443,
+                timeout=timeout,
+                context=_tls_client_context(target.verify_tls),
             )
         else:
             connection = http.client.HTTPConnection(
                 parsed.hostname, parsed.port or 80, timeout=timeout
             )
         return connection, parsed.path.rstrip("/")
+
+    def _http_client(
+        self,
+        target: UploadTarget,
+        *,
+        keep_alive: bool,
+    ) -> "_UploadHttpClient":
+        return _UploadHttpClient(lambda: self._http_connection(target), keep_alive=keep_alive)
+
+    def _send_http(
+        self,
+        target: UploadTarget,
+        client: Optional["_UploadHttpClient"],
+        method: str,
+        endpoint: str,
+        *,
+        body: Optional[bytes],
+        headers: Dict[str, str],
+        read_limit: int,
+        response_timeout: Optional[float] = None,
+    ) -> Tuple[int, bytes]:
+        if client is not None:
+            return client.request(
+                method,
+                endpoint,
+                body=body,
+                headers=headers,
+                read_limit=read_limit,
+                response_timeout=response_timeout,
+            )
+        # Callers outside a job (library, verification, capability probes) keep one-shot connections.
+        with self._http_client(target, keep_alive=False) as one_shot:
+            return one_shot.request(
+                method,
+                endpoint,
+                body=body,
+                headers=headers,
+                read_limit=read_limit,
+                response_timeout=response_timeout,
+            )
 
     @staticmethod
     def _read_target_token(target: UploadTarget) -> str:
@@ -2221,7 +2482,7 @@ class UploadManager:
             )
             job.update(changes)
             job["updatedAt"] = self._timestamp()
-            self._save_job(job)
+            self._persist_job(job, immediate=self._is_immediate(changes))
             return job
 
     def _raise_if_cancelled(
@@ -2261,10 +2522,35 @@ class UploadManager:
             job = self.get(job_id)
             job.update(changes)
             job["updatedAt"] = self._timestamp()
-            self._save_job(job)
+            self._persist_job(job, immediate=self._is_immediate(changes))
             return job
 
+    @staticmethod
+    def _is_immediate(changes: Mapping[str, object]) -> bool:
+        """Only progress-only changes may wait for the throttled save; all others are written now."""
+        return not set(changes).issubset(PROGRESS_ONLY_JOB_FIELDS)
+
+    def _persist_job(self, job: Dict[str, object], *, immediate: bool) -> None:
+        job_id = str(job["id"])
+        now = self._job_clock()
+        last_saved = self._last_job_save.get(job_id)
+        if (
+            immediate
+            or last_saved is None
+            or now - last_saved >= JOB_STATE_PERSIST_INTERVAL_SECONDS
+        ):
+            self._save_job(job)
+        else:
+            self._unsaved_jobs[job_id] = dict(job)
+
+    def _flush_job(self, job_id: str) -> None:
+        with self._lock:
+            pending = self._unsaved_jobs.pop(job_id, None)
+            if pending is not None:
+                self._save_job(pending)
+
     def _save_job(self, job: Dict[str, object]) -> None:
+        job_id = str(job["id"])
         path = self.jobs_dir / f"{job['id']}.json"
         temporary = self.jobs_dir / f".{job['id']}.tmp"
         with temporary.open("w", encoding="utf-8") as output:
@@ -2272,6 +2558,9 @@ class UploadManager:
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, path)
+        with self._lock:
+            self._unsaved_jobs.pop(job_id, None)
+            self._last_job_save[job_id] = self._job_clock()
 
     @staticmethod
     def _load_path(path: Path) -> Dict[str, object]:

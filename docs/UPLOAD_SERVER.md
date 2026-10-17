@@ -34,6 +34,8 @@ Public upload receiver
 - 청크별 `X-Chunk-SHA256` 전송
 - 실패 시 0, 1, 3, 7초 간격으로 재시도
 - 실패한 PUT 뒤 서버 오프셋을 다시 조회하여 이어서 전송
+- 작업마다 HTTP(S) 연결을 하나만 열어 오프셋 조회·배치·청크·완료 요청에 재사용하고, TLS 컨텍스트는 검증 방식별로 프로세스당 한 번만 만든다. 3초 넘게 유휴한 연결은 새로 맺고, 수신기가 먼저 닫은 연결에서 실패하면 같은 요청을 새 연결로 한 번 다시 보낸다. 작업이 끝나면 연결을 닫는다.
+- 작업 상태 JSON의 진행률은 최대 1초 간격으로 저장한다. 시작·완료·실패·취소 같은 상태 전환과 원격 세션 ID 기록은 즉시 저장한다. 재개 기준은 항상 수신 서버 오프셋이므로, 저장 사이에 중단되면 이미 확인된 바이트만 다시 보낸다.
 - 작업 상태는 `/var/lib/jetson-control/upload-jobs`에 원자적으로 저장
 - Jetson/API 재시작 뒤 진행 중 작업은 같은 `clientJobId`로 자동 재개
 - 완료 요청은 수 TiB 파일의 전체 해시 검증을 기다릴 수 있도록 응답 read timeout을 24시간으로 확장
@@ -228,7 +230,7 @@ deferred manifest도 전체 경로·크기와 집계 quota를 세션 생성 시 
 }
 ```
 
-`fileBatch`는 선택 capability다. 새 Jetson backend는 이 값이 있으면 다수 파일 배치 전송을 사용하고, 필드가 없는 기존 수신기에는 파일별 offset/청크 계약을 그대로 사용한다.
+`fileBatch`는 호환을 위한 선택 필드다. 새 Jetson backend는 이 값이 있으면 다수 파일 배치 전송을 사용하고, 필드가 없는 기존 수신기에는 파일별 offset/청크 계약을 그대로 사용한다. **그러나 모든 운영 수신기는 `fileBatch`를 반드시 광고해야 한다.** 필드가 없으면 작은 파일이 많은 업로드가 파일마다 offset 조회와 요청을 거쳐 처리량이 크게 떨어진다.
 
 ### 파일 오프셋 조회
 
@@ -418,6 +420,7 @@ Authorization: Bearer <token>
 - token 원문 대신 서버 pepper를 이용한 HMAC-SHA256을 DB에 저장한다. token 파일은 원자적으로 쓰고 `0600`으로 제한한다.
 - 사용자 상대 경로는 파일시스템 경로로 사용하지 않는다. 각 파일은 불투명한 `file_id.blob` 이름으로 저장하고 최종 `manifest.json`에서 원래 경로와 대응시킨다.
 - 청크 파일 `fsync`가 성공한 뒤에만 SQLite offset을 올린다. 재시작 시 DB offset보다 긴 미승인 tail은 잘라낸다.
+- 배치는 파일들을 쓰고 각 파일을 `fsync`한 뒤, 새 항목이 생긴 디렉터리를 배치당 한 번 `fsync`하고, 그 다음에야 SQLite 트랜잭션으로 offset을 올린다. 파일 `fsync`는 최대 4개 스레드로 병렬 실행하며, 세션 guard는 커밋까지 유지한다.
 - 완료 시 모든 staging 객체의 크기와 SHA-256을 다시 확인하고 같은 ext4 파일시스템 안에서 디렉터리를 원자적으로 이동한다. 이동 직후 재시작한 경우에도 final 객체와 manifest 전체를 검증한 뒤 `COMPLETED`로 복구한다.
 - 동일 `clientJobId`의 `FAILED` 세션은 같은 manifest일 때 안전하게 초기화하여 Jetson retry를 허용한다. `CANCELLED`는 명시적인 새 Jetson 작업 ID가 필요하다.
 - 기본 제한은 32 MiB/256개 파일 배치, 장비당 동시 PUT 2개, 열린 세션 8개, 분당 manifest 30개, 누적 세션 10,000개, 누적 파일 metadata 1,000,000개다.
@@ -683,6 +686,15 @@ DB, `storage/objects`, `token-pepper`, Caddy data를 함께 백업한다. pepper
 단위 테스트 명령은 [README](../README.md#python-개발과-테스트)를 따릅니다. 배포 후에는 readiness, 무인증 `401`, 타 장비 접근 `403`, 12 MiB 초과 미리보기 `413`, 작은 파일의 청크·배치·deferred 업로드와 완료 객체 일치를 확인합니다. 이후 실제 외부망에서 중단·재개와 대용량 전송을 검증합니다.
 
 2026-09-08 문서 정리 기준, 기존 기록은 작은 파일의 공인 HTTPS 업로드·서버 탐색까지 확인한 상태입니다. 실제 외부망 중단·재개, 장시간 대용량 전송과 장기 운영 지표 검증은 남아 있습니다. `/metrics`는 로컬에서 세션 상태·전체 byte의 기본 지표를 제공하며, 처리량·checksum·offset·latency 대시보드가 구현된 것으로 간주하지 않습니다.
+
+### 처리량 측정
+
+이 변경은 단위 테스트로만 검증했습니다. 장비에서 아래 값을 같은 조건으로 측정하기 전까지 처리량 개선 수치를 보장하지 않습니다.
+
+- 업링크 상한: 같은 시간대에 장비의 상향 대역폭을 측정합니다. 전송 속도가 이 값에 가까우면 연결·fsync 개선의 효과는 제한적입니다.
+- fsync 지연: 수신 서버의 staging 경로에서 `fio --name=fsync-probe --directory=<staging 경로> --rw=write --bs=1M --size=256M --fsync=1 --ioengine=sync`로 파일 `fsync` 지연을 기록합니다. 배치 하나당 fsync 횟수는 파일 수 + 디렉터리 1회입니다.
+- 작업당 파일·바이트: `GET /v1/uploads/{jobId}`의 `filesTotal`, `bytesTotal`, `filesTransferred`, `bytesTransferred`, `throughputBytesPerSecond`, `transferStartedAt`을 기록합니다.
+- 연결 수: 작업 중 Jetson에서 `ss -tn state established "( dport = :443 )"`로 확인합니다. 정상이라면 작업당 연결은 1개입니다. 수신기는 access log를 끈 채 실행되므로 이 명령으로 확인합니다.
 
 ## 복구
 

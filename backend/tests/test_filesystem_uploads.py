@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
+import ssl
 import struct
 import tempfile
 import threading
@@ -10,6 +12,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable, Dict, Optional, Tuple
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -23,6 +26,8 @@ from jetson_control.uploads import (
     UploadManager,
     UploadTarget,
     UploadVerificationMismatch,
+    _tls_client_context,
+    _UploadHttpClient,
 )
 
 
@@ -1251,6 +1256,479 @@ class FilesystemAndUploadsTest(unittest.TestCase):
                 break
             time.sleep(0.01)
         self.assertEqual(current["state"], "COMPLETED", current)
+
+
+class KeepAliveReceiverHandler(UploadReceiverHandler):
+    """Receiver stand-in that keeps HTTP/1.1 connections open and counts them."""
+
+    protocol_version = "HTTP/1.1"
+    counter_lock = threading.Lock()
+    connections_opened = 0
+    connections_open = 0
+    close_silently_after_next_request = False
+
+    def setup(self) -> None:
+        super().setup()
+        with type(self).counter_lock:
+            type(self).connections_opened += 1
+            type(self).connections_open += 1
+
+    def finish(self) -> None:
+        try:
+            super().finish()
+        finally:
+            with type(self).counter_lock:
+                type(self).connections_open -= 1
+
+    def handle_one_request(self) -> None:
+        super().handle_one_request()
+        with type(self).counter_lock:
+            close_now = type(self).close_silently_after_next_request
+            type(self).close_silently_after_next_request = False
+        if close_now:
+            # Close without a Connection header, as an idle keep-alive timeout does.
+            self.close_connection = True
+
+
+class UploadThroughputTest(unittest.TestCase):
+    """Connection reuse and job-state persistence, exercised through real uploads."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.base = Path(self.temporary.name)
+        self.source = self.base / "source"
+        self.source.mkdir()
+        (self.source / "folder").mkdir()
+        (self.source / "folder" / "sample.bin").write_bytes(b"abc" * 4096)
+        (self.source / "note.txt").write_text("hello", encoding="utf-8")
+        # Larger than the receiver's 1 MiB batch limit, so it travels as resumable chunks.
+        self.large = os.urandom(3 * 512 * 1024)
+        (self.source / "large.bin").write_bytes(self.large)
+        roots = self.base / "roots.json"
+        roots.write_text(
+            json.dumps(
+                {"data": {"label": "Data", "path": str(self.source), "path_hint": "/data"}}
+            ),
+            encoding="utf-8",
+        )
+        self.storage = StorageRegistry(roots)
+        self.targets = self.base / "targets.json"
+        self.targets.write_text("{}", encoding="utf-8")
+        self.token_file = self.base / "receiver.token"
+        self.token_file.write_text(UploadReceiverHandler.token, encoding="utf-8")
+        self.state = self.base / "state"
+        self.uploads = UploadManager(
+            self.storage,
+            self.targets,
+            self.state / "persist",
+            "device-test",
+            allow_local_targets=True,
+        )
+
+    def _receiver(self, handler_class: type) -> ThreadingHTTPServer:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_class)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server
+
+    def _run_http_job(self, port: int) -> Tuple[UploadManager, Dict[str, object]]:
+        self.targets.write_text(
+            json.dumps(
+                {
+                    "cloud": {
+                        "label": "External receiver",
+                        "type": "http",
+                        "base_url": f"http://127.0.0.1:{port}",
+                        "token_file": str(self.token_file),
+                        "verify_tls": False,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        uploads = UploadManager(
+            self.storage,
+            self.targets,
+            self.state / "http",
+            "00000000-0000-0000-0000-000000000002",
+        )
+        job = uploads.start("data", "", "cloud")
+        return uploads, self._wait_for_terminal(uploads, str(job["id"]))
+
+    @staticmethod
+    def _wait_for_terminal(uploads: UploadManager, job_id: str) -> Dict[str, object]:
+        deadline = time.monotonic() + 15
+        current: Dict[str, object] = {}
+        while time.monotonic() < deadline:
+            current = uploads.get(job_id)
+            if current["state"] in {"COMPLETED", "FAILED", "CANCELLED"}:
+                break
+            time.sleep(0.02)
+        return current
+
+    @staticmethod
+    def _wait_until(predicate: Callable[[], bool], timeout: float = 3.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.02)
+        return predicate()
+
+    @staticmethod
+    def _disk_job(uploads: UploadManager, job_id: str) -> Dict[str, object]:
+        return UploadManager._load_path(uploads.jobs_dir / f"{job_id}.json")
+
+    def test_http_job_uses_one_connection_for_offsets_batches_chunks_and_completion(self) -> None:
+        handler = type("CountingHandler", (KeepAliveReceiverHandler,), {})
+        server = self._receiver(handler)
+        with patch("jetson_control.uploads.HTTP_CHUNK_SIZE", 128 * 1024):
+            _uploads, current = self._run_http_job(server.server_port)
+
+        self.assertEqual(current["state"], "COMPLETED", current)
+        self.assertGreater(handler.batch_requests, 0)
+        self.assertEqual(bytes(handler.files["large.bin"]), self.large)
+        self.assertEqual(handler.connections_opened, 1)
+        # The job closes its connection when it ends.
+        self.assertTrue(self._wait_until(lambda: handler.connections_open == 0))
+
+    def test_idle_connection_dropped_by_receiver_is_replaced_without_failing_the_job(self) -> None:
+        handler = type(
+            "DroppingHandler",
+            (KeepAliveReceiverHandler,),
+            {"close_silently_after_next_request": True},
+        )
+        server = self._receiver(handler)
+        _uploads, current = self._run_http_job(server.server_port)
+
+        self.assertEqual(current["state"], "COMPLETED", current)
+        self.assertEqual(handler.connections_opened, 2)
+        self.assertEqual(bytes(handler.files["large.bin"]), self.large)
+
+    def test_completed_local_job_leaves_its_final_progress_on_disk(self) -> None:
+        self.targets.write_text(
+            json.dumps(
+                {
+                    "archive": {
+                        "label": "Archive",
+                        "type": "local",
+                        "path": str(self.base / "destination"),
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        uploads = UploadManager(
+            self.storage,
+            self.targets,
+            self.state / "throttled",
+            "device-test",
+            allow_local_targets=True,
+        )
+        # A frozen clock keeps every progress update inside the throttle window.
+        uploads._job_clock = lambda: 0.0
+        job_id = str(uploads.start("data", "", "archive")["id"])
+        current = self._wait_for_terminal(uploads, job_id)
+
+        self.assertEqual(current["state"], "COMPLETED", current)
+        on_disk = self._disk_job(uploads, job_id)
+        self.assertEqual(on_disk["state"], "COMPLETED")
+        self.assertEqual(on_disk["bytesTransferred"], on_disk["bytesTotal"])
+        self.assertEqual(on_disk["filesTransferred"], on_disk["filesTotal"])
+        self.assertNotIn(job_id, uploads._unsaved_jobs)
+        self.assertNotIn(job_id, uploads._last_job_save)
+
+    def test_progress_is_throttled_while_state_changes_are_written_at_once(self) -> None:
+        job = UploadManager._new_job(
+            "0123456789abcdef0123456789abcdef",
+            "data",
+            "note.txt",
+            "archive",
+        )
+        job_id = str(job["id"])
+        job["bytesTotal"] = 1000
+        self.uploads._save_job(job)
+        clock = ManualClock()
+        self.uploads._job_clock = clock
+
+        self.uploads._update(job_id, state="UPLOADING")
+        self.assertEqual(self._disk_job(self.uploads, job_id)["state"], "UPLOADING")
+
+        clock.now += 0.2
+        self.uploads._record_transfer(job_id, 100, newly_acknowledged=100)
+        clock.now += 0.2
+        self.uploads._record_transfer(job_id, 300, newly_acknowledged=200)
+        self.assertEqual(self._disk_job(self.uploads, job_id)["bytesTransferred"], 0)
+        self.assertEqual(self.uploads.get(job_id)["bytesTransferred"], 300)
+
+        clock.now += 1.0
+        self.uploads._record_transfer(job_id, 500, newly_acknowledged=200)
+        self.assertEqual(self._disk_job(self.uploads, job_id)["bytesTransferred"], 500)
+
+        # A transition inside the throttle window is still written immediately.
+        clock.now += 0.1
+        self.uploads._update(job_id, state="COMPLETED")
+        self.assertEqual(self._disk_job(self.uploads, job_id)["state"], "COMPLETED")
+
+    def test_flush_writes_unsaved_progress_and_clears_it(self) -> None:
+        job = UploadManager._new_job(
+            "fedcba9876543210fedcba9876543210",
+            "data",
+            "note.txt",
+            "archive",
+        )
+        job_id = str(job["id"])
+        job["bytesTotal"] = 1000
+        self.uploads._save_job(job)
+        clock = ManualClock()
+        self.uploads._job_clock = clock
+        self.uploads._update(job_id, state="UPLOADING")
+        clock.now += 0.1
+        self.uploads._record_transfer(job_id, 250, newly_acknowledged=250)
+        self.assertEqual(self._disk_job(self.uploads, job_id)["bytesTransferred"], 0)
+
+        self.uploads._flush_job(job_id)
+
+        self.assertEqual(self._disk_job(self.uploads, job_id)["bytesTransferred"], 250)
+        self.assertNotIn(job_id, self.uploads._unsaved_jobs)
+
+    def test_crash_before_a_throttled_save_leaves_the_last_durable_state(self) -> None:
+        job_id = "0123456789abcdef0123456789abcdef"
+        job = UploadManager._new_job(job_id, "data", "note.txt", "archive")
+        job["bytesTotal"] = 1000
+        crash_state = self.state / "crash"
+        with patch.object(UploadManager, "_recover_interrupted_jobs", lambda self: None):
+            first = UploadManager(
+                self.storage,
+                self.targets,
+                crash_state,
+                "device-test",
+                allow_local_targets=True,
+            )
+            first._job_clock = ManualClock()
+            first._save_job(job)
+            first._update(job_id, state="UPLOADING")
+            first._record_transfer(job_id, 600, newly_acknowledged=600)
+            # The process dies here: the 600-byte progress was never written.
+            restarted = UploadManager(
+                self.storage,
+                self.targets,
+                crash_state,
+                "device-test",
+                allow_local_targets=True,
+            )
+
+        recovered = restarted.get(job_id)
+        self.assertEqual(recovered["state"], "UPLOADING")
+        self.assertEqual(recovered["bytesTransferred"], 0)
+        self.assertNotEqual(recovered["state"], "COMPLETED")
+
+
+class ManualClock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class ScriptedResponse:
+    def __init__(self, status: int, body: bytes) -> None:
+        self.status = status
+        self.will_close = False
+        self._body = body
+
+    def read(self, limit: int = -1) -> bytes:
+        size = len(self._body) if limit < 0 else min(limit, len(self._body))
+        data, self._body = self._body[:size], self._body[size:]
+        return data
+
+    def isclosed(self) -> bool:
+        return not self._body
+
+
+class ScriptedConnection:
+    """Stands in for an http.client connection; each request consumes one scripted step."""
+
+    def __init__(self, steps: list, opened: list) -> None:
+        self._steps = list(steps)
+        self._response: Optional[ScriptedResponse] = None
+        self.sock = None
+        self.requests: list = []
+        self.closed = False
+        opened.append(self)
+
+    def request(self, method: str, url: str, body=None, headers=None) -> None:
+        self.requests.append((method, url, body))
+        step = self._steps.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        status, payload = step
+        self._response = ScriptedResponse(status, payload)
+
+    def getresponse(self) -> ScriptedResponse:
+        assert self._response is not None
+        return self._response
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class UploadHttpClientTest(unittest.TestCase):
+    @staticmethod
+    def make_client(scripts: list, *, keep_alive: bool = True):
+        opened: list = []
+        pending = list(scripts)
+
+        def connect():
+            return ScriptedConnection(pending.pop(0), opened), ""
+
+        return _UploadHttpClient(connect, keep_alive=keep_alive), opened
+
+    def test_normal_keep_alive_reuses_one_connection(self) -> None:
+        client, opened = self.make_client([[(200, b"{}"), (200, b"{}"), (200, b"{}")]])
+        for _ in range(3):
+            self.assertEqual(
+                client.request("GET", "/a", body=None, headers={}, read_limit=64),
+                (200, b"{}"),
+            )
+        self.assertEqual(len(opened), 1)
+        self.assertFalse(opened[0].closed)
+        client.close()
+        self.assertTrue(opened[0].closed)
+
+    def test_connection_dropped_while_idle_is_replaced_and_the_request_repeated(self) -> None:
+        errors = [
+            ConnectionResetError(),
+            ConnectionAbortedError(),
+            BrokenPipeError(),
+            http.client.RemoteDisconnected("closed by peer"),
+            http.client.CannotSendRequest("previous request unfinished"),
+        ]
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                client, opened = self.make_client(
+                    [
+                        [(200, b"{}"), error],
+                        [(200, b'{"ok":true}')],
+                    ]
+                )
+                self.assertEqual(
+                    client.request("GET", "/a", body=None, headers={}, read_limit=64),
+                    (200, b"{}"),
+                )
+                self.assertEqual(
+                    client.request("PUT", "/b", body=b"x", headers={}, read_limit=64),
+                    (200, b'{"ok":true}'),
+                )
+                self.assertEqual(len(opened), 2)
+                self.assertTrue(opened[0].closed)
+                self.assertEqual(opened[1].requests, [("PUT", "/b", b"x")])
+                client.close()
+                self.assertTrue(opened[1].closed)
+
+    def test_retry_is_limited_to_one_repeat_on_a_reused_connection(self) -> None:
+        client, opened = self.make_client(
+            [
+                [(200, b"{}"), ConnectionResetError()],
+                [ConnectionResetError()],
+            ]
+        )
+        client.request("GET", "/a", body=None, headers={}, read_limit=64)
+        with self.assertRaises(ConnectionResetError):
+            client.request("GET", "/b", body=None, headers={}, read_limit=64)
+        self.assertEqual(len(opened), 2)
+
+    def test_failure_on_a_fresh_connection_is_left_to_the_caller_retry_loop(self) -> None:
+        client, opened = self.make_client([[http.client.RemoteDisconnected("gone")]])
+        with self.assertRaises(http.client.RemoteDisconnected):
+            client.request("GET", "/a", body=None, headers={}, read_limit=64)
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(opened[0].closed)
+
+    def test_error_status_and_unfinished_body_close_the_connection(self) -> None:
+        client, opened = self.make_client(
+            [
+                [(409, b'{"detail":"offset"}')],
+                [(200, b"{}"), (200, b"x" * 100)],
+                [(200, b"{}")],
+            ]
+        )
+        self.assertEqual(
+            client.request("PUT", "/a", body=b"", headers={}, read_limit=64),
+            (409, b'{"detail":"offset"}'),
+        )
+        self.assertTrue(opened[0].closed)
+        self.assertEqual(
+            client.request("GET", "/b", body=None, headers={}, read_limit=64),
+            (200, b"{}"),
+        )
+        self.assertFalse(opened[1].closed)
+        status, data = client.request("GET", "/c", body=None, headers={}, read_limit=10)
+        self.assertEqual((status, len(data)), (200, 10))
+        self.assertTrue(opened[1].closed)
+        self.assertEqual(
+            client.request("GET", "/d", body=None, headers={}, read_limit=64),
+            (200, b"{}"),
+        )
+        self.assertEqual(len(opened), 3)
+
+    def test_connection_idle_past_the_limit_is_replaced_before_reuse(self) -> None:
+        client, opened = self.make_client([[(200, b"{}")], [(200, b"{}")]])
+        with patch("jetson_control.uploads.HTTP_KEEPALIVE_MAX_IDLE_SECONDS", -1.0):
+            client.request("GET", "/a", body=None, headers={}, read_limit=64)
+            client.request("GET", "/b", body=None, headers={}, read_limit=64)
+        self.assertEqual(len(opened), 2)
+        self.assertTrue(opened[0].closed)
+
+    def test_one_shot_client_never_keeps_a_connection(self) -> None:
+        client, opened = self.make_client(
+            [[(200, b"{}")], [(200, b"{}")]],
+            keep_alive=False,
+        )
+        client.request("GET", "/a", body=None, headers={}, read_limit=64)
+        client.request("GET", "/b", body=None, headers={}, read_limit=64)
+        self.assertEqual(len(opened), 2)
+        self.assertTrue(all(connection.closed for connection in opened))
+
+
+class TlsClientContextTest(unittest.TestCase):
+    def setUp(self) -> None:
+        _tls_client_context.cache_clear()
+        self.addCleanup(_tls_client_context.cache_clear)
+
+    def test_context_is_built_once_per_verification_mode(self) -> None:
+        with patch(
+            "jetson_control.uploads.ssl.create_default_context",
+            wraps=ssl.create_default_context,
+        ) as factory:
+            first = _tls_client_context(True)
+            second = _tls_client_context(True)
+        self.assertIs(first, second)
+        self.assertEqual(factory.call_count, 1)
+        self.assertTrue(first.check_hostname)
+        self.assertEqual(first.verify_mode, ssl.CERT_REQUIRED)
+
+        insecure = _tls_client_context(False)
+        self.assertFalse(insecure.check_hostname)
+        self.assertEqual(insecure.verify_mode, ssl.CERT_NONE)
+
+    def test_https_connections_share_the_cached_context(self) -> None:
+        target = UploadTarget(
+            id="receiver",
+            label="Receiver",
+            kind="http",
+            base_url="https://uploads.example.com",
+            token_file=Path("unused-token"),
+        )
+        first, _path = UploadManager._http_connection(target)
+        second, _path = UploadManager._http_connection(target)
+        self.assertIs(first._context, second._context)
+        self.assertIs(first._context, _tls_client_context(True))
 
 
 if __name__ == "__main__":
