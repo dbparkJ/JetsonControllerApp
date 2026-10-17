@@ -20,12 +20,12 @@ internal enum class UserConnectionStage(
 ) {
     PHONE_CONNECTED(
         label = "제어 가능",
-        detail = "핸드폰이 장비에 직접 연결되어 있습니다.",
+        detail = "핸드폰이 장치에 직접 연결되어 있습니다.",
         tone = StatusTone.SUCCESS
     ),
     WIFI_CONNECTED(
         label = "제어 가능",
-        detail = "핸드폰과 장비가 같은 Wi-Fi에 연결되어 있습니다.",
+        detail = "핸드폰과 장치가 같은 Wi-Fi에 연결되어 있습니다.",
         tone = StatusTone.SUCCESS
     ),
     BASIC_CONNECTED(
@@ -35,7 +35,7 @@ internal enum class UserConnectionStage(
     ),
     OFFLINE(
         label = "오프라인",
-        detail = "핸드폰과 장비의 연결을 확인해 주세요.",
+        detail = "핸드폰과 장치의 연결을 확인해 주세요.",
         tone = StatusTone.ERROR
     )
 }

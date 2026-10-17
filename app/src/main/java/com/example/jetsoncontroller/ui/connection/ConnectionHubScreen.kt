@@ -101,7 +101,7 @@ fun ConnectionHubScreen(
         AlertDialog(
             onDismissRequest = { directDevice = null },
             title = { Text("${device.deviceName}에 직접 연결할까요?") },
-            text = { Text("장비의 공유기 연결과 서버 업로드가 중단될 수 있습니다. 진행 중인 전송을 확인한 뒤 전환해 주세요.") },
+            text = { Text("장치의 공유기 연결과 서버 업로드가 중단될 수 있습니다. 진행 중인 전송을 확인한 뒤 전환해 주세요.") },
             confirmButton = {
                 Button(onClick = { directDevice = null; onDirectConnect(device) }) {
                     Text("직접 연결로 전환")
@@ -282,7 +282,7 @@ private fun FeaturedDeviceCard(
     onDirectConnect: () -> Unit
 ) {
     val colors = LocalGeoColors.current
-    val connection = userConnectionStage(connectedTransport != null, connectedTransport)
+    val connection = deviceConnectionUi(connectedTransport != null, connectedTransport)
     val available = endpoint != null || connectedTransport != null
     val label = when {
         connecting -> "연결 중"
@@ -377,11 +377,11 @@ private fun RegisteredDeviceCard(
     val connected = connectedTransport != null
     val available = endpoint != null
     val online = connected
-    val connectionStage = userConnectionStage(online, connectedTransport)
+    val connectionStage = deviceConnectionUi(online, connectedTransport)
     val badgeLabel = when {
         connecting -> "연결 준비 중"
         online -> connectionStage.label
-        available -> "장비 발견됨"
+        available -> "장치 발견됨"
         else -> "등록됨"
     }
     val badgeTone = if (online && connectedTransport != TransportType.BLE) StatusTone.SUCCESS else StatusTone.INFO
@@ -411,9 +411,9 @@ private fun RegisteredDeviceCard(
                     )
                     Text(
                         when {
-                            connecting -> "장비를 확인하고 있습니다."
+                            connecting -> "장치를 확인하고 있습니다."
                             online -> connectionStage.detail
-                            available -> "같은 네트워크에서 장비를 찾았습니다."
+                            available -> "같은 네트워크에서 장치를 찾았습니다."
                             else -> "인증 정보가 저장되어 있습니다. 연결을 시도해 주세요."
                         },
                         style = MaterialTheme.typography.bodyMedium,
@@ -436,7 +436,7 @@ private fun RegisteredDeviceCard(
                 } else {
                     Text(
                         when {
-                            connected -> "장비 열기"
+                            connected -> "장치 열기"
                             available -> "연결"
                             else -> "연결 시도"
                         }
@@ -444,7 +444,7 @@ private fun RegisteredDeviceCard(
                 }
             }
             TextButton(onClick = onDirectConnect, modifier = Modifier.fillMaxWidth()) {
-                Text("연결 문제 해결 · 장비에 직접 연결")
+                Text("연결 문제 해결 · 장치에 직접 연결")
             }
         }
     }

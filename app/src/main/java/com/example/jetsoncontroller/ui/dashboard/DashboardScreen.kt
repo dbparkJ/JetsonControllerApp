@@ -75,7 +75,7 @@ import com.example.jetsoncontroller.ui.components.GeoStatusTile
 import com.example.jetsoncontroller.ui.components.MetricCard
 import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.connection.userConnectionStage
+import com.example.jetsoncontroller.ui.connection.deviceConnectionUi
 import com.example.jetsoncontroller.ui.theme.Button
 import com.example.jetsoncontroller.ui.theme.GeoBreakpoint
 import com.example.jetsoncontroller.ui.theme.GeoSize
@@ -174,7 +174,7 @@ fun DashboardScreen(
         HomeActionDestination.SENSORS -> onSensorsClick
         HomeActionDestination.STORAGE -> onStorageClick
     }
-    val connectionStage = userConnectionStage(state.isOnline, state.transportType)
+    val connectionStage = deviceConnectionUi(state.isOnline, state.transportType)
     val latestRuns = homeRecentRuns(latestRun, recentRuns, uploads)
     val summaryUpload = homeUploadSummaryJob(uploads)
 
@@ -1281,7 +1281,7 @@ internal fun MetricsGrid(state: DashboardUiState) {
     if (state.statusFreshness == StatusFreshness.UNKNOWN ||
         state.status == com.example.jetsoncontroller.model.JetsonStatus()
     ) {
-        Text("장비 지표 미확인", style = MaterialTheme.typography.bodyLarge, color = c.unknown)
+        Text("장치 지표 미확인", style = MaterialTheme.typography.bodyLarge, color = c.unknown)
         return
     }
     Row(

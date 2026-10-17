@@ -83,7 +83,7 @@ class OperationalSummaryTest {
         )
 
         assertEquals("현재 상태 미확인", summary.internet.value)
-        assertTrue(summary.internet.detail.contains("장비 Wi-Fi와 별도로"))
+        assertTrue(summary.internet.detail.contains("장치 Wi-Fi와 별도로"))
     }
 
     @Test
