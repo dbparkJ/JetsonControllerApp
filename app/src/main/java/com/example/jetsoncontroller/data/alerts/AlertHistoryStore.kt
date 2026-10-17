@@ -134,3 +134,18 @@ internal fun appendAlert(
 ): List<AlertRecord> = (listOf(alert) + current.filterNot { it.id == alert.id })
     .sortedByDescending { it.createdAtEpochMillis }
     .take(limit.coerceAtLeast(0))
+
+/** How long an unread alert keeps counting toward the bell. */
+internal const val RECENT_UNREAD_WINDOW_MILLIS = 24L * 60 * 60 * 1000
+
+/**
+ * Unread alerts raised within [windowMillis] of [nowEpochMillis]. This is the bell count.
+ * An alert older than the window stops counting even if nobody opened the alert center.
+ */
+internal fun countRecentUnread(
+    alerts: List<AlertRecord>,
+    nowEpochMillis: Long,
+    windowMillis: Long = RECENT_UNREAD_WINDOW_MILLIS
+): Int = alerts.count { alert ->
+    !alert.read && alert.createdAtEpochMillis > nowEpochMillis - windowMillis
+}

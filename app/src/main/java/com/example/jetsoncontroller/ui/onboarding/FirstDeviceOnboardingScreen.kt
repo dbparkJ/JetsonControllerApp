@@ -40,7 +40,7 @@ fun FirstDeviceOnboardingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("새 장비 등록") },
+                title = { Text("새 장치 등록") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -57,18 +57,18 @@ fun FirstDeviceOnboardingScreen(
             verticalArrangement = Arrangement.Center
         ) {
             ConnectionStepper(
-                labels = listOf("장비 등록", "안전한 인증", "Wi-Fi 설정"),
+                labels = listOf("장치 등록", "안전한 인증", "Wi-Fi 설정"),
                 currentStep = 0
             )
             Spacer(Modifier.height(32.dp))
             Text(
-                text = "Jetson을 등록합니다",
+                text = "장치를 등록합니다",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(AppSpacing.small))
             Text(
-                text = "본체의 QR을 확인한 뒤 가까운 장비와 안전하게 인증합니다.",
+                text = "본체의 QR을 확인한 뒤 가까운 장치와 안전하게 인증합니다.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -76,12 +76,12 @@ fun FirstDeviceOnboardingScreen(
             OnboardingStep(
                 icon = Icons.Default.QrCodeScanner,
                 title = "QR 확인",
-                description = "장비 본체에 표시된 등록 QR을 준비합니다."
+                description = "장치 본체에 표시된 등록 QR을 준비합니다."
             )
             OnboardingStep(
                 icon = Icons.AutoMirrored.Filled.BluetoothSearching,
-                title = "장비 연결",
-                description = "앱이 같은 장비를 Bluetooth로 찾습니다."
+                title = "장치 연결",
+                description = "앱이 같은 장치를 Bluetooth로 찾습니다."
             )
             OnboardingStep(
                 icon = Icons.Default.CheckCircle,

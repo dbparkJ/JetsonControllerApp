@@ -30,7 +30,7 @@ data class PairingUiState(
 
     val message:
         String =
-        "Jetson 본체의 QR 코드를 스캔하세요.",
+        "장치 본체의 QR 코드를 스캔하세요.",
 
     val errorMessage:
         String? =

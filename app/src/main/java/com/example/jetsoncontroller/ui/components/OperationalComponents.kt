@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -100,8 +99,7 @@ fun AppBanner(
             .semantics { liveRegion = LiveRegionMode.Polite },
         color = visuals.container,
         contentColor = visuals.content,
-        border = BorderStroke(GeoSize.hairline, visuals.border),
-        shape = MaterialTheme.shapes.small
+        shape = MaterialTheme.shapes.medium
     ) {
         Row(
             modifier = Modifier.padding(
@@ -141,6 +139,8 @@ fun AppBanner(
 /**
  * A compact status label. Always colour + dot + text, so that the meaning survives a
  * greyscale screenshot, a colour-blind reader and a sunlit screen.
+ *
+ * A status chip is the one place the design uses a pill shape.
  */
 @Composable
 fun StatusBadge(
@@ -153,8 +153,7 @@ fun StatusBadge(
         modifier = modifier,
         color = visuals.container,
         contentColor = visuals.content,
-        border = BorderStroke(GeoSize.hairline, visuals.border),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(GeoRadius.xs)
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(GeoRadius.pill)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = GeoSpace.sm, vertical = 5.dp),
@@ -177,8 +176,10 @@ fun StatusBadge(
 /**
  * Progress through a fixed, ordered sequence (등록 → 연결 → 준비 → 수집).
  *
- * Steps ahead of the cursor are rendered as unknown rather than as info, because the
- * user has not yet established anything about them.
+ * The marker shows state only: a check for a finished step, a filled ring for the current
+ * one and a plain ring for a step not reached. No step numbers, because the label already
+ * says which step it is. Steps ahead of the cursor are rendered as unknown rather than as
+ * info, because the user has not yet established anything about them.
  */
 @Composable
 fun ConnectionStepper(
@@ -201,7 +202,7 @@ fun ConnectionStepper(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(24.dp),
                     color = when {
                         completed -> c.success
                         selected -> c.primary
@@ -212,7 +213,6 @@ fun ConnectionStepper(
                         selected -> c.onPrimary
                         else -> c.unknown
                     },
-                    border = if (completed || selected) null else BorderStroke(GeoSize.hairline, c.unknownBorder),
                     shape = CircleShape
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -222,8 +222,6 @@ fun ConnectionStepper(
                                 contentDescription = null,
                                 modifier = Modifier.size(GeoSize.iconSm)
                             )
-                        } else {
-                            Text("${index + 1}", style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }

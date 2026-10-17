@@ -147,7 +147,7 @@ fun QrScannerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("장비 추가") },
+                title = { Text("장치 추가") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -343,7 +343,7 @@ private fun CameraScannerContent(
             }
 
             Text(
-                text = "Jetson QR 코드를 스캔하세요",
+                text = "장치 QR 코드를 스캔하세요",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -352,7 +352,7 @@ private fun CameraScannerContent(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "Jetson 본체의 QR 코드를\n사각형 안에 맞춰주세요.",
+                text = "장치 본체의 QR 코드를\n사각형 안에 맞춰주세요.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center
@@ -396,7 +396,7 @@ private fun CameraPermissionContent(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Jetson 본체의 QR 코드를 읽기 위해 카메라 사용을 허용해 주세요.",
+            text = "장치 본체의 QR 코드를 읽기 위해 카메라 사용을 허용해 주세요.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center

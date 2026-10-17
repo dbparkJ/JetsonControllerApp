@@ -51,7 +51,7 @@ fun PairingScreen(
 
                 PairingPhase.QR_SCANNED -> {
                     ConfirmationView(
-                        deviceName = state.displayDeviceName ?: "Jetson",
+                        deviceName = state.displayDeviceName ?: "장치",
                         shortId = state.pairingInfo?.shortId ?: "",
                         onConnect = onStartPairing,
                         onCancel = onCancel
@@ -113,7 +113,7 @@ private fun ConfirmationView(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "장비를 찾을 준비가 됐습니다",
+            text = "장치를 찾을 준비가 됐습니다",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
         )
@@ -130,7 +130,7 @@ private fun ConfirmationView(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "장비 ID",
+            text = "장치 ID",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -169,9 +169,9 @@ private fun ProgressView(
     onCancel: () -> Unit
 ) {
     val statusText = when (phase) {
-        PairingPhase.SEARCHING -> "Jetson 찾는 중..."
+        PairingPhase.SEARCHING -> "장치 찾는 중..."
         PairingPhase.CONNECTING -> "연결 중..."
-        PairingPhase.VERIFYING_IDENTITY -> "장비 확인 중..."
+        PairingPhase.VERIFYING_IDENTITY -> "장치 확인 중..."
         PairingPhase.AUTHENTICATING -> "인증 중..."
         PairingPhase.ENABLING_STATUS -> "상태 동기화 중..."
         PairingPhase.READY -> "연결 완료"
@@ -274,9 +274,9 @@ private fun ErrorView(
 }
 
 private val pairingStepLabels = listOf(
-    "장비 찾기",
+    "장치 찾기",
     "연결",
-    "장비 확인",
+    "장치 확인",
     "인증",
     "상태 동기화"
 )

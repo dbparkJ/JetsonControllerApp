@@ -320,7 +320,7 @@ class WifiDirectManager(
                     override fun onFailure(reason: Int) {
                         if (connectionSession.isCurrent(discoveryGeneration) &&
                             _state.value.discovering
-                        ) fail(actionFailure("장비 검색", reason))
+                        ) fail(actionFailure("장치 검색", reason))
                     }
                 }
             )
@@ -346,7 +346,7 @@ class WifiDirectManager(
                         WifiDirectPeer(
                             name = device.deviceName
                                 .orEmpty()
-                                .ifBlank { "이름 없는 장비" },
+                                .ifBlank { "이름 없는 장치" },
                             deviceAddress = device.deviceAddress,
                             status = device.status
                         )
@@ -412,7 +412,7 @@ class WifiDirectManager(
                         requestConnectionInfo()
                     } else {
                         resetDisconnectedState(
-                            "다른 장비에 Wi-Fi Direct로 연결되어 있습니다. Android Wi-Fi 설정에서 연결을 해제한 뒤 다시 시도해 주세요."
+                            "다른 장치에 Wi-Fi Direct로 연결되어 있습니다. Android Wi-Fi 설정에서 연결을 해제한 뒤 다시 시도해 주세요."
                         )
                     }
                     return@groupInfo
@@ -438,7 +438,7 @@ class WifiDirectManager(
                                     "p2p_connection", DiagnosticOutcome.CONNECT_OS_FAILED,
                                     attemptGeneration, androidReason = reason
                                 )
-                                beginConnectionCleanup(actionFailure("장비 연결", reason))
+                                beginConnectionCleanup(actionFailure("장치 연결", reason))
                             }
                         }
                     )
@@ -663,7 +663,7 @@ class WifiDirectManager(
                             group.clientList.map { it.deviceAddress }
                         )
                     ) {
-                        cleanupError = "다른 장비의 Wi-Fi Direct 그룹이 있어 유지했습니다. Android Wi-Fi 설정에서 연결 상태를 확인해 주세요."
+                        cleanupError = "다른 장치의 Wi-Fi Direct 그룹이 있어 유지했습니다. Android Wi-Fi 설정에서 연결 상태를 확인해 주세요."
                         finish(outcome = DiagnosticOutcome.OTHER_GROUP_PRESERVED)
                         return@groupInfo
                     }

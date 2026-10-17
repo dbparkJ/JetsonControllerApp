@@ -180,7 +180,7 @@ class LocalApiClient(
             .followRedirects(false)
             .build()
         return Retrofit.Builder()
-            .baseUrl(currentBaseUrl ?: error("Jetson API 주소가 설정되지 않았습니다."))
+            .baseUrl(currentBaseUrl ?: error("장치 API 주소가 설정되지 않았습니다."))
             .callFactory { original ->
                 val request = original.newBuilder().tag(ApiDiagnosticTrace::class.java,
                     ApiDiagnosticTrace(original, diagnosticClientId, apiEndpointRevision)).build()
@@ -211,9 +211,9 @@ class LocalApiClient(
         val helloStartedUtcMs = System.currentTimeMillis()
         val helloStartedNanos = System.nanoTime()
         val response = requireApi().hello()
-        val body = requireBody(response, "장비 확인")
+        val body = requireBody(response, "장치 확인")
         require(body.authScheme == "JETSONHTTP2") {
-            "지원하지 않는 Jetson API 인증 방식입니다."
+            "지원하지 않는 장치 API 인증 방식입니다."
         }
         val peerCertificate = response.raw().handshake
             ?.peerCertificates
@@ -222,22 +222,22 @@ class LocalApiClient(
             certificateSha256(peerCertificate)
         } else {
             bootstrapTrustManager?.lastServerCertificateSha256
-                ?: error("Jetson TLS 인증서를 확인할 수 없습니다.")
+                ?: error("장치 TLS 인증서를 확인할 수 없습니다.")
         }
         require(
             peerFingerprint.equals(body.tlsCertificateSha256, ignoreCase = true)
         ) {
-            "Jetson TLS 인증서 정보가 일치하지 않습니다."
+            "장치 TLS 인증서 정보가 일치하지 않습니다."
         }
         val secretHex = credentialStore.getSecret(body.deviceId)
         synchronized(endpointLock) {
             if (endpointRevision != helloEndpoint) {
-                throw CancellationException("장비 주소가 변경되어 인증 결과를 폐기했습니다.")
+                throw CancellationException("장치 주소가 변경되어 인증 결과를 폐기했습니다.")
             }
             val expectedDeviceId = authenticatedDeviceId
             if (expectedDeviceId != null && !expectedDeviceId.equals(body.deviceId, ignoreCase = true)) {
                 authInterceptor.clearSession()
-                throw IllegalArgumentException("인증된 장비와 응답의 장비 정보가 일치하지 않습니다.")
+                throw IllegalArgumentException("인증된 장치와 응답의 장치 정보가 일치하지 않습니다.")
             }
             if (secretHex == null) {
                 authInterceptor.clearSession()
@@ -256,7 +256,7 @@ class LocalApiClient(
                         receivedProof = body.helloProof
                     )
                 ) {
-                    "Jetson TLS 인증서 증명에 실패했습니다."
+                    "장치 TLS 인증서 증명에 실패했습니다."
                 }
                 api = buildApi(PinnedCertificateTrustManager(peerFingerprint))
                 authInterceptor.updateSession(
@@ -731,7 +731,7 @@ class LocalApiClient(
         command("Wi-Fi 설정", query = { getStatus() }) { requireApi().configureWifi(request) }
 
     private fun requireApi(): LocalControlApi =
-        api ?: error("Jetson API 주소가 설정되지 않았습니다.")
+        api ?: error("장치 API 주소가 설정되지 않았습니다.")
 
     private suspend fun <T> command(
         operation: String,
@@ -760,7 +760,7 @@ class LocalApiClient(
         val commandEndpoint = endpointRevision
         fun requireCurrentEndpoint() {
             if (endpointRevision != commandEndpoint) {
-                throw CancellationException("장비 주소가 변경되어 명령 결과를 다시 확인해야 합니다.")
+                throw CancellationException("장치 주소가 변경되어 명령 결과를 다시 확인해야 합니다.")
             }
         }
         return try {
@@ -818,7 +818,7 @@ class LocalApiClient(
         val attemptedEndpoint = endpointRevision
         fun requireCurrentEndpoint() {
             if (endpointRevision != attemptedEndpoint) {
-                throw CancellationException("장비 주소가 변경되었습니다.")
+                throw CancellationException("장치 주소가 변경되었습니다.")
             }
         }
         return try {
@@ -850,13 +850,13 @@ class LocalApiClient(
     private fun authenticationRecoveryException(error: Exception): Exception = when (error) {
         is JetsonResponseSignatureException,
         is JetsonUnsignedServerErrorException -> JetsonAuthenticationRecoveryException(
-            "Jetson 백엔드가 현재 앱의 응답 인증 형식과 맞지 않습니다. " +
-                "Jetson 백엔드를 업데이트한 뒤 다시 연결해 주세요.",
+            "장치 소프트웨어가 현재 앱의 응답 인증 형식과 맞지 않습니다. " +
+                "장치 소프트웨어를 업데이트한 뒤 다시 연결해 주세요.",
             error
         )
         is JetsonSessionExpiredException -> JetsonAuthenticationRecoveryException(
-            "Jetson과 인증 정보를 동기화하지 못했습니다. " +
-                "저장된 장비를 QR로 다시 등록해 주세요.",
+            "장치과 인증 정보를 동기화하지 못했습니다. " +
+                "저장된 장치를 QR로 다시 등록해 주세요.",
             error
         )
         else -> error
@@ -907,7 +907,7 @@ class LocalApiClient(
 
     private fun hexToBytes(hex: String): ByteArray {
         require(hex.length == 64 && hex.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
-            "저장된 장비 인증키가 올바르지 않습니다."
+            "저장된 장치 인증키가 올바르지 않습니다."
         }
         return ByteArray(hex.length / 2) { index ->
             hex.substring(index * 2, index * 2 + 2).toInt(16).toByte()

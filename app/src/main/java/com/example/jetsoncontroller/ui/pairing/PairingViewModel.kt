@@ -66,11 +66,11 @@ internal fun <T> choosePairingCandidate(
     return when (serviceMatches.size) {
         1 -> PairingCandidateDecision.Connect(serviceMatches.single())
         0 -> PairingCandidateDecision.Fail(
-            "$expectedBleName 장비를 찾지 못했습니다. Jetson의 Bluetooth 상태를 확인해 주세요."
+            "$expectedBleName 장치를 찾지 못했습니다. 장치의 Bluetooth 상태를 확인해 주세요."
         )
         else -> PairingCandidateDecision.Fail(
-            "Jetson 장비가 여러 대 검색되었지만 $expectedBleName 이름을 확인할 수 없습니다. " +
-                "대상 장비만 켠 뒤 다시 시도해 주세요."
+            "장치가 여러 대 검색되었지만 $expectedBleName 이름을 확인할 수 없습니다. " +
+                "대상 장치만 켠 뒤 다시 시도해 주세요."
         )
     }
 }
@@ -79,8 +79,8 @@ private fun ambiguousPairingName(
     bleName: String
 ): PairingCandidateDecision.Fail =
     PairingCandidateDecision.Fail(
-        "$bleName 이름을 사용하는 장비가 여러 대 검색되었습니다. " +
-            "대상 장비만 켠 뒤 다시 시도해 주세요."
+        "$bleName 이름을 사용하는 장치가 여러 대 검색되었습니다. " +
+            "대상 장치만 켠 뒤 다시 시도해 주세요."
     )
 
 internal fun resolvePairingPhase(

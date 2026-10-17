@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -21,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.JetsonDevice
+import com.example.jetsoncontroller.ui.theme.GeoRadius
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.util.signalStrengthFromRssi
 
 @Composable
@@ -34,11 +35,14 @@ fun DeviceCard(
             device.rssi
         )
 
-    ElevatedCard(
+    // A flat surface on the canvas tone: no resting shadow and no outline.
+    Surface(
         modifier =
             Modifier.fillMaxWidth(),
         shape =
-            RoundedCornerShape(8.dp)
+            RoundedCornerShape(GeoRadius.md),
+        color = LocalGeoColors.current.surface,
+        contentColor = LocalGeoColors.current.ink
     ) {
 
         Column(

@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.ConnectionState
+import com.example.jetsoncontroller.ui.theme.GeoRadius
 
 @Composable
 fun ConnectionStatusCard(
@@ -31,19 +32,19 @@ fun ConnectionStatusCard(
         when {
 
             isScanning ->
-                "주변 장비 검색 중"
+                "주변 장치 검색 중"
 
             connectionState
                 is ConnectionState.Ready ->
-                "Jetson 연결됨"
+                "장치 연결됨"
 
             connectionState
                 is ConnectionState.Connecting ->
-                "Jetson 연결 중"
+                "장치 연결 중"
 
             connectionState
                 is ConnectionState.RegistrationRequired ->
-                "장비 인증 필요"
+                "장치 인증 필요"
 
             else ->
                 "Bluetooth 준비됨"
@@ -58,7 +59,7 @@ fun ConnectionStatusCard(
                 if (isScanning)
                     "BLE 광고 패킷을 검색하고 있습니다."
                 else
-                    "주변 Jetson 장비를 검색할 수 있습니다."
+                    "주변 장치를 검색할 수 있습니다."
 
             is ConnectionState.Connecting ->
                 connectionState.deviceName
@@ -80,7 +81,7 @@ fun ConnectionStatusCard(
         modifier =
             Modifier.fillMaxWidth(),
         shape =
-            RoundedCornerShape(8.dp),
+            RoundedCornerShape(GeoRadius.md),
         color =
             MaterialTheme
                 .colorScheme

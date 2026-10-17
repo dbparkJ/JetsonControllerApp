@@ -91,7 +91,7 @@ fun CameraPreviewScreen(
             state.frame?.let { frame ->
                 Image(
                     bitmap = frame.asImageBitmap(),
-                    contentDescription = if (live) "Jetson 카메라 최근 수신 영상" else "Jetson 카메라 마지막 수신 영상",
+                    contentDescription = if (live) "장치 카메라 최근 수신 영상" else "장치 카메라 마지막 수신 영상",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
                 )

@@ -56,7 +56,7 @@ fun ConnectionDiagnosticsScreen(onBack: () -> Unit) {
                             ?: error("Cannot open export destination")
                         output.use { ConnectionDiagnostics.export(it) }
                     }
-                    message = "진단 ZIP을 저장했습니다. 끊긴 시각과 함께 앱 ZIP과 Jetson 로그를 전달해 주세요."
+                    message = "진단 ZIP을 저장했습니다. 끊긴 시각과 함께 앱 ZIP과 장치 로그를 전달해 주세요."
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {

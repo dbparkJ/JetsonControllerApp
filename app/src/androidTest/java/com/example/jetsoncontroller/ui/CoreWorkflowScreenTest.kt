@@ -57,7 +57,7 @@ class CoreWorkflowScreenTest {
         }
 
         composeRule.onNodeWithText("Jetson을 등록합니다").assertIsDisplayed()
-        composeRule.onNodeWithText("장비 등록").assertIsDisplayed()
+        composeRule.onNodeWithText("장치 등록").assertIsDisplayed()
         composeRule.onNodeWithText("Wi-Fi 설정").assertIsDisplayed()
         composeRule.onNodeWithText("QR 스캔").assertIsDisplayed()
     }
@@ -162,7 +162,7 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("장비 확인").assertIsDisplayed()
+        composeRule.onNodeWithText("장치 확인").assertIsDisplayed()
         composeRule.onNodeWithText("인증 중...").assertIsDisplayed()
         composeRule.onNodeWithText("상태 동기화").assertIsDisplayed()
     }

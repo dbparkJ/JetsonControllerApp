@@ -157,9 +157,9 @@ internal object BleAdvertisementMerger {
                 .uppercase(Locale.ROOT)
 
         return if (addressSuffix.isEmpty()) {
-            "MMS 장비"
+            "MMS 장치"
         } else {
-            "MMS 장비 ($addressSuffix)"
+            "MMS 장치 ($addressSuffix)"
         }
     }
 }

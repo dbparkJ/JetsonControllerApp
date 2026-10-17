@@ -354,7 +354,7 @@ class BleGattClient(
             expectedReconnectId != null &&
             !actualDeviceId.equals(expectedReconnectId, ignoreCase = true)
         ) {
-            handleError("선택한 등록 장비와 연결된 Jetson이 일치하지 않습니다.")
+            handleError("선택한 등록 장치와 연결된 장치가 일치하지 않습니다.")
             return
         }
 
@@ -363,7 +363,7 @@ class BleGattClient(
             if (actualDeviceId == session.info.deviceId) {
                 proceedToAuthentication(gatt, session.info)
             } else {
-                handleError("QR 코드와 연결된 Jetson이 일치하지 않습니다.")
+                handleError("QR 코드와 연결된 장치가 일치하지 않습니다.")
             }
         } else {
             // Manual connect: check store for this deviceId
@@ -395,7 +395,7 @@ class BleGattClient(
         val actualDeviceId = verifiedDeviceId ?: return false
 
         if (!actualDeviceId.equals(info.deviceId, ignoreCase = true)) {
-            handleError("QR 코드와 현재 연결된 Jetson이 일치하지 않습니다.")
+            handleError("QR 코드와 현재 연결된 장치가 일치하지 않습니다.")
             return true
         }
 
@@ -494,7 +494,7 @@ class BleGattClient(
         } else {
             pendingSessionEncryptionKey = null
             sessionEncryptionKey = null
-            handleError("장비 인증에 실패했습니다.")
+            handleError("장치 인증에 실패했습니다.")
         }
     }
 
@@ -528,7 +528,7 @@ class BleGattClient(
         val key = sessionEncryptionKey
             ?: error("Bluetooth 보안 세션이 준비되지 않았습니다.")
         val deviceId = verifiedDeviceId
-            ?: error("Bluetooth 장비 ID를 확인할 수 없습니다.")
+            ?: error("Bluetooth 장치 ID를 확인할 수 없습니다.")
         return WifiProvisionCodec.encodeEncrypted(request, key, deviceId)
     }
 

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.alerts
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.TextButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -16,12 +17,12 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -33,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,10 +49,8 @@ import com.example.jetsoncontroller.data.alerts.AlertDestination
 import com.example.jetsoncontroller.data.alerts.AlertRecord
 import com.example.jetsoncontroller.data.alerts.AlertSeverity
 import com.example.jetsoncontroller.ui.components.EmptyState
+import com.example.jetsoncontroller.ui.components.formatGeoDateTime
 import com.example.jetsoncontroller.ui.theme.AppSpacing
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,16 +86,27 @@ fun AlertCenterScreen(
 ) {
     var confirmClear by remember { mutableStateOf(false) }
 
+    // Opening the alert center marks every unread alert as read, including ones older than
+    // the bell's 24-hour window. Alerts that arrive while the screen is open are handled the
+    // same way.
+    val hasUnread = state.alerts.any { !it.read }
+    LaunchedEffect(hasUnread) {
+        if (hasUnread) onMarkAllRead()
+    }
+
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             title = { Text("알림 내역을 모두 삭제할까요?") },
             text = { Text("삭제한 알림 내역은 복구할 수 없습니다.") },
             confirmButton = {
-                TextButton(onClick = {
-                    confirmClear = false
-                    onClear()
-                }) { Text("전체 삭제") }
+                TextButton(
+                    onClick = {
+                        confirmClear = false
+                        onClear()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = LocalGeoColors.current.danger)
+                ) { Text("전체 삭제") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmClear = false }) { Text("취소") }
@@ -123,9 +134,7 @@ fun AlertCenterScreen(
                 },
                 actions = {
                     if (state.unreadCount > 0) {
-                        IconButton(onClick = onMarkAllRead) {
-                            Icon(Icons.Default.DoneAll, contentDescription = "모두 읽음")
-                        }
+                        TextButton(onClick = onMarkAllRead) { Text("모두 읽음") }
                     }
                     if (state.alerts.isNotEmpty()) {
                         IconButton(onClick = { confirmClear = true }) {
@@ -139,7 +148,7 @@ fun AlertCenterScreen(
         if (state.alerts.isEmpty()) {
             EmptyState(
                 title = "새 알림이 없습니다",
-                message = "장비 상태와 작업 알림이 이곳에 표시됩니다.",
+                message = "장치 상태와 작업 알림이 이곳에 표시됩니다.",
                 modifier = Modifier.fillMaxSize().padding(paddingValues)
             )
         } else {
@@ -180,7 +189,7 @@ private fun AlertRow(
             Column {
                 Text(alert.message, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    formatAlertTime(alert.createdAtEpochMillis),
+                    formatGeoDateTime(alert.createdAtEpochMillis),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -221,8 +230,3 @@ private fun alertColor(severity: AlertSeverity): Color = when (severity) {
     AlertSeverity.ERROR -> MaterialTheme.colorScheme.error
 }
 
-private fun formatAlertTime(epochMillis: Long): String = ALERT_TIME_FORMATTER.format(
-    Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())
-)
-
-private val ALERT_TIME_FORMATTER = DateTimeFormatter.ofPattern("M월 d일 HH:mm")
