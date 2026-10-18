@@ -79,6 +79,7 @@ class TicketAPI:
             schema = (json.loads(sync["schema_json"]) if sync and sync["schema_json"]
                       and sync["destination"] == self._destination() else None)
             units = [u["name"] for u in schema["units"]] if schema else []
+            status_keys = (schema or {}).get("statusKeys", {})
             device_unit = connection.execute("SELECT unit FROM device_units WHERE device_id=?", (device_id,)).fetchone()
             where, args = ["destination=?"], [self._destination()]
             if status == "open":
@@ -92,7 +93,8 @@ class TicketAPI:
             tickets = [{
                 "rowId": r["row_id"], "title": r["title"], "project": r["project"],
                 "unit": r["unit"], "assignees": json.loads(r["assignees_json"]),
-                "dueDate": r["due_date"], "status": {"name": r["status_name"], "category": r["status_category"]},
+                "dueDate": r["due_date"], "status": {"name": r["status_name"], "category": r["status_category"],
+                                                     "systemKey": status_keys.get(r["status_id"])},
                 "revision": r["revision"], "updatedAt": r["updated_at"], "runId": r["run_id"],
                 "report": report(latest_report(connection, r["row_id"])),
             } for r in rows] if unit is None or unit in units else []
@@ -158,6 +160,13 @@ class TicketAPI:
                 return self._result(connection, row_id, run_id, "STARTED")
             if ticket["status_category"] == "DONE" or ticket["archived_at"]:
                 raise ReceiverError(409, "TICKET_NOT_OPEN")
+            # A person marked it blocked; starting must not silently move it to 진행 중.
+            sync = connection.execute("SELECT schema_json, destination FROM ticket_sync WHERE target=?",
+                                      (TARGET,)).fetchone()
+            schema = (json.loads(sync["schema_json"]) if sync and sync["schema_json"]
+                      and sync["destination"] == self._destination() else {})
+            if ticket["status_id"] in schema.get("blockedStatusIds", []) or ticket["status_name"] == "막힘":
+                raise ReceiverError(409, "TICKET_BLOCKED")
             pending = connection.execute(
                 """SELECT 1 FROM ticket_runs r WHERE r.row_id=? AND EXISTS (
                        SELECT 1 FROM outbound_messages m WHERE m.target=?

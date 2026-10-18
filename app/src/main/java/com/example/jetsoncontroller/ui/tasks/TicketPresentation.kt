@@ -30,6 +30,7 @@ internal fun ticketStartAvailability(role: String?, ticket: ServerTicket): Ticke
         false, "작업자 권한을 확인할 수 없습니다."
     )
     ticketConflictCopy(ticket) != null -> TicketActionAvailability(false, ticketConflictCopy(ticket))
+    ticket.status?.isBlocked == true -> TicketActionAvailability(false, TICKET_BLOCKED_COPY)
     ticket.status?.normalizedCategory != ServerTicketState.OPEN -> TicketActionAvailability(
         false, "열린 티켓에서만 수집을 시작할 수 있습니다."
     )
@@ -101,7 +102,12 @@ internal fun ticketStatusLabel(ticket: ServerTicket): String =
         else -> "상태 확인 중"
     }
 
-internal fun ticketStatusTone(ticket: ServerTicket): StatusTone = when (ticket.status?.normalizedCategory) {
+/** A person marked the ticket 막힘; the app never starts it or moves it on their behalf. */
+internal const val TICKET_BLOCKED_COPY = "막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요."
+
+internal fun ticketStatusTone(ticket: ServerTicket): StatusTone = if (ticket.status?.isBlocked == true) {
+    StatusTone.WARNING
+} else when (ticket.status?.normalizedCategory) {
     ServerTicketState.OPEN -> StatusTone.INFO
     ServerTicketState.IN_PROGRESS -> StatusTone.PENDING
     ServerTicketState.COMPLETED -> StatusTone.SUCCESS

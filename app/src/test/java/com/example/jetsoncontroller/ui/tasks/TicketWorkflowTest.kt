@@ -79,6 +79,24 @@ class TicketWorkflowTest {
     }
 
     @Test
+    fun blockedTicketCannotStartAndReadsAsWarning() {
+        val blocked = Gson().fromJson(
+            """{"rowId":"b","title":"막힌 구간","status":{"name":"막힘","category":"IN_PROGRESS","systemKey":"BLOCKED"}}""",
+            ServerTicket::class.java
+        )
+        assertTrue(blocked.status!!.isBlocked)
+        val availability = ticketStartAvailability("OPERATOR", blocked)
+        assertFalse(availability.enabled)
+        assertEquals("막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요.", availability.reason)
+        assertEquals(com.example.jetsoncontroller.ui.components.StatusTone.WARNING, ticketStatusTone(blocked))
+        assertEquals("막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요.", ticketReportErrorCopy("TICKET_BLOCKED"))
+
+        val inProgress = ticket("p", "geo X-1", "IN_PROGRESS")
+        assertFalse(inProgress.status!!.isBlocked)
+        assertEquals(com.example.jetsoncontroller.ui.components.StatusTone.PENDING, ticketStatusTone(inProgress))
+    }
+
+    @Test
     fun humanChangedConflictUsesRequiredCopy() {
         val conflicted = ticket("row", "1호기").copy(
             report = com.example.jetsoncontroller.data.server.ServerTicketReport("CONFLICT", "HUMAN_CHANGED")

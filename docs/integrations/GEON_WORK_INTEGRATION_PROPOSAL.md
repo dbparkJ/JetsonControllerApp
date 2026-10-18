@@ -155,6 +155,7 @@ GEO& Work 계약(2026-10-18, GEON Work 커밋 6e5dc0d6, 운영 배포 전)과 �
 - 같은 idempotencyKey는 본문·보드·행이 완전히 같을 때만 재전송으로 처리됩니다. 본문이 다르면 409 `IDEMPOTENCY_KEY_CONFLICT`.
 - 409 `ROW_REVISION_CONFLICT`는 응답의 `current`를 봅니다. 사람이 상태를 바꿨으면 덮어쓰지 않고 알립니다. 진행해도 되면 `current.revision`과 새 키(`…:attempt2`)로 다시 보냅니다.
 - 그 밖의 400대(`VALIDATION_ERROR`, `INTEGRATION_STATUS_INVALID`, `PROPERTY_VALUE_INVALID`, `INTEGRATION_BOARD_FORBIDDEN`, `BOARD_ARCHIVED`, `ROW_ARCHIVED` 등)는 재시도하지 않고 DEAD + 경고입니다. 429·5xx·네트워크 오류만 백오프합니다.
+- 보드 응답 모양: 속성은 `{id, name, type, config, systemKey, …}`이고 SELECT 선택지는 `config.options`의 `{id, name, color}` 목록입니다. 행의 SELECT 값은 선택지 id(비면 null)입니다. 상태 선택지는 `{id, name, color, category, systemKey}`이며, 운영 보드에는 할 일·진행 중·완료 말고 막힘(IN_PROGRESS, `BLOCKED`)도 있습니다.
 - 보드 구성: 행 제목 = 구간 이름. 속성 프로젝트(TEXT), 호기(SELECT), 담당(PERSON), 마감(DATE), 상태(STATUS: 할 일·진행 중·완료). 결과 속성 수집 작업자(TEXT), runId(TEXT), 수집 시간(NUMBER, 형식 HOURS: 시간, 소수 둘째 자리), 용량(GB)(NUMBER, 형식 PLAIN: 10^9 바이트 기준 GB, 소수 둘째 자리), 정밀 위치 비율(NUMBER, 형식 PERCENT: 0~100, 소수 첫째 자리). 호기 선택지 이름·id도 보드 응답에서 읽습니다.
 
 ### 5.2 수신 서버 (J5·J7)
@@ -165,7 +166,7 @@ GEO& Work 계약(2026-10-18, GEON Work 커밋 6e5dc0d6, 운영 배포 전)과 �
 - 장치 ↔ 호기: 관리 명령 `set-device-unit --device-id <uuid> --unit <호기 선택지 이름>`으로 정합니다. 앱의 호기 필터 기본값이 됩니다.
 - 앱용 API(직원 토큰, 다른 `/v1/server/*`와 같은 프로젝트 권한 검사):
   - `GET /v1/server/tickets?projectId=&deviceId=&unit=&status=open|all` → `{tickets[], units[], deviceUnit, syncedAt, integration{state, detail}}`. 티켓에는 `rowId, title, project, unit, assignees[], dueDate, status{name, category}, revision, updatedAt, runId, report{state, code}`이 들어갑니다.
-  - `POST /v1/server/tickets/{rowId}/start?projectId=` `{runId, deviceId}`: OPERATOR·ADMIN만. 장치가 그 프로젝트에 속해야 하고 티켓이 열려 있어야 합니다(아니면 409 `TICKET_NOT_OPEN`, 다른 runId가 진행 중이면 409 `TICKET_IN_PROGRESS`). runId ↔ rowId를 저장하고 outbox에 키 `run:{runId}:started`, 상태 "진행 중", 값 runId·수집 작업자(직원 표시 이름), 댓글 "수집 시작 · {호기} · {장치 이름}"을 넣습니다. 202를 돌려주고, 같은 요청 재전송은 같은 결과입니다.
+  - `POST /v1/server/tickets/{rowId}/start?projectId=` `{runId, deviceId}`: OPERATOR·ADMIN만. 장치가 그 프로젝트에 속해야 하고 티켓이 열려 있어야 합니다(아니면 409 `TICKET_NOT_OPEN`, 다른 runId가 진행 중이면 409 `TICKET_IN_PROGRESS`, 사람이 '막힘'으로 둔 티켓이면 409 `TICKET_BLOCKED`). runId ↔ rowId를 저장하고 outbox에 키 `run:{runId}:started`, 상태 "진행 중", 값 runId·수집 작업자(직원 표시 이름), 댓글 "수집 시작 · {호기} · {장치 이름}"을 넣습니다. 202를 돌려주고, 같은 요청 재전송은 같은 결과입니다.
   - `POST /v1/server/tickets/{rowId}/complete?projectId=` `{runId}`: 그 runId의 업로드 세션이 COMPLETED("서버 수신 확인")일 때만(아니면 409 `UPLOAD_NOT_CONFIRMED`). 키 `run:{runId}:completed`, 상태 "완료", 값 수집 시간(`run.finished` durationSeconds ÷ 3600, 소수 둘째 자리)·용량(GB)(세션 바이트 ÷ 10^9, 소수 둘째 자리)·정밀 위치 비율(preciseFixRatio × 100, 소수 첫째 자리) 중 아는 값만, 댓글 "수집 완료 · 작업자 {이름} · {수집 시간}시간 · {용량} GB · 파일 {n}개 · run {runId 앞 8자}".
 - 전송: J1 outbox의 `board-patch` 종류, Bearer 인증, 보내기 직전의 최신 revision을 씁니다. 성공하면 응답 `row`로 로컬 행을 갱신합니다(`deduplicated: true`면 DEDUP).
 - 409 `ROW_REVISION_CONFLICT`: `current`의 상태가 우리가 기대한 이전 상태(시작은 할 일, 또는 같은 runId의 진행 중 / 완료는 진행 중)이고 runId 속성이 비었거나 같으면 `current.revision`과 키 `…:attempt{n}`으로 다시 보냅니다. 아니면 DEAD(`HUMAN_CHANGED`)로 두고 티켓 보고 상태를 충돌로 표시합니다. 자동으로 덮어쓰지 않습니다.
@@ -176,6 +177,7 @@ GEO& Work 계약(2026-10-18, GEON Work 커밋 6e5dc0d6, 운영 배포 전)과 �
 - '작업' 루트에 "수집 구간" 목록(보드의 열린 티켓 전부, 담당자 표시)과 호기 필터(기본: 현재 장치의 호기, 모르면 전체)를 둡니다. 서버 연결 프로필이 없으면 목록을 숨깁니다.
 - 구간을 고르면 확인 대화상자("{구간} 수집을 시작합니다. 티켓이 '진행 중'으로 바뀝니다.") 뒤 기존 수집 시작 흐름으로 갑니다. Jetson이 run을 시작해 runId가 생기면 시작 보고를 보냅니다. 휴대폰이 오프라인이면 보고를 저장했다가 다시 보냅니다.
 - 수집 결과 영수증에서 "서버 수신 확인"이 된 뒤에만 "구간 완료 보고"를 보입니다. 업로드가 실패하면 버튼 대신 '진행 중 유지' 안내를 보입니다.
+- '막힘'(GEO& Work 상태 선택지, category IN_PROGRESS, systemKey `BLOCKED`)은 목록에서 열린 티켓으로 보이지만 시작 단추는 막고 "막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요."를 보입니다(2026-10-18 GEO& Work 결정). 목록 응답의 `status`에는 `systemKey`가 함께 들어갑니다.
 - VIEWER는 목록만 보고 시작·완료 보고 단추는 이유와 함께 비활성입니다. 충돌(`HUMAN_CHANGED`)은 "다른 사람이 먼저 바꿨습니다. GEO& Work에서 확인해 주세요."로 보입니다.
 
 ## 6. 작업 목록

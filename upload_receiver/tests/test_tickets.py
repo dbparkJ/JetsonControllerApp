@@ -40,12 +40,16 @@ class FakeBoard:
             "id": TICKETS["boardId"], "name": "데이터 수집 구간",
             "properties": [{"id": identifier(name), "name": name, "type": kind}
                            for name, kind in reversed(list(PROPERTIES.items()))],
-            "statusOptions": [{"id": identifier(name), "name": name, "category": category}
-                              for name, category in (("완료", "DONE"), ("할 일", "TODO"), ("진행 중", "IN_PROGRESS"))],
+            # Real GEO& Work shape: '막힘' shares IN_PROGRESS and is told apart by systemKey.
+            "statusOptions": [{"id": identifier(name), "name": name, "category": category, "systemKey": key}
+                              for name, category, key in (("완료", "DONE", "DONE"), ("할 일", "TODO", "TODO"),
+                                                          ("진행 중", "IN_PROGRESS", "IN_PROGRESS"),
+                                                          ("막힘", "IN_PROGRESS", "BLOCKED"))],
         }
-        self.units = [{"id": identifier("unit-z"), "name": "geo X-1"},
-                      {"id": identifier("unit-a"), "name": "geo X-2"}]
-        next(p for p in self.board["properties"] if p["name"] == "호기")["options"] = self.units
+        self.units = [{"id": identifier("unit-z"), "name": "geo X-1", "color": "blue"},
+                      {"id": identifier("unit-a"), "name": "geo X-2", "color": "green"}]
+        # SELECT options arrive in properties[].config.options.
+        next(p for p in self.board["properties"] if p["name"] == "호기")["config"] = {"options": self.units}
         self.rows = {}
         self.requests = []
         self.faults = deque()
@@ -175,11 +179,18 @@ class TicketsCoreTest(unittest.TestCase):
             next(p for p in board["properties"] if p["name"] == name)["type"] = "WRONG"
             with self.assertRaisesRegex(ValueError, "BOARD_SCHEMA_MISMATCH"):
                 resolve_schema(board)
-        for field in ("statusOptions", "properties"):
-            board = copy.deepcopy(self.api.board)
-            board[field].pop()
-            with self.assertRaises(ValueError):
-                resolve_schema(board)
+        board = copy.deepcopy(self.api.board)
+        board["statusOptions"] = [s for s in board["statusOptions"] if s["name"] != "진행 중"]
+        with self.assertRaises(ValueError):
+            resolve_schema(board)
+        board = copy.deepcopy(self.api.board)
+        board["properties"].pop()
+        with self.assertRaises(ValueError):
+            resolve_schema(board)
+        # Extra options such as '막힘' are not required.
+        board = copy.deepcopy(self.api.board)
+        board["statusOptions"] = [s for s in board["statusOptions"] if s["name"] != "막힘"]
+        self.assertEqual(resolve_schema(board)["blockedStatusIds"], [])
         self.api.board["statusOptions"][0].pop("category")
         self.sync.run_once(NOW)
         self.assertEqual(self.configuration.state(), {"state": "ERROR", "detail": "BOARD_SCHEMA_MISMATCH"})
@@ -542,6 +553,18 @@ class TicketsApiTest(unittest.TestCase):
         self.assertEqual(self.client.get("/v1/server/tickets", params={"projectId": "road-alpha"}, headers={"Authorization": "Bearer " + self.token_employee}).status_code, 400)
         viewer = self.helpers.configure_employee_access(self, employee_id="viewer", role="VIEWER")
         self.assertEqual(self.client.get("/v1/server/tickets", params={"projectId": "road-alpha"}, headers=self.headers(viewer)).status_code, 200)
+
+    def test_blocked_ticket_is_listed_open_but_cannot_start(self):
+        self.api.add("blocked", status="막힘", updated=NOW + 200)
+        for offset in (250, 250.5, 251, 251.5, 252):
+            self.sync.run_once(NOW + offset)
+        tickets = {t["rowId"]: t for t in self.list().json()["tickets"]}
+        self.assertEqual(tickets["blocked"]["status"], {"name": "막힘", "category": "IN_PROGRESS", "systemKey": "BLOCKED"})
+        self.assertEqual(tickets["row-1"]["status"]["systemKey"], "TODO")
+        result = self.start(row="blocked")
+        self.assertEqual(result.status_code, 409)
+        self.assertEqual(result.json()["detail"], "TICKET_BLOCKED")
+        self.assertIn(self.api.status("막힘")["id"], resolve_schema(self.api.board)["blockedStatusIds"])
 
     def test_start_validation_idempotency_and_display_name_comment(self):
         self.assertEqual(self.start(row="unknown").status_code, 404)

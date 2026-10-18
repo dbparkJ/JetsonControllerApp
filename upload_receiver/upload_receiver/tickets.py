@@ -39,13 +39,18 @@ def resolve_schema(board: dict) -> dict:
             statuses[name] = matches[0]
         if statuses["완료"]["category"] != "DONE":
             raise ValueError()
+        # '막힘' shares the IN_PROGRESS category with '진행 중', so its systemKey identifies it.
+        status_keys = {s["id"]: s.get("systemKey") for s in board["statusOptions"] if s.get("id")}
+        blocked = [s["id"] for s in board["statusOptions"]
+                   if s.get("id") and (s.get("systemKey") == "BLOCKED" or s.get("name") == "막힘")]
         prop = properties["호기"]
         units = prop.get("options", prop.get("config", {}).get("options"))
         if not isinstance(units, list) or any(
             not isinstance(u.get("name"), str) or not u.get("id") for u in units
         ):
             raise ValueError()
-        return {"properties": properties, "statuses": statuses, "units": units}
+        return {"properties": properties, "statuses": statuses, "units": units,
+                "statusKeys": status_keys, "blockedStatusIds": blocked}
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         raise ValueError("BOARD_SCHEMA_MISMATCH") from error
 

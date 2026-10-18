@@ -478,6 +478,7 @@ private fun ticketScopeKey(profileId: String, deviceId: String): String =
 internal fun ticketReportErrorCopy(code: String?): String = when (code) {
     "TICKET_NOT_OPEN" -> "티켓이 열린 상태가 아닙니다. GEO& Work에서 확인해 주세요."
     "TICKET_IN_PROGRESS" -> "다른 수집이 진행 중입니다. GEO& Work에서 확인해 주세요."
+    "TICKET_BLOCKED" -> TICKET_BLOCKED_COPY
     "UPLOAD_NOT_CONFIRMED" -> "서버 수신 확인 뒤에 완료를 보고할 수 있습니다. 티켓은 '진행 중'으로 둡니다."
     "HUMAN_CHANGED" -> "다른 사람이 먼저 바꿨습니다. GEO& Work에서 확인해 주세요."
     else -> code?.let { "티켓 보고를 처리하지 못했습니다. ($it)" } ?: "티켓 보고를 처리하지 못했습니다."

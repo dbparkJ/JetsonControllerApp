@@ -153,8 +153,13 @@ enum class ServerTicketIntegrationState { ACTIVE, NOT_CONFIGURED, ERROR, UNKNOWN
 
 data class ServerTicketStatus(
     val name: String? = null,
-    val category: String? = null
+    val category: String? = null,
+    /** GEO& Work systemKey; '막힘' shares IN_PROGRESS with '진행 중' and is told apart by BLOCKED. */
+    val systemKey: String? = null
 ) {
+    val isBlocked: Boolean
+        get() = systemKey.equals("BLOCKED", ignoreCase = true) || name == "막힘"
+
     val normalizedCategory: ServerTicketState
         get() = when (category?.uppercase()) {
             "OPEN", "TODO", "NOT_STARTED" -> ServerTicketState.OPEN
