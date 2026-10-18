@@ -264,12 +264,31 @@ internal fun navigateToDeviceRoot(navController: NavHostController) {
     }
 }
 
+/** What a tab tap does from the current screen. */
+internal enum class TabTap { STAY, RETURN_TO_TAB_ROOT, OPEN_TAB_ROOT }
+
+/**
+ * Re-tapping the open tab does nothing, and tapping it from one of its sub-screens returns to
+ * the existing root. Neither recreates the root: a duplicate entry was composed beside the old one
+ * during the transition, and the settings root crashed on the second tap.
+ */
+internal fun tabTap(currentRoute: String?, tabRootInBackStack: Boolean, tabRoute: String): TabTap = when {
+    currentRoute == tabRoute -> TabTap.STAY
+    tabRootInBackStack -> TabTap.RETURN_TO_TAB_ROOT
+    else -> TabTap.OPEN_TAB_ROOT
+}
+
 /** Opens a tab root. Each tab root sits directly above the device root, so re-tapping a tab returns to it. */
 internal fun navigateToTab(navController: NavHostController, route: String) {
-    navController.navigate(route) {
-        popUpTo(Routes.DEVICES) { inclusive = false }
-        launchSingleTop = true
-        restoreState = false
+    val inBackStack = runCatching { navController.getBackStackEntry(route) }.isSuccess
+    when (tabTap(navController.currentBackStackEntry?.destination?.route, inBackStack, route)) {
+        TabTap.STAY -> Unit
+        TabTap.RETURN_TO_TAB_ROOT -> navController.popBackStack(route, inclusive = false)
+        TabTap.OPEN_TAB_ROOT -> navController.navigate(route) {
+            popUpTo(Routes.DEVICES) { inclusive = false }
+            launchSingleTop = true
+            restoreState = false
+        }
     }
 }
 
@@ -584,7 +603,6 @@ fun JetsonApp(
         it.deviceId.equals(selectedDeviceId, ignoreCase = true)
     }?.deviceName ?: "선택된 장치"
     val deviceDashboardState = dashboardState.copy(deviceName = selectedDeviceName)
-    val deviceUiState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
     // Device snapshots keep the last known state of each device for offline use. They are written
     // only from fresh status (shouldRecordSnapshot), never from a stale or failed read.
@@ -891,7 +909,7 @@ fun JetsonApp(
                     repository.prepareManualWifiDirect(device.deviceId)
                     navController.navigate(Routes.WIFI_DIRECT)
                 },
-                onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                onSettingsClick = { navigateToTab(navController, Routes.SETTINGS) },
                 onUploadHistoryClick = { navController.navigate(Routes.UPLOAD_QUEUE) },
                 onServerDataClick = { navController.navigate(Routes.SERVER_STORAGE) },
                 onOpenDashboard = { navigateToDeviceRoot(navController) },
@@ -2204,7 +2222,9 @@ fun JetsonApp(
         }
 
         composable(Routes.DATA) {
-            deviceUiState.SaveableStateProvider("data-${selectedDeviceId}") {
+            // Per-device UI state lives in this entry. A SaveableStateHolder key shared across
+            // back-stack entries crashed when two entries were composed during a transition.
+            androidx.compose.runtime.key(selectedDeviceId) {
                 com.example.jetsoncontroller.ui.storage.DataHubScreen(
                     state = dataStorageState,
                     serverUploadEnabled = serverUploadEnabled && dashboardState.capabilities.uploads,
@@ -2240,7 +2260,8 @@ fun JetsonApp(
         }
         composable(Routes.SETTINGS) {
             StatusPollingLifecycleEffect(dashboardViewModel)
-            deviceUiState.SaveableStateProvider("settings-${selectedDeviceId}") {
+            // Keyed per entry, not through a shared SaveableStateHolder (see Routes.DATA).
+            androidx.compose.runtime.key(selectedDeviceId) {
                 com.example.jetsoncontroller.ui.settings.SettingsHubScreen(
                     deviceDashboardState, selectedDeviceId, alertCenterState.unreadCount,
                     onDevices = { navigateToDeviceRoot(navController) },

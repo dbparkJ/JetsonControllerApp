@@ -306,6 +306,28 @@ class NavigationWorkflowTest {
     }
 
     @Test
+    fun `re-tapping the open tab keeps its root instead of recreating it`() {
+        // The second tap on 설정 used to recreate the root and crash during the transition.
+        assertEquals(TabTap.STAY, tabTap(Routes.SETTINGS, tabRootInBackStack = true, Routes.SETTINGS))
+        assertEquals(TabTap.STAY, tabTap(Routes.DEVICES, tabRootInBackStack = true, Routes.DEVICES))
+    }
+
+    @Test
+    fun `tapping a tab from its sub-screen returns to the existing root`() {
+        assertEquals(
+            TabTap.RETURN_TO_TAB_ROOT,
+            tabTap(Routes.ALERT_SETTINGS, tabRootInBackStack = true, Routes.SETTINGS)
+        )
+        assertEquals(TabTap.RETURN_TO_TAB_ROOT, tabTap(Routes.SETTINGS, tabRootInBackStack = true, Routes.DEVICES))
+    }
+
+    @Test
+    fun `tapping another tab opens its root`() {
+        assertEquals(TabTap.OPEN_TAB_ROOT, tabTap(Routes.DEVICES, tabRootInBackStack = false, Routes.SETTINGS))
+        assertEquals(TabTap.OPEN_TAB_ROOT, tabTap(Routes.TASKS, tabRootInBackStack = false, Routes.TRANSFERS))
+    }
+
+    @Test
     fun `connection attempt completion returns to the device root`() {
         assertEquals(Routes.DEVICES, deviceFlowExitRoute(DeviceFlowExit.CONNECTION_COMPLETED))
     }
