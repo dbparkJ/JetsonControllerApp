@@ -43,8 +43,8 @@ class FakeBoard:
             "statusOptions": [{"id": identifier(name), "name": name, "category": category}
                               for name, category in (("완료", "DONE"), ("할 일", "TODO"), ("진행 중", "IN_PROGRESS"))],
         }
-        self.units = [{"id": identifier("unit-z"), "name": "3호기"},
-                      {"id": identifier("unit-a"), "name": "1호기"}]
+        self.units = [{"id": identifier("unit-z"), "name": "geo X-1"},
+                      {"id": identifier("unit-a"), "name": "geo X-2"}]
         next(p for p in self.board["properties"] if p["name"] == "호기")["options"] = self.units
         self.rows = {}
         self.requests = []
@@ -161,7 +161,7 @@ class TicketsCoreTest(unittest.TestCase):
         payload = {"rowId": row_id, "runId": run_id, "type": kind, "originalKey": key,
                    "fingerprint": "tickets-fixture", "status": "진행 중" if kind == "STARTED" else "완료",
                    "values": {"runId": run_id, "수집 작업자": "작업자"} if kind == "STARTED" else {},
-                   "comment": "수집 시작 · 3호기 · 장치"}
+                   "comment": "수집 시작 · geo X-1 · 장치"}
         with self.database.immediate() as connection:
             return enqueue(connection, DEVICE_ID, payload, NOW + 1, target=TARGET, kind="board-patch",
                            incident_key=f"ticket:{row_id}:{run_id}", status_text=kind, idempotency_key=key)
@@ -206,7 +206,7 @@ class TicketsCoreTest(unittest.TestCase):
         rows = self.tickets()
         self.assertEqual(rows[0]["status_category"], "DONE")
         self.assertIsNotNone(rows[1]["archived_at"])
-        self.assertEqual(rows[1]["unit"], "3호기")
+        self.assertEqual(rows[1]["unit"], "geo X-1")
         self.assertEqual(json.loads(rows[0]["assignees_json"]), ["담당자"])
         self.assertEqual(rows[0]["project"], "조사 프로젝트")
         self.assertEqual(rows[0]["due_date"], "2026-10-25")
@@ -496,7 +496,7 @@ class TicketsApiTest(unittest.TestCase):
         self.sync.run_once(NOW + 121)
         self.sync.run_once(NOW + 121.5)
         self.token_employee = self.helpers.configure_employee_access(self)
-        self.receiver.tickets.set_device_unit(DEVICE_ID, "3호기")
+        self.receiver.tickets.set_device_unit(DEVICE_ID, "geo X-1")
 
     def tearDown(self):
         self.helpers.tearDown(self)
@@ -523,8 +523,8 @@ class TicketsApiTest(unittest.TestCase):
         self.assertEqual(result.status_code, 200, result.text)
         value = result.json()
         self.assertEqual(set(value), {"tickets", "units", "deviceUnit", "syncedAt", "integration"})
-        self.assertEqual(value["units"], ["3호기", "1호기"])
-        self.assertEqual(value["deviceUnit"], "3호기")
+        self.assertEqual(value["units"], ["geo X-1", "geo X-2"])
+        self.assertEqual(value["deviceUnit"], "geo X-1")
         self.assertEqual(value["integration"], {"state": "ACTIVE", "detail": None})
         self.assertIsNotNone(value["syncedAt"])
         self.assertEqual(len(value["tickets"]), 2)
@@ -532,7 +532,7 @@ class TicketsApiTest(unittest.TestCase):
         self.assertIsNone(value["tickets"][0]["report"])
         self.assertIsNone(self.list().json()["deviceUnit"])
         self.assertEqual(len(self.list(status="all").json()["tickets"]), 4)
-        self.assertEqual(len(self.list(unit="1호기").json()["tickets"]), 1)
+        self.assertEqual(len(self.list(unit="geo X-2").json()["tickets"]), 1)
         self.assertEqual(self.list(unit="unknown").json()["tickets"], [])
         self.assertEqual(self.list(status="bad").status_code, 400)
         self.assertEqual(self.list(projectId="other").status_code, 404)
@@ -568,7 +568,7 @@ class TicketsApiTest(unittest.TestCase):
             rows = connection.execute("SELECT * FROM outbound_messages WHERE target=?", (TARGET,)).fetchall()
             self.assertEqual(len(rows), 1)
             payload = json.loads(rows[0]["payload_json"])
-            self.assertEqual(payload["comment"], "수집 시작 · 3호기 · MMS 장치")
+            self.assertEqual(payload["comment"], "수집 시작 · geo X-1 · MMS 장치")
             self.assertEqual(payload["values"]["수집 작업자"], "Employee employee.one")
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ticket_runs").fetchone()[0], 1)
 
@@ -651,7 +651,7 @@ class TicketsApiTest(unittest.TestCase):
         self.assertEqual(self.start().status_code, 202)
         with closing(self.receiver.database.connect()) as connection:
             payload = json.loads(connection.execute("SELECT payload_json FROM outbound_messages WHERE target=?", (TARGET,)).fetchone()[0])
-        self.assertEqual(payload["comment"], "수집 시작 · 3호기 · 장치 " + DEVICE_ID[:8])
+        self.assertEqual(payload["comment"], "수집 시작 · geo X-1 · 장치 " + DEVICE_ID[:8])
         with self.receiver.database.immediate() as connection:
             connection.execute("UPDATE board_tickets SET status_name='진행 중', status_category='IN_PROGRESS', run_id='someone/else' WHERE row_id='unit-one'")
         self.assertEqual(self.start(row="unit-one", run="capture/new").json()["detail"], "TICKET_IN_PROGRESS")
@@ -691,8 +691,8 @@ class TicketsApiTest(unittest.TestCase):
         command(["configure-geon-work-tickets", "--api-base-url", TICKETS["apiBaseUrl"], "--board-id", TICKETS["boardId"]], TICKETS["apiToken"] + "\nunused\n")
         value = json.loads(self.path.read_text())
         self.assertEqual(value, {**CONFIG, "tickets": TICKETS})
-        command(["set-device-unit", "--device-id", DEVICE_ID, "--unit", "1호기"])
-        self.assertEqual(self.list(deviceId=DEVICE_ID).json()["deviceUnit"], "1호기")
+        command(["set-device-unit", "--device-id", DEVICE_ID, "--unit", "geo X-2"])
+        self.assertEqual(self.list(deviceId=DEVICE_ID).json()["deviceUnit"], "geo X-2")
         status = json.loads(command(["geon-work-status"]))
         self.assertEqual(status["tickets"]["state"], "ACTIVE")
         self.assertIsNotNone(status["tickets"]["syncedAt"])
