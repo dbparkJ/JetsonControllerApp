@@ -1,25 +1,29 @@
 # GEO& 장치 콘솔 스타일 가이드
 
-색상 기준은 [colors.json](colors.json), 앱 `ui/theme/GeoPalette.kt`, `ui/theme/Color.kt`다. `GeoPalette`는 원시 색상이고 `GeoLight`/`GeoDark`는 화면에서 쓰는 의미 역할이다. 화면은 `LocalGeoColors.current`로 역할을 읽는다. 값은 회사 앱 GEON Work 팔레트를 따르며, 역할 이름은 유지한다.
+색상 기준은 [colors.json](colors.json), 앱 `ui/theme/GeoPalette.kt`, `ui/theme/Color.kt`다. `GeoPalette`는 원시 색상이고 `GeoLight`/`GeoDark`는 화면에서 쓰는 의미 역할이다. 화면은 `LocalGeoColors.current`로 역할을 읽는다. 역할 이름은 유지하고 값만 회사 앱 GEO& Work(옛 GEON Work)를 따른다.
 
-| 역할 | Light | Dark |
-|---|---|---|
-| 바탕 `canvas` | `#F3F5F8` | `#11141A` |
-| 표면 `surface` | `#FFFFFF` | `#181C23` |
-| 낮은 표면 `surfaceSunken` | `#F8F9FB` | `#11141A` |
-| 글자 `ink` | `#171B26` | `#E7EAEF` |
-| 보조 글자 `muted` | `#3B4252` | `#A8B1BD` |
-| 약한 글자 `inkSubtle` | `#5E6676` | `#8E97A5` |
-| 장식 선 `border` | `#E2E6EC` | `#333A45` |
-| 입력·조작 경계 `controlBorder` | `#838A99` | `#6E7787` |
-| 주요 행동 `primary` | `#2550A3` | `#8FAEE4` |
-| 브랜드 네이비 `hero` (다음 행동 띠에만) | `#1A2147` | `#262A52` |
-| 확인 `success` | `#0F6B4F` | `#6FD3A7` |
-| 주의 `warning` | `#8A5A00` | `#F2BE68` |
-| 실패 `danger` | `#B42318` | `#FF9E95` |
-| 안내 `info` | `#1F6FA8` | `#8FAEE4` |
-| 처리 중 `pending` | `#574AA6` | `#B7ACEF` |
-| 미확인 `unknown` | `#5E6676` | `#AAB4C1` |
+- 원본: GEO& Work `apps/web/src/shared/ui/tokens.css`, main **10d6f1af**(2026-10-16). Light는 `:root`, Dark는 기본 다크 팔레트(graphite)다. JSON 내보내기가 없으므로 새 커밋에서 다시 옮기고 이 SHA와 `GeoPalette.kt` 머리말을 함께 고친다.
+- GEO& Work에 없는 상태는 그쪽 팔레트에서 가져온다: 처리 중 `pending`은 보라 선택지(option-6), 미확인 `unknown`은 할 일(todo) 색이다. 안내 `info`는 GEO& Work처럼 주요 파랑을 쓴다.
+- 단추 체계(주 단추 알약, 보조 10, 필터 6)는 GEO& Work가 바꾸는 중이라, 그쪽 다음 배포 뒤에 맞춘다. 반경은 아래 값을 유지한다.
+
+| 역할 | Light | Dark | GEO& Work 토큰 |
+|---|---|---|---|
+| 바탕 `canvas` | `#EDF0F5` | `#161719` | `--color-bg` |
+| 표면 `surface` | `#FFFFFF` | `#1E1F21` | `--color-surface` |
+| 낮은 표면 `surfaceSunken` | `#F3F5F8` | `#191B1D` | `--color-surface-sunken` |
+| 글자 `ink` | `#151B31` | `#E8E9EC` | `--color-text` |
+| 보조 글자 `muted` | `#4B5570` | `#BDBFC4` | `--color-text-secondary` |
+| 약한 글자 `inkSubtle` | `#5F6880` | `#9EA2A7` | `--color-text-subtle` |
+| 장식 선 `border` | `#E7EAF0` | `#323336` | `--color-border` |
+| 입력·조작 경계 `controlBorder` | `#838891` | `#7E8289` | `--color-border-strong` |
+| 주요 행동 `primary` | `#1F52B8` | `#8AADEC` | `--color-primary` |
+| 브랜드 네이비 `hero` (다음 행동 띠에만) | `#121A3D` | `#0E0F11` | `--color-rail` |
+| 확인 `success` | `#22704B` | `#88CCA5` | `--color-success` |
+| 주의 `warning` | `#8A5A06` | `#E3BC7A` | `--color-warning` |
+| 실패 `danger` | `#B3372C` | `#E9938C` | `--color-danger` |
+| 안내 `info` | `#1F52B8` | `#8AADEC` | `--color-info` |
+| 처리 중 `pending` | `#3D3A86` | `#CCC8F3` | `--option-6-fg` |
+| 미확인 `unknown` | `#5D667B` | `#ADB1B9` | `--color-todo` |
 
 상태는 이름과 아이콘, 색을 함께 쓴다. 미확인과 오래된 값은 확인도 실패도 아닌 `unknown`으로 표시한다.
 

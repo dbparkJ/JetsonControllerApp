@@ -9,115 +9,124 @@ import androidx.compose.ui.graphics.Color
  * Screens read semantic roles from [GeoColors] (`LocalGeoColors.current`) so that a
  * value change here can never silently change what a colour *means*.
  *
- * The light theme follows the GEON Work palette used by the company's other app
- * (plan §시각 규칙): a cool off-white canvas, white surfaces, one blue for the primary
- * action and a navy that appears only in the device card's next-action band. The dark
- * theme keeps the charcoal values from the previous design.
+ * Values are copied from the company app GEO& Work (formerly GEON Work):
+ * `apps/web/src/shared/ui/tokens.css` at GEON Work main 10d6f1af (2026-10-16). The light
+ * values come from `:root`, the dark values from its default dark palette (graphite,
+ * `:root[data-theme="dark"]`). GEO& Work has no JSON export, so copy again from a newer
+ * commit and update the SHA here and in docs/design/STYLE_GUIDE.md when it changes.
  */
 internal object GeoPalette {
 
-    // ---- Brand blue -----------------------------------------------------------------
-    val Brand50 = Color(0xFFEEF3FC)
-    val Brand100 = Color(0xFFDCE7F8)
-    val Brand200 = Color(0xFFB9CEF0)
-    val Brand300 = Color(0xFF8FAEE4)
-    val Brand400 = Color(0xFF5C86D1)
-    /** Primary action and focus in the light theme (GEON Work #2550A3). */
-    val Brand500 = Color(0xFF2550A3)
-    val Brand600 = Color(0xFF1F4489)
-    val Brand700 = Color(0xFF1A3A74)
-    val Brand800 = Color(0xFF17305E)
-    val Brand900 = Color(0xFF101F3C)
+    // ---- Light: surfaces ------------------------------------------------------------
+    /** --color-bg */
+    val WorkBg = Color(0xFFEDF0F5)
+    /** --color-surface */
+    val WorkSurface = Color(0xFFFFFFFF)
+    /** --color-surface-subtle */
+    val WorkSurfaceSubtle = Color(0xFFF7F8FB)
+    /** --color-surface-sunken */
+    val WorkSurfaceSunken = Color(0xFFF3F5F8)
+    /** --color-field-hover; also the app's chip, track and disabled fill. */
+    val WorkFieldHover = Color(0xFFE9ECF2)
 
-    /** Brand navy. Used only as the next-action band on the device card (light). */
-    val HeroNavy = Color(0xFF1A2147)
+    // ---- Light: text ----------------------------------------------------------------
+    /** --color-text */
+    val WorkText = Color(0xFF151B31)
+    /** --color-text-secondary */
+    val WorkTextSecondary = Color(0xFF4B5570)
+    /** --color-text-subtle */
+    val WorkTextSubtle = Color(0xFF5F6880)
 
-    // ---- Sky (globe highlight; dark-theme focus ring) -------------------------------
-    val Sky200 = Color(0xFFC7E4F6)
-    val Sky300 = Color(0xFF9CD1EF)
-    val Sky400 = Color(0xFF69BDEA)
-    val Sky500 = Color(0xFF2A86C7)
-    val Sky600 = Color(0xFF1F6DA6)
+    // ---- Light: lines ---------------------------------------------------------------
+    /** --color-border */
+    val WorkBorder = Color(0xFFE7EAF0)
+    /** --color-sidebar-divider; the stronger decorative line. */
+    val WorkDivider = Color(0xFFD3D9E3)
+    /** --color-border-strong / --color-input-border: 3:1 boundary for controls. */
+    val WorkControlBorder = Color(0xFF838891)
 
-    // ---- Deep navy — dark-theme grounding -------------------------------------------
-    val Navy700 = Color(0xFF32366A)
-    val Navy800 = Color(0xFF262A52)
-    val Navy900 = Color(0xFF1B1E3B)
+    // ---- Light: brand ---------------------------------------------------------------
+    /** --color-primary */
+    val WorkPrimary = Color(0xFF1F52B8)
+    /** --color-primary-hover / --color-primary-soft-text */
+    val WorkPrimaryHover = Color(0xFF1A47A0)
+    /** --color-primary-tint / --color-primary-soft */
+    val WorkPrimaryTint = Color(0xFFE7EEFB)
+    /** --color-primary-soft-border */
+    val WorkPrimarySoftBorder = Color(0xFFB9CBEF)
+    /** --color-rail: the navy chrome. Used for the device card's next-action band. */
+    val WorkRail = Color(0xFF121A3D)
+    /** --color-rail-text */
+    val WorkRailText = Color(0xFFAEB9D9)
 
-    // ---- Ampersand green — brand accent, used sparingly -----------------------------
+    // ---- Light: status --------------------------------------------------------------
+    val WorkSuccess = Color(0xFF22704B)
+    val WorkSuccessSoft = Color(0xFFE2F1E9)
+    val WorkSuccessBorder = Color(0xFFA9D3BD)
+    val WorkWarning = Color(0xFF8A5A06)
+    val WorkWarningSoft = Color(0xFFFBF0DA)
+    val WorkWarningBorder = Color(0xFFECCA8C)
+    val WorkDanger = Color(0xFFB3372C)
+    val WorkDangerSoft = Color(0xFFFBE8E5)
+    val WorkDangerBorder = Color(0xFFF0B8B1)
+    /** --color-todo: neutral state text, used for "미확인". */
+    val WorkTodo = Color(0xFF5D667B)
+    /** --color-todo-soft */
+    val WorkTodoSoft = Color(0xFFEEF0F4)
+    /** --option-1-border */
+    val WorkTodoBorder = Color(0xFFD9DEE7)
+    /** --option-6-*: GEO& Work has no "processing" status, so "처리 중" uses its violet option. */
+    val WorkViolet = Color(0xFF3D3A86)
+    val WorkVioletSoft = Color(0xFFE4E3F4)
+    val WorkVioletBorder = Color(0xFFC4C1E8)
+
+    // ---- Dark (graphite): surfaces ----------------------------------------------------
+    val WorkDarkBg = Color(0xFF161719)
+    val WorkDarkSurface = Color(0xFF1E1F21)
+    val WorkDarkSurfaceSubtle = Color(0xFF222426)
+    val WorkDarkSurfaceSunken = Color(0xFF191B1D)
+    /** --color-field */
+    val WorkDarkField = Color(0xFF292A2C)
+
+    // ---- Dark: text -----------------------------------------------------------------
+    val WorkDarkText = Color(0xFFE8E9EC)
+    /** --color-ink-hover: the strongest text. */
+    val WorkDarkTextStrong = Color(0xFFFFFFFF)
+    val WorkDarkTextSecondary = Color(0xFFBDBFC4)
+    val WorkDarkTextSubtle = Color(0xFF9EA2A7)
+
+    // ---- Dark: lines ----------------------------------------------------------------
+    val WorkDarkBorder = Color(0xFF323336)
+    /** --option-1-border (dark) */
+    val WorkDarkDivider = Color(0xFF46494E)
+    val WorkDarkControlBorder = Color(0xFF7E8289)
+
+    // ---- Dark: brand ----------------------------------------------------------------
+    val WorkDarkPrimary = Color(0xFF8AADEC)
+    val WorkDarkPrimaryHover = Color(0xFFA8C3F4)
+    val WorkDarkPrimaryTint = Color(0xFF242E40)
+    val WorkDarkPrimarySoftText = Color(0xFFB9CFF5)
+    val WorkDarkPrimarySoftBorder = Color(0xFF435B85)
+    val WorkDarkRail = Color(0xFF0E0F11)
+    val WorkDarkRailText = Color(0xFFB3B6BB)
+
+    // ---- Dark: status ---------------------------------------------------------------
+    val WorkDarkSuccess = Color(0xFF88CCA5)
+    val WorkDarkSuccessSoft = Color(0xFF203026)
+    val WorkDarkSuccessBorder = Color(0xFF376048)
+    val WorkDarkWarning = Color(0xFFE3BC7A)
+    val WorkDarkWarningSoft = Color(0xFF332A1C)
+    val WorkDarkWarningBorder = Color(0xFF67522D)
+    val WorkDarkDanger = Color(0xFFE9938C)
+    val WorkDarkDangerSoft = Color(0xFF392626)
+    val WorkDarkDangerBorder = Color(0xFF734844)
+    val WorkDarkTodo = Color(0xFFADB1B9)
+    val WorkDarkTodoSoft = Color(0xFF2C2E31)
+    val WorkDarkViolet = Color(0xFFCCC8F3)
+    val WorkDarkVioletSoft = Color(0xFF2D2B3F)
+    val WorkDarkVioletBorder = Color(0xFF565176)
+
+    // ---- GEO& symbol: ampersand green (brand asset, not part of tokens.css) ------------
     val BrandGreen = Color(0xFF29674E)
     val BrandGreenLight = Color(0xFF64B993)
-
-    // ---- Neutrals -------------------------------------------------------------------
-    // N0–N600 are the light-theme scale (GEON Work). N800–N950 are the dark-theme scale.
-    val N0 = Color(0xFFFFFFFF)
-    /** 낮은 표면 — a quieter surface than the card, for sunken areas. */
-    val N25 = Color(0xFFF8F9FB)
-    /** 바탕 — the light canvas behind every card. */
-    val N50 = Color(0xFFF3F5F8)
-    /** 낮은 톤 — a subtle fill for chips, disabled and "raised" light surfaces. */
-    val N100 = Color(0xFFEBEEF2)
-    /** 장식 선 — dividers and card edges, where a line is still wanted. */
-    val N200 = Color(0xFFE2E6EC)
-    val N300 = Color(0xFFB9C0CB)
-    val N400 = Color(0xFF8E97A5)
-    /** 약한 글자 — the lightest text that still meets 4.5:1 on a white surface. */
-    val N500 = Color(0xFF5E6676)
-    /** 보조 글자 — secondary text in the light theme. */
-    val N600 = Color(0xFF3B4252)
-    val N700 = Color(0xFF3C434F)
-    val N800 = Color(0xFF2A303A)
-    val N850 = Color(0xFF21262E)
-    val N900 = Color(0xFF181C23)
-    val N950 = Color(0xFF11141A)
-
-    /** 글자 (light primary ink). */
-    val InkLight = Color(0xFF171B26)
-    /** 입력·조작 경계 — 3:1 against white for control boundaries. */
-    val ControlBorderLight = Color(0xFF838A99)
-
-    // ---- Positive: "확인됨" — a verified fact, never merely "connected" ---------------
-    val PositiveLightFg = Color(0xFF0F6B4F)
-    val PositiveLightBg = Color(0xFFE3F5ED)
-    val PositiveLightBorder = Color(0xFFA2D8C1)
-    val PositiveDarkFg = Color(0xFF6FD3A7)
-    val PositiveDarkBg = Color(0xFF13342A)
-    val PositiveDarkBorder = Color(0xFF2E6B54)
-
-    // ---- Caution: "주의" — allowed to proceed, with a stated limitation ---------------
-    val CautionLightFg = Color(0xFF8A5A00)
-    val CautionLightBg = Color(0xFFFCF0DB)
-    val CautionLightBorder = Color(0xFFEACB92)
-    val CautionDarkFg = Color(0xFFF2BE68)
-    val CautionDarkBg = Color(0xFF382B12)
-    val CautionDarkBorder = Color(0xFF7A5A20)
-
-    // ---- Critical: "실패" — the action cannot or did not happen ----------------------
-    val CriticalLightFg = Color(0xFFB42318)
-    val CriticalLightBg = Color(0xFFFCEBE9)
-    val CriticalLightBorder = Color(0xFFEFB2AC)
-    val CriticalDarkFg = Color(0xFFFF9E95)
-    val CriticalDarkBg = Color(0xFF3B1D1B)
-    val CriticalDarkBorder = Color(0xFF80322C)
-
-    // ---- Informational: "안내" -------------------------------------------------------
-    val InfoLightFg = Color(0xFF1F6FA8)
-    val InfoLightBg = Color(0xFFEAF2FA)
-    val InfoLightBorder = Color(0xFFB7D3EC)
-
-    // ---- Pending: "처리 중" — a request was accepted, the result is not in yet --------
-    val PendingLightFg = Color(0xFF574AA6)
-    val PendingLightBg = Color(0xFFEEEBFA)
-    val PendingLightBorder = Color(0xFFC3B9EA)
-    val PendingDarkFg = Color(0xFFB7ACEF)
-    val PendingDarkBg = Color(0xFF272240)
-    val PendingDarkBorder = Color(0xFF524878)
-
-    // ---- Unknown: "미확인·오래됨" — we genuinely do not know. Not success, not failure --
-    val UnknownLightFg = Color(0xFF5E6676)
-    val UnknownLightBg = Color(0xFFEDF0F4)
-    val UnknownLightBorder = Color(0xFFC4CCD7)
-    val UnknownDarkFg = Color(0xFFAAB4C1)
-    val UnknownDarkBg = Color(0xFF262C35)
-    val UnknownDarkBorder = Color(0xFF4A5462)
 }

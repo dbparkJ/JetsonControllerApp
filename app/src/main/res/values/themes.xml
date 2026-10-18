@@ -7,7 +7,7 @@
       values-night/themes.xml supplies the dark canvas.
     -->
     <style name="Theme.JetsonController" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowSplashScreenBackground">#F3F5F8</item>
+        <item name="android:windowSplashScreenBackground">#EDF0F5</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
 </resources>

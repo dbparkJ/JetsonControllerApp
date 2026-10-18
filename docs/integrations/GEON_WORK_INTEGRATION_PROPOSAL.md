@@ -14,7 +14,7 @@ v0.3 · 2026-10-18 · v0.1 제안(2026-10-17)에 GEO& Work 세션의 회신(GEON
 | 페이로드 | `deviceId`·`runId`·`link` 필드는 추가하지 않습니다. 식별자와 측정값은 `details`에 `key=value` 줄로 넣습니다. 스키마에 없는 필드는 보내지 않습니다(GEO& Work가 버린 뒤 서명을 검사하므로 서명이 틀어짐). |
 | 링크 | GEO& Work 웹은 http/https만 링크로 만들고 앱 셸은 다른 scheme을 막습니다. `geoand://` 딥링크(J4)는 보류하고 양방향 단계에서 https App Links로 다시 설계합니다. |
 | 보드·티켓 | 소유자가 '데이터 수집 구간' 보드 티켓 ↔ 현장 앱 양방향 연동을 승인했습니다(J5~J7). GEO& Work 쪽 계약(boards scope, 행 조회·PATCH)이 오면 시작합니다. 원격 제어는 여전히 없습니다. |
-| 디자인 토큰 | 원본은 GEO& Work `apps/web/src/shared/ui/tokens.css`입니다. JSON 내보내기는 없으므로 main 커밋 SHA를 적고 복사합니다. 단추 체계가 바뀌는 중이라 GEO& Work의 다음 배포 뒤에 맞춥니다. |
+| 디자인 토큰 | 원본은 GEO& Work `apps/web/src/shared/ui/tokens.css`입니다. JSON 내보내기는 없으므로 main 커밋 SHA를 적고 복사합니다. 앱 색은 2026-10-18에 main 10d6f1af 기준으로 맞췄습니다([스타일 가이드](../design/STYLE_GUIDE.md)). 단추 체계는 바뀌는 중이라 GEO& Work의 다음 배포 뒤에 맞춥니다. |
 
 ## 2. 장치 이벤트: Jetson → 수신 서버
 

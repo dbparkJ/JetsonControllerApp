@@ -62,9 +62,12 @@ import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.TextButton
 
-/** Navy is reserved for the next-action band of the current device (plan §시각 규칙). */
-private val NextActionNavy = Color(0xFF1A2147)
-private val NextActionNavyMuted = Color(0xFFC9D0E6)
+/**
+ * Navy is reserved for the next-action band of the current device (plan §시각 규칙).
+ * GEO& Work rail navy and rail text (--color-rail, --color-rail-text), fixed in both themes.
+ */
+private val NextActionNavy = Color(0xFF121A3D)
+private val NextActionNavyMuted = Color(0xFFAEB9D9)
 private val SurfaceShape = RoundedCornerShape(12.dp)
 private val ControlShape = RoundedCornerShape(8.dp)
 
