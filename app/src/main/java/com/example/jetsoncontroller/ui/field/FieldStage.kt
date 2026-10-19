@@ -82,7 +82,9 @@ data class FieldStageInput(
     /** 마지막으로 장치 상태를 확인한 시각. "09:41" 형식. */
     val lastObservedLabel: String? = null,
     /** 등록은 돼 있지만 연결되지 않은 장치 수. */
-    val registeredDeviceCount: Int = 0
+    val registeredDeviceCount: Int = 0,
+    /** 실행 목록에서 관찰한 개수. 아직 한 실행의 id로 좁히지 못했을 수도 있습니다. */
+    val activeRunCount: Int = if (activeRunId == null) 0 else 1
 )
 
 /**
@@ -118,7 +120,7 @@ fun judgeFieldStage(input: FieldStageInput): FieldStage = when {
     input.unconfirmedRunId != null -> FieldStage.RUN_UNCONFIRMED
     input.connected && !input.runStateConfirmed -> FieldStage.RUN_UNCONFIRMED
     !input.connected -> FieldStage.NOT_CONNECTED
-    input.activeRunId != null -> FieldStage.COLLECTING
+    input.activeRunId != null || input.activeRunCount > 0 -> FieldStage.COLLECTING
     input.runAwaitingResultId != null -> FieldStage.NEEDS_RESULT
     !input.surveySelected -> FieldStage.NEEDS_SURVEY
     !input.preflightReady -> FieldStage.NEEDS_PREFLIGHT

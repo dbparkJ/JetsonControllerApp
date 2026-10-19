@@ -1,16 +1,7 @@
 package com.example.jetsoncontroller.ui.components
 
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,6 +9,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import com.example.jetsoncontroller.ui.components.geo.GeoSnackbar
+import com.example.jetsoncontroller.ui.components.geo.showGeoSnackbar
+import com.example.jetsoncontroller.ui.components.geo.snackbarAction
 
 /** Consume on timeout, dismissal, or navigation so completed operations never replay. */
 @Composable
@@ -31,27 +25,17 @@ fun OperationMessageHost(
     val dismissMessage by rememberUpdatedState(onDismissMessage)
     LaunchedEffect(message) {
         val shown = message ?: return@LaunchedEffect
+        val action = snackbarAction(actionLabel, onAction)
         try {
-            val result = host.showSnackbar(
+            val result = host.showGeoSnackbar(
                 shown,
-                actionLabel = actionLabel.takeIf { onAction != null },
-                withDismissAction = true,
-                duration = if (onAction != null) SnackbarDuration.Long else SnackbarDuration.Short
+                actionLabel = action?.label,
+                withDismissAction = true
             )
-            if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
+            if (result == SnackbarResult.ActionPerformed) action?.onClick?.invoke()
         } finally {
             dismissMessage(shown)
         }
     }
-    SnackbarHost(host) { data ->
-        Snackbar(
-            modifier = Modifier.testTag("operation-message"),
-            action = data.visuals.actionLabel?.let { label ->
-                { TextButton(onClick = { data.performAction() }) { Text(label) } }
-            },
-            dismissAction = {
-                IconButton(onClick = { data.dismiss() }) { Icon(Icons.Default.Close, "메시지 닫기") }
-            }
-        ) { Text(data.visuals.message) }
-    }
+    GeoSnackbar(host, Modifier.testTag("operation-message"))
 }

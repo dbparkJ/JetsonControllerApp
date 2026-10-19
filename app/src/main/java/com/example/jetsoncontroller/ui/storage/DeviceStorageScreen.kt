@@ -215,14 +215,7 @@ private fun ZoomableImagePreview(
 }
 
 internal fun formatSize(bytes: Long): String {
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    var value = bytes.toDouble()
-    var index = 0
-    while (value >= 1024 && index < units.lastIndex) {
-        value /= 1024
-        index++
-    }
-    return if (index == 0) "$bytes B" else "%.1f %s".format(value, units[index])
+    return com.example.jetsoncontroller.ui.model.Formats.size(bytes)
 }
 
 private const val MAX_PREVIEW_DIMENSION = 2048

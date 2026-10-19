@@ -943,8 +943,5 @@ private fun pipelineLogStartedLabel(file: PipelineLogFile): String = try {
 private fun pipelineLogFileLabel(file: PipelineLogFile): String =
     "${pipelineLogStartedLabel(file)} · ${formatPipelineLogSize(file.sizeBytes)}"
 
-private fun formatPipelineLogSize(bytes: Long): String = when {
-    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
-    else -> "$bytes B"
-}
+private fun formatPipelineLogSize(bytes: Long): String =
+    com.example.jetsoncontroller.ui.model.Formats.size(bytes)

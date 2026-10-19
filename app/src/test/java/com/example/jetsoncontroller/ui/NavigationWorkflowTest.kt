@@ -334,8 +334,8 @@ class NavigationWorkflowTest {
     }
 
     @Test
-    fun `the app starts on the device root and each tab opens its root`() {
-        assertEquals(Routes.DEVICES, startRoute())
+    fun `the app starts on work and each tab opens its root`() {
+        assertEquals(Routes.TASKS, startRoute())
         assertEquals(Routes.DEVICES, tabRoute(ControlSection.DEVICES))
         assertEquals(Routes.DEVICES, tabRoute(ControlSection.OVERVIEW))
         assertEquals(Routes.TASKS, tabRoute(ControlSection.TASKS))
@@ -359,7 +359,7 @@ class NavigationWorkflowTest {
             TabTap.RETURN_TO_TAB_ROOT,
             tabTap(Routes.ALERT_SETTINGS, tabRootInBackStack = true, Routes.SETTINGS)
         )
-        assertEquals(TabTap.RETURN_TO_TAB_ROOT, tabTap(Routes.SETTINGS, tabRootInBackStack = true, Routes.DEVICES))
+        assertEquals(TabTap.OPEN_TAB_ROOT, tabTap(Routes.SETTINGS, tabRootInBackStack = true, Routes.DEVICES))
     }
 
     @Test
@@ -374,8 +374,8 @@ class NavigationWorkflowTest {
     }
 
     @Test
-    fun `finished pairing returns to the device root`() {
-        assertEquals(Routes.DEVICES, deviceFlowExitRoute(DeviceFlowExit.PAIRING_READY))
+    fun `finished pairing returns to work`() {
+        assertEquals(Routes.TASKS, deviceFlowExitRoute(DeviceFlowExit.PAIRING_READY))
     }
 
     @Test

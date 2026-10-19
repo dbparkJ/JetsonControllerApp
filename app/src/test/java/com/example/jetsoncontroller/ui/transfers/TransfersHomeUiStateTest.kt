@@ -166,7 +166,7 @@ class TransfersHomeUiStateTest {
         assertNull(active.speedLabel)
         assertNull(active.remainingLabel)
         assertEquals(0.25f, active.progress ?: -1f, 0.0001f)
-        assertEquals("250 B / 1000 B", active.sentLabel)
+        assertEquals("250 B / 1.0 KB", active.sentLabel)
         assertEquals("보내는 중", active.stateLabel)
     }
 
@@ -243,7 +243,7 @@ class TransfersHomeUiStateTest {
         val row = buildTransfersHomeUiState(input(queue = listOf(job))).verified.single()
 
         assertEquals(StatusTone.SUCCESS, row.tone)
-        assertEquals("10월 14일 08:02 수신 확인 · 2.0 GB · 파일 3,410개", row.detail)
+        assertEquals("10월 14일 08:02 수신 확인 · 2.1 GB · 파일 3,410개", row.detail)
     }
 
     @Test

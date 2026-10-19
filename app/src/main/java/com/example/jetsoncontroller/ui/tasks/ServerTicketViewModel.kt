@@ -10,15 +10,20 @@ import com.example.jetsoncontroller.data.server.PendingTicketReport
 import com.example.jetsoncontroller.data.server.PendingTicketSelection
 import com.example.jetsoncontroller.data.server.ServerCapabilities
 import com.example.jetsoncontroller.data.server.ServerConnection
+import com.example.jetsoncontroller.data.server.ServerJob
+import com.example.jetsoncontroller.data.server.ServerReceipt
 import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.data.server.ServerTicketIntegration
 import com.example.jetsoncontroller.data.server.ServerTicketIntegrationState
 import com.example.jetsoncontroller.data.server.ServerTicketRequestException
 import com.example.jetsoncontroller.data.server.ServerProfileStore
+import com.example.jetsoncontroller.data.server.TicketCacheSnapshot
+import com.example.jetsoncontroller.data.server.TicketCacheStore
 import com.example.jetsoncontroller.data.server.TicketReportStore
 import com.example.jetsoncontroller.data.server.TicketRunLink
 import com.example.jetsoncontroller.data.server.ticketReportKey
 import com.example.jetsoncontroller.data.server.ticketReportResponseIsTerminal
+import com.example.jetsoncontroller.data.server.ticketReportTargetMatches
 import com.example.jetsoncontroller.data.storage.RecentServerJobsCache
 import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.model.TaskRun
@@ -51,7 +56,9 @@ internal data class ServerTicketUiState(
     val employeeRoles: Map<String, String> = emptyMap(),
     val isLoading: Boolean = false,
     val quietError: String? = null,
-    val reportMessages: Map<String, String> = emptyMap()
+    val reportMessages: Map<String, String> = emptyMap(),
+    val lastSyncedAt: String? = null,
+    val isCached: Boolean = false
 ) {
     val role: String? get() = capabilities?.employee?.role
     val displayName: String? get() = capabilities?.employee?.displayName
@@ -65,7 +72,8 @@ private data class CachedTicketSnapshot(
     val deviceUnit: String?,
     val selectedUnit: String?,
     val capabilities: ServerCapabilities?,
-    val integration: ServerTicketIntegration?
+    val integration: ServerTicketIntegration?,
+    val cachedAt: String
 )
 
 internal data class TicketPreparation(
@@ -78,7 +86,8 @@ internal data class TicketPreparation(
     val surveySectionId: String? = null
 ) {
     fun pendingSelection(): PendingTicketSelection? = pipelineId?.let {
-        PendingTicketSelection(profileId, ticket.rowId, ticket.title, ticket.project, ticket.unit, deviceId, it)
+        PendingTicketSelection(profileId, ticket.rowId, ticket.title, ticket.project, ticket.unit,
+            deviceId, it, ticketRevision = ticket.revision)
     }
 }
 
@@ -151,6 +160,7 @@ internal fun ticketPreparationContextMatches(preparation: TicketPreparation, pro
 internal class ServerTicketViewModel(context: Context) : ViewModel() {
     private val cache = RecentServerJobsCache(context.noBackupFilesDir.resolve("server-job-cache"))
     private val profiles = ServerProfileStore(context, cache)
+    private val ticketCache = TicketCacheStore(context.noBackupFilesDir.resolve("ticket-cache.json"))
     private val reportStore = TicketReportStore(context.filesDir.resolve("ticket-reports.json"), Gson())
     private val preparationStore = TicketPreparationStore(context.filesDir.resolve("ticket-preparation.json"))
     private val _preparation = MutableStateFlow(preparationStore.read())
@@ -165,19 +175,42 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
     fun selectUnit(unit: String?) {
         val current = _uiState.value.copy(selectedUnit = unit)
         _uiState.value = current
-        val profileId = current.profileId ?: return
-        val deviceId = current.deviceId ?: return
-        val credentialRevision = current.credentialRevision ?: return
-        snapshotsByScope[ticketScopeKey(profileId, deviceId)] = CachedTicketSnapshot(
-            credentialRevision,
-            current.tickets,
-            current.units,
-            current.deviceUnit,
-            unit,
-            current.capabilities,
-            current.integration
-        )
+        current.lastSyncedAt?.let { persistTicketSnapshot(current, it) }
     }
+
+    private fun persistTicketSnapshot(state: ServerTicketUiState, cachedAt: String) {
+        val profileId = state.profileId ?: return
+        val deviceId = state.deviceId ?: return
+        runCatching {
+            ticketCache.save(TicketCacheSnapshot(
+                profileId = profileId,
+                deviceId = deviceId,
+                tickets = state.tickets,
+                units = state.units,
+                deviceUnit = state.deviceUnit,
+                selectedUnit = state.selectedUnit,
+                capabilities = state.capabilities,
+                integration = state.integration,
+                cachedAt = cachedAt
+            ))
+        }
+    }
+
+    private fun ticketCacheState(snapshot: TicketCacheSnapshot): ServerTicketUiState = ServerTicketUiState(
+        profileId = snapshot.profileId,
+        deviceId = snapshot.deviceId,
+        tickets = snapshot.tickets,
+        units = snapshot.units,
+        deviceUnit = snapshot.deviceUnit,
+        selectedUnit = snapshot.selectedUnit,
+        integration = snapshot.integration,
+        capabilities = snapshot.capabilities,
+        lastSyncedAt = snapshot.cachedAt,
+        isCached = true
+    )
+
+    private fun ticketCacheStatusCopy(timestamp: String): String? =
+        formatTaskTime(timestamp)?.let { "마지막 동기화 $it" }
 
     fun refresh(profileId: String, deviceId: String) {
         if (profileId.isBlank() || deviceId.isBlank()) return
@@ -186,9 +219,22 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
             val previous = _uiState.value
             val scopeKey = ticketScopeKey(profileId, deviceId)
             val sameScope = previous.profileId == profileId && previous.deviceId.equals(deviceId, ignoreCase = true)
-            val cached = snapshotsByScope[scopeKey]
+            val memoryCached = snapshotsByScope[scopeKey]
+            val diskCached = ticketCache.read(profileId, deviceId)
+            val cached = memoryCached ?: diskCached?.let {
+                CachedTicketSnapshot(
+                    credentialRevision = "",
+                    tickets = it.tickets,
+                    units = it.units,
+                    deviceUnit = it.deviceUnit,
+                    selectedUnit = it.selectedUnit,
+                    capabilities = it.capabilities,
+                    integration = it.integration,
+                    cachedAt = it.cachedAt
+                ).also { snapshot -> snapshotsByScope[scopeKey] = snapshot }
+            }
             val scoped = when {
-                sameScope -> previous
+                sameScope && previous.lastSyncedAt != null -> previous
                 cached != null -> previous.copy(
                     profileId = profileId,
                     deviceId = deviceId,
@@ -199,9 +245,12 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                     selectedUnit = cached.selectedUnit,
                     capabilities = cached.capabilities,
                     integration = cached.integration,
+                    lastSyncedAt = cached.cachedAt,
+                    isCached = true,
                     reportMessages = emptyMap(),
                     quietError = null
                 )
+                sameScope -> previous
                 else -> ServerTicketUiState(
                     profileId = profileId,
                     deviceId = deviceId,
@@ -220,7 +269,8 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                 val responseUnits = response.units.orEmpty()
                 val current = _uiState.value
                 val preserveSelection = (sameScope || cached != null) &&
-                    current.credentialRevision == connection.credentialRevision
+                    (current.credentialRevision.isNullOrBlank() ||
+                        current.credentialRevision == connection.credentialRevision)
                 val selected = if (preserveSelection &&
                     (current.selectedUnit == null || current.selectedUnit in responseUnits)
                 ) current.selectedUnit else defaultTicketUnit(response.deviceUnit, responseUnits)
@@ -230,6 +280,7 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                 }.toMap()
                 conflictMessages.keys.forEach(reportStore::markConflict)
                 val employeeRoles = current.employeeRoles + (profileId to capabilities.employee.role)
+                val syncedAt = Instant.now().toString()
                 snapshotsByScope[scopeKey] = CachedTicketSnapshot(
                     credentialRevision = connection.credentialRevision,
                     tickets = responseTickets,
@@ -237,7 +288,8 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                     deviceUnit = response.deviceUnit,
                     selectedUnit = selected,
                     capabilities = capabilities,
-                    integration = response.integration
+                    integration = response.integration,
+                    cachedAt = syncedAt
                 )
                 _uiState.value = current.copy(
                     profileId = profileId,
@@ -260,8 +312,11 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                             ?.take(160) ?: "GEO& Work 연동 상태를 확인해 주세요."
                         ServerTicketIntegrationState.UNKNOWN -> "GEO& Work 연동 상태를 확인할 수 없습니다."
                     },
-                    reportMessages = current.reportMessages + conflictMessages
+                    reportMessages = current.reportMessages + conflictMessages,
+                    lastSyncedAt = syncedAt,
+                    isCached = false
                 )
+                persistTicketSnapshot(_uiState.value, syncedAt)
                 if (conflictMessages.isNotEmpty()) {
                     reportStore.pendingReports()
                         .filter { it.rowId in conflictMessages.keys }
@@ -273,13 +328,17 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
             } catch (_: Throwable) {
                 val current = _uiState.value
                 val same = current.profileId == profileId && current.deviceId.equals(deviceId, true)
-                _uiState.value = (if (same) current else ServerTicketUiState(
+                val fallback = (if (same) current else ServerTicketUiState(
                     profileId = profileId, deviceId = deviceId,
                     employeeRoles = current.employeeRoles
                 )).copy(
                     isLoading = false,
-                    quietError = "티켓 목록을 새로고침하지 못했습니다. 저장된 목록을 표시합니다."
+                    isCached = same && current.lastSyncedAt != null,
+                    quietError = if (same) current.lastSyncedAt?.let(::ticketCacheStatusCopy)
+                        ?: "티켓 목록을 새로고침하지 못했습니다. 저장된 목록을 표시합니다."
+                    else "티켓 목록을 새로고침하지 못했습니다. 저장된 목록을 표시합니다."
                 )
+                _uiState.value = fallback
                 retryPendingReports()
             }
         }
@@ -423,7 +482,8 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                         runId = runId,
                         deviceId = link.deviceId,
                         profileId = link.profileId,
-                        createdAt = Instant.now().toString()
+                        createdAt = Instant.now().toString(),
+                        ticketRevision = link.ticketRevision
                     )
                     reportStore.enqueue(report)
                     sendPending(report)
@@ -439,13 +499,18 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
 
     fun linkForRun(runId: String, deviceId: String): TicketRunLink? {
         return try {
-            reportStore.link(runId)?.let { return it }
-            val ticket = _uiState.value.tickets.firstOrNull { it.runId == runId } ?: return null
+            val existing = reportStore.link(runId)
+            if (existing != null && !existing.deviceId.equals(deviceId, ignoreCase = true)) return null
+            if (existing?.ticketRevision != null) return existing
+            if (!_uiState.value.deviceId.equals(deviceId, ignoreCase = true)) return existing
+            val ticket = _uiState.value.tickets.firstOrNull {
+                it.runId == runId && (existing == null || it.rowId == existing.rowId)
+            } ?: return existing
             reportStore.saveServerRunLink(
-                _uiState.value.profileId ?: return null,
+                existing?.profileId ?: _uiState.value.profileId ?: return null,
                 deviceId,
                 ticket
-            )
+            ) ?: existing
         } catch (_: Throwable) {
             null
         }
@@ -461,13 +526,34 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                         ticketStartRejected(run.runId) ||
                         reportStore.pendingReports().any { it.key == key }
                     ) return@withLock
+                    if (link.ticketRevision.isNullOrBlank()) {
+                        setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
+                        return@withLock
+                    }
+                    val connection = profiles.connection(link.profileId) ?: return@withLock
+                    val repo = repository(connection)
+                    val currentTicket = repo.tickets(link.deviceId, status = "all").getOrThrow()
+                        .tickets.orEmpty().singleOrNull { it.rowId == link.rowId }
+                    if (currentTicket == null || currentTicket.revision.isNullOrBlank() ||
+                        ticketConflictCopy(currentTicket) != null
+                    ) {
+                        setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
+                        return@withLock
+                    }
+                    val receipt = findVerifiedReceipt(repo, run)
+                    if (receipt == null) {
+                        setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
+                        return@withLock
+                    }
                     val report = PendingTicketReport(
                         key = key,
                         rowId = link.rowId,
                         runId = run.runId,
                         deviceId = link.deviceId,
                         profileId = link.profileId,
-                        createdAt = Instant.now().toString()
+                        createdAt = Instant.now().toString(),
+                        ticketRevision = currentTicket.revision,
+                        receiptId = receipt.sessionId
                     )
                     reportStore.enqueue(report)
                     sendPending(report)
@@ -475,7 +561,7 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                setReportMessage(link.rowId, "티켓 완료 보고를 저장하지 못했습니다.")
+                setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
             }
         }
     }
@@ -560,6 +646,28 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
             }
             val connection = profiles.connection(report.profileId) ?: return
             val repo = repository(connection)
+            val isCompletion = report.key.endsWith(":completed")
+            val currentTicket = repo.tickets(report.deviceId, status = "all").getOrThrow()
+                .tickets.orEmpty().singleOrNull { it.rowId == report.rowId }
+            val receipt = if (isCompletion && !report.receiptId.isNullOrBlank()) {
+                repo.receipt(report.receiptId).getOrThrow()
+            } else null
+            val targetMatches = (!isCompletion || !report.receiptId.isNullOrBlank()) &&
+                ticketReportTargetMatches(
+                    target = report.target(),
+                    profileId = connection.profile.profileId,
+                    ticket = currentTicket,
+                    runId = report.runId,
+                    deviceId = report.deviceId,
+                    receiptId = report.receiptId,
+                    receipt = receipt,
+                    requireReceipt = isCompletion
+                ) && currentTicket?.let { ticketConflictCopy(it) } == null
+            if (!targetMatches) {
+                reportStore.applyResponse(report.key, 409, "REPORT_TARGET_CHANGED")
+                setReportMessage(report.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
+                return
+            }
             val result = if (report.key.endsWith(":completed")) {
                 repo.completeTicket(report.rowId, report.runId)
             } else {
@@ -585,6 +693,27 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
         }
     }
 
+    private suspend fun findVerifiedReceipt(
+        repo: DirectServerRepository,
+        run: PipelineRun
+    ): ServerReceipt? {
+        var offset = 0
+        while (true) {
+            val page = repo.jobs(offset = offset, limit = 100).getOrThrow().response
+            val candidates = page.jobs.filter { serverJobMatchesRun(it, run) }
+                .sortedByDescending { it.completedAt ?: it.updatedAt }
+            for (job in candidates) {
+                val receiptResult = repo.receipt(job.sessionId)
+                receiptResult.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+                val receipt = receiptResult.getOrNull() ?: continue
+                if (serverReceiptMatchesRun(job, receipt, run)) return receipt
+            }
+            val nextOffset = page.nextOffset ?: return null
+            if (nextOffset <= offset) return null
+            offset = nextOffset
+        }
+    }
+
     private fun repository(connection: ServerConnection): DirectServerRepository = DirectServerRepository(
         DirectServerApiFactory.create(connection.profile, connection.employeeToken),
         connection.profile,
@@ -594,11 +723,13 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
 
     private fun markTicketInProgress(rowId: String) {
         val current = _uiState.value
-        _uiState.value = current.copy(tickets = current.tickets.map { ticket ->
+        val updated = current.copy(tickets = current.tickets.map { ticket ->
             if (ticket.rowId == rowId) ticket.copy(
                 status = ticket.status?.copy(name = "진행 중", category = "IN_PROGRESS")
             ) else ticket
         })
+        _uiState.value = updated
+        updated.lastSyncedAt?.let { persistTicketSnapshot(updated, it) }
     }
 
     private fun setReportMessage(rowId: String, message: String) {
@@ -619,11 +750,36 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
 private fun ticketScopeKey(profileId: String, deviceId: String): String =
     "$profileId|${deviceId.lowercase(java.util.Locale.ROOT)}"
 
+private fun serverJobMatchesRun(job: ServerJob, run: PipelineRun): Boolean =
+    job.state.equals("COMPLETED", ignoreCase = true) &&
+        job.deviceId.equals(run.deviceId, ignoreCase = true) &&
+        uploadContextMatches(run.uploadContext, job.surveyContext)
+
+private fun serverReceiptMatchesRun(job: ServerJob, receipt: ServerReceipt, run: PipelineRun): Boolean =
+    receipt.sessionId == job.sessionId && receipt.clientJobId == job.clientJobId &&
+        receipt.projectId == job.projectId && receipt.sourceName == job.sourceName &&
+        receipt.state.equals("COMPLETED", ignoreCase = true) && receipt.matched &&
+        uploadContextMatches(run.uploadContext, receipt.surveyContext)
+
+private fun uploadContextMatches(
+    expected: com.example.jetsoncontroller.model.UploadContext,
+    actual: com.example.jetsoncontroller.model.UploadContext?
+): Boolean = actual != null &&
+    actual.runId == expected.runId &&
+    actual.deviceId.equals(expected.deviceId, ignoreCase = true) &&
+    actual.pipelineId == expected.pipelineId &&
+    actual.surveyProjectId == expected.surveyProjectId &&
+    actual.surveySectionId == expected.surveySectionId &&
+    actual.sourceRevision == expected.sourceRevision &&
+    actual.configSha256 == expected.configSha256 &&
+    actual.outputId == expected.outputId
+
 internal fun ticketReportErrorCopy(code: String?): String = when (code) {
     "TICKET_NOT_OPEN" -> "티켓이 열린 상태가 아닙니다. GEO& Work에서 확인해 주세요."
     "TICKET_IN_PROGRESS" -> "다른 수집이 진행 중입니다. GEO& Work에서 확인해 주세요."
     "TICKET_BLOCKED" -> TICKET_BLOCKED_COPY
     "UPLOAD_NOT_CONFIRMED" -> "서버 수신 확인 뒤에 완료를 보고할 수 있습니다. 티켓은 '진행 중'으로 둡니다."
     "HUMAN_CHANGED" -> "다른 사람이 먼저 바꿨습니다. GEO& Work에서 확인해 주세요."
+    "REPORT_TARGET_CHANGED" -> "티켓 또는 서버 수신 정보가 바뀌었습니다. GEO& Work에서 확인해 주세요."
     else -> code?.let { "티켓 보고를 처리하지 못했습니다. ($it)" } ?: "티켓 보고를 처리하지 못했습니다."
 }

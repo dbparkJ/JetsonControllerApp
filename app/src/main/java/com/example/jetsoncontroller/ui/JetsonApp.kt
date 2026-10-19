@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.ui
 
 import android.net.Uri
+import com.example.jetsoncontroller.ui.navigation.*
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoAppShell
 import com.example.jetsoncontroller.ui.components.ConnectionRecoveryLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -13,15 +15,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.NavType
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
-import androidx.navigation.navArgument
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.data.alerts.AlertDestination
 import com.example.jetsoncontroller.data.alerts.AlertHistoryStore
@@ -31,15 +29,10 @@ import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.data.transport.canStartServerUpload
 import com.example.jetsoncontroller.data.transport.serverUploadUnavailableMessage
-import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
 import com.example.jetsoncontroller.ui.alerts.AlertCenterViewModel
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
-import com.example.jetsoncontroller.ui.devices.DeviceListScreen
 import com.example.jetsoncontroller.ui.devices.DeviceListViewModel
-import com.example.jetsoncontroller.ui.devices.DeviceDetailScreen
-import com.example.jetsoncontroller.ui.devices.DevicesHomeScreen
-import com.example.jetsoncontroller.ui.devices.formatFreshness
 import com.example.jetsoncontroller.ui.devices.formatSeenAt
 import com.example.jetsoncontroller.ui.devices.shouldRecordSnapshot
 import com.example.jetsoncontroller.ui.devices.snapshotFromStatus
@@ -51,158 +44,27 @@ import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.ui.components.StatusTone
 import androidx.compose.runtime.rememberUpdatedState
-import com.example.jetsoncontroller.ui.pairing.PairingScreen
 import com.example.jetsoncontroller.ui.pairing.PairingViewModel
-import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
 import com.example.jetsoncontroller.ui.pairing.PairingPhase
-import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
-import com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingScreen
-import com.example.jetsoncontroller.ui.network.NetworkSettingsScreen
 import com.example.jetsoncontroller.ui.network.NetworkSettingsViewModel
-import com.example.jetsoncontroller.ui.wifi.WifiDirectScreen
 import com.example.jetsoncontroller.ui.wifi.WifiDirectViewModel
-import com.example.jetsoncontroller.ui.storage.DeviceStorageScreen
 import com.example.jetsoncontroller.ui.storage.DeviceStorageViewModel
-import com.example.jetsoncontroller.ui.storage.ServerStorageScreen
 import com.example.jetsoncontroller.ui.storage.ServerStorageViewModel
-import com.example.jetsoncontroller.ui.upload.UploadConfirmScreen
-import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
-import com.example.jetsoncontroller.ui.upload.UploadQueueScreen
-import com.example.jetsoncontroller.ui.upload.UploadTargetSettingsScreen
 import com.example.jetsoncontroller.ui.upload.UploadViewModel
-import com.example.jetsoncontroller.ui.pipelines.PipelineEditorScreen
-import com.example.jetsoncontroller.ui.pipelines.PipelineConfigScreen
-import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
-import com.example.jetsoncontroller.ui.pipelines.PipelineLogScreen
-import com.example.jetsoncontroller.ui.pipelines.PipelinePickerScreen
 import com.example.jetsoncontroller.ui.pipelines.PipelineViewModel
-import com.example.jetsoncontroller.ui.survey.SurveyRunScreen
 import com.example.jetsoncontroller.ui.survey.SurveyRunViewModel
-import com.example.jetsoncontroller.ui.sensors.SensorScreen
-import com.example.jetsoncontroller.ui.sensors.CameraPreviewScreen
 import com.example.jetsoncontroller.ui.sensors.CameraPreviewViewModel
-import com.example.jetsoncontroller.ui.sensors.GnssMapScreen
-import com.example.jetsoncontroller.ui.settings.AlertSettingsScreen
-import com.example.jetsoncontroller.ui.diagnostics.ConnectionDiagnosticsScreen
 import com.example.jetsoncontroller.ui.settings.AlertSettingsViewModel
 import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.ControlNavigationBar
-import com.example.jetsoncontroller.ui.components.ControlNavigationRail
-import com.example.jetsoncontroller.ui.components.LocalControlNavigationRailVisible
 import com.example.jetsoncontroller.ui.components.NoticeDismissalProvider
 import com.example.jetsoncontroller.ui.settings.rememberDeveloperModePreference
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
-internal object Routes {
-
-    const val CONNECTION_HUB =
-        "connection_hub"
-
-    const val ONBOARDING =
-        "onboarding"
-
-    const val DEVICES_BLE =
-        "devices_ble"
-
-    const val QR_SCANNER =
-        "qr_scanner"
-
-    const val PAIRING =
-        "pairing"
-
-    const val WIFI_DIRECT =
-        "wifi_direct"
-
-    /** 장치 root: the start destination and the return point of every device flow. */
-    const val DEVICES =
-        "devices"
-
-    const val DEVICE_DETAIL =
-        "device_detail"
-
-    /** 작업 root: pinned field collection, the running card, recent receipts, other tasks. */
-    const val TASKS = "tasks"
-
-    /** 전송 root: uploads in progress, queued, failed and confirmed by the server. */
-    const val TRANSFERS = "transfers"
-
-    /** Read-only task detail for normal operators. */
-    const val TASK_DETAIL = "task_detail/{pipelineId}"
-    const val TICKET_DETAIL = "ticket_detail/{rowId}"
-
-    const val NETWORK_SETTINGS =
-        "network_settings"
-        
-    const val STORAGE = "storage"
-
-    const val SERVER_STORAGE = "server_storage"
-    const val SERVER_PROXY_STORAGE = "server_proxy_storage"
-
-    const val STORAGE_ROUTE =
-        "storage?rootId={rootId}&path={path}"
-
-    const val UPLOAD_CONFIRM =
-        "upload_confirm/{rootId}?path={path}&runId={runId}"
-        
-    const val UPLOAD_PROGRESS =
-        "upload_progress"
-
-    const val UPLOAD_QUEUE =
-        "upload_queue"
-
-    const val UPLOAD_SERVERS =
-        "upload_servers"
-
-    const val PIPELINES =
-        "pipelines"
-    const val TASK_HISTORY = "task_history"
-
-    const val PIPELINE_EDITOR =
-        "pipeline_editor"
-
-    const val PIPELINE_PICKER =
-        "pipeline_picker"
-
-    const val PIPELINE_LOGS =
-        "pipeline_logs/{pipelineId}"
-
-    const val PIPELINE_CONFIG =
-        "pipeline_config/{pipelineId}"
-
-    const val SENSORS = "sensors"
-
-    const val CAMERA_PREVIEW = "camera_preview"
-
-    const val GNSS_MAP = "gnss_map"
-
-    const val SETTINGS = "settings"
-    const val ADMIN_TOOLS = "admin_tools"
-    const val ALERT_SETTINGS = "alert_settings"
-    const val DATA = "data_hub"
-    const val LOCAL_TRASH = "local_trash"
-    const val PIPELINE_DETAIL = "pipeline_detail/{pipelineId}"
-    const val SURVEY_RUN = "survey_run/{pipelineId}"
-
-    // 업무 단계형 IA에서 새로 생긴 두 목적지.
-    // 이전 구조에는 '진행 중인 수집' 과 '종료 후 결과 요약' 에 해당하는 라우트가 없어서,
-    // 시작을 누른 직원이 갈 곳이 작업 목록밖에 없었습니다.
-    const val ACTIVE_RUN = "active_run"
-    const val RUN_RESULT = "run_result/{runId}?deviceId={deviceId}&pipelineId={pipelineId}&historyId={historyId}"
-    const val HISTORY_RESULT = "history_result/{historyId}?deviceId={deviceId}"
-
-    const val DIAGNOSTICS = "connection_diagnostics"
-
-    const val ALERTS = "alerts"
-}
+internal typealias Routes = com.example.jetsoncontroller.ui.navigation.Routes
 
 private val routesRequiringDeviceConnection = setOf(
     Routes.NETWORK_SETTINGS,
@@ -235,21 +97,6 @@ private val developerOnlyRoutes = setOf(
     "developer"
 )
 
-private val routesWithPrimaryNavigation = setOf(
-    Routes.DEVICES,
-    Routes.TASKS,
-    Routes.TRANSFERS,
-    Routes.DATA,
-    Routes.SETTINGS,
-    Routes.PIPELINES,
-    Routes.TASK_HISTORY,
-    Routes.SENSORS,
-    Routes.SURVEY_RUN,
-    Routes.ACTIVE_RUN,
-    Routes.RUN_RESULT,
-    Routes.HISTORY_RESULT
-)
-
 internal fun routeAllowed(route: String?, developerModeEnabled: Boolean): Boolean =
     developerModeEnabled || route !in developerOnlyRoutes
 
@@ -258,45 +105,77 @@ internal fun developerRevocationDestination(
     developerModeEnabled: Boolean
 ): String? = if (routeAllowed(route, developerModeEnabled)) null else Routes.SETTINGS
 
-/** Every return to the device root goes through here, so the back stack never keeps a stale connection hub. */
+/** Device cross-links stay on the originating tab; only tab taps switch graphs. */
 internal fun navigateToDeviceRoot(navController: NavHostController) {
-    navController.navigate(Routes.DEVICES) {
-        popUpTo(Routes.DEVICES) { inclusive = false }
-        launchSingleTop = true
-    }
+    if (currentTabRoot(navController) == Routes.DEVICES) {
+        navController.popBackStack(Routes.DEVICES, inclusive = false)
+    } else navController.navigateSingle(Routes.DEVICE_BROWSE)
 }
 
-/** What a tab tap does from the current screen. */
 internal enum class TabTap { STAY, RETURN_TO_TAB_ROOT, OPEN_TAB_ROOT }
 
-/**
- * Re-tapping the open tab does nothing, and tapping it from one of its sub-screens returns to
- * the existing root. Neither recreates the root: a duplicate entry was composed beside the old one
- * during the transition, and the settings root crashed on the second tap.
- */
-internal fun tabTap(currentRoute: String?, tabRootInBackStack: Boolean, tabRoute: String): TabTap = when {
+internal fun tabTap(
+    currentRoute: String?,
+    tabRootInBackStack: Boolean,
+    tabRoute: String,
+    currentTabRoute: String? = when (currentRoute) {
+        Routes.DEVICES, Routes.TASKS, Routes.TRANSFERS, Routes.SETTINGS -> currentRoute
+        else -> null
+    }
+): TabTap = when {
     currentRoute == tabRoute -> TabTap.STAY
+    currentTabRoute != null && currentTabRoute != tabRoute -> TabTap.OPEN_TAB_ROOT
     tabRootInBackStack -> TabTap.RETURN_TO_TAB_ROOT
     else -> TabTap.OPEN_TAB_ROOT
 }
 
-/** Opens a tab root. Each tab root sits directly above the device root, so re-tapping a tab returns to it. */
 internal fun navigateToTab(navController: NavHostController, route: String) {
+    require(route in primaryTabRoutes)
     val inBackStack = runCatching { navController.getBackStackEntry(route) }.isSuccess
-    when (tabTap(navController.currentBackStackEntry?.destination?.route, inBackStack, route)) {
+    when (tabTap(navController.currentDestination?.route, inBackStack, route, currentTabRoot(navController))) {
         TabTap.STAY -> Unit
         TabTap.RETURN_TO_TAB_ROOT -> navController.popBackStack(route, inclusive = false)
-        TabTap.OPEN_TAB_ROOT -> navController.navigate(route) {
-            popUpTo(Routes.DEVICES) { inclusive = false }
-            launchSingleTop = true
-            restoreState = false
+        TabTap.OPEN_TAB_ROOT -> navController.navigateSingle(tabGraphRoute(route)) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            restoreState = true
         }
     }
 }
 
-/** Opens a screen once: a second tap on the same entry does not stack a duplicate on the back stack. */
-internal fun NavHostController.navigateSingle(route: String) {
-    navigate(route) { launchSingleTop = true }
+internal fun NavHostController.navigateSingle(
+    route: String,
+    options: androidx.navigation.NavOptionsBuilder.() -> Unit = {}
+) {
+    navigate(route) { options(); launchSingleTop = true }
+}
+
+/** Back from another root returns to the work root, including the zero-device scene. */
+internal fun navigateToWorkRoot(navController: NavHostController) {
+    val graph = navController.graph.findNode(tabGraphRoute(Routes.TASKS)) as androidx.navigation.NavGraph
+    val root = graph.startDestinationRoute ?: Routes.TASKS
+    navigateToTab(navController, Routes.TASKS)
+    if (!navController.popBackStack(root, inclusive = false) &&
+        navController.currentDestination?.route != root) {
+        navController.navigateSingle(root) {
+            popUpTo(tabGraphRoute(Routes.TASKS)) { inclusive = false }
+        }
+    }
+}
+
+internal fun completeDeviceRegistration(navController: NavHostController) {
+    (navController.graph.findNode(tabGraphRoute(Routes.TASKS)) as androidx.navigation.NavGraph)
+        .setStartDestination(Routes.TASKS)
+    navController.clearBackStack(tabGraphRoute(Routes.TASKS))
+    navController.navigateSingle(tabGraphRoute(Routes.TASKS)) {
+        popUpTo(navController.graph.id) { inclusive = false }
+    }
+}
+
+internal fun navigateToSettingsRoot(navController: NavHostController) {
+    // Do not save a revoked developer destination and restore it on the next tab tap.
+    navController.popBackStack(currentTabRoot(navController), inclusive = false)
+    navigateToTab(navController, Routes.SETTINGS)
+    navController.popBackStack(Routes.SETTINGS, inclusive = false)
 }
 
 /** The route each primary tab opens. */
@@ -307,8 +186,8 @@ internal fun tabRoute(section: ControlSection): String = when (section.tab()) {
     else -> Routes.DEVICES
 }
 
-/** The start destination. The app always opens on the device root. */
-internal fun startRoute(): String = Routes.DEVICES
+/** 작업 is the registered-device start destination. */
+internal fun startRoute(): String = Routes.TASKS
 
 /** The places a device flow can end, and the route each one returns to. */
 internal enum class DeviceFlowExit {
@@ -320,8 +199,8 @@ internal enum class DeviceFlowExit {
 }
 
 internal fun deviceFlowExitRoute(exit: DeviceFlowExit): String = when (exit) {
+    DeviceFlowExit.PAIRING_READY -> Routes.TASKS
     DeviceFlowExit.CONNECTION_COMPLETED,
-    DeviceFlowExit.PAIRING_READY,
     DeviceFlowExit.PAIRING_CANCELLED,
     DeviceFlowExit.DETAIL_DISCONNECTED,
     DeviceFlowExit.DETAIL_BACK -> Routes.DEVICES
@@ -367,7 +246,6 @@ internal fun connectionNoticeFor(
         ConnectionNotice("장치 연결을 기다리고 있습니다. $outcome", StatusTone.WARNING)
     }
 }
-
 
 @Composable
 fun JetsonApp(
@@ -543,7 +421,8 @@ fun JetsonApp(
     val ticketPreparation by serverTicketViewModel.preparation.collectAsStateWithLifecycle()
     val runResultState by surveyRunViewModel.resultState.collectAsStateWithLifecycle()
     val resultLogState by surveyRunViewModel.resultLog.collectAsStateWithLifecycle()
-    val latestTicketProfileId by rememberUpdatedState(directServerState.selectedProfileId)
+    val latestTicketProfileIdState = rememberUpdatedState(directServerState.selectedProfileId)
+    val latestTicketProfileId by latestTicketProfileIdState
     val serverStorageState by serverStorageViewModel.uiState.collectAsStateWithLifecycle()
     val localTrashState by localTrashViewModel.state.collectAsStateWithLifecycle()
             
@@ -590,7 +469,8 @@ fun JetsonApp(
 
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
-    var pendingDashboardTransport by remember { mutableStateOf<TransportType?>(null) }
+    val pendingDashboardTransportState = remember { mutableStateOf<TransportType?>(null) }
+    var pendingDashboardTransport by pendingDashboardTransportState
     val connectedTransportType =
         (transportState as? TransportState.Connected)?.type
     val serverUploadEnabled = canStartServerUpload(connectedTransportType)
@@ -599,7 +479,8 @@ fun JetsonApp(
         connectedTransportType == TransportType.WIFI_DIRECT
 
     val selectedDeviceId by repository.selectedDeviceId.collectAsStateWithLifecycle()
-    val latestSelectedDeviceId by rememberUpdatedState(selectedDeviceId)
+    val latestSelectedDeviceIdState = rememberUpdatedState(selectedDeviceId)
+    val latestSelectedDeviceId by latestSelectedDeviceIdState
     // Do not briefly label A's retained state as B while ViewModel collectors switch workspaces.
     val pipelineState = rawPipelineState.takeIf { it.deviceId.equals(selectedDeviceId, true) }
         ?: com.example.jetsoncontroller.ui.pipelines.PipelineUiState(deviceId = selectedDeviceId)
@@ -710,19 +591,16 @@ fun JetsonApp(
                 System.currentTimeMillis()
             )
         ) != null
-    var requestedMapHistoryEntryId by androidx.compose.runtime.saveable.rememberSaveable(selectedDeviceId) {
+    val requestedMapHistoryEntryIdState = androidx.compose.runtime.saveable.rememberSaveable(selectedDeviceId) {
         mutableStateOf<String?>(null)
     }
-    var requestedMapActiveRunId by androidx.compose.runtime.saveable.rememberSaveable(selectedDeviceId) {
+    val requestedMapActiveRunIdState = androidx.compose.runtime.saveable.rememberSaveable(selectedDeviceId) {
         mutableStateOf<String?>(null)
     }
 
     LaunchedEffect(developerModeEnabled, currentRoute) {
-        developerRevocationDestination(currentRoute, developerModeEnabled)?.let { destination ->
-            navController.navigate(destination) {
-                popUpTo(Routes.DEVICES) { inclusive = false }
-                launchSingleTop = true
-            }
+        developerRevocationDestination(currentRoute, developerModeEnabled)?.let {
+            navigateToSettingsRoot(navController)
         }
     }
 
@@ -780,7 +658,6 @@ fun JetsonApp(
         }
     }
 
-
     LaunchedEffect(
         bluetoothPermissionGranted
     ) {
@@ -804,19 +681,11 @@ fun JetsonApp(
         )
     }
 
-
     LaunchedEffect(transportState, pendingDashboardTransport) {
         if (connectionAttemptCompleted(pendingDashboardTransport, transportState)) {
             pendingDashboardTransport = null
-            navController.navigate(
-                Routes.DEVICES
-            ) {
-
-                popUpTo(Routes.DEVICES) {
-                    inclusive = false
-                }
-                launchSingleTop =
-                    true
+            if (currentRoute in setOf(Routes.WIFI_DIRECT, Routes.DEVICES_BLE, Routes.CONNECTION_HUB)) {
+                navController.popBackStack()
             }
         }
     }
@@ -831,12 +700,7 @@ fun JetsonApp(
 
     LaunchedEffect(pairingState.phase, currentRoute) {
         if (pairingState.phase == PairingPhase.READY && currentRoute == Routes.PAIRING) {
-            navController.navigate(Routes.DEVICES) {
-                popUpTo(Routes.DEVICES) {
-                    inclusive = false
-                }
-                launchSingleTop = true
-            }
+            completeDeviceRegistration(navController)
         }
     }
 
@@ -896,7 +760,6 @@ fun JetsonApp(
         onDispose { ticketLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-
     val connectionNotice = connectionNoticeFor(
         route = currentRoute,
         fullControlConnected = fullControlConnected,
@@ -904,1612 +767,127 @@ fun JetsonApp(
         registrationRequired = deviceState.connectionState is ConnectionState.RegistrationRequired,
         hasRegisteredDevice = deviceState.registeredDevices.isNotEmpty()
     )
-    NoticeDismissalProvider {
-    ConnectionRecoveryLayout(
-        deviceId = selectedDeviceId,
-        connectionAvailable = fullControlConnected,
-        message = connectionNotice?.message,
-        tone = connectionNotice?.tone ?: StatusTone.WARNING,
-        onResolveConnection = { navigateToDeviceRoot(navController) }
-    ) { screenModifier ->
-    Box(screenModifier.fillMaxSize()) {
-    val useRail = LocalConfiguration.current.screenWidthDp >= 840 &&
-        currentRoute in routesWithPrimaryNavigation
-    CompositionLocalProvider(LocalControlNavigationRailVisible provides useRail) {
-    Row(Modifier.fillMaxSize()) {
-    if (useRail) ControlNavigationRail(
-        selected = controlSectionForRoute(currentRoute),
-        onSelect = onSectionSelected
+    val navigationState = AppNavigationState(
+        navController = navController,
+        developerModePreference = developerModePreference,
+        developerModeEnabled = developerModeEnabled,
+        repository = repository,
+        fieldContext = fieldContext,
+        fieldState = fieldState,
+        deviceState = deviceState,
+        pairingState = pairingState,
+        dashboardState = dashboardState,
+        networkSettingsState = networkSettingsState,
+        wifiDirectState = wifiDirectState,
+        dataStorageState = dataStorageState,
+        routeStorageState = routeStorageState,
+        directServerState = directServerState,
+        serverTicketState = serverTicketState,
+        ticketPreparation = ticketPreparation,
+        runResultState = runResultState,
+        resultLogState = resultLogState,
+        latestTicketProfileIdState = latestTicketProfileIdState,
+        serverStorageState = serverStorageState,
+        localTrashState = localTrashState,
+        surveyRunState = surveyRunState,
+        cameraPreviewState = cameraPreviewState,
+        alertSettings = alertSettings,
+        alertCenterState = alertCenterState,
+        lanEndpoints = lanEndpoints,
+        lanDiscoveryError = lanDiscoveryError,
+        lanConnectionError = lanConnectionError,
+        connectingLanDeviceId = connectingLanDeviceId,
+        transportState = transportState,
+        currentRoute = currentRoute,
+        serverUploadEnabled = serverUploadEnabled,
+        serverUploadDisabledReason = serverUploadDisabledReason,
+        fullControlConnected = fullControlConnected,
+        selectedDeviceId = selectedDeviceId,
+        latestSelectedDeviceIdState = latestSelectedDeviceIdState,
+        pipelineState = pipelineState,
+        uploadState = uploadState,
+        selectedDeviceName = selectedDeviceName,
+        deviceDashboardState = deviceDashboardState,
+        deviceSnapshots = deviceSnapshots,
+        currentRegisteredDevice = currentRegisteredDevice,
+        connectRegisteredDevice = connectRegisteredDevice,
+        selectedSnapshot = selectedSnapshot,
+        selectedConnection = selectedConnection,
+        deviceAttention = deviceAttention,
+        deviceRunActive = deviceRunActive,
+        openPipelinePreparation = openPipelinePreparation,
+        openSurveyPreparation = openSurveyPreparation,
+        openHistoryResult = openHistoryResult,
+        selectedRegisteredDeviceName = selectedRegisteredDeviceName,
+        uploadJobById = uploadJobById,
+        onSectionSelected = onSectionSelected,
+        deviceViewModel = deviceViewModel,
+        pairingViewModel = pairingViewModel,
+        dashboardViewModel = dashboardViewModel,
+        networkSettingsViewModel = networkSettingsViewModel,
+        wifiDirectViewModel = wifiDirectViewModel,
+        dataStorageViewModel = dataStorageViewModel,
+        routeStorageViewModel = routeStorageViewModel,
+        fieldToolsViewModel = fieldToolsViewModel,
+        directServerViewModel = directServerViewModel,
+        serverTicketViewModel = serverTicketViewModel,
+        serverStorageViewModel = serverStorageViewModel,
+        localTrashViewModel = localTrashViewModel,
+        uploadViewModel = uploadViewModel,
+        pipelineViewModel = pipelineViewModel,
+        surveyRunViewModel = surveyRunViewModel,
+        cameraPreviewViewModel = cameraPreviewViewModel,
+        alertSettingsViewModel = alertSettingsViewModel,
+        alertCenterViewModel = alertCenterViewModel,
+        bluetoothPermissionGranted = bluetoothPermissionGranted,
+        cameraPermissionGranted = cameraPermissionGranted,
+        nearbyWifiPermissionGranted = nearbyWifiPermissionGranted,
+        wifiScanPermissionGranted = wifiScanPermissionGranted,
+        localNetworkPermissionGranted = localNetworkPermissionGranted,
+        notificationPermissionGranted = notificationPermissionGranted,
+        onRequestBluetoothPermission = onRequestBluetoothPermission,
+        onRequestCameraPermission = onRequestCameraPermission,
+        onRequestNearbyWifiPermission = onRequestNearbyWifiPermission,
+        onRequestWifiScanPermission = onRequestWifiScanPermission,
+        onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
+        onRequestNotificationPermission = onRequestNotificationPermission,
+        pendingDashboardTransportState = pendingDashboardTransportState,
+        requestedMapHistoryEntryIdState = requestedMapHistoryEntryIdState,
+        requestedMapActiveRunIdState = requestedMapActiveRunIdState
     )
-    NavHost(
-        modifier = Modifier.weight(1f),
-        navController =
-            navController,
-        startDestination =
-            startRoute()
-    ) {
-
-        composable(
-            Routes.CONNECTION_HUB
-        ) {
-            ConnectionHubScreen(
-                onAddDevice = { navController.navigate(Routes.ONBOARDING) },
-                onDirectConnect = { device ->
-                    repository.prepareManualWifiDirect(device.deviceId)
-                    navController.navigate(Routes.WIFI_DIRECT)
-                },
-                onSettingsClick = { navigateToTab(navController, Routes.SETTINGS) },
-                onUploadHistoryClick = { navController.navigate(Routes.UPLOAD_QUEUE) },
-                onServerDataClick = { navController.navigate(Routes.SERVER_STORAGE) },
-                onOpenDashboard = { navigateToDeviceRoot(navController) },
-                unreadAlertCount = alertCenterState.unreadCount,
-                onAlertsClick = { navController.navigate(Routes.ALERTS) },
-                lanEndpoints = lanEndpoints,
-                registeredDevices = deviceState.registeredDevices,
-                transportState = transportState,
-                lanError = userFacingConnectionMessage(
-                    lanConnectionError ?: lanDiscoveryError,
-                    developerModeEnabled
-                ),
-                connectingLanDeviceId = connectingLanDeviceId,
-                localNetworkPermissionGranted = localNetworkPermissionGranted,
-                onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
-                onRefreshLan = { repository.startLanDiscovery() },
-                onConnectLan = { endpoint ->
-                    pendingDashboardTransport = TransportType.LAN
-                    repository.connectLan(endpoint)
-                },
-                onReconnectDevice = { device ->
-                    repository.connectRegisteredAutomatically(device.deviceId)
-                    navigateToDeviceRoot(navController)
-                }
-            )
-        }
-
-        composable(Routes.ONBOARDING) {
-            FirstDeviceOnboardingScreen(
-                onScanQr = {
-                    pairingViewModel.beginQrPairing()
-                    navController.navigate(Routes.QR_SCANNER)
-                },
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(
-            Routes.DEVICES_BLE
-        ) {
-
-            DeviceListScreen(
-                state =
-                    deviceState,
-                onScanClick = {
-                    deviceViewModel
-                        .toggleScan()
-                },
-                onRequestBluetoothPermission =
-                    onRequestBluetoothPermission,
-                onConnect = {
-                    device ->
-                    pendingDashboardTransport = TransportType.BLE
-                    deviceViewModel
-                        .connect(
-                            device
-                        )
-                },
-                onReconnect = {
-                    device ->
-                    pendingDashboardTransport = TransportType.BLE
-                    deviceViewModel.reconnect(device)
-                },
-                onForget = {
-                    device ->
-                    deviceViewModel.forget(device)
-                },
-                onAddDeviceClick = {
-                    pairingViewModel.beginQrPairing()
-                    navController.navigate(Routes.QR_SCANNER)
-                },
-                onBack = {
-                    if (pendingDashboardTransport == TransportType.BLE) {
-                        pendingDashboardTransport = null
-                    }
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        composable(
-            Routes.QR_SCANNER
-        ) {
-            QrScannerScreen(
-                cameraPermissionGranted =
-                    cameraPermissionGranted,
-                errorMessage =
-                    pairingState.errorMessage,
-                onRequestCameraPermission =
-                    onRequestCameraPermission,
-                onQrScanned = { rawValue ->
-                    val accepted =
-                        pairingViewModel.onQrScanned(rawValue)
-
-                    if (accepted) {
-                        navController.navigate(Routes.PAIRING)
-                    }
-
-                    accepted
-                },
-                onBack = {
-                    pairingViewModel.cancelPairing()
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        composable(
-            Routes.PAIRING
-        ) {
-            PairingScreen(
-                state = pairingState,
-                onStartPairing = {
-                    if (bluetoothPermissionGranted) {
-                        pairingViewModel.startPairing()
-                    } else {
-                        onRequestBluetoothPermission()
-                    }
-                },
-                onCancel = {
-                    pairingViewModel.cancelPairing()
-                    navController.popBackStack(Routes.DEVICES, false)
-                },
-                onRetry = {
-                    if (bluetoothPermissionGranted) {
-                        pairingViewModel.retry()
-                    } else {
-                        onRequestBluetoothPermission()
-                    }
-                }
-            )
-        }
-        
-        composable(
-            Routes.WIFI_DIRECT
-        ) {
-            DisposableEffect(
-                nearbyWifiPermissionGranted
-            ) {
-                if (nearbyWifiPermissionGranted) {
-                    wifiDirectViewModel.startDiscovery()
-                }
-
-                onDispose {
-                    wifiDirectViewModel.stopDiscovery()
-                }
-            }
-
-            WifiDirectScreen(
-                state = wifiDirectState,
-                permissionGranted = nearbyWifiPermissionGranted,
-                onBack = {
-                    if (pendingDashboardTransport == TransportType.WIFI_DIRECT) {
-                        pendingDashboardTransport = null
-                    }
-                    navController.popBackStack()
-                },
-                onPermissionClick = onRequestNearbyWifiPermission,
-                onDiscoveryClick = {
-                    if (nearbyWifiPermissionGranted) {
-                        wifiDirectViewModel.startDiscovery()
-                    } else {
-                        onRequestNearbyWifiPermission()
-                    }
-                },
-                onConnectClick = {
-                    pendingDashboardTransport = TransportType.WIFI_DIRECT
-                    wifiDirectViewModel.connect(it)
-                },
-                onRetryApi = { wifiDirectViewModel.retryApi() },
-                onCancel = {
-                    pendingDashboardTransport = null
-                    repository.cancelWifiDirectConnection()
-                }
-            )
-        }
-
-
-        composable(Routes.DEVICES) {
-            StatusPollingLifecycleEffect(dashboardViewModel)
-
-            DevicesHomeScreen(
-                registeredDevices = deviceState.registeredDevices,
-                selectedDeviceId = selectedDeviceId,
-                currentDashboard = deviceDashboardState,
-                snapshots = deviceSnapshots,
-                availableDeviceIds = lanEndpoints.map { it.deviceId.lowercase() }.toSet(),
-                connectingDeviceId = connectingLanDeviceId,
-                connectFailedDeviceId = selectedDeviceId.takeIf { lanConnectionError != null },
-                runActive = deviceRunActive,
-                attention = deviceAttention,
-                unreadAlertCount = alertCenterState.unreadCount,
-                nowEpochMillis = System.currentTimeMillis(),
-                developerModeEnabled = developerModeEnabled,
-                onSectionSelected = onSectionSelected,
-                onAlertsClick = { navController.navigateSingle(Routes.ALERTS) },
-                onAddDevice = { navController.navigateSingle(Routes.ONBOARDING) },
-                // A first registration is QR-only; the other thing a phone can do without a device
-                // is read the receiving server's files.
-                onServerFiles = { navController.navigateSingle(Routes.SERVER_STORAGE) },
-                onOpenDevice = { navController.navigateSingle(Routes.DEVICE_DETAIL) },
-                onReconnect = { currentRegisteredDevice?.let(connectRegisteredDevice) },
-                onStartCollection = openSurveyPreparation,
-                onViewRun = { navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true } },
-                onSelectDevice = connectRegisteredDevice,
-                onAttentionClick = { navigateToTab(navController, Routes.TRANSFERS) },
-                onSameNetwork = {
-                    repository.startLanDiscovery()
-                    currentRegisteredDevice?.let(connectRegisteredDevice)
-                },
-                onDirectConnect = {
-                    selectedDeviceId?.let { deviceId ->
-                        repository.prepareManualWifiDirect(deviceId)
-                        navController.navigateSingle(Routes.WIFI_DIRECT)
-                    }
-                },
-                onQrRegister = { navController.navigateSingle(Routes.ONBOARDING) },
-                onSaveDiagnostics = { navController.navigateSingle(Routes.DIAGNOSTICS) }
-            )
-        }
-
-        composable(Routes.DEVICE_DETAIL) {
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            DeviceDetailScreen(
-                deviceName = selectedDeviceName,
-                dashboard = deviceDashboardState,
-                snapshot = selectedSnapshot,
-                connection = selectedConnection,
-                lastSeenText = selectedSnapshot?.lastSeenAtEpochMillis?.let {
-                    formatSeenAt(it, System.currentTimeMillis())
-                },
-                freshness = formatFreshness(deviceDashboardState.statusAgeSeconds),
-                runActive = deviceRunActive,
-                developerModeEnabled = developerModeEnabled,
-                onBack = {
-                    if (!navController.popBackStack(Routes.DEVICES, inclusive = false)) {
-                        navigateToDeviceRoot(navController)
-                    }
-                },
-                onDisconnect = {
-                    dashboardViewModel.disconnect()
-                    pendingDashboardTransport = null
-                    if (!navController.popBackStack(Routes.DEVICES, inclusive = false)) {
-                        navController.navigate(Routes.DEVICES) {
-                            popUpTo(0)
-                            launchSingleTop = true
+    NoticeDismissalProvider {
+        GeoAppShell(
+            selected = currentTab(navController),
+            navigationVisible = primaryNavigationVisible(currentRoute, focusedMedia = navigationState.hasFocusedMediaPreview()) &&
+                deviceState.registeredDevices.isNotEmpty(),
+            onSelect = onSectionSelected,
+            topBar = {
+                if (currentRoute == Routes.ONBOARDING && deviceState.registeredDevices.isEmpty()) {
+                    androidx.compose.foundation.layout.Row(
+                        Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
+                    ) {
+                        androidx.compose.material3.TextButton(onClick = { navigateToTab(navController, Routes.SETTINGS) }) {
+                            androidx.compose.material3.Text("설정")
                         }
                     }
-                },
-                onStartCollection = openSurveyPreparation,
-                onViewRun = { navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true } },
-                onCamera = { navController.navigateSingle(Routes.CAMERA_PREVIEW) },
-                onGnss = {
-                    requestedMapHistoryEntryId = null
-                    requestedMapActiveRunId = null
-                    navController.navigateSingle(Routes.GNSS_MAP)
-                },
-                onSameNetwork = {
-                    repository.startLanDiscovery()
-                    currentRegisteredDevice?.let(connectRegisteredDevice)
-                },
-                onDirectConnect = {
-                    selectedDeviceId?.let { deviceId ->
-                        repository.prepareManualWifiDirect(deviceId)
-                        navController.navigateSingle(Routes.WIFI_DIRECT)
-                    }
-                },
-                onQrRegister = { navController.navigateSingle(Routes.ONBOARDING) },
-                onSaveDiagnostics = { navController.navigateSingle(Routes.DIAGNOSTICS) },
-                onNetwork = { navController.navigateSingle(Routes.NETWORK_SETTINGS) },
-                onFiles = { navController.navigateSingle(Routes.STORAGE) },
-                onReboot = dashboardViewModel::reboot,
-                onShutdown = dashboardViewModel::shutdown,
-                onPipelines = { navController.navigateSingle(Routes.PIPELINES) },
-                onFan = { navController.navigateSingle(Routes.ADMIN_TOOLS) },
-                onDiagnostics = { navController.navigateSingle(Routes.DIAGNOSTICS) }
-            )
-        }
-
-        composable(Routes.ALERTS) {
-            AlertCenterScreen(
-                state = alertCenterState,
-                onBack = { navController.popBackStack() },
-                onAlertClick = { alert ->
-                    alertCenterViewModel.markRead(alert.id)
-                    navController.navigate(alertDestinationRoute(alert.destination)) {
-                        popUpTo(Routes.ALERTS) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
-                onDelete = alertCenterViewModel::delete,
-                onMarkAllRead = alertCenterViewModel::markAllRead,
-                onClear = alertCenterViewModel::clear
-            )
-        }
-
-        composable(Routes.NETWORK_SETTINGS) {
-            LaunchedEffect(wifiScanPermissionGranted) {
-                if (wifiScanPermissionGranted) {
-                    networkSettingsViewModel.scanAccessPoints()
                 }
             }
-
-            DisposableEffect(Unit) {
-                onDispose {
-                    networkSettingsViewModel.stopAccessPointScan()
-                }
-            }
-
-            NetworkSettingsScreen(
-                state = networkSettingsState,
-                onBack = { navController.popBackStack() },
-                onSsidChange = networkSettingsViewModel::onSsidChange,
-                onPasswordChange = networkSettingsViewModel::onPasswordChange,
-                onHiddenChange = networkSettingsViewModel::onHiddenChange,
-                onSubmit = networkSettingsViewModel::submit,
-                wifiScanPermissionGranted = wifiScanPermissionGranted,
-                onRequestWifiScanPermission = onRequestWifiScanPermission,
-                onScanAccessPoints = networkSettingsViewModel::scanAccessPoints,
-                onSelectAccessPoint = networkSettingsViewModel::selectAccessPoint,
-                deviceName = selectedDeviceName
-            )
-        }
-        
-        composable(
-            route = Routes.STORAGE_ROUTE,
-            arguments = listOf(
-                navArgument("rootId") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-                navArgument("path") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                }
-            )
-        ) { backStackEntry ->
-            val rootId = backStackEntry.arguments?.getString("rootId").orEmpty()
-            val initialPath = backStackEntry.arguments?.getString("path").orEmpty()
-            LaunchedEffect(rootId, initialPath) {
-                if (rootId.isNotEmpty()) {
-                    routeStorageViewModel.openLocation(rootId, initialPath)
-                } else {
-                    routeStorageViewModel.openCollection()
-                }
-            }
-            DeviceStorageScreen(
-                onDismissMessage = routeStorageViewModel::dismissMessage,
-                onTransferQueue = { navController.navigate(Routes.DATA) },
-                thumbnailLoader = { entry -> repository.getFile(routeStorageState.currentRoot!!.id, entry.relativePath) },
-                state = routeStorageState,
-                serverUploadEnabled = serverUploadEnabled,
-                serverUploadDisabledReason = serverUploadDisabledReason,
-                onBack = {
-                    if (!routeStorageViewModel.navigateBack()) {
-                        navController.popBackStack()
-                    }
-                },
-                onRefresh = routeStorageViewModel::refresh,
-                onDirectoryClick = { routeStorageViewModel.selectDirectory(it) },
-                onFileClick = routeStorageViewModel::openFile,
-                onDeleteClick = routeStorageViewModel::deleteEntry,
-                onUndoDelete = routeStorageViewModel::undoDelete,
-                onUploadClick = { rootId, path ->
-                    navController.navigate(
-                        "upload_confirm/${Uri.encode(rootId)}?path=${Uri.encode(path)}"
-                    )
-                },
-                onSectionSelected = onSectionSelected,
-                onServerDataClick = {
-                    navController.navigate(Routes.SERVER_STORAGE) {
-                        launchSingleTop = true
-                    }
-                }
-            )
-        }
-
-        composable(Routes.SERVER_STORAGE) {
-            com.example.jetsoncontroller.ui.storage.DirectServerScreen(
-                state = directServerState,
-                onBack = {
-                    if (!directServerViewModel.navigateBack()) {
-                        navController.popBackStack()
-                    }
-                },
-                onSection = directServerViewModel::selectSection,
-                onSelectProfile = directServerViewModel::selectProfile,
-                onSaveProfile = directServerViewModel::saveProfile,
-                onConnect = directServerViewModel::connect,
-                onRefreshJobs = directServerViewModel::refreshJobs,
-                onLoadMoreJobs = directServerViewModel::loadMoreJobs,
-                onOpenJob = directServerViewModel::openJob,
-                onOpenDirectory = directServerViewModel::openDirectory,
-                onOpenFile = directServerViewModel::openFile,
-                onReceipt = directServerViewModel::loadReceipt,
-                onMoveToTrash = directServerViewModel::moveToTrash,
-                onRestore = directServerViewModel::restore,
-                onUndoTrash = directServerViewModel::undoTrash,
-                onRefreshTrash = directServerViewModel::refreshTrash,
-                onEmptyTrash = directServerViewModel::emptyTrash,
-                onRemoveProfile = directServerViewModel::removeSelectedProfile,
-                onDismissMessage = directServerViewModel::dismissMessage,
-                developerModeEnabled = developerModeEnabled,
-                onDeviceData = {
-                    navController.navigate(Routes.DATA) { launchSingleTop = true }
-                },
-                onJetsonServerProxy = if (developerModeEnabled && serverStorageState.controlAvailable) {
-                    { navController.navigate(Routes.SERVER_PROXY_STORAGE) { launchSingleTop = true } }
-                } else null
-            )
-        }
-
-        composable(Routes.SERVER_PROXY_STORAGE) serverProxy@ {
-            if (!developerModeEnabled) return@serverProxy
-            LaunchedEffect(Unit) { serverStorageViewModel.refresh() }
-            ServerStorageScreen(
-                onDismissMessage = serverStorageViewModel::dismissMessage,
-                thumbnailLoader = { entry -> repository.getUploadLibraryFile(
-                    serverStorageState.selectedTarget!!.id,
-                    serverStorageState.selectedSession!!.sessionId,
-                    entry.relativePath
-                ) },
-                state = serverStorageState,
-                onBack = {
-                    if (!serverStorageViewModel.navigateBack()) navController.popBackStack()
-                },
-                onDeviceDataClick = { navController.navigate(Routes.DATA) { launchSingleTop = true } },
-                onRefresh = serverStorageViewModel::refresh,
-                onTargetSelected = serverStorageViewModel::selectTarget,
-                onSessionClick = serverStorageViewModel::openSession,
-                onDeleteSession = serverStorageViewModel::deleteSession,
-                onDirectoryClick = serverStorageViewModel::openDirectory,
-                onFileClick = serverStorageViewModel::openFile,
-                onLoadMore = serverStorageViewModel::loadMoreSessions,
-                onSectionSelected = onSectionSelected,
-                deletionEnabled = false
-            )
-        }
-
-        composable(
-            route = Routes.UPLOAD_CONFIRM,
-            arguments = listOf(
-                navArgument("rootId") { type = NavType.StringType },
-                navArgument("path") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-                navArgument("runId") {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                }
-            )
-        ) { backStackEntry ->
-            val rootId = backStackEntry.arguments?.getString("rootId").orEmpty()
-            val path = backStackEntry.arguments?.getString("path").orEmpty()
-            val linkedRunId = backStackEntry.arguments?.getString("runId")?.takeIf(String::isNotBlank)
-            val confirmationDevice = androidx.compose.runtime.saveable.rememberSaveable { selectedDeviceId.orEmpty() }
-            LaunchedEffect(selectedDeviceId) {
-                if (confirmationDevice != selectedDeviceId.orEmpty()) navController.popBackStack()
-            }
-            LaunchedEffect(rootId, path, linkedRunId, selectedDeviceId) {
-                uploadViewModel.loadSourceSummary(rootId, path, linkedRunId = linkedRunId)
-            }
-            UploadConfirmScreen(
+        ) {
+            ConnectionRecoveryLayout(
                 deviceId = selectedDeviceId,
-                deviceName = selectedDeviceName,
-                rootId = rootId,
-                path = path,
-                targets = uploadState.targets,
-                sourceSummary = uploadState.sourceSummary,
-                linkedRunId = linkedRunId,
-                linkedRun = uploadState.linkedRun,
-                isCalculatingSource = uploadState.isCalculatingSource,
-                serverUploadEnabled = serverUploadEnabled && dashboardState.capabilities.uploads && confirmationDevice == selectedDeviceId.orEmpty(),
-                serverUploadDisabledReason = serverUploadDisabledReason,
-                isLoading = uploadState.isLoading,
-                error = uploadState.error,
-                onBack = { navController.popBackStack() },
-                onRefresh = {
-                    uploadViewModel.refresh()
-                    uploadViewModel.loadSourceSummary(rootId, path, force = true, linkedRunId = linkedRunId)
-                },
-                onManageTargets = {
-                    navController.navigate(Routes.UPLOAD_SERVERS)
-                },
-                onConfirm = { targetId ->
-                    uploadViewModel.startUpload(rootId, path, targetId)
-                    navController.navigate(Routes.UPLOAD_PROGRESS) {
-                        popUpTo(Routes.STORAGE_ROUTE) { inclusive = false }
-                    }
-                },
-                developerModeEnabled = developerModeEnabled
-            )
-        }
-        
-        composable(Routes.UPLOAD_PROGRESS) {
-            UploadProgressScreen(
-                job = uploadState.currentJob,
-                verification = uploadState.verification,
-                isLoading = uploadState.isLoading,
-                message = uploadState.message,
-                error = uploadState.error,
-                onCancel = uploadViewModel::cancelCurrentUpload,
-                onRetry = uploadViewModel::retryCurrentUpload,
-                onVerify = uploadViewModel::verifyCurrentUpload,
-                onDeleteSource = uploadViewModel::deleteCurrentSource,
-                onRestoreSource = uploadViewModel::restoreCurrentSource,
-                onBack = { navController.popBackStack() },
-                serverMutationEnabled = serverUploadEnabled,
-                serverMutationDisabledReason = serverUploadDisabledReason,
-                deviceDeletionEnabled = fullControlConnected,
-                developerModeEnabled = developerModeEnabled,
-                targetLabel = uploadState.currentJob?.targetId?.let { targetId ->
-                    uploadState.targets.firstOrNull { it.id == targetId }?.label
-                },
-                onServerData = {
-                    navController.navigate(Routes.SERVER_STORAGE) { launchSingleTop = true }
-                },
-                onHome = { resetToDeviceRoot(navController) },
-                onFiles = { navController.navigate(Routes.DATA) { launchSingleTop = true } },
-                onDismissMessage = uploadViewModel::dismissMessage
-            )
-        }
-
-        composable(Routes.TRANSFERS) {
-            LaunchedEffect(selectedDeviceId, fullControlConnected) {
-                if (fullControlConnected) uploadViewModel.loadQueue()
-            }
-            val transfersLifecycleOwner = LocalLifecycleOwner.current
-            val selectedServerCredentialRevision = directServerState.profiles.firstOrNull {
-                it.profile.profileId == directServerState.selectedProfileId
-            }?.credentialRevision
-            LaunchedEffect(
-                selectedDeviceId,
-                directServerState.selectedProfileId,
-                selectedServerCredentialRevision,
-                transfersLifecycleOwner
-            ) {
-                val deviceId = selectedDeviceId?.takeIf(String::isNotBlank)
-                val profileId = directServerState.selectedProfileId?.takeIf(String::isNotBlank)
-                if (deviceId != null && profileId != null) {
-                    transfersLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                        while (true) {
-                            directServerViewModel.refreshDeviceEventStatus(profileId, deviceId)
-                            delay(60_000L)
-                        }
-                    }
-                }
-            }
-            val deviceEventStatus = directServerState.deviceEventStatuses.firstOrNull { snapshot ->
-                snapshot.profileId == directServerState.selectedProfileId &&
-                    snapshot.deviceId.equals(selectedDeviceId, ignoreCase = true) &&
-                    directServerState.profiles.firstOrNull {
-                        it.profile.profileId == snapshot.profileId
-                    }?.credentialRevision == snapshot.credentialRevision
-            }?.status
-            val transfersState = com.example.jetsoncontroller.ui.transfers.buildTransfersHomeUiState(
-                com.example.jetsoncontroller.ui.transfers.TransfersHomeInput(
-                    deviceName = selectedRegisteredDeviceName,
-                    transport = (transportState as? TransportState.Connected)
-                        ?.takeIf { it.deviceId.equals(selectedDeviceId, ignoreCase = true) }
-                        ?.type,
-                    upload = uploadState,
-                    runs = fieldState.runs,
-                    developerModeEnabled = developerModeEnabled,
-                    deviceEventStatus = deviceEventStatus
-                )
-            )
-            androidx.compose.material3.Scaffold(
-                containerColor = com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.canvas,
-                bottomBar = { ControlNavigationBar(ControlSection.TRANSFERS, onSectionSelected) }
-            ) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding)) {
-                    com.example.jetsoncontroller.ui.transfers.TransfersHomeScreen(
-                        state = transfersState,
-                        onPickFiles = { navController.navigate(Routes.DATA) { launchSingleTop = true } },
-                        onOpenServerFiles = {
-                            navController.navigate(Routes.SERVER_STORAGE) { launchSingleTop = true }
-                        },
-                        onOpenTransfer = { jobId ->
-                            uploadJobById(jobId)?.let { job ->
-                                uploadViewModel.openJob(job)
-                                navController.navigate(Routes.UPLOAD_PROGRESS) { launchSingleTop = true }
-                            }
-                        },
-                        onCancelTransfer = { jobId ->
-                            uploadJobById(jobId)?.let { job ->
-                                uploadViewModel.openJob(job)
-                                uploadViewModel.cancelCurrentUpload()
-                            }
-                        },
-                        onRetryTransfer = { jobId -> uploadJobById(jobId)?.let(uploadViewModel::retryJob) },
-                        onSendRun = { runId ->
-                            fieldState.runs.firstOrNull {
-                                com.example.jetsoncontroller.ui.field.canonicalHistoryRunId(it) == runId
-                            }?.output?.takeIf { it.rootId.isNotBlank() && it.path.isNotBlank() }?.let { output ->
-                                navController.navigate(
-                                    "upload_confirm/${Uri.encode(output.rootId)}" +
-                                        "?path=${Uri.encode(output.path)}&runId=${Uri.encode(runId)}"
-                                )
-                            }
-                        },
-                        onOpenHistory = { navController.navigate(Routes.UPLOAD_QUEUE) { launchSingleTop = true } }
-                    )
-                }
+                connectionAvailable = fullControlConnected,
+                message = connectionNotice?.message,
+                tone = connectionNotice?.tone ?: StatusTone.WARNING,
+                onResolveConnection = { navigateToDeviceRoot(navController) }
+            ) { screenModifier ->
+                AppNavHost(navigationState, screenModifier)
             }
         }
-
-        composable(Routes.TASKS) {
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            LaunchedEffect(selectedDeviceId, fullControlConnected) {
-                if (fullControlConnected) pipelineViewModel.refresh()
-            }
-            val taskProfileId = directServerState.selectedProfileId?.takeIf { id ->
-                directServerState.profiles.any { it.profile.profileId == id }
-            }
-            val taskCredentialRevision = directServerState.profiles.firstOrNull {
-                it.profile.profileId == taskProfileId
-            }?.credentialRevision
-            val taskLifecycleOwner = LocalLifecycleOwner.current
-            LaunchedEffect(currentRoute, taskProfileId, taskCredentialRevision, selectedDeviceId, taskLifecycleOwner) {
-                val profileId = taskProfileId
-                val deviceId = selectedDeviceId?.takeIf(String::isNotBlank)
-                if (currentRoute == Routes.TASKS && profileId != null && deviceId != null) {
-                    taskLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                        serverTicketViewModel.refresh(profileId, deviceId)
-                        while (true) {
-                            delay(60_000L)
-                            serverTicketViewModel.refresh(profileId, deviceId)
-                        }
-                    }
-                }
-            }
-            val tasksState = com.example.jetsoncontroller.ui.tasks.buildTasksHomeUiState(
-                com.example.jetsoncontroller.ui.tasks.TasksHomeInput(
-                    deviceName = selectedRegisteredDeviceName,
-                    connected = fullControlConnected,
-                    survey = surveyRunState,
-                    runs = fieldState.runs,
-                    uploadJobs = uploadState.queue,
-                    pipelines = pipelineState.pipelines,
-                    developerModeEnabled = developerModeEnabled
-                )
-            ).copy(ticketSection = serverTicketState.takeIf {
-                taskProfileId != null && selectedDeviceId?.isNotBlank() == true &&
-                    it.profileId == taskProfileId && it.deviceId.equals(selectedDeviceId, true)
-            })
-            androidx.compose.material3.Scaffold(
-                containerColor = com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.canvas,
-                bottomBar = { ControlNavigationBar(ControlSection.TASKS, onSectionSelected) }
-            ) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding)) {
-                    com.example.jetsoncontroller.ui.tasks.TasksHomeScreen(
-                        state = tasksState,
-                        onSelectDevice = { navigateToDeviceRoot(navController) },
-                        onStartSurvey = openSurveyPreparation,
-                        onChangeSection = openSurveyPreparation,
-                        onOpenActiveRun = {
-                            navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
-                        },
-                        onOpenRun = { historyId ->
-                            fieldState.runs.firstOrNull { it.id == historyId }?.let(openHistoryResult)
-                        },
-                        onOpenHistory = {
-                            navController.navigate(Routes.TASK_HISTORY) { launchSingleTop = true }
-                        },
-                        onOpenTask = { pipelineId ->
-                            navController.navigate("task_detail/${Uri.encode(pipelineId)}") {
-                                launchSingleTop = true
-                            }
-                        },
-                        onOpenTicket = { rowId ->
-                            navController.navigate("ticket_detail/${Uri.encode(rowId)}") {
-                                launchSingleTop = true
-                            }
-                        },
-                        onSelectTicketUnit = serverTicketViewModel::selectUnit
-                    )
-                }
-            }
-        }
-
-        composable(
-            route = Routes.TICKET_DETAIL,
-            arguments = listOf(navArgument("rowId") { type = NavType.StringType })
-        ) { entry ->
-            val rowId = entry.arguments?.getString("rowId").orEmpty()
-            val ticket = serverTicketState.tickets.firstOrNull { it.rowId == rowId }
-            if (ticket == null) {
-                Box(Modifier.fillMaxSize().background(com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.canvas)) {
-                    com.example.jetsoncontroller.ui.components.GeoStateBlock(
-                        title = "수집 구간을 찾을 수 없습니다",
-                        impact = "작업 탭에서 티켓 목록을 새로고침해 주세요.",
-                        tone = StatusTone.UNKNOWN,
-                        primaryLabel = "작업으로 돌아가기",
-                        onPrimary = { navController.popBackStack() }
-                    )
-                }
-            } else {
-                com.example.jetsoncontroller.ui.tasks.TicketDetailScreen(
-                    ticket = ticket,
-                    role = serverTicketState.role,
-                    reportMessage = serverTicketViewModel.ticketMessage(ticket.rowId),
-                    onBack = { navController.popBackStack() },
-                    onStart = startTicket@ {
-                        val profileId = serverTicketState.profileId
-                        val deviceId = selectedDeviceId?.takeIf(String::isNotBlank)
-                        if (profileId != null && deviceId != null) {
-                            val pipeline = surveyRunState.pipelineId?.let { id ->
-                                pipelineState.pipelines.firstOrNull { it.id == id }
-                            } ?: pipelineState.pipelines.singleOrNull()
-                            when (surveyOpenDecision(surveyRunViewModel.uiState.value, pipeline?.id.orEmpty())) {
-                                SurveyOpenDecision.CURRENT_ACTIVE -> {
-                                    navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
-                                    return@startTicket
-                                }
-                                SurveyOpenDecision.CURRENT_RESULT -> {
-                                    surveyRunViewModel.uiState.value.latestRun?.let { run ->
-                                        navController.navigate(runResultRoute(run.runId, run.deviceId, run.pipelineId)) { launchSingleTop = true }
-                                    }
-                                    return@startTicket
-                                }
-                                SurveyOpenDecision.WAIT_FOR_RESTORE -> return@startTicket
-                                SurveyOpenDecision.REQUESTED_PIPELINE -> Unit
-                            }
-                            serverTicketViewModel.prepareTicket(profileId, deviceId, pipeline?.id, ticket, fieldState.runs) {
-                                if (!latestSelectedDeviceId.equals(deviceId, true) || latestTicketProfileId != profileId ||
-                                    navController.currentBackStackEntry?.id != entry.id) return@prepareTicket
-                                if (pipeline == null) {
-                                    navController.navigate(Routes.PIPELINES) { launchSingleTop = true }
-                                } else {
-                                    when (surveyOpenDecision(surveyRunViewModel.uiState.value, pipeline.id)) {
-                                        SurveyOpenDecision.REQUESTED_PIPELINE -> {
-                                            surveyRunViewModel.open(pipeline.id, pipeline.label)
-                                            navController.navigate("survey_run/${Uri.encode(pipeline.id)}") { launchSingleTop = true }
-                                        }
-                                        SurveyOpenDecision.CURRENT_ACTIVE -> navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
-                                        SurveyOpenDecision.CURRENT_RESULT -> surveyRunState.latestRun?.let { run ->
-                                            navController.navigate(runResultRoute(run.runId, run.deviceId, run.pipelineId)) { launchSingleTop = true }
-                                        }
-                                        SurveyOpenDecision.WAIT_FOR_RESTORE -> Unit
-                                    }
-                                }
-                            }
-                        }
-                    }
-                )
-            }
-        }
-
-        composable(
-            route = Routes.TASK_DETAIL,
-            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
-        ) { entry ->
-            val pipelineId = entry.arguments?.getString("pipelineId").orEmpty()
-            val pipeline = pipelineState.pipelines.firstOrNull { it.id == pipelineId }
-            if (pipeline == null) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.canvas)
-                ) {
-                    com.example.jetsoncontroller.ui.components.GeoStateBlock(
-                        title = "작업 정보를 찾을 수 없습니다",
-                        impact = "장치에 연결된 상태에서 작업 목록을 다시 열어 보세요.",
-                        tone = com.example.jetsoncontroller.ui.components.StatusTone.UNKNOWN,
-                        primaryLabel = "작업으로 돌아가기",
-                        onPrimary = { navController.popBackStack() }
-                    )
-                }
-            } else {
-                com.example.jetsoncontroller.ui.tasks.TaskDetailScreen(
-                    pipeline = pipeline,
-                    connected = fullControlConnected,
-                    developerModeEnabled = developerModeEnabled,
-                    onBack = { navController.popBackStack() },
-                    onOpenLogs = { navController.navigate("pipeline_logs/${Uri.encode(pipeline.id)}") },
-                    onOpenConfig = { navController.navigate("pipeline_config/${Uri.encode(pipeline.id)}") }
-                )
-            }
-        }
-
-        composable(Routes.UPLOAD_QUEUE) {
-            UploadQueueScreen(
-                queue = uploadState.queue,
-                targets = uploadState.targets,
-                isLoading = uploadState.isLoading,
-                error = uploadState.error,
-                message = uploadState.message,
-                onRefresh = uploadViewModel::loadQueue,
-                onManageTargets = {
-                    navController.navigate(Routes.UPLOAD_SERVERS)
-                },
-                onJobClick = { job ->
-                    uploadViewModel.openJob(job)
-                    navController.navigate(Routes.UPLOAD_PROGRESS)
-                },
-                onDeleteJob = uploadViewModel::deleteJobFromQueue,
-                mutationEnabled = fullControlConnected,
-                deviceId = uploadState.deviceId,
-                onBack = { navController.popBackStack() },
-                developerModeEnabled = developerModeEnabled,
-                onHome = { resetToDeviceRoot(navController) },
-                onFiles = { navController.navigate(Routes.DATA) { launchSingleTop = true } },
-                onDismissMessage = uploadViewModel::dismissMessage
-            )
-        }
-
-        composable(Routes.UPLOAD_SERVERS) uploadServers@ {
-            if (!developerModeEnabled) return@uploadServers
-            UploadTargetSettingsScreen(
-                controlAvailable = fullControlConnected,
-                deviceId = uploadState.deviceId,
-                targets = uploadState.targets,
-                isLoading = uploadState.isLoading || uploadState.isSavingTarget,
-                message = uploadState.message,
-                error = uploadState.error,
-                onSave = uploadViewModel::saveTarget,
-                onDelete = uploadViewModel::deleteTarget,
-                onRefresh = uploadViewModel::refreshTargets,
-                onClearFeedback = uploadViewModel::clearFeedback,
-                onBack = {
-                    uploadViewModel.clearFeedback()
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        listOf(Routes.PIPELINES, Routes.PIPELINE_DETAIL).forEach { taskRoute ->
-        composable(taskRoute) taskContent@ { taskEntry ->
-            if (taskRoute == Routes.PIPELINE_DETAIL && !developerModeEnabled) return@taskContent
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            PipelineListScreen(
-                onHistory = { navController.navigate(Routes.TASK_HISTORY) { launchSingleTop = true } },
-
-                state = pipelineState.copy(error = ticketPreparation?.let {
-                    serverTicketState.reportMessages[it.ticket.rowId]
-                } ?: pipelineState.error),
-                onBack = {
-                    selectedDeviceId?.let { serverTicketViewModel.clearPendingSelectionIfUnarmed(it) }
-                    navController.popBackStack()
-                },
-                onRefresh = pipelineViewModel::refresh,
-                onAdd = {
-                    pipelineViewModel.beginCreate()
-                    navController.navigate(Routes.PIPELINE_EDITOR)
-                },
-                onControl = pipelineViewModel::control,
-                onPrepareRun = { pipeline ->
-                    when (surveyOpenDecision(surveyRunState, pipeline.id)) {
-                        SurveyOpenDecision.REQUESTED_PIPELINE -> {
-                            val open = {
-                                if (latestSelectedDeviceId.equals(selectedDeviceId, true) &&
-                                    latestTicketProfileId == directServerState.selectedProfileId &&
-                                    navController.currentBackStackEntry?.id == taskEntry.id &&
-                                    surveyRunViewModel.uiState.value.deviceId.equals(latestSelectedDeviceId, true) &&
-                                    surveyOpenDecision(surveyRunViewModel.uiState.value, pipeline.id) == SurveyOpenDecision.REQUESTED_PIPELINE) {
-                                    surveyRunViewModel.open(pipeline.id, pipeline.label)
-                                    navController.navigate("survey_run/${Uri.encode(pipeline.id)}")
-                                }
-                            }
-                            if (ticketPreparation != null) {
-                                serverTicketViewModel.usePreparedTicket(directServerState.selectedProfileId, selectedDeviceId, pipeline.id, open)
-                            } else open()
-                        }
-                        SurveyOpenDecision.CURRENT_ACTIVE ->
-                            navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
-                        SurveyOpenDecision.CURRENT_RESULT -> surveyRunState.latestRun?.let { run ->
-                            navController.navigate(runResultRoute(run.runId, run.deviceId, run.pipelineId)) { launchSingleTop = true }
-                        }
-                        SurveyOpenDecision.WAIT_FOR_RESTORE -> Unit
-                    }
-                },
-                onRemove = pipelineViewModel::remove,
-                onLogs = { pipeline ->
-                    navController.navigate("pipeline_logs/${Uri.encode(pipeline.id)}")
-                },
-                onConfig = { pipeline ->
-                    navController.navigate("pipeline_config/${Uri.encode(pipeline.id)}")
-                },
-                onOutput = { pipeline ->
-                    val rootId = pipeline.outputRootId ?: return@PipelineListScreen
-                    val path = pipeline.outputPath ?: return@PipelineListScreen
-                    navController.navigate(
-                        "storage?rootId=${Uri.encode(rootId)}&path=${Uri.encode(path)}"
-                    )
-                },
-                onSectionSelected = onSectionSelected,
-                onClearMessage = pipelineViewModel::clearMessage,
-                deviceName = selectedDeviceName,
-                unreadCount = alertCenterState.unreadCount,
-                onAlerts = { navController.navigate(Routes.ALERTS) },
-                onDetails = { navController.navigate("pipeline_detail/${Uri.encode(it.id)}") },
-                detailId = taskEntry.arguments?.getString("pipelineId"),
-                startCapability = dashboardState.capabilities.pipelines && dashboardState.capabilities.mobileTimeSync,
-                developerModeEnabled = developerModeEnabled
-            )
-        }
-        }
-
-        composable(
-            route = Routes.SURVEY_RUN,
-            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
-        ) { entry ->
-            val pipelineId = entry.arguments?.getString("pipelineId").orEmpty()
-            val pipelineLabel = pipelineState.pipelines.firstOrNull { it.id == pipelineId }?.label ?: pipelineId
-            val ticketSelection = selectedDeviceId?.let {
-                serverTicketViewModel.pendingSelection(it, pipelineId)
-            }?.takeIf { it.profileId == directServerState.selectedProfileId }
-            val preparation = ticketPreparation?.takeIf {
-                it.deviceId.equals(selectedDeviceId, true) && it.pipelineId == pipelineId &&
-                    it.profileId == directServerState.selectedProfileId
-            }
-            LaunchedEffect(selectedDeviceId, pipelineId, pipelineLabel) {
-                surveyRunViewModel.open(pipelineId, pipelineLabel)
-            }
-            LaunchedEffect(preparation, surveyRunState.projects, surveyRunState.sections,
-                surveyRunState.selectedProject?.surveyProjectId, surveyRunState.operation) {
-                if (surveyRunState.pipelineId != pipelineId || surveyRunState.contextLocked ||
-                    surveyRunState.operation != null) return@LaunchedEffect
-                val matchingProject = preparation?.let {
-                    com.example.jetsoncontroller.ui.tasks.ticketPreparationProject(it, surveyRunState.projects)
-                }
-                if (matchingProject != null &&
-                    matchingProject.surveyProjectId != surveyRunState.selectedProject?.surveyProjectId) {
-                    surveyRunViewModel.selectProject(matchingProject)
-                    return@LaunchedEffect
-                }
-                val matchingSection = preparation?.let {
-                    com.example.jetsoncontroller.ui.tasks.ticketPreparationSection(it, surveyRunState.sections)
-                } ?: ticketSelection?.takeIf { preparation == null }?.let { selection ->
-                    surveyRunState.sections.singleOrNull { it.label == selection.title }
-                }
-                if (matchingSection != null &&
-                    surveyRunState.selectedSection?.surveySectionId != matchingSection.surveySectionId
-                ) {
-                    surveyRunViewModel.selectSection(matchingSection)
-                }
-            }
-            SurveyRunScreen(
-                state = surveyRunState,
-                onBack = {
-                    ticketSelection?.let {
-                        serverTicketViewModel.clearPendingSelectionIfUnarmed(it.deviceId, it.pipelineId)
-                    }
-                    pipelineViewModel.refresh()
-                    navController.popBackStack()
-                },
-                onRefresh = surveyRunViewModel::refresh,
-                onSelectProject = surveyRunViewModel::selectProject,
-                onSelectSection = surveyRunViewModel::selectSection,
-                onCreateProject = surveyRunViewModel::createProject,
-                onCreateSection = surveyRunViewModel::createSection,
-                onSensorRequirement = surveyRunViewModel::setSensorRequirement,
-                onMinFreeBytes = surveyRunViewModel::setMinFreeBytes,
-                onOutputMinFiles = surveyRunViewModel::setOutputMinFiles,
-                onOutputMinBytes = surveyRunViewModel::setOutputMinBytes,
-                onOutputPatterns = surveyRunViewModel::setOutputPatterns,
-                onOutputRoot = surveyRunViewModel::setOutputRoot,
-                onOutputPath = surveyRunViewModel::setOutputPath,
-                onSavePolicy = surveyRunViewModel::savePolicy,
-                onPreflight = surveyRunViewModel::runPreflight,
-                // 시작 직후 갈 곳이 있다는 것이 이번 재편의 핵심입니다. 시작 요청의 결과가
-                // 아직 없어도 수집 중 화면으로 보냅니다 — 그 화면이 '결과 대기' 를 정직하게
-                // 표시하므로, 목록으로 돌려보내 같은 버튼을 다시 누르게 하는 것보다 안전합니다.
-                onStart = {
-                    val expectedPreflightId = surveyRunViewModel.uiState.value.preflight?.preflightId
-                    val start = {
-                        val current = surveyRunViewModel.uiState.value
-                        if (current.deviceId.equals(latestSelectedDeviceId, true) &&
-                            latestSelectedDeviceId.equals(selectedDeviceId, true) &&
-                            latestTicketProfileId == directServerState.selectedProfileId &&
-                            navController.currentBackStackEntry?.id == entry.id &&
-                            current.pipelineId == pipelineId && current.preflight?.preflightId == expectedPreflightId &&
-                            (preparation == null || com.example.jetsoncontroller.ui.tasks.ticketPreparationContextMatches(
-                                preparation, current.selectedProject, current.selectedSection))) {
-                            val pendingStart = surveyRunViewModel.start()
-                            if (ticketSelection != null && pendingStart != null) {
-                                serverTicketViewModel.armPendingSelection(
-                                    ticketSelection.deviceId, ticketSelection.pipelineId, pendingStart.clientRequestId
-                                )
-                            }
-                            navController.navigate(Routes.ACTIVE_RUN) { launchSingleTop = true }
-                        }
-                    }
-                    if (preparation != null) {
-                        serverTicketViewModel.usePreparedTicket(directServerState.selectedProfileId, selectedDeviceId, pipelineId, start)
-                    } else if (ticketPreparation == null) start()
-                },
-                onRetryPendingStart = surveyRunViewModel::retryPendingStart,
-                onDismissMessage = surveyRunViewModel::clearMessage,
-                developerModeEnabled = developerModeEnabled,
-                deviceName = selectedRegisteredDeviceName,
-                ticketTitle = ticketSelection?.title,
-                ticketPreparationKey = preparation?.let { "${it.profileId}:${it.ticket.rowId}:${it.ticket.revision}" },
-                ticketPreparationReady = ticketPreparation == null || preparation?.let {
-                    com.example.jetsoncontroller.ui.tasks.ticketPreparationContextMatches(
-                        it, surveyRunState.selectedProject, surveyRunState.selectedSection)
-                } == true,
-                ticketMessage = when {
-                    preparation != null -> serverTicketState.reportMessages[preparation.ticket.rowId]
-                        ?: if (preparation.surveySectionId == null) "티켓에 연결된 구간 식별 정보가 없어 제목으로 구간을 찾습니다." else null
-                    ticketPreparation != null -> "선택한 장치와 서버에서 티켓을 다시 선택하세요."
-                    ticketSelection != null -> "티켓에 연결된 구간 식별 정보가 없어 제목으로 구간을 찾습니다."
-                    else -> null
-                }
-            )
-        }
-
-        composable(Routes.ACTIVE_RUN) {
-            val status = deviceDashboardState.status
-            val statusFresh = deviceDashboardState.isOnline &&
-                deviceDashboardState.statusFreshness == StatusFreshness.CURRENT
-            val activeRun = surveyRunState.activeRun
-            val stopTarget = matchingStopTarget(activeRun, pipelineState.pipelines)
-            com.example.jetsoncontroller.ui.field.ActiveRunScreen(
-                deviceName = selectedDeviceName,
-                connectionLabel = com.example.jetsoncontroller.ui.connection
-                    .deviceConnectionUi(deviceDashboardState.isOnline, deviceDashboardState.transportType).label,
-                connectionTone = com.example.jetsoncontroller.ui.connection
-                    .deviceConnectionUi(deviceDashboardState.isOnline, deviceDashboardState.transportType).tone,
-                run = activeRun ?: surveyRunState.latestRun?.takeIf { it.active },
-                telemetryReceivedAtElapsedRealtime = surveyRunState.telemetryReceivedAtElapsedRealtime,
-                // 장치가 경과 시간을 제공하지 않으므로 앱이 만들어내지 않습니다.
-                elapsedLabel = null,
-                lastObservedLabel = pipelineState.observedAtMillis?.let {
-                    java.text.DateFormat.getTimeInstance().format(java.util.Date(it))
-                },
-                sensorSummary = if (!deviceDashboardState.isOnline || !status.sensorTelemetryAvailable) null
-                    else listOf(
-                        status.cameraSensor.active,
-                        status.gnssSensor.active,
-                        status.imuSensor.active
-                    ).count { it }.let { "${it}개 수신" },
-                storageSummary = if (statusFresh) "${status.storagePercent}% 사용" else null,
-                stopInProgress = pipelineState.busyPipelineId != null,
-                online = deviceDashboardState.isOnline,
-                stopAvailable = stopTarget != null,
-                pendingStart = surveyRunState.pendingStart != null,
-                unconfirmedRunId = surveyRunState.unconfirmedRunId,
-                onRetryPendingStart = surveyRunViewModel::retryPendingStart,
-                developerModeEnabled = developerModeEnabled,
-                unreadCount = alertCenterState.unreadCount,
-                onDevices = { navigateToDeviceRoot(navController) },
-                onAlerts = { navController.navigate(Routes.ALERTS) },
-                onBack = { navController.popBackStack() },
-                // The run ending does not move the operator; the screen offers this button instead.
-                onOpenResult = {
-                    surveyRunState.latestRun?.let { run ->
-                        navController.navigate(runResultRoute(run.runId, run.deviceId, run.pipelineId)) {
-                            popUpTo(Routes.ACTIVE_RUN) { inclusive = true }
-                            launchSingleTop = true
-                        }
-                    }
-                },
-                onRefresh = { surveyRunViewModel.refresh(); pipelineViewModel.refresh() },
-                onStop = {
-                    activeRun?.let { confirmedRun ->
-                        matchingStopTarget(confirmedRun, pipelineState.pipelines)?.let { target ->
-                            pipelineViewModel.control(
-                                target,
-                                "stop",
-                                expectedRunId = confirmedRun.runId
-                            )
-                        }
-                    }
-                },
-                onCamera = { navController.navigate(Routes.CAMERA_PREVIEW) },
-                onMap = {
-                    requestedMapHistoryEntryId = null
-                    requestedMapActiveRunId = (
-                        activeRun ?: surveyRunState.latestRun?.takeIf { it.active }
-                    )?.runId
-                    fieldToolsViewModel.refresh(retainLoaded = true)
-                    navController.navigate(Routes.GNSS_MAP)
-                },
-                onHome = { resetToDeviceRoot(navController) }
-            )
-        }
-
-        listOf(Routes.RUN_RESULT, Routes.HISTORY_RESULT).forEach { resultRoute ->
-        composable(
-            resultRoute,
-            arguments = listOf(
-                navArgument("deviceId") { type = NavType.StringType },
-                navArgument("historyId") {
-                    type = NavType.StringType
-                    if (resultRoute == Routes.RUN_RESULT) { nullable = true; defaultValue = null }
-                }
-            ) + if (resultRoute == Routes.RUN_RESULT) listOf(
-                navArgument("runId") { type = NavType.StringType },
-                navArgument("pipelineId") { type = NavType.StringType; nullable = true; defaultValue = null }
-            ) else emptyList()
-        ) { entry ->
-            val resultDeviceId = entry.arguments?.getString("deviceId").orEmpty()
-            val historyId = entry.arguments?.getString("historyId")
-            val savedHistory = remember(entry) {
-                entry.savedStateHandle.get<String>("resultHistory")?.let { json ->
-                    runCatching { com.google.gson.Gson().fromJson(json, com.example.jetsoncontroller.model.TaskRun::class.java) }.getOrNull()
-                }
-            }
-            val history = (fieldState.runs.firstOrNull {
-                fieldState.deviceId.equals(resultDeviceId, true) && it.id == historyId
-            } ?: savedHistory)?.takeIf {
-                it.id == historyId && (it.deviceId == null || it.deviceId.equals(resultDeviceId, true)) &&
-                    (it.contextSnapshot == null || it.contextSnapshot.deviceId.equals(resultDeviceId, true))
-            }
-            val target = entry.arguments?.getString("runId")?.let {
-                com.example.jetsoncontroller.ui.survey.RunResultTarget(resultDeviceId, it, entry.arguments?.getString("pipelineId"))
-            }
-            LaunchedEffect(target, surveyRunState.deviceId, surveyRunState.online) {
-                target?.let { surveyRunViewModel.openResult(it, surveyRunState.latestRun) }
-            }
-            val resultRun = runResultState.takeIf { it.target == target && target != null }?.run
-            LaunchedEffect(resultRun?.runId, resultRun?.active, surveyRunState.deviceId, surveyRunState.latestRun?.runId) {
-                resultRun?.takeIf { !it.active && it.deviceId.equals(surveyRunState.deviceId, true) }?.let {
-                    surveyRunViewModel.acknowledgeResult(it.runId)
-                }
-            }
-            DisposableEffect(entry) {
-                surveyRunViewModel.dismissResultLog()
-                onDispose { surveyRunViewModel.dismissResultLog() }
-            }
-            val logEntry = resultRun?.let(::resultLogEntry) ?: history
-            val logTarget = logEntry?.let {
-                com.example.jetsoncontroller.ui.survey.RunLogTarget(resultDeviceId, it.pipelineId, it.logId)
-            }
-            val resultOnline = deviceDashboardState.isOnline && selectedDeviceId.equals(resultDeviceId, true)
-            val receiptPresentation = serverReceiptPresentation(
-                resultRun,
-                (listOfNotNull(uploadState.currentJob) + uploadState.queue).distinctBy { it.id }
-            )
-            val ticketLink = remember(resultRun?.runId, serverTicketState.profileId, serverTicketState.tickets) {
-                resultRun?.let { serverTicketViewModel.linkForRun(it.runId, it.deviceId) }
-            }
-            LaunchedEffect(ticketLink?.profileId) {
-                ticketLink?.profileId?.let(serverTicketViewModel::refreshCapabilities)
-            }
-            val ticketCompletion = com.example.jetsoncontroller.ui.tasks.ticketCompletionPresentation(
-                attached = ticketLink != null,
-                serverReceiptConfirmed = receiptPresentation.tone == StatusTone.SUCCESS,
-                role = ticketLink?.profileId?.let(serverTicketViewModel::reportRole),
-                conflicted = resultRun?.let { serverTicketViewModel.ticketConflictForRun(it.runId) } == true,
-                startRejected = resultRun?.let { serverTicketViewModel.ticketStartRejected(it.runId) } == true,
-                startRejectedMessage = resultRun?.let { serverTicketViewModel.ticketStartFailureMessage(it.runId) }
-            )
-            val completionReportPending = resultRun?.let { serverTicketViewModel.pendingReport(it.runId, true) } == true
-            val completionReportSettled = resultRun?.let { serverTicketViewModel.reportSettled(it.runId, true) } == true
-            val ticketCompletionMessage = when {
-                completionReportPending -> ticketCompletion.message
-                completionReportSettled -> ticketLink?.rowId?.let(serverTicketViewModel::ticketMessage)
-                    ?: "완료 보고를 전송했습니다."
-                else -> ticketCompletion.message
-            }
-            com.example.jetsoncontroller.ui.field.RunResultScreen(
-                deviceName = deviceState.registeredDevices.firstOrNull {
-                    it.deviceId.equals(resultDeviceId, true)
-                }?.deviceName ?: "선택한 장치",
-                connectionLabel = com.example.jetsoncontroller.ui.connection
-                    .deviceConnectionUi(deviceDashboardState.isOnline, deviceDashboardState.transportType).label,
-                connectionTone = com.example.jetsoncontroller.ui.connection
-                    .deviceConnectionUi(deviceDashboardState.isOnline, deviceDashboardState.transportType).tone,
-                run = resultRun,
-                uploadEnabled = serverUploadEnabled && resultOnline,
-                uploadDisabledReason = serverUploadDisabledReason,
-                serverReceiptLabel = receiptPresentation.label,
-                serverReceiptTone = receiptPresentation.tone,
-                ticketTitle = ticketLink?.title,
-                ticketCompletionEnabled = ticketCompletion.enabled && !completionReportPending && !completionReportSettled,
-                ticketCompletionMessage = ticketCompletionMessage,
-                ticketCompletionPending = completionReportPending,
-                onReportTicketCompletion = {
-                    if (receiptPresentation.tone == StatusTone.SUCCESS) {
-                        resultRun?.let(serverTicketViewModel::reportCompletion)
-                    }
-                },
-                online = resultOnline,
-                developerModeEnabled = developerModeEnabled,
-                unreadCount = alertCenterState.unreadCount,
-                onDevices = { navigateToDeviceRoot(navController) },
-                onAlerts = { navController.navigate(Routes.ALERTS) },
-                onBack = {
-                    val returnRoute = resultReturnRoute(navController.previousBackStackEntry?.destination?.route)
-                    if (!navController.popBackStack()) navigateToTab(navController, returnRoute)
-                },
-                onRefresh = {
-                    target?.let { surveyRunViewModel.openResult(it) }
-                    if (resultOnline) fieldToolsViewModel.refresh(retainLoaded = true)
-                },
-                onPrepareUpload = {
-                    resultRun?.takeIf {
-                        resultOnline && com.example.jetsoncontroller.ui.field.runOutputStored(it)
-                    }?.let { run ->
-                        navController.navigate(
-                            "upload_confirm/${Uri.encode(run.output.rootId)}" +
-                                "?path=${Uri.encode(run.output.path)}&runId=${Uri.encode(run.runId)}"
-                        )
-                    }
-                },
-                onOpenFiles = {
-                    resultRun?.takeIf { resultOnline }?.let { run ->
-                        navController.navigate(
-                            "storage?rootId=${Uri.encode(run.output.rootId)}" +
-                                "&path=${Uri.encode(run.output.path)}"
-                        )
-                    }
-                },
-                onNewSurvey = {
-                    if (latestSelectedDeviceId.equals(resultDeviceId, true)) {
-                        serverTicketViewModel.clearPendingSelectionIfUnarmed(resultDeviceId)
-                        val pipelineId = resultRun?.pipelineId ?: history?.pipelineId
-                        val pipeline = pipelineState.pipelines.firstOrNull { it.id == pipelineId }
-                        if (pipeline == null) navigateToTaskStart(navController)
-                        else openPipelinePreparation(pipeline)
-                    } else navigateToDeviceRoot(navController)
-                },
-                historyEntry = history,
-                resultMessage = runResultState.takeIf { target != null && it.target == target }?.error
-                    ?: resultLogState.takeIf { it.target == logTarget }?.error
-                    ?: fieldState.error.takeIf { fieldState.deviceId.equals(resultDeviceId, true) },
-                onOpenLog = if (developerModeEnabled && logTarget != null) ({
-                    if (resultOnline) surveyRunViewModel.openResultLog(logTarget)
-                }) else null,
-                savedLog = resultLogState.takeIf { developerModeEnabled && it.target == logTarget }?.text,
-                onDismissLog = surveyRunViewModel::dismissResultLog
-            )
-        }
-        }
-
-        composable(Routes.TASK_HISTORY) {
-            LaunchedEffect(Unit) { fieldToolsViewModel.refresh() }
-            com.example.jetsoncontroller.ui.field.GeoRunDashboard(
-                state = fieldState, pipelines = pipelineState.pipelines,
-                onBack = { navController.popBackStack() }, onNew = { navigateToTaskStart(navController) },
-                onRefresh = { fieldToolsViewModel.refresh() }, onMore = { fieldToolsViewModel.refresh(true) },
-                onLog = fieldToolsViewModel::openLog,
-                onOpenResult = openHistoryResult,
-                onRoute = {
-                    requestedMapHistoryEntryId = it.id
-                    requestedMapActiveRunId = null
-                    navController.navigate(Routes.GNSS_MAP)
-                },
-                onDismissLog = fieldToolsViewModel::dismissLog,
-                onPipeline = { navController.navigate("pipeline_detail/${Uri.encode(it.id)}") },
-                onDeleteRun = fieldToolsViewModel::deleteRun,
-                onUndoDelete = fieldToolsViewModel::undoDeleteRun,
-                onTrash = { navController.navigate(Routes.LOCAL_TRASH) },
-                onUploadOutput = { run ->
-                    val output = run.output
-                    val runId = com.example.jetsoncontroller.ui.field.canonicalHistoryRunId(run)
-                    if (output != null && runId != null) {
-                        navController.navigate(
-                            "upload_confirm/${Uri.encode(output.rootId)}?path=${Uri.encode(output.path)}&runId=${Uri.encode(runId)}"
-                        )
-                    }
-                },
-                onDismissMessage = fieldToolsViewModel::dismissMessage,
-                developerModeEnabled = developerModeEnabled
-            )
-        }
-
-        composable(Routes.PIPELINE_EDITOR) pipelineEditor@ {
-            if (!developerModeEnabled) return@pipelineEditor
-            PipelineEditorScreen(
-                state = pipelineState,
-                onBack = { navController.popBackStack() },
-                onPick = { target ->
-                    pipelineViewModel.beginPick(target)
-                    navController.navigate(Routes.PIPELINE_PICKER)
-                },
-                onLabelChange = pipelineViewModel::setLabel,
-                onAutostartChange = pipelineViewModel::setAutostart,
-                onRegister = pipelineViewModel::register
-            )
-        }
-
-        composable(Routes.PIPELINE_PICKER) pipelinePicker@ {
-            if (!developerModeEnabled) return@pipelinePicker
-            PipelinePickerScreen(
-                roots = pipelineState.roots,
-                state = pipelineState.picker,
-                onBack = {
-                    if (!pipelineViewModel.navigatePickerBack()) {
-                        navController.popBackStack()
-                    }
-                },
-                onRefresh = pipelineViewModel::refreshPicker,
-                onRootClick = pipelineViewModel::selectPickerRoot,
-                onDirectoryClick = pipelineViewModel::openPickerDirectory,
-                onFileClick = { entry ->
-                    if (pipelineViewModel.selectPickerFile(entry)) {
-                        navController.popBackStack()
-                    }
-                },
-                onSelectCurrentDirectory = {
-                    if (pipelineViewModel.selectCurrentPickerDirectory()) {
-                        navController.popBackStack()
-                    }
-                }
-            )
-        }
-
-        composable(
-            route = Routes.PIPELINE_LOGS,
-            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
-        ) pipelineLogs@ { backStackEntry ->
-            if (!developerModeEnabled) return@pipelineLogs
-            val pipelineId = backStackEntry.arguments?.getString("pipelineId").orEmpty()
-            DisposableEffect(pipelineId) {
-                pipelineViewModel.startLogStreaming(pipelineId)
-                onDispose { pipelineViewModel.stopLogStreaming() }
-            }
-            PipelineLogScreen(
-                state = pipelineState,
-                onBack = { navController.popBackStack() },
-                onRefresh = pipelineViewModel::refreshLogs,
-                onLogSelected = pipelineViewModel::selectLogFile
-            )
-        }
-
-        composable(
-            route = Routes.PIPELINE_CONFIG,
-            arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })
-        ) pipelineConfig@ { backStackEntry ->
-            if (!developerModeEnabled) return@pipelineConfig
-            val pipelineId = backStackEntry.arguments?.getString("pipelineId").orEmpty()
-            LaunchedEffect(pipelineId) { pipelineViewModel.loadConfig(pipelineId) }
-            PipelineConfigScreen(
-                state = pipelineState,
-                onBack = { navController.popBackStack() },
-                onValueChange = pipelineViewModel::setConfigValue,
-                onSave = pipelineViewModel::saveConfig,
-                onReload = pipelineViewModel::reloadConfig
-            )
-        }
-
-        composable(Routes.SENSORS) {
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            SensorScreen(
-                deviceName = selectedDeviceName,
-                onDevices = { navigateToDeviceRoot(navController) },
-                onAlerts = { navController.navigate(Routes.ALERTS) },
-                unreadCount = alertCenterState.unreadCount,
-                status = dashboardState.status,
-                deviceOnline = transportState is TransportState.Connected,
-                fullControlAvailable = fullControlConnected,
-                onCameraClick = { navController.navigate(Routes.CAMERA_PREVIEW) },
-                onGnssClick = {
-                    requestedMapHistoryEntryId = null
-                    requestedMapActiveRunId = null
-                    navController.navigate(Routes.GNSS_MAP)
-                },
-                onSectionSelected = onSectionSelected
-            )
-        }
-
-        composable(Routes.DIAGNOSTICS) diagnostics@ {
-            if (!developerModeEnabled) return@diagnostics
-            ConnectionDiagnosticsScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Routes.CAMERA_PREVIEW) {
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            val camera = dashboardState.status.cameraSensor
-            val cameraActive = if (dashboardState.status.sensorTelemetryAvailable) {
-                dashboardState.status.sensorTelemetryFresh && camera.active
-            } else {
-                dashboardState.status.cameraRunning
-            }
-            LaunchedEffect(cameraActive) {
-                cameraPreviewViewModel.setSensorActive(cameraActive)
-            }
-            DisposableEffect(Unit) {
-                cameraPreviewViewModel.setVisible(true)
-                onDispose { cameraPreviewViewModel.setVisible(false) }
-            }
-            CameraPreviewScreen(
-                state = cameraPreviewState,
-                camera = camera,
-                telemetryFresh = if (dashboardState.status.sensorTelemetryAvailable) {
-                    dashboardState.status.sensorTelemetryFresh
-                } else {
-                    dashboardState.status.cameraRunning
-                },
-                onBack = { navController.popBackStack() },
-                captureBusy = fieldState.captureBusy,
-                captureMessage = fieldState.captureMessage,
-                onCapture = { device, mobile -> fieldToolsViewModel.capture(fieldContext, device, mobile) },
-                onDismissCaptureMessage = fieldToolsViewModel::dismissCaptureMessage,
-                onRefresh = cameraPreviewViewModel::refresh
-            )
-        }
-
-        composable(Routes.GNSS_MAP) {
-            val mapReturnLabel = when (navController.previousBackStackEntry?.destination?.route) {
-                Routes.ACTIVE_RUN -> "수집 화면으로"
-                Routes.TASK_HISTORY -> "수집 이력으로"
-                Routes.DEVICES -> "홈으로"
-                Routes.SENSORS -> "센서 화면으로"
-                else -> "이전 화면으로"
-            }
-            val requestedMapRun = if (requestedMapActiveRunId != null) {
-                activeCollectionHistoryRun(
-                    (surveyRunState.activeRun ?: surveyRunState.latestRun?.takeIf { it.active })
-                        ?.takeIf { it.runId == requestedMapActiveRunId },
-                    fieldState.runs
-                )
-            } else {
-                fieldState.runs.firstOrNull { it.id == requestedMapHistoryEntryId }
-            }
-            LaunchedEffect(
-                selectedDeviceId,
-                requestedMapHistoryEntryId,
-                requestedMapActiveRunId,
-                requestedMapRun
-            ) {
-                fieldToolsViewModel.selectRun(requestedMapRun)
-            }
-            DisposableEffect(selectedDeviceId, requestedMapHistoryEntryId, requestedMapActiveRunId) {
-                onDispose { fieldToolsViewModel.stopRoutePolling() }
-            }
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            GnssMapScreen(
-                route = fieldState.route,
-                quality = fieldState.routeQuality,
-                routeLabel = fieldState.selectedRun?.label,
-                returnLabel = mapReturnLabel,
-                gnss = dashboardState.status.gnssSensor,
-                telemetryFresh = dashboardState.status.sensorTelemetryFresh,
-                deviceOnline = transportState is TransportState.Connected,
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(Routes.DATA) {
-            // Per-device UI state lives in this entry. A SaveableStateHolder key shared across
-            // back-stack entries crashed when two entries were composed during a transition.
-            androidx.compose.runtime.key(selectedDeviceId) {
-                com.example.jetsoncontroller.ui.storage.DataHubScreen(
-                    state = dataStorageState,
-                    serverUploadEnabled = serverUploadEnabled && dashboardState.capabilities.uploads,
-                    unavailableReason = if (!serverUploadEnabled) serverUploadDisabledReason
-                        else "장치 업로드 지원 여부 미확인",
-                    unreadCount = alertCenterState.unreadCount,
-                    onDevices = { navigateToDeviceRoot(navController) },
-                    onAlerts = { navController.navigate(Routes.ALERTS) },
-                    onRefresh = dataStorageViewModel::refresh,
-                    onNavigateBack = { dataStorageViewModel.navigateBack() },
-                    onDirectoryClick = dataStorageViewModel::selectDirectory,
-                    onFileClick = dataStorageViewModel::openFile,
-                    onDeleteClick = dataStorageViewModel::deleteEntry,
-                    onHistory = { navController.navigate(Routes.UPLOAD_QUEUE) },
-                    onTransfer = { root, path -> navController.navigate("upload_confirm/${Uri.encode(root)}?path=${Uri.encode(path)}") },
-                    onSection = onSectionSelected,
-                    onServerData = { navController.navigate(Routes.SERVER_STORAGE) },
-                    onTrash = { navController.navigate(Routes.LOCAL_TRASH) },
-                    onDismissMessage = dataStorageViewModel::dismissMessage,
-                    onUndoDelete = dataStorageViewModel::undoDelete
-                )
-            }
-        }
-        composable(Routes.LOCAL_TRASH) {
-            com.example.jetsoncontroller.ui.storage.LocalTrashScreen(
-                state = localTrashState,
-                onBack = { navController.popBackStack() },
-                onRefresh = localTrashViewModel::refresh,
-                onRestore = localTrashViewModel::restore,
-                onEmptyTrash = localTrashViewModel::emptyTrash,
-                onDismissMessage = localTrashViewModel::dismissMessage
-            )
-        }
-        composable(Routes.SETTINGS) {
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            // Keyed per entry, not through a shared SaveableStateHolder (see Routes.DATA).
-            androidx.compose.runtime.key(selectedDeviceId) {
-                com.example.jetsoncontroller.ui.settings.SettingsHubScreen(
-                    deviceDashboardState, selectedDeviceId, alertCenterState.unreadCount,
-                    onDevices = { navigateToDeviceRoot(navController) },
-                    onAlerts = { navController.navigate(Routes.ALERTS) },
-                    onNetwork = { navController.navigate(Routes.NETWORK_SETTINGS) },
-                    onSensors = { navController.navigate(Routes.SENSORS) },
-                    onTargets = { navController.navigate(Routes.UPLOAD_SERVERS) },
-                    onDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
-                    onAlertSettings = { navController.navigate(Routes.ALERT_SETTINGS) },
-                    onServerStorage = { navController.navigate(Routes.SERVER_STORAGE) },
-                    onRefreshFan = dashboardViewModel::refreshFan, onFanAuto = dashboardViewModel::setFanAuto,
-                    onFanManual = dashboardViewModel::setFanManual, onReboot = dashboardViewModel::reboot,
-                    onShutdown = dashboardViewModel::shutdown, onDismissMessage = dashboardViewModel::clearOperationMessage,
-                    onSection = onSectionSelected,
-                    onDeveloper = { navController.navigate("developer") },
-                    onAdminTools = { navController.navigate(Routes.ADMIN_TOOLS) },
-                    developerModeEnabled = developerModeEnabled,
-                    onDeveloperModeChange = developerModePreference::updateEnabled)
-            }
-        }
-        composable(Routes.ADMIN_TOOLS) adminTools@ {
-            if (!developerModeEnabled) return@adminTools
-            StatusPollingLifecycleEffect(dashboardViewModel)
-            com.example.jetsoncontroller.ui.settings.AdminToolsScreen(
-                state = deviceDashboardState,
-                deviceId = selectedDeviceId,
-                onBack = { navController.popBackStack() },
-                onNetwork = { navController.navigate(Routes.NETWORK_SETTINGS) },
-                onTargets = { navController.navigate(Routes.UPLOAD_SERVERS) },
-                onDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
-                onJetsonServerProxy = { navController.navigate(Routes.SERVER_PROXY_STORAGE) },
-                onDeviceRegistration = { navigateToDeviceRoot(navController) },
-                onRefreshFan = dashboardViewModel::refreshFan,
-                onFanAuto = dashboardViewModel::setFanAuto,
-                onFanManual = dashboardViewModel::setFanManual,
-                onReboot = dashboardViewModel::reboot,
-                onShutdown = dashboardViewModel::shutdown,
-                onDismissMessage = dashboardViewModel::clearOperationMessage
-            )
-        }
-        composable("developer") developerTools@ {
-            if (!developerModeEnabled) return@developerTools
-            com.example.jetsoncontroller.ui.field.DeveloperScreen(fieldState,
-                onBack = { navController.popBackStack() }, onExecute = fieldToolsViewModel::execute,
-                onLogs = { navController.navigate(Routes.PIPELINES) },
-                onDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
-                developerModeEnabled = developerModeEnabled,
-                onDeveloperModeChange = developerModePreference::updateEnabled,
-                onDeveloperDisabled = {
-                    navController.navigate(Routes.SETTINGS) {
-                        popUpTo(Routes.DEVICES) { inclusive = false }
-                        launchSingleTop = true
-                    }
-                },
-                onAdminTools = { navController.navigate(Routes.ADMIN_TOOLS) },
-                onRefreshNetwork = fieldToolsViewModel::refreshNetwork,
-                onTestSensor = fieldToolsViewModel::testSensor,
-                onCameraPreview = { navController.navigate(Routes.CAMERA_PREVIEW) },
-                onGpsMap = { navController.navigate(Routes.GNSS_MAP) })
-        }
-
-        composable(Routes.ALERT_SETTINGS) {
-            AlertSettingsScreen(
-                settings = alertSettings,
-                notificationPermissionGranted = notificationPermissionGranted,
-                onRequestNotificationPermission = onRequestNotificationPermission,
-                onStorageEnabledChange = alertSettingsViewModel::setStorageEnabled,
-                onStorageThresholdChange = alertSettingsViewModel::setStorageThreshold,
-                onTemperatureEnabledChange = alertSettingsViewModel::setTemperatureEnabled,
-                onTemperatureThresholdChange = alertSettingsViewModel::setTemperatureThreshold,
-                onPipelineStartedEnabledChange =
-                    alertSettingsViewModel::setPipelineStartedEnabled,
-                onPipelineFailedEnabledChange =
-                    alertSettingsViewModel::setPipelineFailedEnabled,
-                onUploadStartedEnabledChange =
-                    alertSettingsViewModel::setUploadStartedEnabled,
-                onUploadEndedEnabledChange =
-                    alertSettingsViewModel::setUploadEndedEnabled,
-                onSectionSelected = onSectionSelected,
-                onOpenDiagnostics = {
-                    if (developerModeEnabled) navController.navigate(Routes.DIAGNOSTICS)
-                },
-                developerModeEnabled = developerModeEnabled
-            )
-        }
-    }
-    }
-    }
-    }
-    }
     }
 }
 
 @Composable
-private fun StatusPollingLifecycleEffect(viewModel: DashboardViewModel) {
+internal fun StatusPollingLifecycleEffect(viewModel: DashboardViewModel) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -2532,23 +910,10 @@ private fun StatusPollingLifecycleEffect(viewModel: DashboardViewModel) {
 }
 
 internal fun navigateToTaskStart(navController: NavHostController) {
-    navController.clearBackStack(Routes.PIPELINES)
-    navController.navigate(Routes.PIPELINES) {
-        popUpTo(Routes.DEVICES) { saveState = false }
-        launchSingleTop = true
-        restoreState = false
-    }
+    navController.navigateSingle(Routes.PIPELINES)
 }
 
-/** Resets the stack to the device root. Used by the "홈" actions that start a fresh session on the root. */
-internal fun resetToDeviceRoot(navController: NavHostController) {
-    navController.clearBackStack(Routes.DEVICES)
-    navController.navigate(Routes.DEVICES) {
-        popUpTo(Routes.DEVICES) { inclusive = true; saveState = false }
-        launchSingleTop = true
-        restoreState = false
-    }
-}
+internal fun resetToDeviceRoot(navController: NavHostController) = navigateToDeviceRoot(navController)
 
 private fun resultRoutePart(value: String): String = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
@@ -2724,15 +1089,6 @@ internal fun serverReceiptPresentation(
     }
 }
 
-private fun controlSectionForRoute(route: String?): ControlSection = when (route) {
-    Routes.TASKS, Routes.TASK_DETAIL, Routes.TICKET_DETAIL, Routes.PIPELINES, Routes.SURVEY_RUN, Routes.ACTIVE_RUN,
-    Routes.RUN_RESULT, Routes.HISTORY_RESULT, Routes.TASK_HISTORY ->
-        ControlSection.TASKS
-    Routes.TRANSFERS, Routes.UPLOAD_QUEUE, Routes.DATA -> ControlSection.TRANSFERS
-    Routes.SETTINGS, Routes.ALERT_SETTINGS -> ControlSection.SETTINGS
-    else -> ControlSection.DEVICES
-}
-
 internal fun connectionAttemptCompleted(
     expectedTransport: TransportType?,
     transportState: TransportState
@@ -2740,12 +1096,12 @@ internal fun connectionAttemptCompleted(
     transportState is TransportState.Connected &&
     transportState.type == expectedTransport
 
-private fun alertDestinationRoute(destination: AlertDestination): String = when (destination) {
-    AlertDestination.DASHBOARD -> Routes.DEVICES
+internal fun alertDestinationRoute(destination: AlertDestination): String = when (destination) {
+    AlertDestination.DASHBOARD -> Routes.DEVICE_BROWSE
     AlertDestination.STORAGE -> Routes.DATA
     AlertDestination.SENSORS -> Routes.SENSORS
-    AlertDestination.PIPELINES -> Routes.TASKS
-    AlertDestination.UPLOAD_QUEUE -> Routes.TRANSFERS
+    AlertDestination.PIPELINES -> Routes.WORK_BROWSE
+    AlertDestination.UPLOAD_QUEUE -> Routes.TRANSFER_BROWSE
 }
 
 internal fun deviceRegistrationRedirectAllowed(currentRoute: String?): Boolean =

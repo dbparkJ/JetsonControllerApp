@@ -727,12 +727,8 @@ internal fun directServerRoleCanMutate(role: String?): Boolean =
 private fun formatEpoch(epochMillis: Long): String = java.text.DateFormat.getDateTimeInstance()
     .format(java.util.Date(epochMillis))
 
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1024L * 1024L * 1024L -> "%.1f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
-    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
-    else -> "$bytes B"
-}
+private fun formatBytes(bytes: Long): String =
+    com.example.jetsoncontroller.ui.model.Formats.size(bytes)
 
 internal fun calculatePreviewSampleSize(width: Int, height: Int, maxEdge: Int = 2048): Int {
     var sample = 1

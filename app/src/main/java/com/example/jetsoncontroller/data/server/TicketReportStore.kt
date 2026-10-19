@@ -12,7 +12,25 @@ data class PendingTicketReport(
     val runId: String,
     val deviceId: String,
     val profileId: String,
-    val createdAt: String
+    val createdAt: String,
+    val ticketRevision: String? = null,
+    val receiptId: String? = null
+) {
+    fun target(): TicketReportTarget = TicketReportTarget(
+        profileId = profileId,
+        rowId = rowId,
+        ticketRevision = ticketRevision,
+        runId = runId,
+        receiptId = receiptId
+    )
+}
+
+data class TicketReportTarget(
+    val profileId: String,
+    val rowId: String,
+    val ticketRevision: String?,
+    val runId: String,
+    val receiptId: String?
 )
 
 data class PendingTicketSelection(
@@ -23,7 +41,8 @@ data class PendingTicketSelection(
     val unit: String?,
     val deviceId: String,
     val pipelineId: String,
-    val clientRequestId: String? = null
+    val clientRequestId: String? = null,
+    val ticketRevision: String? = null
 )
 
 data class TicketRunLink(
@@ -34,7 +53,8 @@ data class TicketRunLink(
     val project: String?,
     val unit: String?,
     val deviceId: String,
-    val pipelineId: String?
+    val pipelineId: String?,
+    val ticketRevision: String? = null
 )
 
 private data class TicketReportStoreData(
@@ -156,7 +176,8 @@ class TicketReportStore(
             project = selection.project,
             unit = selection.unit,
             deviceId = selection.deviceId,
-            pipelineId = selection.pipelineId
+            pipelineId = selection.pipelineId,
+            ticketRevision = selection.ticketRevision
         )
         write(data.copy(
             links = (data.links.filterNot { it.runId == runId } + link),
@@ -181,7 +202,8 @@ class TicketReportStore(
             project = ticket.project,
             unit = ticket.unit,
             deviceId = deviceId,
-            pipelineId = null
+            pipelineId = null,
+            ticketRevision = ticket.revision
         )
         write(data.copy(links = data.links.filterNot { it.runId == runId } + link))
         return link
@@ -242,3 +264,30 @@ fun ticketReportKey(runId: String, completed: Boolean): String =
 /** 202 and all terminal client errors remove an outbox entry; transport and 5xx errors retain it. */
 fun ticketReportResponseIsTerminal(statusCode: Int?): Boolean =
     statusCode == 202 || (statusCode != null && statusCode in 400..499)
+
+/** Revalidates the immutable ticket/run/receipt tuple immediately before reporting. */
+fun ticketReportTargetMatches(
+    target: TicketReportTarget,
+    profileId: String?,
+    ticket: ServerTicket?,
+    runId: String,
+    deviceId: String,
+    receiptId: String?,
+    receipt: ServerReceipt?,
+    requireReceipt: Boolean = false
+): Boolean {
+    val currentTicket = ticket ?: return false
+    if (target.profileId != profileId || target.runId != runId ||
+        target.ticketRevision.isNullOrBlank() || currentTicket.rowId != target.rowId ||
+        currentTicket.revision != target.ticketRevision
+    ) return false
+
+    if (!requireReceipt) return target.receiptId == null && receiptId == null && receipt == null
+    if (target.receiptId.isNullOrBlank()) return false
+    val verifiedReceipt = receipt ?: return false
+    if (target.receiptId != receiptId || verifiedReceipt.sessionId != target.receiptId ||
+        verifiedReceipt.state != "COMPLETED" || !verifiedReceipt.matched
+    ) return false
+    val context = verifiedReceipt.surveyContext ?: return false
+    return context.runId == target.runId && context.deviceId.equals(deviceId, ignoreCase = true)
+}

@@ -18,35 +18,47 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-/** Draw inside the control bounds so parent clipping cannot cut off keyboard focus. */
+/** The ring sits 2 dp outside the control, followed by the 4 dp halo (R3 §3.7). */
 private fun Modifier.controlFocusRing(): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
-    val ring = LocalCobaltColors.current.focusRing
-    val base = LocalCobaltColors.current.surface
+    val colors = LocalGeoColors.current
     onFocusChanged { focused = it.hasFocus }.drawWithContent {
         drawContent()
         if (focused) {
-            val inset = 3.dp.toPx()
-            val ringSize = Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset * 2).coerceAtLeast(0f))
-            // A neutral underlay keeps the ring distinct even on a filled primary button.
-            drawRoundRect(base, Offset(inset, inset), ringSize, CornerRadius(5.dp.toPx()), style = Stroke(6.dp.toPx()))
-            drawRoundRect(ring, Offset(inset, inset), ringSize, CornerRadius(5.dp.toPx()), style = Stroke(2.dp.toPx()))
+            val ringOffset = (GeoShape.focusOffset + GeoShape.focusRing / 2).toPx()
+            val haloOffset = (GeoShape.focusOffset + GeoShape.focusRing + GeoShape.focusHalo / 2).toPx()
+            val radius = GeoShape.md.toPx()
+            drawRoundRect(colors.focusHalo, Offset(-haloOffset, -haloOffset),
+                Size(size.width + haloOffset * 2, size.height + haloOffset * 2),
+                CornerRadius(radius + haloOffset), style = Stroke(GeoShape.focusHalo.toPx()))
+            drawRoundRect(colors.focus, Offset(-ringOffset, -ringOffset),
+                Size(size.width + ringOffset * 2, size.height + ringOffset * 2),
+                CornerRadius(radius + ringOffset), style = Stroke(GeoShape.focusRing.toPx()))
         }
     }
 }
 
 @Composable
-fun slateTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = LocalCobaltColors.current.surface,
-    unfocusedContainerColor = LocalCobaltColors.current.surface,
-    focusedBorderColor = LocalCobaltColors.current.focusRing,
-    unfocusedBorderColor = LocalCobaltColors.current.controlBorder,
-    disabledBorderColor = LocalCobaltColors.current.border,
-    disabledTextColor = LocalCobaltColors.current.onDisabled,
-    disabledLabelColor = LocalCobaltColors.current.onDisabled,
-    disabledPlaceholderColor = LocalCobaltColors.current.onDisabled,
-    disabledContainerColor = LocalCobaltColors.current.disabled
-)
+fun geoTextFieldColors(): TextFieldColors {
+    val c = LocalGeoColors.current
+    return OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = c.field,
+        unfocusedContainerColor = c.field,
+        focusedTextColor = c.text, unfocusedTextColor = c.text,
+        focusedLabelColor = c.primary, unfocusedLabelColor = c.textSecondary,
+        focusedPlaceholderColor = c.textSubtle, unfocusedPlaceholderColor = c.textSubtle,
+        focusedBorderColor = c.focus, unfocusedBorderColor = c.borderStrong,
+        errorBorderColor = c.danger, errorContainerColor = c.field,
+        errorTextColor = c.text, errorLabelColor = c.danger, errorSupportingTextColor = c.danger,
+        disabledBorderColor = c.disabledText, disabledTextColor = c.disabledText,
+        disabledLabelColor = c.disabledText, disabledPlaceholderColor = c.disabledText,
+        disabledContainerColor = c.disabledFill
+    )
+}
+
+@Deprecated("Use geoTextFieldColors", ReplaceWith("geoTextFieldColors()"))
+@Composable
+fun slateTextFieldColors(): TextFieldColors = geoTextFieldColors()
 
 /** Forward behavior unchanged; use opaque disabled roles and a visible focus indicator. */
 @Composable
@@ -62,10 +74,10 @@ fun Button(
     interactionSource: MutableInteractionSource? = null,
     content: @Composable RowScope.() -> Unit
 ) {
-    val c = LocalCobaltColors.current
+    val c = LocalGeoColors.current
     androidx.compose.material3.Button(
         onClick = onClick, modifier = modifier.controlFocusRing(), enabled = enabled,
-        shape = shape, colors = colors.copy(disabledContainerColor = c.disabled, disabledContentColor = c.onDisabled),
+        shape = shape, colors = colors.copy(disabledContainerColor = c.disabledFill, disabledContentColor = c.disabledText),
         elevation = elevation, border = border, contentPadding = contentPadding,
         interactionSource = interactionSource, content = content
     )
@@ -85,10 +97,10 @@ fun OutlinedButton(
     interactionSource: MutableInteractionSource? = null,
     content: @Composable RowScope.() -> Unit
 ) {
-    val c = LocalCobaltColors.current
+    val c = LocalGeoColors.current
     androidx.compose.material3.OutlinedButton(
         onClick = onClick, modifier = modifier.controlFocusRing(), enabled = enabled,
-        shape = shape, colors = colors.copy(disabledContainerColor = c.disabled, disabledContentColor = c.onDisabled),
+        shape = shape, colors = colors.copy(disabledContainerColor = c.disabledFill, disabledContentColor = c.disabledText),
         elevation = elevation, border = border, contentPadding = contentPadding,
         interactionSource = interactionSource, content = content
     )
@@ -108,10 +120,10 @@ fun FilledTonalButton(
     interactionSource: MutableInteractionSource? = null,
     content: @Composable RowScope.() -> Unit
 ) {
-    val c = LocalCobaltColors.current
+    val c = LocalGeoColors.current
     androidx.compose.material3.FilledTonalButton(
         onClick = onClick, modifier = modifier.controlFocusRing(), enabled = enabled,
-        shape = shape, colors = colors.copy(disabledContainerColor = c.disabled, disabledContentColor = c.onDisabled),
+        shape = shape, colors = colors.copy(disabledContainerColor = c.disabledFill, disabledContentColor = c.disabledText),
         elevation = elevation, border = border, contentPadding = contentPadding,
         interactionSource = interactionSource, content = content
     )
@@ -131,10 +143,10 @@ fun TextButton(
     interactionSource: MutableInteractionSource? = null,
     content: @Composable RowScope.() -> Unit
 ) {
-    val c = LocalCobaltColors.current
+    val c = LocalGeoColors.current
     androidx.compose.material3.TextButton(
         onClick = onClick, modifier = modifier.controlFocusRing(), enabled = enabled,
-        shape = shape, colors = colors.copy(disabledContainerColor = c.disabled, disabledContentColor = c.onDisabled),
+        shape = shape, colors = colors.copy(disabledContainerColor = c.disabledFill, disabledContentColor = c.disabledText),
         elevation = elevation, border = border, contentPadding = contentPadding,
         interactionSource = interactionSource, content = content
     )
@@ -142,6 +154,6 @@ fun TextButton(
 
 @Composable
 private fun actionContentColor(): Color {
-    val c = LocalCobaltColors.current
-    return if (LocalContentColor.current == c.onAccent) c.onAccent else c.primary
+    val c = LocalGeoColors.current
+    return if (LocalContentColor.current == c.primaryTintText) c.primaryTintText else c.primary
 }

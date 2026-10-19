@@ -1,102 +1,105 @@
 package com.example.jetsoncontroller.ui.theme
 
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/**
- * GEO& Field System — spacing, radius and size tokens.
- *
- * The previous scale mixed 4/8/12/16/20/24/28 with two overlapping "large" values
- * (`large` = 16, `screen` = 20), so two screens could look different while claiming
- * the same token. This is a strict 4dp scale with one name per step.
- */
+/** R3 §3.3 scale and ownership names. Gutters use the current content pane width. */
 object GeoSpace {
-    val xs = 4.dp
-    val sm = 8.dp
-    val md = 12.dp
-    val lg = 16.dp
-    val xl = 20.dp
-    val xxl = 24.dp
-    val xxxl = 32.dp
-    val huge = 40.dp
+    val space1 = 2.dp
+    val space2 = 4.dp
+    val space3 = 6.dp
+    val space4 = 8.dp
+    val space5 = 10.dp
+    val space6 = 12.dp
+    val space7 = 14.dp
+    val space8 = 16.dp
+    val space9 = 20.dp
+    val space10 = 24.dp
+    val space11 = 28.dp
+    val space12 = 32.dp
+    val space13 = 40.dp
+    val space14 = 56.dp
 
-    /** Horizontal gutter for a screen's content. One value, everywhere. */
-    val gutter = 20.dp
+    val focusOffset = space1
+    val rowMetaGap = space2
+    val captionIconGap = space3
+    val sectionTitleGap = space4
+    val fieldLabelGap = space4
+    val buttonGap = space4
+    val buttonIconGap = space5
+    val rowPadding = space6
+    val actionPadding = space6
+    val overlayInset = space6
+    val helperGap = space6
+    val figureLabelGap = space7
+    val singleRowPadding = space8
+    val leadingGap = space8
+    val gridGap = space8
+    val containedPadding = space8
+    val section = space10
+    val dialogPadding = space10
+    val sheetPadding = space10
+    val dangerSection = space11
+    val detailSection = space12
+    val sceneGap = space12
+    val scrollEnd = space13
+    val sceneTop = space14
 
-    /** Vertical gap between two sibling sections on a screen. */
-    val section = 24.dp
+    fun gutterForPane(widthDp: Float): Dp = when {
+        widthDp >= 390f -> space10
+        widthDp >= 340f -> space9
+        else -> space8
+    }
 
-    /** Gap between rows inside one section. */
-    val row = 12.dp
+    @Deprecated("Use space2", ReplaceWith("space2")) val xs = space2
+    @Deprecated("Use space4", ReplaceWith("space4")) val sm = space4
+    @Deprecated("Use space6", ReplaceWith("space6")) val md = space6
+    @Deprecated("Use space8", ReplaceWith("space8")) val lg = space8
+    @Deprecated("Use space9", ReplaceWith("space9")) val xl = space9
+    @Deprecated("Use space10", ReplaceWith("space10")) val xxl = space10
+    @Deprecated("Use space12", ReplaceWith("space12")) val xxxl = space12
+    @Deprecated("Use space13", ReplaceWith("space13")) val huge = space13
+    @Deprecated("Use gutterForPane with measured pane width") val gutter = space9
+    @Deprecated("Use rowPadding", ReplaceWith("rowPadding")) val row = rowPadding
 }
 
-/**
- * Corner radii. One rule per role: surfaces 12dp, controls 8dp, sheets and dialogs 16dp,
- * and a pill only for status chips.
- */
+/** Compatibility names retain their roles until the remaining screens migrate. */
 object GeoRadius {
-    /** Small inner tiles and thumbnails that sit inside a surface. */
-    val xs = 6.dp
-    /** Controls: buttons, text fields, inline actions. */
-    val sm = 8.dp
-    /** Surfaces: sections, status tiles, device cards. */
-    val md = 12.dp
-    /** Sheets (top corners) and dialogs. */
-    val lg = 16.dp
-    /** Same as [lg]; kept so existing call sites keep compiling. */
-    val xl = 16.dp
-    /** Status chips only. Any height-limited shape with this radius renders as a pill. */
-    val pill = 999.dp
+    @Deprecated("Use GeoShape.sm", ReplaceWith("GeoShape.sm")) val xs = GeoShape.sm
+    @Deprecated("Use GeoShape.md", ReplaceWith("GeoShape.md")) val sm = GeoShape.md
+    @Deprecated("Use GeoShape.lg", ReplaceWith("GeoShape.lg")) val md = GeoShape.lg
+    @Deprecated("Use GeoShape.xl", ReplaceWith("GeoShape.xl")) val lg = GeoShape.xl
+    @Deprecated("Use GeoShape.xxl", ReplaceWith("GeoShape.xxl")) val xl = GeoShape.xxl
+    @Deprecated("Use GeoShape.pillRadius", ReplaceWith("GeoShape.pillRadius")) val pill = GeoShape.pillRadius
 }
 
 object GeoSize {
-    /** Android's documented minimum touch target. Never go below this. */
     val minTouchTarget = 48.dp
-
-    /**
-     * Primary field actions (시작 · 중지 · 전송). The one filled action on a screen,
-     * sized for a standing operator without making the screen feel like a poster.
-     */
     val primaryAction = 52.dp
-
-    /** Secondary actions on the same screen as a primary action. */
     val secondaryAction = 48.dp
-
-    /** Status dot next to a badge label, for colour-blind-safe redundancy. */
     val statusDot = 8.dp
-
     val iconSm = 16.dp
     val iconMd = 20.dp
     val iconLg = 24.dp
-    val iconXl = 32.dp
-
-    /** Hairline used to separate surfaces instead of a shadow. */
-    val hairline = 1.dp
-
-    /** Left rule that carries a section's status colour. */
-    val statusRule = 3.dp
+    @Deprecated("Use iconLg; R3 icons use 16, 20 or 24 dp") val iconXl = 32.dp
+    val hairline = GeoShape.borderWidth
+    @Deprecated("Status left rules are retired") val statusRule = 3.dp
 }
 
-/**
- * Width breakpoints, measured against the *app window* rather than the physical
- * screen, per Android's adaptive-layout guidance. A phone in a resized window must
- * behave like a narrow window, not like a tablet.
- */
 object GeoBreakpoint {
     val medium = 600.dp
     val expanded = 840.dp
+    val compactHeight = 480.dp
 }
 
-/**
- * Legacy spacing names, kept so unmigrated screens keep compiling and inherit the
- * corrected scale. New code should use [GeoSpace].
- */
+@Deprecated("Use GeoSpace named uses")
 object AppSpacing {
-    val xSmall = GeoSpace.xs
-    val small = GeoSpace.sm
-    val medium = GeoSpace.md
-    val large = GeoSpace.lg
-    val xLarge = GeoSpace.xl
-    val xxLarge = GeoSpace.xxl
+    val xSmall = GeoSpace.space2
+    val small = GeoSpace.space4
+    val medium = GeoSpace.space6
+    val large = GeoSpace.space8
+    val xLarge = GeoSpace.space9
+    val xxLarge = GeoSpace.space10
     val section = GeoSpace.section
-    val screen = GeoSpace.gutter
+    val screen = GeoSpace.space9
 }

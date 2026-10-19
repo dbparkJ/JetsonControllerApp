@@ -1,5 +1,35 @@
 package com.example.jetsoncontroller.model
 
+sealed interface PreparationSelection {
+    data class Existing(val id: String, val revision: Int) : PreparationSelection
+    data class CreateFromTicket(val label: String) : PreparationSelection
+    data class CreateNew(val label: String) : PreparationSelection
+}
+
+data class PreparationDraft(
+    val deviceId: String,
+    val serverProfileId: String? = null,
+    val ticketRowId: String? = null,
+    val ticketRevision: String? = null,
+    val pipelineId: String? = null,
+    val project: PreparationSelection? = null,
+    val section: PreparationSelection? = null,
+    val projectRequestId: String? = null,
+    val sectionRequestId: String? = null,
+    val geometryRevision: String? = null,
+    val geometryHash: String? = null,
+    val updatedAt: Long = 0L,
+    val credentialRevision: String? = null
+)
+
+data class StartTarget(
+    val draft: PreparationDraft,
+    val preflightId: String,
+    val policyRevision: String
+)
+
+data class StopTarget(val deviceId: String, val pipelineId: String, val runId: String)
+
 data class SurveyProject(
     val surveyProjectId: String,
     val label: String,

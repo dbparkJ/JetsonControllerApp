@@ -2,7 +2,6 @@ package com.example.jetsoncontroller.ui.theme
 
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.LocalTonalElevationEnabled
 import androidx.compose.material3.MaterialTheme
@@ -13,115 +12,87 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
 
-private const val TABLET_UI_SCALE = 1.10f
-
-/** The visual scale applied by the root theme. Breakpoint code can recover physical dp with it. */
-val LocalGeoUiScale = compositionLocalOf { 1f }
 val LocalGeoDarkTheme = compositionLocalOf { false }
 
-internal fun geoUiScaleForSmallestWidth(smallestScreenWidthDp: Int): Float =
-    if (smallestScreenWidthDp >= 600) TABLET_UI_SCALE else 1f
-
-/**
- * Bridges the GEO& semantic roles onto Material 3's scheme so that stock components
- * (dialogs, chips, text fields, navigation bar) inherit the product palette without
- * every call site restating colours.
- */
-private fun geoScheme(dark: Boolean): ColorScheme {
-    val c = if (dark) GeoDark else GeoLight
-    val base = if (dark) darkColorScheme() else lightColorScheme()
-    val opposite = if (dark) GeoLight else GeoDark
+internal fun geoScheme(palette: GeoPalette): ColorScheme {
+    val c = palette.colors
+    val base = if (palette.isDark) darkColorScheme() else lightColorScheme()
     return base.copy(
         primary = c.primary, onPrimary = c.onPrimary,
-        primaryContainer = c.accent, onPrimaryContainer = c.onAccent,
-        inversePrimary = opposite.primary,
+        primaryContainer = c.primaryTint, onPrimaryContainer = c.primaryTintText,
+        inversePrimary = c.inverseAction,
         secondary = c.primary, onSecondary = c.onPrimary,
-        secondaryContainer = c.brandSoft, onSecondaryContainer = c.onBrandSoft,
-        tertiary = c.accentGreen, onTertiary = c.onPrimary,
-        tertiaryContainer = c.sectionRaised, onTertiaryContainer = c.ink,
-        background = c.canvas, onBackground = c.ink,
-        surface = c.surface, onSurface = c.ink,
-        surfaceVariant = c.sectionSoft, onSurfaceVariant = c.muted,
+        secondaryContainer = c.primaryTint, onSecondaryContainer = c.primaryTintText,
+        tertiary = c.primary, onTertiary = c.onPrimary,
+        tertiaryContainer = c.primaryTint, onTertiaryContainer = c.primaryTintText,
+        background = c.canvas, onBackground = c.text,
+        surface = c.surface, onSurface = c.text,
+        surfaceVariant = c.sunken, onSurfaceVariant = c.textSecondary,
         surfaceTint = c.primary,
-        inverseSurface = opposite.surface, inverseOnSurface = opposite.ink,
-        surfaceDim = c.surfaceSunken,
-        surfaceBright = c.surfaceRaised,
-        surfaceContainerLowest = c.surface,
-        surfaceContainerLow = c.sectionSoft,
-        surfaceContainer = c.sectionBase,
-        surfaceContainerHigh = c.sectionSoft,
-        surfaceContainerHighest = c.sectionRaised,
-        outline = c.controlBorder, outlineVariant = c.border,
+        inverseSurface = c.inverse, inverseOnSurface = c.onInverse,
+        surfaceDim = c.sunken, surfaceBright = c.surface,
+        surfaceContainerLowest = c.surface, surfaceContainerLow = c.sunken,
+        surfaceContainer = c.surface, surfaceContainerHigh = c.field,
+        surfaceContainerHighest = c.fieldPressed,
+        outline = c.borderStrong, outlineVariant = c.border,
         error = c.danger, onError = c.onDanger,
-        errorContainer = c.dangerBg, onErrorContainer = c.danger,
-        scrim = Color.Black
+        errorContainer = c.dangerSoft, onErrorContainer = c.danger,
+        scrim = c.scrim
     )
 }
 
-/**
- * Material shape slots mapped onto the GEO& radius roles. Controls (text fields, buttons,
- * chips) are 8dp, surfaces (cards, the medium slot) 12dp, and sheets and dialogs 16dp.
- * Status chips are not in this scale; they use [GeoRadius.pill] directly.
- */
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(GeoRadius.sm),
-    small = RoundedCornerShape(GeoRadius.sm),
-    medium = RoundedCornerShape(GeoRadius.md),
-    large = RoundedCornerShape(GeoRadius.lg),
-    extraLarge = RoundedCornerShape(GeoRadius.lg)
+    extraSmall = GeoShape.checkbox,
+    small = GeoShape.control,
+    medium = GeoShape.card,
+    large = GeoShape.dialog,
+    extraLarge = GeoShape.sheet
 )
 
+/** Existing callers retain their signature and use the first-install defaults. */
 @Composable
 fun JetsonControllerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
-) {
-    val colorScheme = geoScheme(darkTheme)
-    val view = LocalView.current
-    val configuration = LocalConfiguration.current
-    val baseDensity = LocalDensity.current
-    val uiScale = geoUiScaleForSmallestWidth(configuration.smallestScreenWidthDp)
-    val scaledDensity = remember(baseDensity.density, baseDensity.fontScale, uiScale) {
-        Density(
-            density = baseDensity.density * uiScale,
-            fontScale = baseDensity.fontScale
-        )
-    }
+) = JetsonControllerTheme(palette = GeoPalette.defaultFor(darkTheme), content = content)
 
+/** Explicit palette choice; the selected palette determines content mode and weights. */
+@Composable
+fun JetsonControllerTheme(
+    palette: GeoPalette,
+    navigationBarUsesSurface: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val view = LocalView.current
+    val type = GeoType.forPalette(palette)
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
-            // The platform draws this app edge to edge; the system bar *colours* are
-            // no longer settable from here, so only the icon appearance is configured
-            // and every screen pads itself with the window insets.
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
+            val window = (view.context as? Activity)?.window
+            if (window != null) {
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !palette.lightStatusBarIcons
+                    isAppearanceLightNavigationBars = if (navigationBarUsesSurface) {
+                        !palette.lightSurfaceBarIcons
+                    } else {
+                        !palette.lightNavigationBarIcons
+                    }
+                }
             }
         }
     }
-
     CompositionLocalProvider(
-        LocalGeoColors provides if (darkTheme) GeoDark else GeoLight,
-        LocalGeoDarkTheme provides darkTheme,
-        LocalGeoUiScale provides uiScale,
-        LocalDensity provides scaledDensity,
-        // Separation comes from borders and explicit surface roles, not from tonal
-        // tinting. Tonal elevation made "raised" surfaces drift toward the primary
-        // hue, which fought the status colours.
+        LocalGeoColors provides palette.colors,
+        LocalGeoPalette provides palette,
+        LocalGeoDarkTheme provides palette.isDark,
+        LocalGeoType provides type,
         LocalTonalElevationEnabled provides false
     ) {
         MaterialTheme(
-            colorScheme = colorScheme,
-            typography = Typography,
+            colorScheme = geoScheme(palette),
+            typography = geoMaterialTypography(type),
             shapes = AppShapes,
             content = content
         )

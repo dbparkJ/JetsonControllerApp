@@ -1,12 +1,8 @@
 package com.example.jetsoncontroller.ui.components
 
+import com.example.jetsoncontroller.ui.model.Formats
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private val SAME_YEAR_FORMATTER = DateTimeFormatter.ofPattern("M월 d일 HH:mm", Locale.KOREA)
-private val OTHER_YEAR_FORMATTER = DateTimeFormatter.ofPattern("yyyy년 M월 d일 HH:mm", Locale.KOREA)
 
 /**
  * The one date-and-time format for the app: "10월 15일 10:39".
@@ -18,10 +14,11 @@ private val OTHER_YEAR_FORMATTER = DateTimeFormatter.ofPattern("yyyy년 M월 d�
 fun formatGeoDateTime(
     epochMillis: Long,
     nowEpochMillis: Long = System.currentTimeMillis(),
-    zone: ZoneId = ZoneId.systemDefault()
+    zone: ZoneId = ZoneId.of("Asia/Seoul")
 ): String {
-    val moment = Instant.ofEpochMilli(epochMillis).atZone(zone)
-    val now = Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
-    val formatter = if (moment.year == now.year) SAME_YEAR_FORMATTER else OTHER_YEAR_FORMATTER
-    return formatter.format(moment)
+    return Formats.dateTime(
+        Instant.ofEpochMilli(epochMillis),
+        Instant.ofEpochMilli(nowEpochMillis),
+        zone
+    )
 }

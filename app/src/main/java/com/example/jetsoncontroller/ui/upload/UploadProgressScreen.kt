@@ -497,14 +497,5 @@ internal fun stateLabel(state: UploadJobState): String = when (state) {
     UploadJobState.CANCELLED -> "업로드 취소됨"
 }
 
-internal fun formatSize(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    var value = bytes.toDouble()
-    var unit = 0
-    while (value >= 1024 && unit < units.lastIndex) {
-        value /= 1024
-        unit++
-    }
-    return if (unit == 0) "$bytes B" else "%.1f %s".format(value, units[unit])
-}
+internal fun formatSize(bytes: Long): String =
+    com.example.jetsoncontroller.ui.model.Formats.size(bytes)

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components
 
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -9,39 +10,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.theme.GeoBreakpoint
 import com.example.jetsoncontroller.ui.theme.GeoSpace
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 /**
  * Destinations of the bottom bar and the side rail. The four primary tabs are
- * DEVICES, TASKS, TRANSFERS and SETTINGS. The other values are legacy names that
+ * TASKS, DEVICES, TRANSFERS and SETTINGS. The other values are legacy names that
  * screens written for the older shell still pass; [tab] maps each one onto a tab.
  */
 enum class ControlSection {
-    /** 장치: the device root. It is also the start destination. */
+    /** 장치: the device root. */
     DEVICES,
-    /** 작업: collection tasks. */
+    /** 작업: collection tasks and the start destination. */
     TASKS,
     /** 전송: uploads and server receipts. */
     TRANSFERS,
@@ -67,118 +52,41 @@ enum class ControlSection {
     }
 }
 
-private data class NavEntry(
-    val section: ControlSection,
-    val icon: ImageVector,
-    val label: String,
-    val description: String
-)
-
-private val controlEntries = listOf(
-    NavEntry(ControlSection.DEVICES, Icons.Default.Devices, "장치", "연결된 장치와 상태"),
-    NavEntry(ControlSection.TASKS, Icons.Default.PlayCircle, "작업", "수집 작업 시작과 진행"),
-    NavEntry(ControlSection.TRANSFERS, Icons.Default.Upload, "전송", "서버 전송과 수신 확인"),
-    NavEntry(ControlSection.SETTINGS, Icons.Default.Settings, "설정", "앱과 서버 설정")
-)
-
-/** Set by the app shell when the same destinations are available in a side rail. */
+/** Suppresses a legacy screen's bar when the app shell owns navigation chrome. */
 val LocalControlNavigationRailVisible = compositionLocalOf { false }
 
-/** Four tabs in the bottom bar, as in the approved device console shell. */
 @Composable
 fun ControlNavigationBar(
     selected: ControlSection,
     onSelect: (ControlSection) -> Unit,
     enabledSections: Set<ControlSection> = ControlSection.entries.toSet()
 ) {
-    if (LocalControlNavigationRailVisible.current) return
-    val c = LocalGeoColors.current
-    val selectedTab = selected.tab()
-    // The current tab is shown by colour and weight only; the pill indicator is reserved for status chips.
-    val itemColors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-        selectedIconColor = c.primary,
-        selectedTextColor = c.primary,
-        unselectedIconColor = c.inkSubtle,
-        unselectedTextColor = c.inkSubtle,
-        indicatorColor = androidx.compose.ui.graphics.Color.Transparent
-    )
-    NavigationBar(modifier = Modifier.fillMaxWidth(), containerColor = c.surface) {
-        controlEntries.forEach { entry ->
-            val isSelected = selectedTab == entry.section
-            NavigationBarItem(
-                selected = isSelected,
-                onClick = { onSelect(entry.section) },
-                enabled = entry.section in enabledSections,
-                icon = { Icon(entry.icon, contentDescription = entry.description) },
-                label = {
-                    Text(
-                        entry.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold
-                            else androidx.compose.ui.text.font.FontWeight.Medium
-                    )
-                },
-                colors = itemColors
-            )
-        }
+    if (!LocalControlNavigationRailVisible.current) {
+        GeoBottomBar(selected, onSelect, enabledSections = enabledSections)
     }
 }
 
-/** Optional rail for windows at least 840dp wide. It shows the same four tabs. */
 @Composable
 fun ControlNavigationRail(selected: ControlSection, onSelect: (ControlSection) -> Unit) {
-    val c = LocalGeoColors.current
-    val selectedTab = selected.tab()
-    NavigationRail(
-        // The tablet root scale turns the Material 80dp rail into the approved 88dp rail.
-        modifier = Modifier.width(80.dp),
-        containerColor = c.surface,
-        header = {
-            GeoLogo(Modifier.width(64.dp), backgroundColor = c.surface)
-        }
-    ) {
-        controlEntries.forEach { entry ->
-            val isSelected = selectedTab == entry.section
-            NavigationRailItem(
-                selected = isSelected,
-                onClick = { onSelect(entry.section) },
-                icon = { Icon(entry.icon, contentDescription = entry.description) },
-                label = {
-                    Text(
-                        entry.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold
-                            else androidx.compose.ui.text.font.FontWeight.Medium
-                    )
-                },
-                colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                    selectedIconColor = c.primary,
-                    selectedTextColor = c.primary,
-                    unselectedIconColor = c.inkSubtle,
-                    unselectedTextColor = c.inkSubtle,
-                    indicatorColor = androidx.compose.ui.graphics.Color.Transparent
-                )
-            )
-        }
-    }
+    GeoRail(selected, onSelect)
 }
 
-/** Centers content on large windows while preserving the 20dp phone gutter. */
+/** Centers a 720dp column with a gutter derived from the current pane. */
 @Composable
 fun AdaptiveContent(
     modifier: Modifier = Modifier,
-    maxWidth: androidx.compose.ui.unit.Dp = 760.dp,
+    maxWidth: androidx.compose.ui.unit.Dp = 720.dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Column(
-            Modifier.widthIn(max = maxWidth).fillMaxWidth().padding(horizontal = GeoSpace.gutter),
+            Modifier.widthIn(max = maxWidth).fillMaxWidth().padding(horizontal = LocalGeoWindow.current.gutterDp.dp),
             content = content
         )
     }
 }
 
-/** Uses the 800dp two-column workspace only when both columns remain readable. */
+/** Applies the measured minimum widths to the available content pane. */
 @Composable
 fun AdaptiveColumns(
     modifier: Modifier = Modifier,
@@ -186,7 +94,10 @@ fun AdaptiveColumns(
     second: @Composable ColumnScope.() -> Unit
 ) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        val twoPane = maxWidth >= GeoBreakpoint.medium && LocalDensity.current.fontScale <= 1.3f
+        val parent = LocalGeoWindow.current
+        val scale = LocalDensity.current.fontScale
+        val twoPane = parent.widthClass == GeoWidthClass.EXPANDED && !parent.compactHeight && scale < 1.5f &&
+            maxWidth.value >= (320f + 400f) * kotlin.math.max(1f, scale) + 1f + 2f * paneGutter(maxWidth.value)
         if (twoPane) {
             Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
                 Column(Modifier.weight(1f), content = first)

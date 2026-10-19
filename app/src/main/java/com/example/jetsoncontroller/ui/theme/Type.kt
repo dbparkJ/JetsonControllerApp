@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -10,23 +12,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.example.jetsoncontroller.R
 
-/**
- * GEO& Field System — type scale.
- *
- * Font: Pretendard variable (`res/font/pretendard_variable.ttf`, SIL OFL — see
- * docs/licenses/Pretendard-OFL.txt). One variable file serves every weight: each
- * [FontWeight] below is bound to the same resource with an explicit `wght` setting, so
- * the rendered weight does not depend on which static face the platform would pick.
- * Pretendard covers Hangul and Latin in one face, which keeps the Korean and the
- * numeric values in a row visually matched.
- *
- * Sizes and line heights are the scale the screens were laid out against and are kept
- * unchanged. Korean needs more leading than Latin at the same size, so every line height
- * is roughly 1.45× the font size.
- *
- * Numbers (용량 · 시간 · 파일 수) use tabular figures via `fontFeatureSettings = "tnum"`,
- * so a value ticking from 19% to 20% does not shift its row.
- */
 @OptIn(ExperimentalTextApi::class)
 private fun pretendard(weight: FontWeight): Font = Font(
     resId = R.font.pretendard_variable,
@@ -34,7 +19,6 @@ private fun pretendard(weight: FontWeight): Font = Font(
     variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight))
 )
 
-/** Pretendard at the four weights the product uses (400, 500, 600, 700). */
 val PretendardFamily: FontFamily = FontFamily(
     pretendard(FontWeight.Normal),
     pretendard(FontWeight.Medium),
@@ -42,76 +26,92 @@ val PretendardFamily: FontFamily = FontFamily(
     pretendard(FontWeight.Bold)
 )
 
-private val Base = TextStyle(
+private fun type(size: Int, line: Int, weight: Int, trackingEm: Float = 0f) = TextStyle(
     fontFamily = PretendardFamily,
-    letterSpacing = 0.sp
+    fontSize = size.sp,
+    lineHeight = line.sp,
+    fontWeight = FontWeight(weight),
+    letterSpacing = (size * trackingEm).sp
 )
 
-val Typography = Typography(
-    displaySmall = Base.copy(fontSize = 32.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold),
-    headlineLarge = Base.copy(fontSize = 28.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold),
-    headlineMedium = Base.copy(fontSize = 24.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
-    headlineSmall = Base.copy(fontSize = 21.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
-    titleLarge = Base.copy(fontSize = 19.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = Base.copy(fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
-    titleSmall = Base.copy(fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
-    bodyLarge = Base.copy(fontSize = 17.sp, lineHeight = 27.sp),
-    bodyMedium = Base.copy(fontSize = 15.sp, lineHeight = 24.sp),
-    bodySmall = Base.copy(fontSize = 13.sp, lineHeight = 20.sp),
-    labelLarge = Base.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
-    labelMedium = Base.copy(fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium),
-    labelSmall = Base.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
-)
-
-/** Styles outside the Material scale that this product needs. */
-object GeoType {
-
-    /**
-     * Tabular figures for any value that refreshes in place: percentages, byte counts,
-     * file counts, elapsed time, coordinates. Prevents the row from jittering on update.
-     */
-    val numeric: TextStyle = Base.copy(
-        fontSize = 17.sp,
-        lineHeight = 24.sp,
-        fontWeight = FontWeight.SemiBold,
-        fontFeatureSettings = "tnum"
-    )
-
-    /** Large in-context reading: the single number a field worker glances at. */
-    val numericLarge: TextStyle = Base.copy(
-        fontSize = 26.sp,
-        lineHeight = 32.sp,
-        fontWeight = FontWeight.Bold,
-        fontFeatureSettings = "tnum"
-    )
-
-    /** Small tabular values inside dense rows. */
-    val numericSmall: TextStyle = Base.copy(
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
-        fontWeight = FontWeight.Medium,
-        fontFeatureSettings = "tnum"
-    )
-
-    /**
-     * Identifiers the user may need to read aloud or compare character by character:
-     * run IDs, preflight IDs, hashes, paths. Monospace is a legibility decision here,
-     * not decoration.
-     */
-    val identifier: TextStyle = Base.copy(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 13.sp,
-        lineHeight = 19.sp
-    )
-
-    /**
-     * Former section eyebrow. Kept for source compatibility only: the redesign removed
-     * eyebrow labels above section titles, so no screen should render this style.
-     */
-    val eyebrow: TextStyle = Base.copy(
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 0.4.sp
-    )
+/** The eleven R3 §3.6 roles, plus the specified badge, section and tab variants. */
+@Immutable
+data class GeoTypeRoles(
+    val count: TextStyle,
+    val caption: TextStyle,
+    val label: TextStyle,
+    val body: TextStyle,
+    val titleSm: TextStyle,
+    val title: TextStyle,
+    val boardTitle: TextStyle,
+    val heading: TextStyle,
+    val button: TextStyle,
+    val input: TextStyle,
+    val mono: TextStyle
+) {
+    val badge: TextStyle get() = caption.copy(fontWeight = FontWeight.SemiBold)
+    val sectionTitle: TextStyle get() = titleSm.copy(fontWeight = FontWeight.SemiBold)
+    val tab: TextStyle get() = caption.copy(fontWeight = FontWeight.Medium)
+    val tabSelected: TextStyle get() = caption.copy(fontWeight = FontWeight.Bold)
+    val figure: TextStyle get() = heading.copy(fontFeatureSettings = "tnum")
 }
+
+object GeoType {
+    val standard = GeoTypeRoles(
+        count = type(12, 16, 600),
+        caption = type(13, 20, 400, -0.003f),
+        label = type(14, 20, 500),
+        body = type(15, 24, 400, -0.003f),
+        titleSm = type(16, 24, 500, -0.003f),
+        title = type(18, 26, 600, -0.015f),
+        boardTitle = type(22, 30, 700, -0.025f),
+        heading = type(24, 32, 700, -0.025f),
+        button = type(16, 20, 600),
+        input = type(16, 24, 400),
+        mono = type(13, 20, 400).copy(fontFamily = FontFamily.Monospace)
+    )
+    val highContrast = standard.copy(
+        caption = standard.caption.copy(fontWeight = FontWeight.Medium),
+        label = standard.label.copy(fontWeight = FontWeight.SemiBold),
+        body = standard.body.copy(fontWeight = FontWeight.Medium),
+        titleSm = standard.titleSm.copy(fontWeight = FontWeight.SemiBold)
+    )
+
+    fun forPalette(palette: GeoPalette): GeoTypeRoles = if (palette.highContrast) highContrast else standard
+
+    val count get() = standard.count
+    val caption get() = standard.caption
+    val label get() = standard.label
+    val body get() = standard.body
+    val titleSm get() = standard.titleSm
+    val title get() = standard.title
+    val boardTitle get() = standard.boardTitle
+    val heading get() = standard.heading
+    val button get() = standard.button
+    val input get() = standard.input
+    val mono get() = standard.mono
+
+    @Deprecated("Use LocalGeoType.current.figure", ReplaceWith("LocalGeoType.current.figure"))
+    val numeric get() = standard.figure
+    @Deprecated("Use LocalGeoType.current.figure", ReplaceWith("LocalGeoType.current.figure"))
+    val numericLarge get() = standard.figure
+    @Deprecated("Use LocalGeoType.current.caption with tabular figures")
+    val numericSmall get() = standard.caption.copy(fontFeatureSettings = "tnum")
+    @Deprecated("Use mono", ReplaceWith("mono"))
+    val identifier get() = mono
+    @Deprecated("Eyebrow labels are retired; use count only for bell counts")
+    val eyebrow get() = count
+}
+
+val LocalGeoType = staticCompositionLocalOf { GeoType.standard }
+
+internal fun geoMaterialTypography(t: GeoTypeRoles): Typography = Typography(
+    displayLarge = t.heading, displayMedium = t.heading, displaySmall = t.heading,
+    headlineLarge = t.heading, headlineMedium = t.heading, headlineSmall = t.boardTitle,
+    titleLarge = t.title, titleMedium = t.titleSm, titleSmall = t.sectionTitle,
+    bodyLarge = t.body, bodyMedium = t.body, bodySmall = t.caption,
+    labelLarge = t.button, labelMedium = t.label, labelSmall = t.count
+)
+
+@Deprecated("Use MaterialTheme.typography or LocalGeoType for palette-aware weights")
+val Typography: Typography by lazy { geoMaterialTypography(GeoType.standard) }

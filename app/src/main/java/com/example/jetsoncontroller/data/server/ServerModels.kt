@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.data.server
 
 import com.example.jetsoncontroller.model.UploadContext
+import com.google.gson.JsonElement
 
 data class ServerEmployee(
     val employeeId: String,
@@ -208,7 +209,15 @@ data class ServerTicket(
     val revision: String? = null,
     val updatedAt: String? = null,
     val runId: String? = null,
-    val report: ServerTicketReport? = null
+    val report: ServerTicketReport? = null,
+    val features: JsonElement? = null,
+    val bufferM: Double? = null,
+    val range: JsonElement? = null,
+    val bbox: List<Double>? = null,
+    val lengthM: Double? = null,
+    val areaM2: Double? = null,
+    val geometryRevision: String? = null,
+    val geometryHash: String? = null
 )
 
 data class ServerTicketsResponse(

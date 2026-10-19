@@ -287,12 +287,8 @@ private fun TwoStageHistorySwipe(
     }
 }
 
-private fun outputBytesLabel(bytes: Long): String = when {
-    bytes >= 1024L * 1024L * 1024L -> "%.1f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
-    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
-    else -> "$bytes B"
-}
+private fun outputBytesLabel(bytes: Long): String =
+    com.example.jetsoncontroller.ui.model.Formats.size(bytes)
 
 internal fun historyRunPresentation(run: TaskRun, online: Boolean, historyCurrent: Boolean): Pair<String, StatusTone> = when {
     run.isActiveRun() && (!online || !historyCurrent) -> "최근 실행 보고 · 현재 미확인" to StatusTone.WARNING

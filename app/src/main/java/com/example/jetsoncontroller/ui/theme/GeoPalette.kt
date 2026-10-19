@@ -1,132 +1,169 @@
 package com.example.jetsoncontroller.ui.theme
 
-import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.staticCompositionLocalOf
 
-/**
- * GEO& Field System — raw palette.
- *
- * Layer 1 of the token system. These are *values*, never used directly by a screen.
- * Screens read semantic roles from [GeoColors] (`LocalGeoColors.current`) so that a
- * value change here can never silently change what a colour *means*.
- *
- * Values are copied from the company app GEO& Work (formerly GEON Work):
- * `apps/web/src/shared/ui/tokens.css` at GEON Work main 10d6f1af (2026-10-16). The light
- * values come from `:root`, the dark values from its default dark palette (graphite,
- * `:root[data-theme="dark"]`). GEO& Work has no JSON export, so copy again from a newer
- * commit and update the SHA here and in docs/design/STYLE_GUIDE.md when it changes.
- */
-internal object GeoPalette {
+/** Palette identity only; persistence and the picker belong to Phase 4-B. */
+enum class GeoPalette(val label: String, val isDark: Boolean) {
+    STANDARD("표준", false),
+    NAVY_LIGHT("네이비 (밝게)", false),
+    HIGH_CONTRAST("고대비", false),
+    GRAPHITE("그래파이트", true),
+    NAVY_DARK("네이비 (어둡게)", true),
+    MIST("흐림", true);
 
-    // ---- Light: surfaces ------------------------------------------------------------
-    /** --color-bg */
-    val WorkBg = Color(0xFFEDF0F5)
-    /** --color-surface */
-    val WorkSurface = Color(0xFFFFFFFF)
-    /** --color-surface-subtle */
-    val WorkSurfaceSubtle = Color(0xFFF7F8FB)
-    /** --color-surface-sunken */
-    val WorkSurfaceSunken = Color(0xFFF3F5F8)
-    /** --color-field-hover; also the app's chip, track and disabled fill. */
-    val WorkFieldHover = Color(0xFFE9ECF2)
+    val colors: GeoColors
+        get() = when (this) {
+            STANDARD -> GeoStandard
+            NAVY_LIGHT -> GeoNavyLight
+            HIGH_CONTRAST -> GeoHighContrast
+            GRAPHITE -> GeoGraphite
+            NAVY_DARK -> GeoNavyDark
+            MIST -> GeoMist
+        }
 
-    // ---- Light: text ----------------------------------------------------------------
-    /** --color-text */
-    val WorkText = Color(0xFF151B31)
-    /** --color-text-secondary */
-    val WorkTextSecondary = Color(0xFF4B5570)
-    /** --color-text-subtle */
-    val WorkTextSubtle = Color(0xFF5F6880)
+    val highContrast: Boolean get() = this == HIGH_CONTRAST
+    val lightStatusBarIcons: Boolean get() = isDark || this == NAVY_LIGHT
+    val lightNavigationBarIcons: Boolean get() = lightStatusBarIcons
+    val lightSurfaceBarIcons: Boolean get() = isDark
 
-    // ---- Light: lines ---------------------------------------------------------------
-    /** --color-border */
-    val WorkBorder = Color(0xFFE7EAF0)
-    /** --color-sidebar-divider; the stronger decorative line. */
-    val WorkDivider = Color(0xFFD3D9E3)
-    /** --color-border-strong / --color-input-border: 3:1 boundary for controls. */
-    val WorkControlBorder = Color(0xFF838891)
+    companion object {
+        fun defaultFor(darkTheme: Boolean): GeoPalette = if (darkTheme) GRAPHITE else STANDARD
 
-    // ---- Light: brand ---------------------------------------------------------------
-    /** --color-primary */
-    val WorkPrimary = Color(0xFF1F52B8)
-    /** --color-primary-hover / --color-primary-soft-text */
-    val WorkPrimaryHover = Color(0xFF1A47A0)
-    /** --color-primary-tint / --color-primary-soft */
-    val WorkPrimaryTint = Color(0xFFE7EEFB)
-    /** --color-primary-soft-border */
-    val WorkPrimarySoftBorder = Color(0xFFB9CBEF)
-    /** --color-rail: the navy chrome. Used for the device card's next-action band. */
-    val WorkRail = Color(0xFF121A3D)
-    /** --color-rail-text */
-    val WorkRailText = Color(0xFFAEB9D9)
-
-    // ---- Light: status --------------------------------------------------------------
-    val WorkSuccess = Color(0xFF22704B)
-    val WorkSuccessSoft = Color(0xFFE2F1E9)
-    val WorkSuccessBorder = Color(0xFFA9D3BD)
-    val WorkWarning = Color(0xFF8A5A06)
-    val WorkWarningSoft = Color(0xFFFBF0DA)
-    val WorkWarningBorder = Color(0xFFECCA8C)
-    val WorkDanger = Color(0xFFB3372C)
-    val WorkDangerSoft = Color(0xFFFBE8E5)
-    val WorkDangerBorder = Color(0xFFF0B8B1)
-    /** --color-todo: neutral state text, used for "미확인". */
-    val WorkTodo = Color(0xFF5D667B)
-    /** --color-todo-soft */
-    val WorkTodoSoft = Color(0xFFEEF0F4)
-    /** --option-1-border */
-    val WorkTodoBorder = Color(0xFFD9DEE7)
-    /** --option-6-*: GEO& Work has no "processing" status, so "처리 중" uses its violet option. */
-    val WorkViolet = Color(0xFF3D3A86)
-    val WorkVioletSoft = Color(0xFFE4E3F4)
-    val WorkVioletBorder = Color(0xFFC4C1E8)
-
-    // ---- Dark (graphite): surfaces ----------------------------------------------------
-    val WorkDarkBg = Color(0xFF161719)
-    val WorkDarkSurface = Color(0xFF1E1F21)
-    val WorkDarkSurfaceSubtle = Color(0xFF222426)
-    val WorkDarkSurfaceSunken = Color(0xFF191B1D)
-    /** --color-field */
-    val WorkDarkField = Color(0xFF292A2C)
-
-    // ---- Dark: text -----------------------------------------------------------------
-    val WorkDarkText = Color(0xFFE8E9EC)
-    /** --color-ink-hover: the strongest text. */
-    val WorkDarkTextStrong = Color(0xFFFFFFFF)
-    val WorkDarkTextSecondary = Color(0xFFBDBFC4)
-    val WorkDarkTextSubtle = Color(0xFF9EA2A7)
-
-    // ---- Dark: lines ----------------------------------------------------------------
-    val WorkDarkBorder = Color(0xFF323336)
-    /** --option-1-border (dark) */
-    val WorkDarkDivider = Color(0xFF46494E)
-    val WorkDarkControlBorder = Color(0xFF7E8289)
-
-    // ---- Dark: brand ----------------------------------------------------------------
-    val WorkDarkPrimary = Color(0xFF8AADEC)
-    val WorkDarkPrimaryHover = Color(0xFFA8C3F4)
-    val WorkDarkPrimaryTint = Color(0xFF242E40)
-    val WorkDarkPrimarySoftText = Color(0xFFB9CFF5)
-    val WorkDarkPrimarySoftBorder = Color(0xFF435B85)
-    val WorkDarkRail = Color(0xFF0E0F11)
-    val WorkDarkRailText = Color(0xFFB3B6BB)
-
-    // ---- Dark: status ---------------------------------------------------------------
-    val WorkDarkSuccess = Color(0xFF88CCA5)
-    val WorkDarkSuccessSoft = Color(0xFF203026)
-    val WorkDarkSuccessBorder = Color(0xFF376048)
-    val WorkDarkWarning = Color(0xFFE3BC7A)
-    val WorkDarkWarningSoft = Color(0xFF332A1C)
-    val WorkDarkWarningBorder = Color(0xFF67522D)
-    val WorkDarkDanger = Color(0xFFE9938C)
-    val WorkDarkDangerSoft = Color(0xFF392626)
-    val WorkDarkDangerBorder = Color(0xFF734844)
-    val WorkDarkTodo = Color(0xFFADB1B9)
-    val WorkDarkTodoSoft = Color(0xFF2C2E31)
-    val WorkDarkViolet = Color(0xFFCCC8F3)
-    val WorkDarkVioletSoft = Color(0xFF2D2B3F)
-    val WorkDarkVioletBorder = Color(0xFF565176)
-
-    // ---- GEO& symbol: ampersand green (brand asset, not part of tokens.css) ------------
-    val BrandGreen = Color(0xFF29674E)
-    val BrandGreenLight = Color(0xFF64B993)
+        @Deprecated("Use GeoStandard.canvas", ReplaceWith("GeoStandard.canvas"))
+        val WorkBg get() = GeoStandard.canvas
+        @Deprecated("Use GeoStandard.surface", ReplaceWith("GeoStandard.surface"))
+        val WorkSurface get() = GeoStandard.surface
+        @Deprecated("Use GeoStandard.sunken", ReplaceWith("GeoStandard.sunken"))
+        val WorkSurfaceSubtle get() = GeoStandard.sunken
+        @Deprecated("Use GeoStandard.sunken", ReplaceWith("GeoStandard.sunken"))
+        val WorkSurfaceSunken get() = GeoStandard.sunken
+        @Deprecated("Use GeoStandard.fieldPressed", ReplaceWith("GeoStandard.fieldPressed"))
+        val WorkFieldHover get() = GeoStandard.fieldPressed
+        @Deprecated("Use GeoStandard.text", ReplaceWith("GeoStandard.text"))
+        val WorkText get() = GeoStandard.text
+        @Deprecated("Use GeoStandard.textSecondary", ReplaceWith("GeoStandard.textSecondary"))
+        val WorkTextSecondary get() = GeoStandard.textSecondary
+        @Deprecated("Use GeoStandard.textSubtle", ReplaceWith("GeoStandard.textSubtle"))
+        val WorkTextSubtle get() = GeoStandard.textSubtle
+        @Deprecated("Use GeoStandard.border", ReplaceWith("GeoStandard.border"))
+        val WorkBorder get() = GeoStandard.border
+        @Deprecated("Use GeoStandard.border", ReplaceWith("GeoStandard.border"))
+        val WorkDivider get() = GeoStandard.border
+        @Deprecated("Use GeoStandard.borderStrong", ReplaceWith("GeoStandard.borderStrong"))
+        val WorkControlBorder get() = GeoStandard.borderStrong
+        @Deprecated("Use GeoStandard.primary", ReplaceWith("GeoStandard.primary"))
+        val WorkPrimary get() = GeoStandard.primary
+        @Deprecated("Use GeoStandard.primaryPressed", ReplaceWith("GeoStandard.primaryPressed"))
+        val WorkPrimaryHover get() = GeoStandard.primaryPressed
+        @Deprecated("Use GeoStandard.primaryTint", ReplaceWith("GeoStandard.primaryTint"))
+        val WorkPrimaryTint get() = GeoStandard.primaryTint
+        @Deprecated("Use GeoStandard.infoBorder", ReplaceWith("GeoStandard.infoBorder"))
+        val WorkPrimarySoftBorder get() = GeoStandard.infoBorder
+        @Deprecated("Use GeoNavyLight.topBar", ReplaceWith("GeoNavyLight.topBar"))
+        val WorkRail get() = GeoNavyLight.topBar
+        @Deprecated("Use GeoNavyLight.onTopBarIcon", ReplaceWith("GeoNavyLight.onTopBarIcon"))
+        val WorkRailText get() = GeoNavyLight.onTopBarIcon
+        @Deprecated("Use GeoStandard.success", ReplaceWith("GeoStandard.success"))
+        val WorkSuccess get() = GeoStandard.success
+        @Deprecated("Use GeoStandard.successSoft", ReplaceWith("GeoStandard.successSoft"))
+        val WorkSuccessSoft get() = GeoStandard.successSoft
+        @Deprecated("Use GeoStandard.successBorder", ReplaceWith("GeoStandard.successBorder"))
+        val WorkSuccessBorder get() = GeoStandard.successBorder
+        @Deprecated("Use GeoStandard.warning", ReplaceWith("GeoStandard.warning"))
+        val WorkWarning get() = GeoStandard.warning
+        @Deprecated("Use GeoStandard.warningSoft", ReplaceWith("GeoStandard.warningSoft"))
+        val WorkWarningSoft get() = GeoStandard.warningSoft
+        @Deprecated("Use GeoStandard.warningBorder", ReplaceWith("GeoStandard.warningBorder"))
+        val WorkWarningBorder get() = GeoStandard.warningBorder
+        @Deprecated("Use GeoStandard.danger", ReplaceWith("GeoStandard.danger"))
+        val WorkDanger get() = GeoStandard.danger
+        @Deprecated("Use GeoStandard.dangerSoft", ReplaceWith("GeoStandard.dangerSoft"))
+        val WorkDangerSoft get() = GeoStandard.dangerSoft
+        @Deprecated("Use GeoStandard.dangerBorder", ReplaceWith("GeoStandard.dangerBorder"))
+        val WorkDangerBorder get() = GeoStandard.dangerBorder
+        @Deprecated("Use GeoStandard.neutral", ReplaceWith("GeoStandard.neutral"))
+        val WorkTodo get() = GeoStandard.neutral
+        @Deprecated("Use GeoStandard.neutralSoft", ReplaceWith("GeoStandard.neutralSoft"))
+        val WorkTodoSoft get() = GeoStandard.neutralSoft
+        @Deprecated("Use GeoStandard.neutralBorder", ReplaceWith("GeoStandard.neutralBorder"))
+        val WorkTodoBorder get() = GeoStandard.neutralBorder
+        @Deprecated("Use GeoStandard.pending", ReplaceWith("GeoStandard.pending"))
+        val WorkViolet get() = GeoStandard.pending
+        @Deprecated("Use GeoStandard.pendingSoft", ReplaceWith("GeoStandard.pendingSoft"))
+        val WorkVioletSoft get() = GeoStandard.pendingSoft
+        @Deprecated("Use GeoStandard.pendingBorder", ReplaceWith("GeoStandard.pendingBorder"))
+        val WorkVioletBorder get() = GeoStandard.pendingBorder
+        @Deprecated("Use GeoGraphite.canvas", ReplaceWith("GeoGraphite.canvas"))
+        val WorkDarkBg get() = GeoGraphite.canvas
+        @Deprecated("Use GeoGraphite.surface", ReplaceWith("GeoGraphite.surface"))
+        val WorkDarkSurface get() = GeoGraphite.surface
+        @Deprecated("Use GeoGraphite.field", ReplaceWith("GeoGraphite.field"))
+        val WorkDarkSurfaceSubtle get() = GeoGraphite.field
+        @Deprecated("Use GeoGraphite.sunken", ReplaceWith("GeoGraphite.sunken"))
+        val WorkDarkSurfaceSunken get() = GeoGraphite.sunken
+        @Deprecated("Use GeoGraphite.field", ReplaceWith("GeoGraphite.field"))
+        val WorkDarkField get() = GeoGraphite.field
+        @Deprecated("Use GeoGraphite.text", ReplaceWith("GeoGraphite.text"))
+        val WorkDarkText get() = GeoGraphite.text
+        @Deprecated("Use GeoGraphite.text", ReplaceWith("GeoGraphite.text"))
+        val WorkDarkTextStrong get() = GeoGraphite.text
+        @Deprecated("Use GeoGraphite.textSecondary", ReplaceWith("GeoGraphite.textSecondary"))
+        val WorkDarkTextSecondary get() = GeoGraphite.textSecondary
+        @Deprecated("Use GeoGraphite.textSubtle", ReplaceWith("GeoGraphite.textSubtle"))
+        val WorkDarkTextSubtle get() = GeoGraphite.textSubtle
+        @Deprecated("Use GeoGraphite.border", ReplaceWith("GeoGraphite.border"))
+        val WorkDarkBorder get() = GeoGraphite.border
+        @Deprecated("Use GeoGraphite.neutralBorder", ReplaceWith("GeoGraphite.neutralBorder"))
+        val WorkDarkDivider get() = GeoGraphite.neutralBorder
+        @Deprecated("Use GeoGraphite.borderStrong", ReplaceWith("GeoGraphite.borderStrong"))
+        val WorkDarkControlBorder get() = GeoGraphite.borderStrong
+        @Deprecated("Use GeoGraphite.primary", ReplaceWith("GeoGraphite.primary"))
+        val WorkDarkPrimary get() = GeoGraphite.primary
+        @Deprecated("Use GeoGraphite.primaryPressed", ReplaceWith("GeoGraphite.primaryPressed"))
+        val WorkDarkPrimaryHover get() = GeoGraphite.primaryPressed
+        @Deprecated("Use GeoGraphite.primaryTint", ReplaceWith("GeoGraphite.primaryTint"))
+        val WorkDarkPrimaryTint get() = GeoGraphite.primaryTint
+        @Deprecated("Use GeoGraphite.primaryTintText", ReplaceWith("GeoGraphite.primaryTintText"))
+        val WorkDarkPrimarySoftText get() = GeoGraphite.primaryTintText
+        @Deprecated("Use GeoGraphite.infoBorder", ReplaceWith("GeoGraphite.infoBorder"))
+        val WorkDarkPrimarySoftBorder get() = GeoGraphite.infoBorder
+        @Deprecated("Use GeoGraphite.nav", ReplaceWith("GeoGraphite.nav"))
+        val WorkDarkRail get() = GeoGraphite.nav
+        @Deprecated("Use GeoGraphite.navUnselected", ReplaceWith("GeoGraphite.navUnselected"))
+        val WorkDarkRailText get() = GeoGraphite.navUnselected
+        @Deprecated("Use GeoGraphite.success", ReplaceWith("GeoGraphite.success"))
+        val WorkDarkSuccess get() = GeoGraphite.success
+        @Deprecated("Use GeoGraphite.successSoft", ReplaceWith("GeoGraphite.successSoft"))
+        val WorkDarkSuccessSoft get() = GeoGraphite.successSoft
+        @Deprecated("Use GeoGraphite.successBorder", ReplaceWith("GeoGraphite.successBorder"))
+        val WorkDarkSuccessBorder get() = GeoGraphite.successBorder
+        @Deprecated("Use GeoGraphite.warning", ReplaceWith("GeoGraphite.warning"))
+        val WorkDarkWarning get() = GeoGraphite.warning
+        @Deprecated("Use GeoGraphite.warningSoft", ReplaceWith("GeoGraphite.warningSoft"))
+        val WorkDarkWarningSoft get() = GeoGraphite.warningSoft
+        @Deprecated("Use GeoGraphite.warningBorder", ReplaceWith("GeoGraphite.warningBorder"))
+        val WorkDarkWarningBorder get() = GeoGraphite.warningBorder
+        @Deprecated("Use GeoGraphite.danger", ReplaceWith("GeoGraphite.danger"))
+        val WorkDarkDanger get() = GeoGraphite.danger
+        @Deprecated("Use GeoGraphite.dangerSoft", ReplaceWith("GeoGraphite.dangerSoft"))
+        val WorkDarkDangerSoft get() = GeoGraphite.dangerSoft
+        @Deprecated("Use GeoGraphite.dangerBorder", ReplaceWith("GeoGraphite.dangerBorder"))
+        val WorkDarkDangerBorder get() = GeoGraphite.dangerBorder
+        @Deprecated("Use GeoGraphite.neutral", ReplaceWith("GeoGraphite.neutral"))
+        val WorkDarkTodo get() = GeoGraphite.neutral
+        @Deprecated("Use GeoGraphite.neutralSoft", ReplaceWith("GeoGraphite.neutralSoft"))
+        val WorkDarkTodoSoft get() = GeoGraphite.neutralSoft
+        @Deprecated("Use GeoGraphite.pending", ReplaceWith("GeoGraphite.pending"))
+        val WorkDarkViolet get() = GeoGraphite.pending
+        @Deprecated("Use GeoGraphite.pendingSoft", ReplaceWith("GeoGraphite.pendingSoft"))
+        val WorkDarkVioletSoft get() = GeoGraphite.pendingSoft
+        @Deprecated("Use GeoGraphite.pendingBorder", ReplaceWith("GeoGraphite.pendingBorder"))
+        val WorkDarkVioletBorder get() = GeoGraphite.pendingBorder
+        @Deprecated("Use GeoFixedColors.brandGreen", ReplaceWith("GeoFixedColors.brandGreen"))
+        val BrandGreen get() = GeoFixedColors.brandGreen
+        @Deprecated("Use GeoFixedColors.brandGreenLight", ReplaceWith("GeoFixedColors.brandGreenLight"))
+        val BrandGreenLight get() = GeoFixedColors.brandGreenLight
+    }
 }
+
+val LocalGeoPalette = staticCompositionLocalOf { GeoPalette.STANDARD }

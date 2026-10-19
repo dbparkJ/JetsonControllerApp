@@ -2,9 +2,13 @@ package com.example.jetsoncontroller.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -27,6 +31,7 @@ import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 class CobaltGalleryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density,
@@ -102,29 +107,41 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
             sensorTelemetryAvailable = true,
             sensorTelemetryFresh = !offline, cameraSensor = CameraSensorStatus(active = true),
             gnssSensor = GnssSensorStatus(active = true), imuSensor = ImuSensorStatus(active = true)))
-    val select: (ControlSection) -> Unit = { screen = when (it) {
-        ControlSection.OVERVIEW -> "home"
-        ControlSection.PIPELINES -> "tasks"
-        ControlSection.DATA -> "data"
+    val select: (ControlSection) -> Unit = { screen = when (it.tab()) {
+        ControlSection.DEVICES -> "home"
+        ControlSection.TASKS -> "tasks"
+        ControlSection.TRANSFERS -> "data"
         else -> "settings"
     } }
     JetsonControllerTheme(darkTheme = dark) {
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        GeoAppShell(
+            selected = when (screen) {
+                "tasks", "detail" -> ControlSection.TASKS
+                "data" -> ControlSection.TRANSFERS
+                "settings" -> ControlSection.SETTINGS
+                else -> ControlSection.DEVICES
+            },
+            onSelect = select,
+            navigationVisible = screen != "welcome",
+            topBar = {
             Text("DEBUG 시안 · 장치 통신 없음", style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.fillMaxWidth().padding(4.dp), color = MaterialTheme.colorScheme.error)
-            BoxWithConstraints(Modifier.weight(1f)) {
-                val rail = maxWidth >= 840.dp
-                CompositionLocalProvider(LocalControlNavigationRailVisible provides rail) {
-                Row(Modifier.fillMaxSize()) {
-                if (rail) ControlNavigationRail(
-                    selected = when (screen) {
-                        "data" -> ControlSection.DATA
-                        "settings" -> ControlSection.SETTINGS
-                        else -> ControlSection.OVERVIEW
-                    },
-                    onSelect = select
-                )
-                Box(Modifier.weight(1f)) { when (screen) {
+            }
+        ) {
+            when (screen) {
+                    "shell" -> ShellGallery()
+                    "controls" -> com.example.jetsoncontroller.ui.gallery.ControlsGallery()
+                    "content" -> com.example.jetsoncontroller.ui.gallery.ContentGallery()
+                    "overlays" -> com.example.jetsoncontroller.ui.gallery.OverlayGallery()
+                    "device_detail" -> com.example.jetsoncontroller.ui.devices.DeviceDetailScreen(
+                        deviceName = "GEO-X-현장지원차량-2", dashboard = state, snapshot = null,
+                        connection = com.example.jetsoncontroller.ui.connection.deviceConnectionUi(true, TransportType.LAN),
+                        lastSeenText = null, freshness = "방금", runActive = true, developerModeEnabled = false,
+                        onBack = { screen = "home" }, onDisconnect = {}, onStartCollection = {}, onViewRun = {},
+                        onCamera = {}, onGnss = {}, onSameNetwork = {}, onDirectConnect = {}, onQrRegister = {},
+                        onSaveDiagnostics = {}, onNetwork = {}, onFiles = {}, onReboot = {}, onShutdown = {},
+                        onPipelines = {}, onFan = {}, onDiagnostics = {}
+                    )
                     "welcome" -> com.example.jetsoncontroller.ui.components.GeoLoadingScene()
                     "tasks", "detail" -> PipelineListScreen(
                         state = PipelineUiState(deviceId = "demo", controlAvailable = true, pipelines = sample,
@@ -175,10 +192,36 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
                         recentRuns = recentRuns,
                         recentHistoryCurrent = !offline,
                         onRecentRunsClick = { screen = "tasks" })
-                } }
-                }
-                }
-            }
             }
         }
     }
+}
+
+@Composable
+private fun ShellGallery() {
+    val window = LocalGeoWindow.current
+    GeoActionArea(
+        visibilityKey = "shell",
+        action = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("GEO-X-현장지원차량-2 · 같은 네트워크 · 시작할 수 있습니다.")
+                Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("수집 시작") }
+            }
+        }
+    ) { inlineAction ->
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Text("셸과 내비게이션", style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(window.gutterDp.dp))
+            GeoPaneLayout(
+                list = { Text("작업 · 장치 · 전송 · 설정", modifier = Modifier.padding(vertical = 24.dp)) },
+                detail = {
+                    Column {
+                        Text("구간 목록과 상세", style = MaterialTheme.typography.titleLarge)
+                        repeat(12) { Text("신월4거리 북측 보조 구간 2차 재수집", modifier = Modifier.padding(vertical = 12.dp)) }
+                    }
+                }
+            )
+            inlineAction()
+        }
+    }
+}
