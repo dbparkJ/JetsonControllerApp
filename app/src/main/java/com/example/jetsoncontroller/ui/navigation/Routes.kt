@@ -1,15 +1,12 @@
 package com.example.jetsoncontroller.ui.navigation
 
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 internal object Routes {
 
-    const val CONNECTION_HUB =
-        "connection_hub"
 
     const val ONBOARDING =
         "onboarding"
 
-    const val DEVICES_BLE =
-        "devices_ble"
 
     const val QR_SCANNER =
         "qr_scanner"
@@ -83,7 +80,6 @@ internal object Routes {
     const val GNSS_MAP = "gnss_map"
 
     const val SETTINGS = "settings"
-    const val ADMIN_TOOLS = "admin_tools"
     const val ALERT_SETTINGS = "alert_settings"
     const val THEME = "settings/theme"
     const val DATA = "data_hub"
@@ -118,7 +114,7 @@ internal fun initialWorkRoute(registeredDeviceCount: Int?): String? = registered
 internal fun focusedRoute(route: String?): Boolean {
     val path = route?.substringBefore('?') ?: return false
     return path in setOf(
-        Routes.ONBOARDING, Routes.DEVICES_BLE, Routes.QR_SCANNER, Routes.PAIRING,
+        Routes.ONBOARDING, Routes.QR_SCANNER, Routes.PAIRING,
         Routes.ACTIVE_RUN, Routes.CAMERA_PREVIEW, Routes.GNSS_MAP,
         Routes.PIPELINE_EDITOR, Routes.PIPELINE_CONFIG.substringBefore('/'),
         Routes.UPLOAD_SERVERS, "first_run", "scan", "run", "map", "camera", "qr",
@@ -141,14 +137,13 @@ internal fun currentTabRoot(navController: androidx.navigation.NavHostController
         .firstOrNull { it.startsWith("tab/") }
         ?.removePrefix("tab/") ?: Routes.TASKS
 
-internal fun currentTab(navController: androidx.navigation.NavHostController): com.example.jetsoncontroller.ui.components.ControlSection =
+internal fun currentTab(navController: androidx.navigation.NavHostController): com.example.jetsoncontroller.ui.components.geo.shell.GeoTab =
     when (currentTabRoot(navController)) {
-        Routes.DEVICES -> com.example.jetsoncontroller.ui.components.ControlSection.DEVICES
-        Routes.TRANSFERS -> com.example.jetsoncontroller.ui.components.ControlSection.TRANSFERS
-        Routes.SETTINGS -> com.example.jetsoncontroller.ui.components.ControlSection.SETTINGS
-        else -> com.example.jetsoncontroller.ui.components.ControlSection.TASKS
+        Routes.DEVICES -> com.example.jetsoncontroller.ui.components.geo.shell.GeoTab.DEVICES
+        Routes.TRANSFERS -> com.example.jetsoncontroller.ui.components.geo.shell.GeoTab.TRANSFERS
+        Routes.SETTINGS -> com.example.jetsoncontroller.ui.components.geo.shell.GeoTab.SETTINGS
+        else -> com.example.jetsoncontroller.ui.components.geo.shell.GeoTab.TASKS
     }
 
 internal fun rootBackDestination(route: String?): String? =
     Routes.TASKS.takeIf { route in primaryTabRoutes && route != Routes.TASKS }
-

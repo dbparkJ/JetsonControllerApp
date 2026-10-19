@@ -8,7 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.field.FieldState
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 internal data class RemoteCommandTarget(val deviceId: String, val command: String) {
     fun canExecute(deviceId: String?, online: Boolean, busy: Boolean): Boolean =
@@ -36,7 +36,7 @@ internal fun DevTerminalScreen(state: FieldState, onExecute: (String) -> Unit, o
             disabledReason = if (!state.online) "장치 연결 후 명령을 실행할 수 있습니다." else null, actionArea = true)
     }) {
         DevIdentity(deviceName, "단일 명령 · 최대 15초 · 출력 64KB", status = if (state.online) "연결됨" else "연결 안 됨",
-            tone = if (state.online) StatusTone.SUCCESS else StatusTone.UNKNOWN)
+            tone = if (state.online) Tone.SUCCESS else Tone.UNKNOWN)
         Spacer(Modifier.height(24.dp))
         GeoTextField(command, { if (it.length <= 4096) command = it }, "명령어", placeholder = "pwd",
             singleLine = false, enabled = !state.terminalBusy, disabledReason = "명령을 실행하고 있습니다.")

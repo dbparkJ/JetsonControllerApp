@@ -1,4 +1,4 @@
-package com.example.jetsoncontroller.ui.components
+package com.example.jetsoncontroller.ui.components.geo
 
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -15,7 +15,7 @@ import com.example.jetsoncontroller.ui.components.geo.snackbarAction
 
 /** Consume on timeout, dismissal, or navigation so completed operations never replay. */
 @Composable
-fun OperationMessageHost(
+fun GeoOperationMessageHost(
     message: String?,
     onDismissMessage: (String) -> Unit,
     actionLabel: String? = null,

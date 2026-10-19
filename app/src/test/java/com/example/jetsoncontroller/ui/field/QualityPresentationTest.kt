@@ -7,7 +7,7 @@ import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.PipelineOutputManifest
 import com.example.jetsoncontroller.model.PipelineRunOutput
 import com.example.jetsoncontroller.model.SurveyContextSnapshot
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -123,15 +123,15 @@ class QualityPresentationTest {
     fun `running history never claims more than observation freshness supports`() {
         val run = TaskRun("id", "pipeline", "label", "log", "start", state = "RUNNING")
         assertEquals(
-            "최근 실행 보고 · 현재 미확인" to StatusTone.WARNING,
+            "최근 실행 보고 · 현재 미확인" to Tone.WARNING,
             historyRunPresentation(run, online = false, historyCurrent = false)
         )
         assertEquals(
-            "최근 실행 보고 · 현재 미확인" to StatusTone.WARNING,
+            "최근 실행 보고 · 현재 미확인" to Tone.WARNING,
             historyRunPresentation(run, online = true, historyCurrent = false)
         )
         assertEquals(
-            "실행 보고" to StatusTone.INFO,
+            "실행 보고" to Tone.INFO,
             historyRunPresentation(run, online = true, historyCurrent = true)
         )
     }

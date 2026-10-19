@@ -45,7 +45,7 @@ internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
         Text(
             title,
             modifier = Modifier.weight(1f).padding(start = 12.dp, end = 20.dp),
-            color = LocalGeoColors.current.ink,
+            color = LocalGeoColors.current.text,
             style = LocalGeoType.current.title
         )
     }
@@ -87,9 +87,9 @@ fun SettingsAboutScreen(
                         .padding(vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("버전", Modifier.weight(1f), color = LocalGeoColors.current.muted,
+                    Text("버전", Modifier.weight(1f), color = LocalGeoColors.current.textSecondary,
                         style = LocalGeoType.current.body)
-                    Text(BuildConfig.VERSION_NAME, color = LocalGeoColors.current.ink,
+                    Text(BuildConfig.VERSION_NAME, color = LocalGeoColors.current.text,
                     style = LocalGeoType.current.body)
                 }
                 GeoFactRow("글꼴", "Pretendard (SIL OFL)")
@@ -116,7 +116,7 @@ fun SettingsHelpScreen(onBack: () -> Unit) {
                 GeoSection("수집", first = true) {
                     Text(
                         "장치를 연결하고 수집 구간과 작업을 고른 뒤 수집 시작을 누르세요. 시작 전 점검을 통과하면 수집을 시작합니다.",
-                        color = LocalGeoColors.current.muted,
+                        color = LocalGeoColors.current.textSecondary,
                         style = LocalGeoType.current.body
                     )
                 }
@@ -125,7 +125,7 @@ fun SettingsHelpScreen(onBack: () -> Unit) {
                 GeoSection("전송") {
                     Text(
                         "수집 후 파일에서 저장 결과와 서버 수신을 확인할 수 있습니다. 같은 네트워크에서 수집 결과를 서버로 보낼 수 있습니다.",
-                        color = LocalGeoColors.current.muted,
+                        color = LocalGeoColors.current.textSecondary,
                         style = LocalGeoType.current.body
                     )
                 }
@@ -134,7 +134,7 @@ fun SettingsHelpScreen(onBack: () -> Unit) {
                 GeoSection("연결 문제") {
                     Text(
                         "연결이 끊기면 다시 연결을 누르세요. 주변에서 찾을 수 없으면 연결 방법에서 장치 Wi-Fi 또는 직접 연결을 확인하세요. 인증 정보가 거절되면 QR 코드로 다시 등록하세요.",
-                        color = LocalGeoColors.current.muted,
+                        color = LocalGeoColors.current.textSecondary,
                         style = LocalGeoType.current.body
                     )
                 }

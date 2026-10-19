@@ -18,7 +18,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.model.NextActionCommand
@@ -66,9 +66,9 @@ internal fun TasksHomeScreen(
                 if (focus?.title != null && focus.primary != null) {
                     item(key = "focus") {
                         val tone = when (focus.operation) {
-                            OperationState.START_PENDING, OperationState.RUN_UNCONFIRMED -> GeoOverlayTone.PENDING
-                            OperationState.DISCONNECTED, OperationState.MULTIPLE_RUNS, OperationState.BASIC_CONNECTION -> GeoOverlayTone.WARNING
-                            else -> GeoOverlayTone.INFO
+                            OperationState.START_PENDING, OperationState.RUN_UNCONFIRMED -> Tone.PENDING
+                            OperationState.DISCONNECTED, OperationState.MULTIPLE_RUNS, OperationState.BASIC_CONNECTION -> Tone.WARNING
+                            else -> Tone.INFO
                         }
                         GeoFocusBlock(GeoFocusBlockState(
                             focus.title, listOfNotNull(
@@ -100,11 +100,11 @@ internal fun TasksHomeScreen(
                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Text(cell.title, style = LocalGeoType.current.caption, color = c.textSecondary)
                                             Text("●", style = LocalGeoType.current.count, color = when (cell.tone) {
-                                                StatusTone.SUCCESS -> c.success
-                                                StatusTone.WARNING -> c.warning
-                                                StatusTone.ERROR -> c.danger
-                                                StatusTone.INFO -> c.primary
-                                                StatusTone.PENDING -> c.pending
+                                                Tone.SUCCESS -> c.success
+                                                Tone.WARNING -> c.warning
+                                                Tone.ERROR -> c.danger
+                                                Tone.INFO -> c.primary
+                                                Tone.PENDING -> c.pending
                                                 else -> c.neutral
                                             })
                                             Text(cell.value, style = LocalGeoType.current.badge, color = c.text)
@@ -167,14 +167,14 @@ private fun WorkTicketsSection(
                 else -> {
                     queue.open.forEach { ticket ->
                         GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket),
-                            badge = { GeoBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket)) })
+                            badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
                     }
                     if (queue.completed.isNotEmpty()) {
                         GeoRow("완료 ${queue.completed.size}개", { completed = !completed },
                             modifier = Modifier.semantics { stateDescription = if (completed) "펼침" else "접힘" })
                         if (completed) queue.completed.forEach { ticket ->
                             GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket),
-                                badge = { GeoBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket)) })
+                                badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
                         }
                     }
                 }
@@ -201,9 +201,9 @@ private fun WorkRootHeader(state: TasksHomeUiState, onDevice: () -> Unit, onAler
                     contentDescription = "현재 장치 ${state.deviceName}, 장치 바꾸기"
                 }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("●", color = when (state.deviceStrip?.connectionTone) {
-                    StatusTone.SUCCESS -> c.chromeSuccess
-                    StatusTone.WARNING -> c.chromeWarning
-                    StatusTone.PENDING -> c.chromePending
+                    Tone.SUCCESS -> c.chromeSuccess
+                    Tone.WARNING -> c.chromeWarning
+                    Tone.PENDING -> c.chromePending
                     else -> c.chromeNeutral
                 }, style = type.caption)
                 Text(state.deviceName, color = c.onTopBar, style = type.titleSm, modifier = Modifier.weight(1f, fill = false))
@@ -227,10 +227,10 @@ private fun WorkRootHeader(state: TasksHomeUiState, onDevice: () -> Unit, onAler
     }
 }
 
-internal fun workTaskTone(word: String): StatusTone = when (word) {
-    "수집 중" -> StatusTone.INFO
-    "실패" -> StatusTone.ERROR
-    "재시도 중" -> StatusTone.WARNING
-    "시작 요청 중", "중지 요청 중", "시간 맞추는 중" -> StatusTone.PENDING
-    else -> StatusTone.UNKNOWN
+internal fun workTaskTone(word: String): Tone = when (word) {
+    "수집 중" -> Tone.INFO
+    "실패" -> Tone.ERROR
+    "재시도 중" -> Tone.WARNING
+    "시작 요청 중", "중지 요청 중", "시간 맞추는 중" -> Tone.PENDING
+    else -> Tone.UNKNOWN
 }

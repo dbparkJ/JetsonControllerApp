@@ -1,7 +1,7 @@
 package com.example.jetsoncontroller.ui.field
 
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.*
 import org.junit.Test
 import org.mockito.Mockito.mock
@@ -52,7 +52,7 @@ class ResultChainTest {
         assertEquals(ResultAction.REPORT, chain.action)
         assertTrue(chain.enabled)
         assertTrue(chain.receipt.server.done)
-        assertEquals(StatusTone.SUCCESS, chain.receipt.server.tone)
+        assertEquals(Tone.SUCCESS, chain.receipt.server.tone)
     }
 
     @Test fun `pending or unauthorized report stays the sole disabled primary`() {

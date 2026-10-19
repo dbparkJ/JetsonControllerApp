@@ -1,7 +1,7 @@
 package com.example.jetsoncontroller.ui.connection
 
 import com.example.jetsoncontroller.data.transport.TransportType
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 /**
  * The words the app uses for a device's connection. The vocabulary is fixed by the
@@ -20,7 +20,7 @@ internal data class DeviceConnectionUi(
     val state: DeviceConnectionState,
     val label: String,
     val detail: String,
-    val tone: StatusTone
+    val tone: Tone
 )
 
 /**
@@ -55,44 +55,44 @@ internal fun deviceConnectionUi(
     isOnline && transportType != null -> when (transportType) {
         TransportType.BLE -> connected(
             "기본 연결입니다. 일부 기능만 사용할 수 있습니다.",
-            StatusTone.WARNING
+            Tone.WARNING
         )
         TransportType.LAN -> connected(
             "같은 네트워크로 연결되어 있습니다.",
-            StatusTone.SUCCESS
+            Tone.SUCCESS
         )
         else -> connected(
             "장치에 직접 연결되어 있습니다.",
-            StatusTone.SUCCESS
+            Tone.SUCCESS
         )
     }
     checking -> DeviceConnectionUi(
         state = DeviceConnectionState.CHECKING,
         label = DeviceConnectionState.CHECKING.label,
         detail = "장치 응답을 기다리고 있습니다.",
-        tone = StatusTone.PENDING
+        tone = Tone.PENDING
     )
     available -> DeviceConnectionUi(
         state = DeviceConnectionState.AVAILABLE,
         label = DeviceConnectionState.AVAILABLE.label,
         detail = "같은 네트워크에서 장치를 찾았습니다.",
-        tone = StatusTone.INFO
+        tone = Tone.INFO
     )
     connectFailed -> DeviceConnectionUi(
         state = DeviceConnectionState.NO_RESPONSE,
         label = DeviceConnectionState.NO_RESPONSE.label,
         detail = "장치가 응답하지 않습니다. 같은 네트워크인지 확인해 주세요.",
-        tone = StatusTone.WARNING
+        tone = Tone.WARNING
     )
     else -> DeviceConnectionUi(
         state = DeviceConnectionState.OFFLINE,
         label = DeviceConnectionState.OFFLINE.label,
         detail = lastSeenText?.let { "마지막 응답 $it" } ?: "이 휴대폰과 연결한 기록이 없습니다.",
-        tone = StatusTone.UNKNOWN
+        tone = Tone.UNKNOWN
     )
 }
 
-private fun connected(detail: String, tone: StatusTone) = DeviceConnectionUi(
+private fun connected(detail: String, tone: Tone) = DeviceConnectionUi(
     state = DeviceConnectionState.CONNECTED,
     label = DeviceConnectionState.CONNECTED.label,
     detail = detail,

@@ -1,7 +1,7 @@
 package com.example.jetsoncontroller.ui.storage
 
 import com.example.jetsoncontroller.data.server.*
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -49,7 +49,7 @@ class ServerResultsTest {
     @Test fun `unknown server states use Korean words without exposing the code`() {
         assertEquals("상태 미확인", serverJobState("SERVER_INTERNAL_STATE").word)
         assertEquals("보내는 중", serverJobState("UPLOADING").word)
-        assertEquals(StatusTone.PENDING, serverJobState("PURGING").tone)
+        assertEquals(Tone.PENDING, serverJobState("PURGING").tone)
     }
 
     private fun job(id: String) = ServerJob(id, "client-$id", "project", "GEO-X-1", "capture", "COMPLETED", null,

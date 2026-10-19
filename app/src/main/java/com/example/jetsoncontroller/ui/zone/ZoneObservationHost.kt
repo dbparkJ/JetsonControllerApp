@@ -7,7 +7,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.model.JetsonStatus
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoStatusStripState
 import com.example.jetsoncontroller.ui.components.geo.GeoStripKind
 import com.example.jetsoncontroller.ui.field.ResultZoneObservation
@@ -67,10 +67,10 @@ internal fun GeoMapZoneOutput.runPresentation(deviceName: String): RunZonePresen
         GeoZoneState.UNKNOWN -> "위치 미확인"
     },
     tone = when (state) {
-        GeoZoneState.INSIDE -> StatusTone.SUCCESS
-        GeoZoneState.OUTSIDE -> StatusTone.WARNING
-        GeoZoneState.NEAR -> StatusTone.INFO
-        else -> StatusTone.UNKNOWN
+        GeoZoneState.INSIDE -> Tone.SUCCESS
+        GeoZoneState.OUTSIDE -> Tone.WARNING
+        GeoZoneState.NEAR -> Tone.INFO
+        else -> Tone.UNKNOWN
     },
     strip = if (state == GeoZoneState.OUTSIDE) GeoStatusStripState(GeoStripKind.OUTSIDE_ZONE, deviceName,
         "수집 구역을 벗어났습니다" + (distanceM?.let { " · ${Formats.distance(it)}" } ?: "")) else null,

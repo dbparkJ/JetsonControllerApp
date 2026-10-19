@@ -91,10 +91,3 @@ internal fun StorageFreshness(updatedAt: Long?, onRefresh: () -> Unit, prefix: S
         }
     }
 }
-
-// Compatibility seam for the developer proxy while phase 7 slices merge independently.
-internal enum class DataLocation { DEVICE, SERVER }
-
-@Composable
-@Suppress("UNUSED_PARAMETER")
-internal fun DataLocationTabs(selected: DataLocation, onDeviceClick: () -> Unit, onServerClick: () -> Unit) = Unit

@@ -10,7 +10,6 @@ import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.ui.*
 import com.example.jetsoncontroller.ui.connection.deviceConnectionUi
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
-import com.example.jetsoncontroller.ui.devices.DeviceListScreen
 import com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingScreen
 import com.example.jetsoncontroller.ui.pairing.PairingScreen
 import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
@@ -21,51 +20,6 @@ internal fun NavGraphBuilder.focusedRoutes(state: State<AppNavigationState>) {
         composable(Routes.ONBOARDING) {
             with(state.value) {
                 com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingRoute(state.value)
-            }
-        }
-
-        composable(
-            Routes.DEVICES_BLE
-        ) {
-            with(state.value) {
-
-                DeviceListScreen(
-                    state =
-                        deviceState,
-                    onScanClick = {
-                        deviceViewModel
-                            .toggleScan()
-                    },
-                    onRequestBluetoothPermission =
-                        onRequestBluetoothPermission,
-                    onConnect = {
-                        device ->
-                        pendingDashboardTransport = TransportType.BLE
-                        deviceViewModel
-                            .connect(
-                                device
-                            )
-                    },
-                    onReconnect = {
-                        device ->
-                        pendingDashboardTransport = TransportType.BLE
-                        deviceViewModel.reconnect(device)
-                    },
-                    onForget = {
-                        device ->
-                        deviceViewModel.forget(device)
-                    },
-                    onAddDeviceClick = {
-                        pairingViewModel.beginQrPairing()
-                        navController.navigateSingle(Routes.QR_SCANNER)
-                    },
-                    onBack = {
-                        if (pendingDashboardTransport == TransportType.BLE) {
-                            pendingDashboardTransport = null
-                        }
-                        navController.popBackStack()
-                    }
-                )
             }
         }
 

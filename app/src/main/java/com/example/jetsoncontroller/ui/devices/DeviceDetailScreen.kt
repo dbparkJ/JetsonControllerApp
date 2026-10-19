@@ -59,6 +59,7 @@ internal fun DeviceDetailScreen(
     ongoingStrip: GeoStatusStripState? = null,
     onRefresh: () -> Unit = {},
     bluetoothBusy: Boolean = false,
+    initialConnectionMethods: Boolean = false,
     bluetoothError: String? = null
 ) {
     val c = LocalGeoColors.current
@@ -70,7 +71,7 @@ internal fun DeviceDetailScreen(
     val current = online && dashboard.statusFreshness == StatusFreshness.CURRENT
     val powerReason = powerUnavailableReason(dashboard, runActive)
     val powerEnabled = targetSelected && control && current && powerReason.isEmpty()
-    var sheet by rememberSaveable(deviceId) { mutableStateOf(false) }
+    var sheet by rememberSaveable(deviceId) { mutableStateOf(initialConnectionMethods) }
     var menu by rememberSaveable(deviceId) { mutableStateOf(false) }
     var confirmation by rememberSaveable(deviceId) { mutableStateOf<String?>(null) }
     var previousSelected by remember(deviceId) { mutableStateOf(selectedDeviceId) }

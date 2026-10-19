@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components
 
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
@@ -49,7 +50,7 @@ fun NoticeDismissalProvider(
 fun DismissibleNoticeBanner(
     noticeKey: String,
     message: String,
-    tone: StatusTone = StatusTone.INFO,
+    tone: Tone = Tone.INFO,
     modifier: Modifier = Modifier,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null
@@ -58,8 +59,8 @@ fun DismissibleNoticeBanner(
     val fallbackState = rememberNoticeDismissalState()
     val state = localState ?: fallbackState
     if (!state.isDismissed(noticeKey)) {
-        AppBanner(
-            message = message,
+        com.example.jetsoncontroller.ui.components.geo.GeoInlineNote(
+            text = message,
             tone = tone,
             modifier = modifier,
             actionLabel = actionLabel,

@@ -28,9 +28,10 @@ import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
 import com.example.jetsoncontroller.ui.alerts.AlertCenterUiState
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
-import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
-import com.example.jetsoncontroller.ui.devices.DeviceListScreen
-import com.example.jetsoncontroller.ui.devices.DeviceListUiState
+import com.example.jetsoncontroller.ui.connection.deviceConnectionUi
+import com.example.jetsoncontroller.ui.devices.DeviceDetailScreen
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.semantics.SemanticsProperties
 import com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingScreen
 import com.example.jetsoncontroller.ui.pairing.PairingPhase
 import com.example.jetsoncontroller.ui.pairing.PairingScreen
@@ -86,27 +87,28 @@ class CoreWorkflowScreenTest {
             deviceId = "00000000-0000-0000-0000-000000000001",
             deviceName = "MMS-Test"
         )
+        var forgotten = 0
         composeRule.setContent {
             JetsonControllerTheme {
-                DeviceListScreen(
-                    state = DeviceListUiState(
-                        permissionGranted = true,
-                        registeredDevices = listOf(device)
-                    ),
-                    onScanClick = {},
-                    onRequestBluetoothPermission = {},
-                    onConnect = {},
-                    onReconnect = {},
-                    onForget = {},
-                    onAddDeviceClick = {},
-                    onBack = {}
+                DeviceDetailScreen(
+                    deviceName = device.deviceName, dashboard = DashboardUiState(), snapshot = null,
+                    connection = deviceConnectionUi(false, null), lastSeenText = null, freshness = null,
+                    runActive = false, developerModeEnabled = false, deviceId = device.deviceId,
+                    onBack = {}, onDisconnect = {}, onStartCollection = {}, onViewRun = {},
+                    onCamera = {}, onGnss = {}, onSameNetwork = {}, onDirectConnect = {},
+                    onQrRegister = {}, onSaveDiagnostics = {}, onNetwork = {}, onFiles = {},
+                    onReboot = {}, onShutdown = {}, onPipelines = {}, onFan = {}, onDiagnostics = {},
+                    onForget = { forgotten++ }
                 )
             }
         }
 
-        composeRule.onNodeWithContentDescription("저장된 장치 삭제").performClick()
-        composeRule.onNodeWithText("MMS-Test 등록을 삭제할까요?").assertIsDisplayed()
-        composeRule.onNodeWithText("취소").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("등록 해제"))
+        composeRule.onNodeWithText("등록 해제").performClick()
+        composeRule.onNodeWithText("MMS-Test 등록을 해제할까요?").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(0, forgotten) }
+        composeRule.onNodeWithText("취소").performClick()
+        composeRule.runOnIdle { assertEquals(0, forgotten) }
     }
 
     @Test
@@ -115,36 +117,16 @@ class CoreWorkflowScreenTest {
             deviceId = "00000000-0000-0000-0000-000000000001",
             deviceName = "MMS-Test"
         )
+        var opened = 0
         composeRule.setContent {
             JetsonControllerTheme {
-                ConnectionHubScreen(
-                    onAddDevice = {},
-                    onOpenDashboard = {},
-                    unreadAlertCount = 0,
-                    onAlertsClick = {},
-                    registeredDevices = listOf(device),
-                    transportState = TransportState.Connected(
-                        type = TransportType.WIFI_DIRECT,
-                        deviceId = device.deviceId,
-                        deviceName = device.deviceName
-                    ),
-                    lanEndpoints = emptyList(),
-                    lanError = null,
-                    connectingLanDeviceId = null,
-                    localNetworkPermissionGranted = true,
-                    onRequestLocalNetworkPermission = {},
-                    onRefreshLan = {},
-                    onConnectLan = {},
-                    onReconnectDevice = {}
-                )
+                DailyDeviceRoot(45f, device, TransportType.WIFI_DIRECT) { opened++ }
             }
         }
 
-        composeRule.onNode(hasScrollAction()).performScrollToNode(
-            hasText("연결됨", substring = true)
-        )
-        composeRule.onNodeWithText("연결됨", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("이 장치 열기").assertIsDisplayed()
+        composeRule.onNode(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "연결됨")).assertIsDisplayed()
+        composeRule.onNodeWithText(device.deviceName).performClick()
+        composeRule.runOnIdle { assertEquals(1, opened) }
         composeRule.onAllNodesWithText("온라인").assertCountEquals(0)
     }
 
@@ -207,16 +189,18 @@ class CoreWorkflowScreenTest {
     }
 
     @androidx.compose.runtime.Composable
-    private fun DailyDeviceRoot(temperature: Float) {
+    private fun DailyDeviceRoot(temperature: Float,
+        device: RegisteredDevice = RegisteredDevice("device-a", "GEO-X-1"),
+        transport: TransportType = TransportType.LAN, onOpen: () -> Unit = {}) {
         com.example.jetsoncontroller.ui.devices.DevicesHomeScreen(
-            registeredDevices = listOf(RegisteredDevice("device-a", "GEO-X-1")),
-            selectedDeviceId = "device-a", currentDashboard = DashboardUiState(isOnline = true,
-                statusFreshness = StatusFreshness.CURRENT, transportType = TransportType.LAN,
+            registeredDevices = listOf(device),
+            selectedDeviceId = device.deviceId, currentDashboard = DashboardUiState(isOnline = true,
+                statusFreshness = StatusFreshness.CURRENT, transportType = transport,
                 status = JetsonStatus(temperatureC = temperature)), snapshots = emptyMap(),
             availableDeviceIds = emptySet(), connectingDeviceId = null, connectFailedDeviceId = null,
             runActive = false, attention = null, unreadAlertCount = 0, nowEpochMillis = 1,
             developerModeEnabled = false, onSectionSelected = {}, onAlertsClick = {}, onAddDevice = {},
-            onServerFiles = {}, onOpenDevice = {}, onReconnect = {}, onStartCollection = {}, onViewRun = {},
+            onServerFiles = {}, onOpenDevice = onOpen, onReconnect = {}, onStartCollection = {}, onViewRun = {},
             onSelectDevice = {}, onAttentionClick = {}, onSameNetwork = {}, onDirectConnect = {},
             onQrRegister = {}, onSaveDiagnostics = {}, healthItems = if (temperature < 80f) emptyList()
                 else listOf(com.example.jetsoncontroller.ui.devices.DeviceHealthItem("heat", "GEO-X-1 온도 확인", "온도를 확인하세요.")))

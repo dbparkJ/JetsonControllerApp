@@ -1,10 +1,11 @@
 package com.example.jetsoncontroller.ui.devices
 
+import com.example.jetsoncontroller.ui.navigation.Routes
 import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
 
-/** 7-A's source wiring contract; device rendering and the rest of the inventory need lead QA. */
+/** Operator homes preserved when the retired connection and BLE screens are removed. */
 class InventoryReachabilityTest {
     private val sourceRoot = listOf(File("src/main/java/com/example/jetsoncontroller/ui"),
         File("app/src/main/java/com/example/jetsoncontroller/ui")).first { it.isDirectory }
@@ -60,6 +61,32 @@ class InventoryReachabilityTest {
             assertFalse(path, rawControls.containsMatchIn(text))
             assertFalse(path, secrets.containsMatchIn(text))
             assertFalse(path, text.contains("if (developerModeEnabled)"))
+        }
+    }
+
+    @Test fun `retired connection and BLE features stay reachable through their replacement homes`() {
+        val graph = source("navigation/DeviceGraph.kt")
+        val root = source("devices/DevicesHomeScreen.kt")
+        val detail = source("devices/DeviceDetailScreen.kt")
+        val work = source("navigation/WorkGraph.kt")
+        assertTrue(root.contains("discoveredDevices") && root.contains("onAddDevice"))
+        assertTrue(graph.contains("repository.startLanDiscovery()"))
+        assertTrue(graph.contains("navController.navigateSingle(Routes.ONBOARDING)"))
+        assertTrue(graph.contains("navController.navigateSingle(Routes.SERVER_STORAGE)"))
+        assertTrue(graph.contains("deviceViewModel.reconnect(device)"))
+        assertTrue(graph.contains("onRequestBluetoothPermission = onRequestBluetoothPermission"))
+        assertTrue(graph.contains("fun openConnectionMethods("))
+        assertTrue(graph.contains("initialConnectionMethods = entry.savedStateHandle.get<Boolean>(\"connectionMethodsRequested\") == true"))
+        assertTrue(detail.contains("mutableStateOf(initialConnectionMethods)"))
+        assertTrue(work.contains("NextActionCommand.CONNECTION_HELP -> openConnectionMethods(navController)"))
+        assertEquals(5, Regex("openConnectionMethods\\(navController\\)").findAll(work).count())
+        // Phone-local removal keeps the immutable detail target, including an offline device.
+        assertTrue(graph.contains("sameDeviceTarget(it.deviceId, targetId)"))
+        assertTrue(graph.contains("latest.deviceViewModel.forget(it)"))
+        val pairing = source("navigation/FocusedRoutes.kt")
+        listOf("ONBOARDING", "QR_SCANNER", "PAIRING", "WIFI_DIRECT").forEach {
+            assertTrue("Missing registration/direct-connection home: $it", pairing.contains("composable(Routes.$it)") ||
+                pairing.contains("Routes.$it\n"))
         }
     }
 }

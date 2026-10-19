@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.tasks
 
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.data.server.PendingTicketReport
 import com.example.jetsoncontroller.data.server.PendingTicketSelection
 import com.example.jetsoncontroller.data.server.ServerTicket
@@ -92,12 +93,12 @@ class TicketWorkflowTest {
         val availability = ticketStartAvailability("OPERATOR", blocked)
         assertFalse(availability.enabled)
         assertEquals("막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요.", availability.reason)
-        assertEquals(com.example.jetsoncontroller.ui.components.StatusTone.WARNING, ticketStatusTone(blocked))
+        assertEquals(com.example.jetsoncontroller.ui.model.Tone.WARNING, ticketTone(blocked))
         assertEquals("막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요.", ticketReportErrorCopy("TICKET_BLOCKED"))
 
         val inProgress = ticket("p", "geo X-1", "IN_PROGRESS")
         assertFalse(inProgress.status!!.isBlocked)
-        assertEquals(com.example.jetsoncontroller.ui.components.StatusTone.INFO, ticketStatusTone(inProgress))
+        assertEquals(com.example.jetsoncontroller.ui.model.Tone.INFO, ticketTone(inProgress))
     }
 
     @Test

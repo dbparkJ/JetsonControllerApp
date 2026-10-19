@@ -2,7 +2,7 @@ package com.example.jetsoncontroller.ui.storage
 
 import androidx.compose.runtime.Composable
 import com.example.jetsoncontroller.model.RemoteFileEntry
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 
 /** Compatibility entry for the device browser. Navigation chrome belongs to the app shell. */
 @Composable
@@ -21,7 +21,7 @@ fun DataHubScreen(
     onDeleteClick: (RemoteFileEntry) -> Unit,
     onHistory: () -> Unit,
     onTransfer: (String, String) -> Unit,
-    onSection: (ControlSection) -> Unit,
+    onSection: (GeoTab) -> Unit,
     onServerData: () -> Unit = {},
     onTrash: (() -> Unit)? = null,
     onDismissMessage: (String) -> Unit = {},

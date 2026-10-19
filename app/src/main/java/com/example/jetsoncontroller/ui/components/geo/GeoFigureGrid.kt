@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
@@ -11,7 +13,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 /** Formatting, validity, freshness and threshold evaluation belong to the screen model. */
 data class GeoFigure(
@@ -66,32 +68,20 @@ fun GeoFigureGrid(figures: List<GeoFigure>, modifier: Modifier = Modifier, conta
 
 @Composable
 private fun FigureCell(figure: GeoFigure, modifier: Modifier) {
-    val colors = contentColors
+    val colors = LocalGeoColors.current
     val shown = figurePresentation(figure)
     Column(modifier.semantics(mergeDescendants = true) {}) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (shown.warning) FigureWarningIcon()
-            Text(figure.label, color = colors.secondary, style = ContentType.caption)
+            if (shown.warning) androidx.compose.material3.Icon(GeoIcons.warning, null, Modifier.size(16.dp), tint = colors.warning)
+            Text(figure.label, color = colors.textSecondary, style = LocalGeoType.current.caption)
         }
         Spacer(Modifier.height(14.dp))
         Text(shown.value, Modifier.heightIn(min = 32.dp),
-            color = if (shown.unknown) colors.tone(StatusTone.UNKNOWN) else colors.text,
-            style = if (shown.unknown) ContentType.title else ContentType.heading)
+            color = if (shown.unknown) colors.tone(Tone.UNKNOWN) else colors.text,
+            style = if (shown.unknown) LocalGeoType.current.title else LocalGeoType.current.figure)
         Text(shown.detail.orEmpty(), Modifier.heightIn(min = 20.dp),
-            color = if (shown.warning) colors.tone(StatusTone.WARNING) else colors.secondary,
-            style = ContentType.caption)
-        shown.staleDetail?.let { Text(it, color = colors.secondary, style = ContentType.caption) }
-    }
-}
-
-// TODO(3-B merge): replace with GeoIcons.warning.
-@Composable
-private fun FigureWarningIcon() {
-    val color = contentColors.tone(StatusTone.WARNING)
-    Canvas(Modifier.size(16.dp)) {
-        drawCircle(color, style = Stroke(1.75.dp.toPx()))
-        drawLine(color, Offset(size.width / 2, size.height * .25f),
-            Offset(size.width / 2, size.height * .55f), 1.75.dp.toPx(), StrokeCap.Round)
-        drawCircle(color, 1.dp.toPx(), Offset(size.width / 2, size.height * .75f))
+            color = if (shown.warning) colors.tone(Tone.WARNING) else colors.textSecondary,
+            style = LocalGeoType.current.caption)
+        shown.staleDetail?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption) }
     }
 }

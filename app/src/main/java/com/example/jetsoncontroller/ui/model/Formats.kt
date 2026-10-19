@@ -199,7 +199,7 @@ object Formats {
         return String.format(Locale.US, "%.7f, %.7f", lat, lon)
     }
 
-    /** Legacy card date format retained for [com.example.jetsoncontroller.ui.components.formatGeoDateTime]. */
+    /** Card date format: omit the current year and retain the year for older records. */
     fun dateTime(
         instant: Instant,
         now: Instant = Instant.now(),

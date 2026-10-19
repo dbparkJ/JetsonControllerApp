@@ -5,7 +5,7 @@ import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.model.UploadTarget
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 /** A confirmation keeps this source even if polling, navigation or the current device changes. */
 data class TransferActionTarget(
@@ -60,7 +60,7 @@ internal enum class TransferDetailAction(val label: String) {
 internal data class TransferDetailActions(
     val primary: TransferDetailAction,
     val word: String,
-    val tone: StatusTone,
+    val tone: Tone,
     val canCleanUp: Boolean = false,
     val canRestore: Boolean = false
 )
@@ -73,19 +73,19 @@ internal fun transferDetailActions(
 ): TransferDetailActions {
     val receipt = matchingTransferVerification(job, verification)
     val (action, word, tone) = when (job.state) {
-        UploadJobState.QUEUED -> Triple(TransferDetailAction.CANCEL, "대기 중", StatusTone.UNKNOWN)
-        UploadJobState.SCANNING -> Triple(TransferDetailAction.CANCEL, "파일 확인 중", StatusTone.PENDING)
-        UploadJobState.UPLOADING -> Triple(TransferDetailAction.CANCEL, "보내는 중", StatusTone.INFO)
-        UploadJobState.FAILED -> Triple(TransferDetailAction.RETRY, "실패", StatusTone.ERROR)
-        UploadJobState.CANCELLED -> Triple(TransferDetailAction.NONE, "취소됨", StatusTone.UNKNOWN)
+        UploadJobState.QUEUED -> Triple(TransferDetailAction.CANCEL, "대기 중", Tone.UNKNOWN)
+        UploadJobState.SCANNING -> Triple(TransferDetailAction.CANCEL, "파일 확인 중", Tone.PENDING)
+        UploadJobState.UPLOADING -> Triple(TransferDetailAction.CANCEL, "보내는 중", Tone.INFO)
+        UploadJobState.FAILED -> Triple(TransferDetailAction.RETRY, "실패", Tone.ERROR)
+        UploadJobState.CANCELLED -> Triple(TransferDetailAction.NONE, "취소됨", Tone.UNKNOWN)
         UploadJobState.COMPLETED -> when (receipt?.matched) {
-            false -> Triple(TransferDetailAction.RETRY, "내용 불일치", StatusTone.ERROR)
-            null -> Triple(TransferDetailAction.VERIFY, "수신 확인 중", StatusTone.PENDING)
+            false -> Triple(TransferDetailAction.RETRY, "내용 불일치", Tone.ERROR)
+            null -> Triple(TransferDetailAction.VERIFY, "수신 확인 중", Tone.PENDING)
             true -> Triple(when {
                 linkedToTicket && !reported -> TransferDetailAction.REPORT
                 job.context != null -> TransferDetailAction.RESULT
                 else -> TransferDetailAction.SERVER
-            }, "수신 확인", StatusTone.SUCCESS)
+            }, "수신 확인", Tone.SUCCESS)
         }
     }
     val completed = job.state == UploadJobState.COMPLETED

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,7 +49,7 @@ fun GeoTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled fields require a visible reason" }
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     var focused by remember { mutableStateOf(false) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     val textColor = if (enabled) c.text else c.disabledText
@@ -127,7 +128,7 @@ fun GeoPickerField(
     disabledReason: String? = null
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled fields require a visible reason" }
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     var focused by remember { mutableStateOf(false) }
@@ -161,7 +162,7 @@ fun GeoPickerField(
 @Composable
 private fun GeoFieldSupportingText(text: String?, isError: Boolean = false) {
     if (text == null) return
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     Spacer(Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
         if (isError) Icon(GeoIcons.danger, null, Modifier.padding(top = 2.dp).size(16.dp), tint = c.danger)

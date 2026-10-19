@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,22 +26,14 @@ fun GeoStateBlock(
     fullScreen: Boolean = false,
     onAction: (() -> Unit)? = null
 ) {
-    val colors = contentColors
+    val colors = LocalGeoColors.current
     Column(modifier.fillMaxWidth().padding(top = if (fullScreen) 56.dp else 0.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(state.title, color = colors.text, style = ContentType.section, modifier = Modifier.semantics { heading() })
-        Text(state.explanation, color = colors.secondary, style = ContentType.body)
+        Text(state.title, color = colors.text, style = LocalGeoType.current.sectionTitle, modifier = Modifier.semantics { heading() })
+        Text(state.explanation, color = colors.textSecondary, style = LocalGeoType.current.body)
         if (state.actionLabel != null && onAction != null) {
             Spacer(Modifier.height(4.dp))
-            StateAction(state.actionLabel, onAction)
+            GeoButton(state.actionLabel, onAction, style = GeoButtonStyle.Tertiary)
         }
-    }
-}
-
-// TODO(3-B merge): use the shared tertiary button.
-@Composable
-private fun StateAction(label: String, onClick: () -> Unit) {
-    Box(Modifier.contentTarget(onClick = onClick).heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 12.dp)) {
-        Text(label, color = contentColors.primary, style = ContentType.button)
     }
 }

@@ -5,13 +5,13 @@ import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 internal data class OperationalSignal(
     val title: String,
     val value: String,
     val detail: String,
-    val tone: StatusTone
+    val tone: Tone
 )
 
 internal enum class HomeActionDestination {
@@ -61,9 +61,9 @@ internal fun operationalSummary(
             else -> "장치 연결을 확인하세요"
         },
         tone = when {
-            state.fullControlAvailable -> StatusTone.SUCCESS
-            state.isOnline -> StatusTone.WARNING
-            else -> StatusTone.ERROR
+            state.fullControlAvailable -> Tone.SUCCESS
+            state.isOnline -> Tone.WARNING
+            else -> Tone.ERROR
         }
     )
     val collection = when {
@@ -71,43 +71,43 @@ internal fun operationalSummary(
             title = "Jetson 수집",
             value = "수집 중",
             detail = running.single().label,
-            tone = StatusTone.SUCCESS
+            tone = Tone.SUCCESS
         )
         running.size > 1 -> OperationalSignal(
             title = "Jetson 수집",
             value = "실행 ${running.size}개 확인 필요",
             detail = "중복 실행 여부를 확인하세요",
-            tone = StatusTone.WARNING
+            tone = Tone.WARNING
         )
         reportedRunning.isNotEmpty() -> OperationalSignal(
             title = "Jetson 수집",
             value = "최근 실행 보고 · 현재 미확인",
             detail = "현재 관찰 시각과 실행 ID를 다시 확인하세요",
-            tone = StatusTone.WARNING
+            tone = Tone.WARNING
         )
         transitional.isNotEmpty() -> OperationalSignal(
             title = "Jetson 수집",
             value = "변경 확인 중",
             detail = "명령을 반복하지 말고 실제 상태를 확인하세요",
-            tone = StatusTone.WARNING
+            tone = Tone.WARNING
         )
         pipelines.any { it.state in setOf(PipelineState.FAILED, PipelineState.UNKNOWN) } -> OperationalSignal(
             title = "Jetson 수집",
             value = "실행 결과 확인 필요",
             detail = "실패 또는 알 수 없는 작업 상태를 확인하세요",
-            tone = StatusTone.WARNING
+            tone = Tone.WARNING
         )
         tasksConfirmed -> OperationalSignal(
             title = "Jetson 수집",
             value = "수집 안 함",
             detail = "최근 조회에서 실행 중인 작업 없음",
-            tone = StatusTone.INFO
+            tone = Tone.INFO
         )
         else -> OperationalSignal(
             title = "Jetson 수집",
             value = "현재 상태 미확인",
             detail = "앱 연결 상태만으로 중단을 판단하지 않습니다",
-            tone = StatusTone.WARNING
+            tone = Tone.WARNING
         )
     }
     val activeUpload = uploads.firstOrNull {
@@ -121,19 +121,19 @@ internal fun operationalSummary(
             title = "인터넷 · 서버",
             value = "전송 관찰 중",
             detail = activeUpload.folderName ?: activeUpload.relativePath,
-            tone = StatusTone.INFO
+            tone = Tone.INFO
         )
         verifiedUpload != null -> OperationalSignal(
             title = "인터넷 · 서버",
             value = "수신 증거 있음",
             detail = "현재 도달성은 서버에서 다시 확인하세요",
-            tone = StatusTone.SUCCESS
+            tone = Tone.SUCCESS
         )
         else -> OperationalSignal(
             title = "인터넷 · 서버",
             value = "현재 상태 미확인",
             detail = "장치 Wi-Fi와 별도로 확인합니다",
-            tone = StatusTone.INFO
+            tone = Tone.INFO
         )
     }
     val positioning = positioningSignal(state.status, state.statusFreshness)
@@ -189,7 +189,7 @@ private fun positioningSignal(status: JetsonStatus, freshness: StatusFreshness):
             title = "GNSS · RTK",
             value = "현재 상태 미확인",
             detail = "마지막 관찰 시각을 확인하세요",
-            tone = StatusTone.WARNING
+            tone = Tone.WARNING
         )
     }
     if (!status.gnssSensor.configured) {
@@ -197,7 +197,7 @@ private fun positioningSignal(status: JetsonStatus, freshness: StatusFreshness):
             title = "GNSS · RTK",
             value = "미설정",
             detail = "작업의 필수 센서 정책을 확인하세요",
-            tone = StatusTone.INFO
+            tone = Tone.INFO
         )
     }
     if (!status.gnssSensor.connected) {
@@ -205,7 +205,7 @@ private fun positioningSignal(status: JetsonStatus, freshness: StatusFreshness):
             title = "GNSS · RTK",
             value = "GNSS 연결 안 됨",
             detail = status.gnssSensor.error ?: "배선과 수신기 상태를 확인하세요",
-            tone = StatusTone.WARNING
+            tone = Tone.WARNING
         )
     }
     val fix = status.gnssSensor.fixName.takeUnless { it.equals("unknown", true) }
@@ -219,6 +219,16 @@ private fun positioningSignal(status: JetsonStatus, freshness: StatusFreshness):
             status.gnssSensor.satellites?.let { "위성 ${it}개" },
             status.gnssSensor.differentialAgeS?.let { "보정 ${"%.1f".format(it)}초 전" }
         ).joinToString(" · ").ifBlank { "관찰값 · 승인 임계값 없음" },
-        tone = StatusTone.INFO
+        tone = Tone.INFO
     )
 }
+
+internal fun homeUploadSummaryJob(jobs: List<com.example.jetsoncontroller.model.UploadJob>): com.example.jetsoncontroller.model.UploadJob? =
+    jobs.firstOrNull {
+        it.state == com.example.jetsoncontroller.model.UploadJobState.QUEUED ||
+            it.state == com.example.jetsoncontroller.model.UploadJobState.SCANNING ||
+            it.state == com.example.jetsoncontroller.model.UploadJobState.UPLOADING
+    } ?: jobs.firstOrNull {
+        it.state == com.example.jetsoncontroller.model.UploadJobState.COMPLETED ||
+            it.state == com.example.jetsoncontroller.model.UploadJobState.FAILED
+    }

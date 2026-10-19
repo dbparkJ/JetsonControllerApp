@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
@@ -28,16 +30,16 @@ fun GeoTechInfo(
 ) {
     if (!developerMode || !showTechnicalInfo) return
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
-    val colors = contentColors
+    val colors = LocalGeoColors.current
     val clipboard = LocalClipboardManager.current
     Column(modifier.fillMaxWidth().padding(top = 28.dp)) {
         Row(Modifier.fillMaxWidth().contentTarget { expanded = !expanded }.contentDivider()
             .heightIn(min = 56.dp).padding(vertical = 16.dp)
             .semantics(mergeDescendants = true) { stateDescription = if (expanded) "펼쳐짐" else "접힘" },
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("기술 정보", Modifier.weight(1f), color = colors.text, style = ContentType.section)
-            // TODO(3-B merge): replace this private text stand-in with GeoIcons.chevronUp/Down.
-            Text(if (expanded) "접기" else "펼치기", color = colors.subtle, style = ContentType.caption)
+            Text("기술 정보", Modifier.weight(1f), color = colors.text, style = LocalGeoType.current.sectionTitle)
+            androidx.compose.material3.Icon(if (expanded) GeoIcons.chevronUp else GeoIcons.chevronDown,
+                if (expanded) "접기" else "펼치기", Modifier.size(20.dp), tint = colors.textSubtle)
         }
         if (expanded) {
             values.forEach { entry ->
@@ -48,15 +50,15 @@ fun GeoTechInfo(
                     }
                     if (stacked) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(entry.label, color = colors.secondary, style = ContentType.body)
-                            SelectionContainer { Text(entry.value, color = colors.text, style = ContentType.mono) }
+                            Text(entry.label, color = colors.textSecondary, style = LocalGeoType.current.body)
+                            SelectionContainer { Text(entry.value, color = colors.text, style = LocalGeoType.current.mono) }
                             TechCopy(entry.label, copy)
                         }
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                            Text(entry.label, Modifier.weight(.32f), color = colors.secondary, style = ContentType.body)
+                            Text(entry.label, Modifier.weight(.32f), color = colors.textSecondary, style = LocalGeoType.current.body)
                             SelectionContainer(Modifier.weight(.68f)) {
-                                Text(entry.value, color = colors.text, style = ContentType.mono)
+                                Text(entry.value, color = colors.text, style = LocalGeoType.current.mono)
                             }
                             TechCopy(entry.label, copy)
                         }
@@ -67,12 +69,7 @@ fun GeoTechInfo(
     }
 }
 
-// TODO(3-B merge): use the shared copy icon button (keep the accessible label).
 @Composable
 private fun TechCopy(label: String, onClick: () -> Unit) {
-    Box(Modifier.contentTarget(onClick = onClick).sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-        .semantics(mergeDescendants = true) { contentDescription = "$label 복사" }
-        .padding(12.dp), contentAlignment = Alignment.Center) {
-        Text("복사", color = contentColors.primary, style = ContentType.button)
-    }
+    GeoIconButton(GeoIcons.copy, "$label 복사", onClick)
 }

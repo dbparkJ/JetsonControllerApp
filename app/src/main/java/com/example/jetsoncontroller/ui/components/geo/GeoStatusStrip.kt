@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -38,11 +41,11 @@ data class GeoStatusStripState(
 fun highestPriorityStrip(candidates: List<GeoStatusStripState>): GeoStatusStripState? =
     candidates.minByOrNull { it.kind.priority }
 
-private val GeoStripKind.tone: GeoOverlayTone get() = when (this) {
-    GeoStripKind.AUTHENTICATION_ERROR -> GeoOverlayTone.DANGER
-    GeoStripKind.DISCONNECTED, GeoStripKind.OUTSIDE_ZONE -> GeoOverlayTone.WARNING
-    GeoStripKind.COLLECTING -> GeoOverlayTone.INFO
-    GeoStripKind.LAST_SYNC -> GeoOverlayTone.NEUTRAL
+private val GeoStripKind.tone: Tone get() = when (this) {
+    GeoStripKind.AUTHENTICATION_ERROR -> Tone.ERROR
+    GeoStripKind.DISCONNECTED, GeoStripKind.OUTSIDE_ZONE -> Tone.WARNING
+    GeoStripKind.COLLECTING -> Tone.INFO
+    GeoStripKind.LAST_SYNC -> Tone.UNKNOWN
 }
 
 @Composable
@@ -61,9 +64,9 @@ fun GeoStatusStrip(candidates: List<GeoStatusStripState>, modifier: Modifier = M
 
 @Composable
 private fun OverlayStrip(state: GeoStatusStripState) {
-    val t = OverlayAdapter.tokens
+    val t = LocalGeoColors.current
     val measure = rememberTextMeasurer()
-    val buttonStyle = OverlayAdapter.button
+    val buttonStyle = LocalGeoType.current.button
     BoxWithConstraints(Modifier.fillMaxWidth().background(t.soft(state.kind.tone))
         .semantics { liveRegion = LiveRegionMode.Polite }) {
         val gutter = overlayGutter(maxWidth.value).dp
@@ -75,16 +78,16 @@ private fun OverlayStrip(state: GeoStatusStripState) {
         Column(Modifier.padding(horizontal = gutter, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OverlayAdapter.StatusIcon(state.kind.tone)
-                Text(state.text, Modifier.weight(1f), color = t.text, style = OverlayAdapter.body)
-                if (inline && single != null) OverlayAdapter.Action(single)
+                GeoToneIcon(state.kind.tone)
+                Text(state.text, Modifier.weight(1f), color = t.text, style = LocalGeoType.current.body)
+                if (inline && single != null) GeoOverlayButton(single)
             }
             if (!inline && state.actions.isNotEmpty()) {
                 // Each action gets its natural one-line width, or its own wrapping row.
                 StripActions(state.actions)
             }
             state.actions.filter { !it.enabled }.mapNotNull { it.disabledReason }.forEach {
-                Text(it, color = t.textSecondary, style = OverlayAdapter.body)
+                Text(it, color = t.textSecondary, style = LocalGeoType.current.body)
             }
         }
     }
@@ -93,17 +96,17 @@ private fun OverlayStrip(state: GeoStatusStripState) {
 @Composable
 private fun StripActions(actions: List<GeoOverlayAction>) {
     val measure = rememberTextMeasurer()
-    val style = OverlayAdapter.button
+    val style = LocalGeoType.current.button
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val widths = actions.map { measure.measure(it.label, style, softWrap = false, maxLines = 1).size.width + with(density) { 24.dp.roundToPx() } }
         if (overlayActionsFit(widths, constraints.maxWidth, with(density) { 8.dp.roundToPx() }, equal = false)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                actions.forEach { OverlayAdapter.Action(it) }
+                actions.forEach { GeoOverlayButton(it) }
             }
         } else {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                actions.forEach { OverlayAdapter.Action(it, Modifier.fillMaxWidth()) }
+                actions.forEach { GeoOverlayButton(it, Modifier.fillMaxWidth()) }
             }
         }
     }

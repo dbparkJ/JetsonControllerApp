@@ -3,7 +3,7 @@ package com.example.jetsoncontroller.ui.storage
 import com.example.jetsoncontroller.data.server.*
 import com.example.jetsoncontroller.ui.model.ServerJobState
 import com.example.jetsoncontroller.ui.model.VocabularyEntry
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import java.util.Locale
 
 internal const val UNKNOWN_SERVER_MUTATION =
@@ -41,10 +41,10 @@ internal fun serverJobState(state: String): VocabularyEntry = when (state.upperc
     "FAILED" -> ServerJobState.FAILED
     "TRASHED" -> ServerJobState.TRASH
     "PURGING" -> ServerJobState.DELETING
-    else -> StorageWord("상태 미확인", StatusTone.UNKNOWN)
+    else -> StorageWord("상태 미확인", Tone.UNKNOWN)
 }
 
-private data class StorageWord(override val word: String, override val tone: StatusTone) : VocabularyEntry
+private data class StorageWord(override val word: String, override val tone: Tone) : VocabularyEntry
 
 internal fun DirectServerUiState.withJobsPage(snapshot: ServerJobsSnapshot): DirectServerUiState = copy(
     jobs = (jobs + snapshot.response.jobs).associateBy { it.sessionId }.values.toList(),

@@ -7,7 +7,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.GeoLoadingScene
+import com.example.jetsoncontroller.ui.startup.StartupLoadingScene
 import com.example.jetsoncontroller.ui.field.*
 import com.example.jetsoncontroller.ui.storage.*
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
@@ -21,14 +21,14 @@ import java.time.Instant
 class GeoFieldScreenTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun welcomeShowsRequiredBrandInBothThemes() {
+    @Test fun startupLoadingAnnouncesRestorationInBothThemes() {
         var dark by mutableStateOf(false)
-        compose.setContent { JetsonControllerTheme(darkTheme = dark) { GeoLoadingScene() } }
-        compose.onNodeWithContentDescription("GEO& 로고").assertIsDisplayed()
-        compose.onNodeWithText("도로관리장치 제어").assertIsDisplayed()
+        compose.setContent { JetsonControllerTheme(darkTheme = dark) { StartupLoadingScene() } }
+        compose.onNodeWithContentDescription("장치 정보를 불러오는 중입니다").assertIsDisplayed()
+        compose.onNodeWithContentDescription("장치 정보를 불러오는 중입니다").assertIsDisplayed()
         capture("welcome-light")
         compose.runOnIdle { dark = true }
-        compose.onNodeWithText("도로관리장치 제어").assertIsDisplayed()
+        compose.onNodeWithContentDescription("장치 정보를 불러오는 중입니다").assertIsDisplayed()
         capture("welcome-dark")
     }
 

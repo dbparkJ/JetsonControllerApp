@@ -19,8 +19,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
@@ -33,12 +33,12 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoType
 internal fun RunResultScreen(
     deviceName: String,
     connectionLabel: String,
-    connectionTone: StatusTone,
+    connectionTone: Tone,
     run: PipelineRun?,
     uploadEnabled: Boolean,
     uploadDisabledReason: String,
     serverReceiptLabel: String?,
-    serverReceiptTone: StatusTone = if (serverReceiptLabel == null) StatusTone.UNKNOWN else StatusTone.SUCCESS,
+    serverReceiptTone: Tone = if (serverReceiptLabel == null) Tone.UNKNOWN else Tone.SUCCESS,
     ticketTitle: String? = null,
     ticketCompletionEnabled: Boolean = false,
     ticketCompletionMessage: String? = null,
@@ -81,7 +81,7 @@ internal fun RunResultScreen(
     val observedZone = zoneObservation ?: storedZone?.resultObservation()
     val screenState = rememberSaveableStateHolder()
     val snackbar: @Composable () -> Unit = {
-        OperationMessageHost(historyState?.message, onDismissMessage,
+        GeoOperationMessageHost(historyState?.message, onDismissMessage,
             actionLabel = "실행 취소".takeIf { historyState?.undoTrashId != null },
             onAction = onUndoDelete.takeIf { historyState?.undoTrashId != null })
     }

@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadTarget
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.transfers.*
 import com.example.jetsoncontroller.ui.model.Formats
@@ -101,7 +101,7 @@ fun UploadQueueScreen(
                 item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary) }
             }
         }
-        Box(Modifier.align(Alignment.BottomCenter)) { OperationMessageHost(message, onDismissMessage) }
+        Box(Modifier.align(Alignment.BottomCenter)) { GeoOperationMessageHost(message, onDismissMessage) }
     }
 }
 

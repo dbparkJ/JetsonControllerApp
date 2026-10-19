@@ -25,7 +25,7 @@ class GeoIconsTest {
             "torch", "torchOff", "camera", "qr", "myLocation", "fitZone", "layers",
             "eye", "eyeOff", "wifi", "bluetooth", "link", "power", "reboot", "fan",
             "terminal", "folder", "file", "image", "video", "log", "success", "warning",
-            "danger", "info", "pending", "unknown", "spinner"
+            "danger", "info", "pending", "unknown", "spinner", "check", "router"
         )
         assertEquals(expected, icons.keys)
         icons.forEach { (name, vector) ->

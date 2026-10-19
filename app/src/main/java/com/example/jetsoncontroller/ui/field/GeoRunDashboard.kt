@@ -24,8 +24,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.model.Formats
@@ -75,7 +75,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
         return
     }
     FieldDetailFrame("수집 기록", onBack, statusStrip = statusStrip, snackbar = {
-        OperationMessageHost(state.message, onDismissMessage,
+        GeoOperationMessageHost(state.message, onDismissMessage,
             actionLabel = "실행 취소".takeIf { state.undoTrashId != null },
             onAction = onUndoDelete.takeIf { state.undoTrashId != null })
     }) {
@@ -87,10 +87,10 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                 item {
                     GeoSegmented("보기", options, tab, { tab = it }, { showFilter = true },
                         modifier = Modifier.focusRequester(filterFocus))
-                    state.error?.let { GeoInlineNote(it, tone = StatusTone.ERROR, kind = GeoNoteKind.LIVE_ERROR,
+                    state.error?.let { GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR,
                         actionLabel = "다시 시도", onAction = onRefresh) }
                     if (!state.online && state.runs.isNotEmpty()) GeoInlineNote(
-                        "장치 연결이 끊겼습니다. 표시된 기록은 마지막으로 확인한 값입니다.", tone = StatusTone.UNKNOWN)
+                        "장치 연결이 끊겼습니다. 표시된 기록은 마지막으로 확인한 값입니다.", tone = Tone.UNKNOWN)
                     HistoryFreshness(state, onRefresh)
                     if (developerModeEnabled) state.technicalError?.let {
                         FieldTechnicalInfo("history-error", listOf(GeoTechnicalValue("오류", it)), true, state.online, null)
@@ -198,11 +198,11 @@ internal fun historyReceipt(run: TaskRun, jobs: List<UploadJob>): GeoReceiptStat
     }
     val server = when {
         exact.any { it.state == UploadJobState.COMPLETED && resultVerification(it)?.matched == true } ->
-            GeoReceiptItem("수신 확인", StatusTone.SUCCESS, done = true)
+            GeoReceiptItem("수신 확인", Tone.SUCCESS, done = true)
         exact.any { it.state in setOf(UploadJobState.QUEUED, UploadJobState.SCANNING, UploadJobState.UPLOADING) } ->
-            GeoReceiptItem("전송 중", StatusTone.PENDING)
-        exact.any { resultVerification(it)?.matched == false } -> GeoReceiptItem("내용 불일치", StatusTone.WARNING)
-        exact.any { it.state == UploadJobState.COMPLETED } -> GeoReceiptItem("수신 미확인", StatusTone.PENDING)
+            GeoReceiptItem("전송 중", Tone.PENDING)
+        exact.any { resultVerification(it)?.matched == false } -> GeoReceiptItem("내용 불일치", Tone.WARNING)
+        exact.any { it.state == UploadJobState.COMPLETED } -> GeoReceiptItem("수신 미확인", Tone.PENDING)
         else -> GeoReceiptItem()
     }
     return GeoReceiptState(GeoReceiptItem(cells[0].value, cells[0].tone),
@@ -240,13 +240,13 @@ private fun TwoStageHistorySwipe(runId: String, enabled: Boolean, revealed: Bool
     }
 }
 
-internal fun historyRunPresentation(run: TaskRun, online: Boolean, historyCurrent: Boolean): Pair<String, StatusTone> = when {
-    run.isActiveRun() && (!online || !historyCurrent) -> "최근 실행 보고 · 현재 미확인" to StatusTone.WARNING
-    run.isActiveRun() -> "실행 보고" to StatusTone.INFO
-    run.state == "COMPLETED" -> "완료" to StatusTone.SUCCESS
-    run.state == "STOPPED" -> "중지" to StatusTone.INFO
-    run.state == "FAILED" -> "실패" to StatusTone.ERROR
-    else -> "결과 미확인" to StatusTone.WARNING
+internal fun historyRunPresentation(run: TaskRun, online: Boolean, historyCurrent: Boolean): Pair<String, Tone> = when {
+    run.isActiveRun() && (!online || !historyCurrent) -> "최근 실행 보고 · 현재 미확인" to Tone.WARNING
+    run.isActiveRun() -> "실행 보고" to Tone.INFO
+    run.state == "COMPLETED" -> "완료" to Tone.SUCCESS
+    run.state == "STOPPED" -> "중지" to Tone.INFO
+    run.state == "FAILED" -> "실패" to Tone.ERROR
+    else -> "결과 미확인" to Tone.WARNING
 }
 
 internal fun canonicalHistoryRunId(run: TaskRun): String? {

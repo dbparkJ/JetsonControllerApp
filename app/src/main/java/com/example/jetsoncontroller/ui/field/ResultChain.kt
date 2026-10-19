@@ -1,7 +1,7 @@
 package com.example.jetsoncontroller.ui.field
 
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoReceiptItem
 import com.example.jetsoncontroller.ui.components.geo.GeoReceiptState
 import com.example.jetsoncontroller.ui.model.Formats
@@ -68,7 +68,7 @@ internal fun resultChain(
     reportMessage: String? = null,
     reportFailed: Boolean = false
 ): ResultChain {
-    val cells = pipelineRunReceiptCells(run, StatusTone.UNKNOWN)
+    val cells = pipelineRunReceiptCells(run, Tone.UNKNOWN)
     val stored = runOutputStored(run)
     val exact = jobs.filter { resultJobMatches(run, it) }
     val verified = exact.firstOrNull {
@@ -82,20 +82,20 @@ internal fun resultChain(
     }
     val failed = exact.firstOrNull()
     val server = when {
-        verified != null -> GeoReceiptItem("수신 확인", StatusTone.SUCCESS, "서버에서 이 수집의 수신을 확인했습니다.", true)
-        sending != null -> GeoReceiptItem("전송 중", StatusTone.PENDING, "서버로 보내고 있습니다.")
-        sent != null -> GeoReceiptItem("수신 미확인", StatusTone.PENDING, "서버 수신 내용을 확인하세요.")
+        verified != null -> GeoReceiptItem("수신 확인", Tone.SUCCESS, "서버에서 이 수집의 수신을 확인했습니다.", true)
+        sending != null -> GeoReceiptItem("전송 중", Tone.PENDING, "서버로 보내고 있습니다.")
+        sent != null -> GeoReceiptItem("수신 미확인", Tone.PENDING, "서버 수신 내용을 확인하세요.")
         failed != null && resultVerification(failed)?.matched == false ->
-            GeoReceiptItem("내용 불일치", StatusTone.WARNING, "서버 수신 내용이 일치하지 않습니다. 다시 보내세요.")
-        failed != null -> GeoReceiptItem("확인 필요", StatusTone.WARNING, "전송 상태를 다시 확인하세요.")
+            GeoReceiptItem("내용 불일치", Tone.WARNING, "서버 수신 내용이 일치하지 않습니다. 다시 보내세요.")
+        failed != null -> GeoReceiptItem("확인 필요", Tone.WARNING, "전송 상태를 다시 확인하세요.")
         else -> GeoReceiptItem(meta = "이 휴대폰에서 보낸 기록이 없습니다.")
     }
     val report = when {
-        !ticketLinked -> GeoReceiptItem("해당 없음", StatusTone.UNKNOWN, "연결된 수집 구간이 없습니다.", true)
-        reported -> GeoReceiptItem("보고 완료", StatusTone.SUCCESS, reportMessage, true)
-        reportPending -> GeoReceiptItem("보고 대기", StatusTone.PENDING, reportMessage ?: "완료 보고를 보내고 있습니다.")
-        reportFailed || reportMessage?.contains("실패") == true -> GeoReceiptItem("보고 실패", StatusTone.WARNING, reportMessage)
-        else -> GeoReceiptItem("보고 전", StatusTone.UNKNOWN,
+        !ticketLinked -> GeoReceiptItem("해당 없음", Tone.UNKNOWN, "연결된 수집 구간이 없습니다.", true)
+        reported -> GeoReceiptItem("보고 완료", Tone.SUCCESS, reportMessage, true)
+        reportPending -> GeoReceiptItem("보고 대기", Tone.PENDING, reportMessage ?: "완료 보고를 보내고 있습니다.")
+        reportFailed || reportMessage?.contains("실패") == true -> GeoReceiptItem("보고 실패", Tone.WARNING, reportMessage)
+        else -> GeoReceiptItem("보고 전", Tone.UNKNOWN,
             reportMessage ?: "서버 수신을 확인한 뒤 보고할 수 있습니다.")
     }
     val manifest = run.output.manifest?.takeIf { stored }

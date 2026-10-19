@@ -3,7 +3,7 @@ package com.example.jetsoncontroller.ui.tasks
 import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.data.server.ServerTicketReportState
 import com.example.jetsoncontroller.data.server.ServerTicketState
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.model.CompletionReportState
 import com.example.jetsoncontroller.ui.model.TicketSegmentState
 import com.example.jetsoncontroller.ui.model.Formats
@@ -112,7 +112,7 @@ internal fun ticketStatusLabel(ticket: ServerTicket): String =
 /** A person marked the ticket 막힘; the app never starts it or moves it on their behalf. */
 internal const val TICKET_BLOCKED_COPY = "막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요."
 
-internal fun ticketStatusTone(ticket: ServerTicket): StatusTone = ticketSegmentState(ticket).tone
+internal fun ticketTone(ticket: ServerTicket): Tone = ticketSegmentState(ticket).tone
 
 internal fun ticketSegmentState(ticket: ServerTicket): TicketSegmentState = when {
     ticket.status?.isBlocked == true -> TicketSegmentState.BLOCKED

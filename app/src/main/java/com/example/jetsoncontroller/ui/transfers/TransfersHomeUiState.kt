@@ -10,8 +10,8 @@ import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.ui.field.canonicalHistoryRunId
-import com.example.jetsoncontroller.ui.components.formatGeoDateTime
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.tasks.formatTaskTime
 import com.example.jetsoncontroller.ui.tasks.parseInstantOrNull
 import com.example.jetsoncontroller.ui.tasks.UnnamedDeviceLabel
@@ -46,7 +46,7 @@ internal data class TransfersHomeInput(
 
 internal data class DeviceEventNoticeState(
     val text: String,
-    val tone: StatusTone
+    val tone: Tone
 )
 
 internal data class ActiveTransferState(
@@ -54,7 +54,7 @@ internal data class ActiveTransferState(
     val title: String,
     val subtitle: String,
     val stateLabel: String,
-    val stateTone: StatusTone,
+    val stateTone: Tone,
     /** 0..1 when the total is known, otherwise null (the bar then shows indeterminate progress). */
     val progress: Float?,
     val sentLabel: String,
@@ -70,7 +70,7 @@ internal data class TransferRowState(
     val jobId: String,
     val title: String,
     val detail: String,
-    val tone: StatusTone
+    val tone: Tone
 )
 
 internal data class FailedTransferState(
@@ -89,7 +89,7 @@ internal data class StoredRunTransferState(
 internal data class TransfersHomeUiState(
     /** One line that says why uploads may be unavailable. Always present. */
     val explanation: String,
-    val explanationTone: StatusTone,
+    val explanationTone: Tone,
     val deviceEventNotice: DeviceEventNoticeState?,
     val active: List<ActiveTransferState>,
     val failed: List<FailedTransferState>,
@@ -151,7 +151,7 @@ internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHome
                 jobId = job.id,
                 title = transferTitle(job, input.runs),
                 detail = "대기 중",
-                tone = StatusTone.UNKNOWN
+                tone = Tone.UNKNOWN
             )
         }
     val awaitingVerification = jobs
@@ -163,7 +163,7 @@ internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHome
                 jobId = job.id,
                 title = transferTitle(job, input.runs),
                 detail = "수신 확인 중",
-                tone = StatusTone.PENDING
+                tone = Tone.PENDING
             )
         }
     val verified = jobs
@@ -203,36 +203,36 @@ internal fun deviceEventNoticeFor(
     return when (status.integration.normalizedState) {
         ServerDeviceEventIntegrationState.EXPIRED -> DeviceEventNoticeState(
             "GEO& Work 연동이 만료되었습니다. 관리자에게 연동 연장을 요청하세요.",
-            StatusTone.ERROR
+            Tone.ERROR
         )
         ServerDeviceEventIntegrationState.ERROR -> DeviceEventNoticeState(
             "GEO& Work 알림을 보내지 못하고 있습니다. 수신 서버 관리자에게 알려 주세요.",
-            StatusTone.ERROR
+            Tone.ERROR
         )
         ServerDeviceEventIntegrationState.ACTIVE -> when {
             status.window.dead > 0 -> DeviceEventNoticeState(
                 "GEO& Work 알림 ${String.format(Locale.US, "%,d", status.window.dead)}건을 보내지 못했습니다. 수신 서버 관리자에게 알려 주세요.",
-                StatusTone.WARNING
+                Tone.WARNING
             )
             status.window.pending > 0 -> DeviceEventNoticeState(
                 "GEO& Work 알림 ${String.format(Locale.US, "%,d", status.window.pending)}건을 보내는 중입니다.",
-                StatusTone.PENDING
+                Tone.PENDING
             )
             status.lastDelivered != null -> {
                 val deliveredAt = parseInstantOrNull(status.lastDelivered.at) ?: return null
-                val deliveredTime = formatGeoDateTime(
-                    deliveredAt.toEpochMilli(),
-                    now.toEpochMilli(),
+                val deliveredTime = Formats.dateTime(
+                    deliveredAt,
+                    now,
                     zone
                 )
                 DeviceEventNoticeState(
                     "GEO& Work에 알림을 보냈습니다 · $deliveredTime ${status.lastDelivered.status}",
-                    StatusTone.SUCCESS
+                    Tone.SUCCESS
                 )
             }
             else -> DeviceEventNoticeState(
                 "GEO& Work 알림이 켜져 있습니다.",
-                StatusTone.INFO
+                Tone.INFO
             )
         }
         ServerDeviceEventIntegrationState.NOT_CONFIGURED,
@@ -296,7 +296,7 @@ private fun activeTransfer(
         title = transferTitle(job, input.runs),
         subtitle = "$deviceName → 수신 서버$files",
         stateLabel = if (job.state == UploadJobState.UPLOADING) "보내는 중" else "파일 확인 중",
-        stateTone = if (job.state == UploadJobState.UPLOADING) StatusTone.INFO else StatusTone.PENDING,
+        stateTone = if (job.state == UploadJobState.UPLOADING) Tone.INFO else Tone.PENDING,
         progress = if (total != null && transferred != null) {
             (transferred.toFloat() / total.toFloat()).coerceIn(0f, 1f)
         } else {
@@ -320,18 +320,18 @@ private fun verifiedRow(job: UploadJob, input: TransfersHomeInput): TransferRowS
         title = transferTitle(job, input.runs),
         detail = listOfNotNull(received?.let { "$it 수신 확인" }, size, files).joinToString(" · ")
             .ifBlank { "수신 확인" },
-        tone = StatusTone.SUCCESS
+        tone = Tone.SUCCESS
     )
 }
 
 /** Why uploads may be unavailable, in one line. Only same-network uploads are allowed. */
-private fun explanationFor(transport: TransportType?): Pair<String, StatusTone> {
+private fun explanationFor(transport: TransportType?): Pair<String, Tone> {
     if (canStartServerUpload(transport)) {
-        return "장치가 휴대폰과 같은 네트워크에 있을 때 서버로 보낼 수 있습니다." to StatusTone.INFO
+        return "장치가 휴대폰과 같은 네트워크에 있을 때 서버로 보낼 수 있습니다." to Tone.INFO
     }
     val reason = serverUploadUnavailableMessage(transport).takeIf(String::isNotBlank)
         ?: "장치를 같은 네트워크에 연결한 뒤 서버로 보낼 수 있습니다."
-    return reason to StatusTone.INFO
+    return reason to Tone.INFO
 }
 
 /** The run's survey label when the job belongs to a run we know; otherwise the file or folder name. */

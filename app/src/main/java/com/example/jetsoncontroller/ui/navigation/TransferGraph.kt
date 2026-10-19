@@ -299,7 +299,7 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                     onOpenHistory = { navController.navigateSingle(requireNotNull(transferSendDestination(TransferSendEvent.OPEN_LOG))) }
                 )
                 Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) {
-                    com.example.jetsoncontroller.ui.components.OperationMessageHost(uploadState.message, uploadViewModel::dismissMessage)
+                    com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost(uploadState.message, uploadViewModel::dismissMessage)
                 }
                 }
             }

@@ -1,8 +1,10 @@
 package com.example.jetsoncontroller.ui
 
+import com.example.jetsoncontroller.ui.navigation.Routes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.example.jetsoncontroller.ui.components.geo.GeoButton
+import com.example.jetsoncontroller.ui.components.geo.GeoButtonStyle
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.test.*
@@ -100,15 +102,15 @@ class TaskFlowScreenTest {
         compose.setContent { JetsonControllerTheme {
             navigation = rememberNavController()
             Column {
-                TextButton(onClick = { navigateToTaskStart(navigation) }) { Text("작업 탭") }
+                GeoButton("작업 탭", { navigateToTaskStart(navigation) }, style = GeoButtonStyle.Tertiary)
                 NavHost(navigation, startDestination = Routes.DEVICES) {
                     composable(Routes.DEVICES) { Text("홈 화면") }
                     composable("pipelines") {
                         var expanded by rememberSaveable { mutableStateOf(false) }
                         Column {
                             Text(if (expanded) "펼쳐진 작업" else "작업 선택 첫 화면")
-                            TextButton(onClick = { expanded = true }) { Text("펼치기") }
-                            TextButton(onClick = { navigation.navigate("detail") }) { Text("상세로 이동") }
+                            GeoButton("펼치기", { expanded = true }, style = GeoButtonStyle.Tertiary)
+                            GeoButton("상세로 이동", { navigation.navigate("detail") }, style = GeoButtonStyle.Tertiary)
                         }
                     }
                     composable("detail") { Text("작업 상세 화면") }
@@ -133,13 +135,13 @@ class TaskFlowScreenTest {
         compose.setContent { JetsonControllerTheme {
             navigation = rememberNavController()
             Column {
-                TextButton(onClick = { resetToDeviceRoot(navigation) }) { Text("홈 탭") }
+                GeoButton("홈 탭", { resetToDeviceRoot(navigation) }, style = GeoButtonStyle.Tertiary)
                 NavHost(navigation, startDestination = Routes.DEVICES) {
                     composable(Routes.DEVICES) {
                         var expanded by rememberSaveable { mutableStateOf(false) }
                         Column {
                             Text(if (expanded) "홈 펼침 상태" else "대시보드 첫 화면")
-                            TextButton(onClick = { expanded = true }) { Text("홈 펼치기") }
+                            GeoButton("홈 펼치기", { expanded = true }, style = GeoButtonStyle.Tertiary)
                         }
                     }
                     composable("sensors") { Text("센서 상세 화면") }

@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,14 +25,14 @@ fun GeoSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     require(count == null || actionLabel == null) { "A section has a count or an action" }
-    val colors = contentColors
+    val colors = LocalGeoColors.current
     Column(modifier.fillMaxWidth().padding(top = if (first) 0.dp else if (danger) 28.dp else 24.dp)) {
         val titleContent: @Composable () -> Unit = {
-            Text(title, color = colors.text, style = ContentType.section, modifier = Modifier.semantics { heading() })
+            Text(title, color = colors.text, style = LocalGeoType.current.sectionTitle, modifier = Modifier.semantics { heading() })
         }
         val trailing: @Composable () -> Unit = {
-            if (actionLabel != null && onAction != null) SectionAction(actionLabel, onAction)
-            count?.let { Text(it, color = colors.secondary, style = ContentType.caption.copy(fontFeatureSettings = "tnum")) }
+            if (actionLabel != null && onAction != null) GeoButton(actionLabel, onAction, style = GeoButtonStyle.Tertiary)
+            count?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption.copy(fontFeatureSettings = "tnum")) }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
@@ -43,17 +45,8 @@ fun GeoSection(
                 }
             }
         }
-        note?.let { Text(it, color = colors.secondary, style = ContentType.caption) }
+        note?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption) }
         Spacer(Modifier.height(8.dp))
         content()
-    }
-}
-
-// TODO(3-B merge): use the shared tertiary button.
-@Composable
-private fun SectionAction(label: String, onClick: () -> Unit) {
-    Box(Modifier.contentTarget(onClick = onClick).heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 12.dp),
-        contentAlignment = androidx.compose.ui.Alignment.Center) {
-        Text(label, color = contentColors.primary, style = ContentType.button)
     }
 }

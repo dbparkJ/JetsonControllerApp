@@ -3,7 +3,8 @@ package com.example.jetsoncontroller.ui
 import android.net.Uri
 import com.example.jetsoncontroller.ui.navigation.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoAppShell
-import com.example.jetsoncontroller.ui.components.ConnectionRecoveryLayout
+import com.example.jetsoncontroller.ui.components.geo.*
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,7 +43,7 @@ import com.example.jetsoncontroller.data.devices.DeviceSnapshotStore
 import com.example.jetsoncontroller.data.devices.deviceSnapshotKey
 import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.model.UploadJobState
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.runtime.rememberUpdatedState
 import com.example.jetsoncontroller.ui.pairing.PairingViewModel
 import com.example.jetsoncontroller.ui.pairing.PairingPhase
@@ -55,7 +56,7 @@ import com.example.jetsoncontroller.ui.pipelines.PipelineViewModel
 import com.example.jetsoncontroller.ui.survey.SurveyRunViewModel
 import com.example.jetsoncontroller.ui.sensors.CameraPreviewViewModel
 import com.example.jetsoncontroller.ui.settings.AlertSettingsViewModel
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.NoticeDismissalProvider
 import com.example.jetsoncontroller.ui.settings.rememberDeveloperModePreference
 import androidx.compose.foundation.background
@@ -64,7 +65,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.delay
 
-internal typealias Routes = com.example.jetsoncontroller.ui.navigation.Routes
 
 private val routesRequiringDeviceConnection = setOf(
     Routes.NETWORK_SETTINGS,
@@ -85,7 +85,6 @@ private val routesRequiringDeviceConnection = setOf(
 )
 
 private val developerOnlyRoutes = setOf(
-    Routes.ADMIN_TOOLS,
     Routes.SERVER_PROXY_STORAGE,
     Routes.UPLOAD_SERVERS,
     Routes.PIPELINE_EDITOR,
@@ -180,10 +179,10 @@ internal fun navigateToSettingsRoot(navController: NavHostController) {
 }
 
 /** The route each primary tab opens. */
-internal fun tabRoute(section: ControlSection): String = when (section.tab()) {
-    ControlSection.TASKS -> Routes.TASKS
-    ControlSection.TRANSFERS -> Routes.TRANSFERS
-    ControlSection.SETTINGS -> Routes.SETTINGS
+internal fun tabRoute(section: GeoTab): String = when (section) {
+    GeoTab.TASKS -> Routes.TASKS
+    GeoTab.TRANSFERS -> Routes.TRANSFERS
+    GeoTab.SETTINGS -> Routes.SETTINGS
     else -> Routes.DEVICES
 }
 
@@ -208,7 +207,7 @@ internal fun deviceFlowExitRoute(exit: DeviceFlowExit): String = when (exit) {
 }
 
 /** The connection banner text and tone for a screen. Null when no banner should show. */
-internal data class ConnectionNotice(val message: String, val tone: StatusTone)
+internal data class ConnectionNotice(val message: String, val tone: Tone)
 
 /** Screens that cannot work without the device connection. The device root has its own status band instead. */
 // Settings are app preferences and never wait for a device, so they are not listed here.
@@ -236,15 +235,15 @@ internal fun connectionNoticeFor(
     hasRegisteredDevice: Boolean = true
 ): ConnectionNotice? {
     if (registrationRequired && deviceRegistrationRedirectAllowed(route)) {
-        return ConnectionNotice("장치 인증 정보를 확인할 수 없습니다. QR로 다시 등록해 주세요.", StatusTone.ERROR)
+        return ConnectionNotice("장치 인증 정보를 확인할 수 없습니다. QR로 다시 등록해 주세요.", Tone.ERROR)
     }
     // With no registered device there is nothing to wait for; the 장치 root asks for a QR registration.
     if (!hasRegisteredDevice || fullControlConnected || route !in routesNeedingConnectionNotice) return null
     val outcome = if (route in routesWithEditableInput) "작성한 내용은 유지됩니다." else "연결되면 최신 정보로 바뀝니다."
     return if (transportType == TransportType.BLE) {
-        ConnectionNotice("전체 제어 연결이 필요합니다. $outcome", StatusTone.WARNING)
+        ConnectionNotice("전체 제어 연결이 필요합니다. $outcome", Tone.WARNING)
     } else {
-        ConnectionNotice("장치 연결을 기다리고 있습니다. $outcome", StatusTone.WARNING)
+        ConnectionNotice("장치 연결을 기다리고 있습니다. $outcome", Tone.WARNING)
     }
 }
 
@@ -663,13 +662,7 @@ fun JetsonApp(
 
     // Tabs open their roots directly. The 작업 tab no longer chooses between screens by hidden
     // state; the collection screens are reached from the task root itself.
-    val onSectionSelected: (ControlSection) -> Unit = { section ->
-        when (val tab = section.tab()) {
-            ControlSection.DEVICES, ControlSection.TASKS, ControlSection.TRANSFERS,
-            ControlSection.SETTINGS -> navigateToTab(navController, tabRoute(tab))
-            else -> Unit
-        }
-    }
+    val onSectionSelected: (GeoTab) -> Unit = { section -> navigateToTab(navController, tabRoute(section)) }
 
     LaunchedEffect(
         bluetoothPermissionGranted
@@ -697,7 +690,7 @@ fun JetsonApp(
     LaunchedEffect(transportState, pendingDashboardTransport) {
         if (connectionAttemptCompleted(pendingDashboardTransport, transportState)) {
             pendingDashboardTransport = null
-            if (currentRoute in setOf(Routes.WIFI_DIRECT, Routes.DEVICES_BLE, Routes.CONNECTION_HUB)) {
+            if (currentRoute == Routes.WIFI_DIRECT) {
                 navController.popBackStack()
             }
         }
@@ -876,15 +869,15 @@ fun JetsonApp(
             onSelect = onSectionSelected,
             mediaInsets = currentRoute in setOf(Routes.CAMERA_PREVIEW, Routes.QR_SCANNER) || navigationState.hasFocusedMediaPreview()
         ) {
-            ConnectionRecoveryLayout(
-                deviceId = selectedDeviceId,
-                connectionAvailable = fullControlConnected,
-                message = connectionNotice?.message,
-                tone = connectionNotice?.tone ?: StatusTone.WARNING,
-                onResolveConnection = { navigateToDeviceRoot(navController) }
-            ) { screenModifier ->
-                com.example.jetsoncontroller.ui.zone.ZoneObservationHost(navigationState) {
-                    AppNavHost(navigationState, screenModifier)
+            Column(Modifier.fillMaxSize()) {
+                if (!fullControlConnected) connectionNotice?.let { notice ->
+                    GeoInlineNote(notice.message, tone = notice.tone, kind = GeoNoteKind.LIVE_ERROR,
+                        actionLabel = "연결 문제 해결", onAction = { navigateToDeviceRoot(navController) })
+                }
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    com.example.jetsoncontroller.ui.zone.ZoneObservationHost(navigationState) {
+                        AppNavHost(navigationState, Modifier.fillMaxSize())
+                    }
                 }
             }
         }
@@ -1028,7 +1021,7 @@ internal fun shouldAdoptDiscoveredPipeline(
 
 internal data class ServerReceiptPresentation(
     val label: String?,
-    val tone: com.example.jetsoncontroller.ui.components.StatusTone
+    val tone: com.example.jetsoncontroller.ui.model.Tone
 )
 
 internal fun serverReceiptPresentation(
@@ -1037,7 +1030,7 @@ internal fun serverReceiptPresentation(
 ): ServerReceiptPresentation {
     if (run == null) return ServerReceiptPresentation(
         null,
-        com.example.jetsoncontroller.ui.components.StatusTone.UNKNOWN
+        com.example.jetsoncontroller.ui.model.Tone.UNKNOWN
     )
     val expectedContext = run.uploadContext
     val exactJobs = jobs.filter { candidate ->
@@ -1054,11 +1047,11 @@ internal fun serverReceiptPresentation(
     }
     if (exactJobs.isEmpty()) return ServerReceiptPresentation(
         null,
-        com.example.jetsoncontroller.ui.components.StatusTone.UNKNOWN
+        com.example.jetsoncontroller.ui.model.Tone.UNKNOWN
     )
     if (exactJobs.any { it.verification?.matched == true }) return ServerReceiptPresentation(
         "서버 수신 확인됨",
-        com.example.jetsoncontroller.ui.components.StatusTone.SUCCESS
+        com.example.jetsoncontroller.ui.model.Tone.SUCCESS
     )
     if (exactJobs.any { job ->
             job.state in setOf(
@@ -1069,7 +1062,7 @@ internal fun serverReceiptPresentation(
         }
     ) return ServerReceiptPresentation(
         "파일 전송 중",
-        com.example.jetsoncontroller.ui.components.StatusTone.PENDING
+        com.example.jetsoncontroller.ui.model.Tone.PENDING
     )
     if (exactJobs.any { job ->
             job.state == com.example.jetsoncontroller.model.UploadJobState.COMPLETED &&
@@ -1077,7 +1070,7 @@ internal fun serverReceiptPresentation(
         }
     ) return ServerReceiptPresentation(
         "전송 완료 · 수신 검증 필요",
-        com.example.jetsoncontroller.ui.components.StatusTone.PENDING
+        com.example.jetsoncontroller.ui.model.Tone.PENDING
     )
     // Callers provide the current attempt first, followed by the newest queued history.
     val job = exactJobs.first()
@@ -1085,11 +1078,11 @@ internal fun serverReceiptPresentation(
     return when {
         verification?.matched == false -> ServerReceiptPresentation(
             "서버 수신 검증 불일치",
-            com.example.jetsoncontroller.ui.components.StatusTone.WARNING
+            com.example.jetsoncontroller.ui.model.Tone.WARNING
         )
         else -> ServerReceiptPresentation(
             "서버 수신 확인 필요",
-            com.example.jetsoncontroller.ui.components.StatusTone.WARNING
+            com.example.jetsoncontroller.ui.model.Tone.WARNING
         )
     }
 }

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.devices
 
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.runtime.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
@@ -39,7 +40,7 @@ internal fun ConnectMethodSheet(
             enabled = onBluetooth != null && !bluetoothBusy,
             disabledReason = if (bluetoothBusy) "기본 연결을 확인하고 있습니다." else "연결할 장치를 먼저 선택하세요.")
         bluetoothError?.let {
-            GeoInlineNote(it, tone = com.example.jetsoncontroller.ui.components.StatusTone.ERROR,
+            GeoInlineNote(it, tone = com.example.jetsoncontroller.ui.model.Tone.ERROR,
                 kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 시도",
                 onAction = if (!bluetoothBusy) onBluetooth else null)
         }

@@ -4,7 +4,7 @@ import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.model.GnssSensorStatus
 import com.example.jetsoncontroller.model.RoutePoint
 import com.example.jetsoncontroller.model.RunQuality
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.model.Formats
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
@@ -177,14 +177,14 @@ internal fun mapDeviceStale(gnss: GnssSensorStatus, online: Boolean, telemetryFr
     return !online || !telemetryFresh || observedAtMillis == null || observedAtMillis - sample !in 0L..10_000L || !(gnss.active || gnss.connected)
 }
 
-internal fun zoneBadge(mode: GeoMapMode, data: GeoMapData): Pair<String, StatusTone>? {
+internal fun zoneBadge(mode: GeoMapMode, data: GeoMapData): Pair<String, Tone>? {
     if (data.geometry?.hasRange != true || mode != GeoMapMode.RUN) return null
     return when (if (data.deviceStale) GeoZoneState.UNKNOWN else data.zone.state) {
-        GeoZoneState.INSIDE -> "구역 안" to StatusTone.SUCCESS
-        GeoZoneState.NEAR -> "경계 근처" to StatusTone.INFO
-        GeoZoneState.OUTSIDE -> if (mode == GeoMapMode.RUN) ("구역 밖" + (data.zone.distanceM?.let { " · ${Formats.distance(it)}" } ?: "")) to StatusTone.WARNING else null
-        GeoZoneState.CHECKING -> if (mode == GeoMapMode.RUN) "위치 확인 중" to StatusTone.UNKNOWN else null
-        GeoZoneState.UNKNOWN -> if (mode == GeoMapMode.RUN) "위치 미확인" to StatusTone.UNKNOWN else null
+        GeoZoneState.INSIDE -> "구역 안" to Tone.SUCCESS
+        GeoZoneState.NEAR -> "경계 근처" to Tone.INFO
+        GeoZoneState.OUTSIDE -> if (mode == GeoMapMode.RUN) ("구역 밖" + (data.zone.distanceM?.let { " · ${Formats.distance(it)}" } ?: "")) to Tone.WARNING else null
+        GeoZoneState.CHECKING -> if (mode == GeoMapMode.RUN) "위치 확인 중" to Tone.UNKNOWN else null
+        GeoZoneState.UNKNOWN -> if (mode == GeoMapMode.RUN) "위치 미확인" to Tone.UNKNOWN else null
     }
 }
 

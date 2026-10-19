@@ -6,7 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.field.FieldState
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -20,7 +20,7 @@ internal fun DevNetworkScreen(state: FieldState, onRefresh: () -> Unit, onBack: 
             disabledReason = if (!state.online) "장치에 연결하면 조회할 수 있습니다." else "주소를 조회하고 있습니다.", actionArea = true)
     }) {
         DevIdentity(deviceName, state.network?.let { "조회 ${devTime(it.checkedAtEpochMillis)}" },
-            if (state.online) "연결됨" else "연결 안 됨", if (state.online) StatusTone.SUCCESS else StatusTone.UNKNOWN)
+            if (state.online) "연결됨" else "연결 안 됨", if (state.online) Tone.SUCCESS else Tone.UNKNOWN)
         Spacer(Modifier.height(8.dp))
         DevNetworkContent(state)
     }
@@ -52,7 +52,7 @@ internal fun DevSensorTestScreen(state: FieldState, onTest: (String) -> Unit,
     deviceName: String = state.deviceId ?: "선택한 장치") {
     DevPage("카메라·GPS 테스트", onBack) {
         DevIdentity(deviceName, status = if (state.online) "연결됨" else "연결 안 됨",
-            tone = if (state.online) StatusTone.SUCCESS else StatusTone.UNKNOWN)
+            tone = if (state.online) Tone.SUCCESS else Tone.UNKNOWN)
         Spacer(Modifier.height(16.dp))
         DevText("5초 동안 장치에서 새 카메라 프레임과 GPS 데이터 수신을 확인합니다.")
         DevSensorContent(state, onTest, onCamera, onGps)

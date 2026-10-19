@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dashboard
 
+import com.example.jetsoncontroller.ui.dev.DevFanSnapshot
 import com.example.jetsoncontroller.model.FanStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,7 +16,7 @@ class FanLoadingStateTest {
             rpm = 2_762
         )
 
-        val finished = FanControlSnapshot(
+        val finished = DevFanSnapshot(
             status = status,
             loading = true
         ).finishedLoading()

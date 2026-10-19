@@ -1,12 +1,12 @@
 package com.example.jetsoncontroller.ui.components.geo
 
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReceiptOrderTest {
-    private val done = GeoReceiptItem("수신 확인", StatusTone.SUCCESS, done = true)
+    private val done = GeoReceiptItem("수신 확인", Tone.SUCCESS, done = true)
 
     @Test
     fun `the primary follows the first incomplete step in the four step chain`() {
@@ -19,7 +19,7 @@ class ReceiptOrderTest {
 
     @Test
     fun `a success tone alone does not assert completion`() {
-        val state = GeoReceiptState(collection = GeoReceiptItem("종료", StatusTone.SUCCESS, done = false), storage = done)
+        val state = GeoReceiptState(collection = GeoReceiptItem("종료", Tone.SUCCESS, done = false), storage = done)
         assertEquals(GeoReceiptStep.COLLECTION, state.firstIncomplete())
     }
 

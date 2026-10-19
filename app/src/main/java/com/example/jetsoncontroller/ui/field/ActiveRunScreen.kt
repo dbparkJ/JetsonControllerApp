@@ -22,7 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.model.StopTarget
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoChrome
@@ -48,7 +48,7 @@ private val SystemElapsedRealtimeMillis: () -> Long = { System.nanoTime() / 1_00
 /** Phase 6 supplies observations from the run's bound geometry. No geometry is assumed here. */
 internal data class RunZonePresentation(
     val badge: String? = null,
-    val tone: StatusTone = StatusTone.UNKNOWN,
+    val tone: Tone = Tone.UNKNOWN,
     val strip: GeoStatusStripState? = null,
     val readiness: String = "수집 중 · 수집 구역 없음",
     val outsideCount: Int? = null
@@ -124,7 +124,7 @@ internal fun ActiveRunRoute(
             state.navController.navigateSingle(Routes.GNSS_MAP)
         },
         cameraStateLabel = if (dashboard.statusFreshness == StatusFreshness.CURRENT) cameraWord.word else SensorState.UNKNOWN.word,
-        cameraStateTone = if (dashboard.statusFreshness == StatusFreshness.CURRENT) cameraWord.tone else StatusTone.UNKNOWN,
+        cameraStateTone = if (dashboard.statusFreshness == StatusFreshness.CURRENT) cameraWord.tone else Tone.UNKNOWN,
         correctionRelay = relay?.let {
             when {
                 it.error != null -> CorrectionRelayState.ERROR
@@ -143,7 +143,7 @@ internal fun ActiveRunRoute(
 internal fun ActiveRunScreen(
     deviceName: String,
     connectionLabel: String,
-    connectionTone: StatusTone,
+    connectionTone: Tone,
     run: PipelineRun?,
     telemetryReceivedAtElapsedRealtime: Long? = null,
     elapsedLabel: String?,
@@ -173,7 +173,7 @@ internal fun ActiveRunScreen(
     correctionRelay: CorrectionRelayState? = null,
     onCorrectionRelay: (() -> Unit)? = null,
     cameraStateLabel: String? = null,
-    cameraStateTone: StatusTone = StatusTone.UNKNOWN,
+    cameraStateTone: Tone = Tone.UNKNOWN,
     onConnectionHelp: () -> Unit = onDevices,
     /** Include terminal evidence; absence of an active run alone never means it ended. */
     latestRun: PipelineRun? = null,
@@ -307,11 +307,11 @@ internal fun ActiveRunScreen(
                                 else -> null
                             }
                             note?.let {
-                                GeoInlineNote(it, tone = if (awaitingStart) StatusTone.PENDING else StatusTone.UNKNOWN)
+                                GeoInlineNote(it, tone = if (awaitingStart) Tone.PENDING else Tone.UNKNOWN)
                                 Spacer(Modifier.height(GeoSpace.section))
                             }
                             stopError?.let {
-                                GeoInlineNote(it, tone = StatusTone.ERROR, kind = GeoNoteKind.LIVE_ERROR)
+                                GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR)
                                 Spacer(Modifier.height(GeoSpace.section))
                             }
                             BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -374,7 +374,6 @@ private fun RunTopBar(onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().background(c.topBar).heightIn(min = 56.dp)
         .padding(start = GeoSpace.space2, end = GeoSpace.space8),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GeoSpace.space6)) {
-        // The merged control adapter still reads textSecondary for chrome icons.
         CompositionLocalProvider(LocalGeoColors provides c.copy(textSecondary = c.onTopBar, primary = c.navFocus)) {
             GeoIconButton(GeoIcons.back, "뒤로", onBack, chrome = true)
         }
@@ -424,7 +423,7 @@ private fun RunActionArea(
             else "$deviceName · 연결되면 확인할 수 있습니다."
     }
     val warning = !online || state == ActiveRunState.DISCONNECTED ||
-        (state == ActiveRunState.COLLECTING && zone.tone == StatusTone.WARNING)
+        (state == ActiveRunState.COLLECTING && zone.tone == Tone.WARNING)
     val pending = state == ActiveRunState.STOP_CHECKING
     Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.space4)) {
         Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.captionIconGap), verticalAlignment = Alignment.Top) {

@@ -12,8 +12,8 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.JetsonStatus
-import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
@@ -27,7 +27,7 @@ fun SensorScreen(
     fullControlAvailable: Boolean = false,
     onCameraClick: () -> Unit,
     onGnssClick: () -> Unit,
-    onSectionSelected: (ControlSection) -> Unit,
+    onSectionSelected: (GeoTab) -> Unit,
     deviceName: String = "선택된 장치 없음",
     onDevices: () -> Unit = {},
     onAlerts: () -> Unit = {},
@@ -55,7 +55,7 @@ internal fun DeviceSensorRows(status: JetsonStatus, current: Boolean, control: B
     val locationWord = deviceGnssWord(gnss, status.gnssSensor)
     GeoRow("위치(GNSS)", onGnss,
         meta = status.gnssSensor.satellites?.takeIf { gnss.activity == SensorActivity.ACTIVE }?.let { "위성 ${it}개" },
-        badge = { GeoBadge(locationWord, if (locationWord == "정밀 위치") StatusTone.SUCCESS else gnss.activity.deviceSensorTone()) },
+        badge = { GeoBadge(locationWord, if (locationWord == "정밀 위치") Tone.SUCCESS else gnss.activity.deviceSensorTone()) },
         enabled = current, disabledReason = "미확인")
     BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 16.dp)) {
         if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
@@ -70,10 +70,10 @@ internal fun DeviceSensorRows(status: JetsonStatus, current: Boolean, control: B
     }
 }
 
-internal fun SensorActivity.deviceSensorTone(): StatusTone = when (this) {
-    SensorActivity.ACTIVE -> StatusTone.SUCCESS
-    SensorActivity.STALE -> StatusTone.WARNING
-    SensorActivity.DISCONNECTED -> StatusTone.ERROR
-    SensorActivity.CONNECTED -> StatusTone.INFO
-    SensorActivity.WAITING, SensorActivity.UNCONFIGURED -> StatusTone.UNKNOWN
+internal fun SensorActivity.deviceSensorTone(): Tone = when (this) {
+    SensorActivity.ACTIVE -> Tone.SUCCESS
+    SensorActivity.STALE -> Tone.WARNING
+    SensorActivity.DISCONNECTED -> Tone.ERROR
+    SensorActivity.CONNECTED -> Tone.INFO
+    SensorActivity.WAITING, SensorActivity.UNCONFIGURED -> Tone.UNKNOWN
 }

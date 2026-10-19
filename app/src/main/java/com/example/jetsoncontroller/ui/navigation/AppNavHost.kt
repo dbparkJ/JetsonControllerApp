@@ -18,7 +18,7 @@ import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.ui.*
 import com.example.jetsoncontroller.ui.alerts.AlertCenterViewModel
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.dashboard.DashboardViewModel
 import com.example.jetsoncontroller.ui.devices.DeviceListViewModel
 import com.example.jetsoncontroller.ui.network.NetworkSettingsViewModel
@@ -87,7 +87,7 @@ internal class AppNavigationState(
     val openHistoryResult: (com.example.jetsoncontroller.model.TaskRun) -> Unit,
     val selectedRegisteredDeviceName: String?,
     val uploadJobById: (String) -> com.example.jetsoncontroller.model.UploadJob?,
-    val onSectionSelected: (ControlSection) -> Unit,
+    val onSectionSelected: (GeoTab) -> Unit,
     val deviceViewModel: DeviceListViewModel,
     val pairingViewModel: PairingViewModel,
     val dashboardViewModel: DashboardViewModel,

@@ -19,8 +19,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.TrashEntry
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -77,7 +77,7 @@ fun LocalTrashScreen(
                             else -> "이 장치는 휴지통 비우기를 지원하지 않습니다. 장치 소프트웨어 업데이트가 필요합니다."
                         })
                         if (busy) GeoProgress()
-                        state.error?.let { GeoInlineNote(it, tone = StatusTone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
+                        state.error?.let { GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
                             actionLabel = "다시 확인", onAction = onRefresh) }
                     }
                     items(state.entries, key = { it.trashId }) { entry ->
@@ -90,7 +90,7 @@ fun LocalTrashScreen(
                     }
                 }
             }
-            Box(Modifier.align(Alignment.BottomCenter)) { OperationMessageHost(state.message, onDismissMessage) }
+            Box(Modifier.align(Alignment.BottomCenter)) { GeoOperationMessageHost(state.message, onDismissMessage) }
         }
     }
 }
@@ -115,9 +115,9 @@ private fun LocalTrashEntry(entry: TrashEntry, online: Boolean, busy: Boolean, o
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(entry.name, style = type.titleSm, color = colors.text)
                     GeoBadge(localTrashStateLabel(entry), when (entry.state) {
-                        "PURGING", "RESTORING", "MOVING_TO_TRASH" -> StatusTone.PENDING
-                        "TRASHED" -> if (entry.restoreSupported) StatusTone.UNKNOWN else StatusTone.WARNING
-                        else -> StatusTone.WARNING
+                        "PURGING", "RESTORING", "MOVING_TO_TRASH" -> Tone.PENDING
+                        "TRASHED" -> if (entry.restoreSupported) Tone.UNKNOWN else Tone.WARNING
+                        else -> Tone.WARNING
                     })
                 }
                 Text("${categoryLabel(entry.category)} · ${if (entry.category == "RUN_HISTORY")

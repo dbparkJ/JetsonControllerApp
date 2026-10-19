@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.tasks
 
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -57,7 +58,7 @@ internal fun TicketDetailScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(ticket.title, style = type.boardTitle, color = c.text, modifier = Modifier.semantics { heading() })
-                        GeoBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket))
+                        GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket))
                         Text(listOfNotNull(ticket.project?.takeIf(String::isNotBlank), readiness.deviceName,
                             "마감 ${ticketDueLabel(ticket.dueDate)}").joinToString(" · "), style = type.caption, color = c.textSecondary)
                     }

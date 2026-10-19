@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.navigation
 
+import com.example.jetsoncontroller.ui.navigation.Routes
 import com.example.jetsoncontroller.ui.TabTap
 import com.example.jetsoncontroller.ui.tabTap
 import org.junit.Assert.*
@@ -22,7 +23,7 @@ class NavigationShellTest {
             Routes.NETWORK_SETTINGS, Routes.SENSORS, Routes.STORAGE_ROUTE, Routes.DATA,
             Routes.LOCAL_TRASH, Routes.UPLOAD_CONFIRM, Routes.UPLOAD_PROGRESS, Routes.UPLOAD_QUEUE,
             Routes.SERVER_STORAGE, Routes.SERVER_PROXY_STORAGE, Routes.PIPELINES, Routes.PIPELINE_DETAIL,
-            Routes.PIPELINE_LOGS, Routes.PIPELINE_PICKER, Routes.ADMIN_TOOLS, Routes.DIAGNOSTICS,
+            Routes.PIPELINE_LOGS, Routes.PIPELINE_PICKER, Routes.DIAGNOSTICS,
             Routes.ALERT_SETTINGS, Routes.WORK_BROWSE, Routes.DEVICE_BROWSE, Routes.TRANSFER_BROWSE,
             "ticket/row-1", "run_result/run-1?deviceId=device", "history_result/history-1?deviceId=device",
             "dev/pipeline/pipe/logs", "dev/upload-targets", "dev/server-profiles"
@@ -32,7 +33,7 @@ class NavigationShellTest {
     @Test
     fun `focused committed and planned routes hide navigation`() {
         listOf(
-            Routes.ONBOARDING, Routes.DEVICES_BLE, Routes.QR_SCANNER, Routes.PAIRING,
+            Routes.ONBOARDING, Routes.QR_SCANNER, Routes.PAIRING,
             Routes.ACTIVE_RUN, Routes.CAMERA_PREVIEW, Routes.GNSS_MAP,
             Routes.PIPELINE_EDITOR, Routes.PIPELINE_CONFIG, Routes.UPLOAD_SERVERS,
             "first_run", "scan", "run", "map?mode=run&run=one", "camera", "qr",

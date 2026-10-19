@@ -19,7 +19,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.SurveyProject
 import com.example.jetsoncontroller.model.SurveySection
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.model.Formats
@@ -177,14 +177,14 @@ internal fun SurveyRunScreen(
                     Spacer(Modifier.height(24.dp))
                     mapCard()
                 }
-                ticketMessage?.let { item { GeoInlineNote(it, tone = StatusTone.WARNING) } }
+                ticketMessage?.let { item { GeoInlineNote(it, tone = Tone.WARNING) } }
                 state.error?.let { item {
-                    GeoInlineNote(it, tone = StatusTone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
+                    GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
                         actionLabel = "다시 확인", onAction = onRefresh)
                 } }
                 if (state.pendingStart != null || state.unconfirmedRunId != null) item {
                     GeoInlineNote("같은 수집의 시작 결과를 확인합니다. 확인이 끝날 때까지 새 수집을 시작할 수 없습니다.",
-                        tone = StatusTone.PENDING)
+                        tone = Tone.PENDING)
                 }
                 item {
                     GeoPickerField("프로젝트", state.preparationDraft?.project.preparationLabel(state.selectedProject?.label ?: "프로젝트 선택"),
@@ -264,15 +264,15 @@ internal fun SurveyStartSheet(
             GeoFactRow("구간", state.sectionName)
         }
         Spacer(Modifier.height(8.dp))
-        if (state.insideZone) GeoBadge(state.zoneLine, StatusTone.SUCCESS)
+        if (state.insideZone) GeoBadge(state.zoneLine, Tone.SUCCESS)
         else Text(state.zoneLine, style = type.body, color = c.text)
         GeoSection("시작 전 점검") {
             (state.checks + optionalChecks).forEach { check ->
                 GeoCheckRow(check.label, if (check.phase == GeoStartPhase.CHECKING) "확인 중" else check.value ?: "미확인",
                     when (check.phase) {
-                        GeoStartPhase.CHECKING -> StatusTone.PENDING
-                        GeoStartPhase.PASSED -> StatusTone.SUCCESS
-                        GeoStartPhase.FAILED -> StatusTone.WARNING
+                        GeoStartPhase.CHECKING -> Tone.PENDING
+                        GeoStartPhase.PASSED -> Tone.SUCCESS
+                        GeoStartPhase.FAILED -> Tone.WARNING
                     }, failureReason = check.reason.takeIf { check.phase == GeoStartPhase.FAILED })
                 if (check.phase == GeoStartPhase.FAILED) check.remedy?.let {
                     GeoButton(it.label, it.onClick, style = GeoButtonStyle.Tertiary,
@@ -316,19 +316,19 @@ internal fun startReadinessLabel(state: SurveyRunUiState): String = when {
 /**
  * The tone of the readiness line.
  *
- * A pending or unconfirmed start is [StatusTone.PENDING], never an error: the device may
+ * A pending or unconfirmed start is [Tone.PENDING], never an error: the device may
  * well have started the run, and telling the operator it failed is how a second run gets
  * launched over the top of a healthy one.
  */
-internal fun startReadinessTone(state: SurveyRunUiState): StatusTone = when {
-    !state.online -> StatusTone.ERROR
-    state.pendingStart != null -> StatusTone.PENDING
-    state.unconfirmedRunId != null -> StatusTone.UNKNOWN
-    state.contextLocked -> StatusTone.PENDING
-    !state.selectionComplete -> StatusTone.INFO
-    state.policy == null -> StatusTone.INFO
-    state.preflight == null -> StatusTone.INFO
-    !state.preflight.ready -> StatusTone.WARNING
-    !state.canStart -> StatusTone.WARNING
-    else -> StatusTone.SUCCESS
+internal fun startReadinessTone(state: SurveyRunUiState): Tone = when {
+    !state.online -> Tone.ERROR
+    state.pendingStart != null -> Tone.PENDING
+    state.unconfirmedRunId != null -> Tone.UNKNOWN
+    state.contextLocked -> Tone.PENDING
+    !state.selectionComplete -> Tone.INFO
+    state.policy == null -> Tone.INFO
+    state.preflight == null -> Tone.INFO
+    !state.preflight.ready -> Tone.WARNING
+    !state.canStart -> Tone.WARNING
+    else -> Tone.SUCCESS
 }

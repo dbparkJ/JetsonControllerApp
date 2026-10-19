@@ -1,6 +1,6 @@
 package com.example.jetsoncontroller.ui.field
 
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 /**
  * 현장 업무의 단계.
@@ -100,7 +100,7 @@ data class FieldStagePlan(
     val detail: String,
     val actionLabel: String,
     val destination: FieldDestination,
-    val tone: StatusTone
+    val tone: Tone
 )
 
 /**
@@ -139,7 +139,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = input.lastObservedLabel?.let { "마지막 확인 $it" }.orEmpty(),
             actionLabel = "시작 상태 확인",
             destination = FieldDestination.ACTIVE_RUN,
-            tone = StatusTone.PENDING
+            tone = Tone.PENDING
         )
 
         FieldStage.RUN_UNCONFIRMED -> FieldStagePlan(
@@ -149,7 +149,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = input.lastObservedLabel?.let { "마지막 확인 $it" }.orEmpty(),
             actionLabel = if (input.connected) "실행 상태 다시 조회" else "장치에 다시 연결",
             destination = if (input.connected) FieldDestination.ACTIVE_RUN else FieldDestination.CONNECT,
-            tone = StatusTone.UNKNOWN
+            tone = Tone.UNKNOWN
         )
 
         FieldStage.NOT_CONNECTED -> FieldStagePlan(
@@ -159,7 +159,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = if (input.registeredDeviceCount > 0) "등록 장치 ${input.registeredDeviceCount}대" else "등록된 장치 없음",
             actionLabel = if (input.registeredDeviceCount > 0) "장치 연결" else "QR로 장치 등록",
             destination = FieldDestination.CONNECT,
-            tone = StatusTone.INFO
+            tone = Tone.INFO
         )
 
         FieldStage.COLLECTING -> FieldStagePlan(
@@ -169,7 +169,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = survey.orEmpty(),
             actionLabel = "수집 중 화면 열기",
             destination = FieldDestination.ACTIVE_RUN,
-            tone = StatusTone.SUCCESS
+            tone = Tone.SUCCESS
         )
 
         FieldStage.NEEDS_RESULT -> FieldStagePlan(
@@ -179,7 +179,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = survey.orEmpty(),
             actionLabel = "결과 요약 보기",
             destination = FieldDestination.RUN_RESULT,
-            tone = StatusTone.PENDING
+            tone = Tone.PENDING
         )
 
         FieldStage.NEEDS_SURVEY -> FieldStagePlan(
@@ -189,7 +189,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = survey.orEmpty(),
             actionLabel = "조사 준비",
             destination = FieldDestination.SURVEY_PREP,
-            tone = StatusTone.INFO
+            tone = Tone.INFO
         )
 
         FieldStage.NEEDS_PREFLIGHT -> FieldStagePlan(
@@ -199,7 +199,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = survey.orEmpty(),
             actionLabel = "시작 전 점검",
             destination = FieldDestination.PREFLIGHT,
-            tone = StatusTone.INFO
+            tone = Tone.INFO
         )
 
         FieldStage.READY_TO_START -> FieldStagePlan(
@@ -209,7 +209,7 @@ fun fieldStagePlan(input: FieldStageInput): FieldStagePlan {
             detail = survey.orEmpty(),
             actionLabel = "확인 후 수집 시작",
             destination = FieldDestination.PREFLIGHT,
-            tone = StatusTone.SUCCESS
+            tone = Tone.SUCCESS
         )
     }
 }

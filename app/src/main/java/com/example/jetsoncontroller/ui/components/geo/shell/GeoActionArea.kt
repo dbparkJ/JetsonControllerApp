@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo.shell
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -36,7 +37,7 @@ fun GeoActionArea(
         val density by rememberUpdatedState(LocalDensity.current)
         var largestDp by remember { mutableFloatStateOf(0f) }
         val latestAction = rememberUpdatedState(action)
-        val colors by rememberUpdatedState(shellColors())
+        val colors by rememberUpdatedState(LocalGeoColors.current)
         val gutter by rememberUpdatedState(LocalGeoWindow.current.gutterDp.dp)
         val actionContent = remember {
             movableContentOf {

@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.jetsoncontroller.data.server.*
 import com.example.jetsoncontroller.model.RemoteFileContent
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -131,7 +131,7 @@ internal fun DirectServerScreen(
                                 else if (state.errorActionLabel in setOf("프로필 인증 확인", "프로필 편집", "서버 환경 확인",
                                     "서버 인증서 확인", "프로젝트 권한 확인")) directServerOperatorMessage(message) else message,
                                 Modifier.padding(horizontal = storageGutter, vertical = 8.dp),
-                                tone = if (state.messageIsError) StatusTone.WARNING else StatusTone.INFO,
+                                tone = if (state.messageIsError) Tone.WARNING else Tone.INFO,
                                 kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 확인", onAction = refresh)
                         }
                         if (trash) ServerTrashPane(state, onRestore, onRefreshTrash, canMutate,
@@ -153,7 +153,7 @@ internal fun DirectServerScreen(
                 }
             }
             Box(Modifier.align(Alignment.BottomCenter)) {
-                OperationMessageHost(state.mutationMessage, { onDismissMessage() },
+                GeoOperationMessageHost(state.mutationMessage, { onDismissMessage() },
                     "실행 취소".takeIf { state.undoSessionId != null }, onUndoTrash.takeIf { state.undoSessionId != null })
             }
         }
@@ -240,7 +240,7 @@ private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> U
     var detail by remember(state.selectedProfileId) { mutableStateOf<ServerTrashJob?>(null) }
     detail?.let { job ->
         GeoInfoDialog(job.sourceName, { detail = null }) {
-            GeoBadge(serverTrashStatus(job), if (serverTrashCanRestore(job)) StatusTone.UNKNOWN else StatusTone.PENDING)
+            GeoBadge(serverTrashStatus(job), if (serverTrashCanRestore(job)) Tone.UNKNOWN else Tone.PENDING)
             GeoFactRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)
             GeoFactRow("용량", Formats.size(job.totalBytes), numeric = true)
             GeoFactRow("이동", Formats.time(runCatching { Instant.parse(job.trashedAt) }.getOrNull()))
@@ -273,7 +273,7 @@ private fun ReceiptDialog(receipt: ServerReceipt, server: String, onDismiss: () 
     developer: Boolean, technical: Boolean) {
     GeoInfoDialog("서버 수신 영수증", onDismiss) {
         GeoBadge(if (receipt.matched) "내용 일치" else "내용 불일치",
-            if (receipt.matched) StatusTone.SUCCESS else StatusTone.ERROR)
+            if (receipt.matched) Tone.SUCCESS else Tone.ERROR)
         Text("${receipt.sourceName} · $server", style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
         GeoFactRow("파일", Formats.itemCount(receipt.fileCount.toLong()), numeric = true)
         GeoFactRow("용량", Formats.size(receipt.totalBytes), numeric = true)

@@ -1,7 +1,7 @@
 package com.example.jetsoncontroller.ui.connection
 
 import com.example.jetsoncontroller.data.transport.TransportType
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,11 +30,11 @@ class DeviceConnectionUiTest {
     fun `a LAN link is connected and a BLE link is connected with a warning`() {
         val lan = deviceConnectionUi(isOnline = true, transportType = TransportType.LAN)
         assertEquals(DeviceConnectionState.CONNECTED, lan.state)
-        assertEquals(StatusTone.SUCCESS, lan.tone)
+        assertEquals(Tone.SUCCESS, lan.tone)
 
         val ble = deviceConnectionUi(isOnline = true, transportType = TransportType.BLE)
         assertEquals("연결됨", ble.label)
-        assertEquals(StatusTone.WARNING, ble.tone)
+        assertEquals(Tone.WARNING, ble.tone)
     }
 
     @Test

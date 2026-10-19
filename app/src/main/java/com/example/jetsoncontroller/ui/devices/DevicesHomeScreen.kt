@@ -11,7 +11,7 @@ import com.example.jetsoncontroller.data.devices.DeviceSnapshot
 import com.example.jetsoncontroller.data.devices.deviceSnapshotKey
 import com.example.jetsoncontroller.model.DeviceEndpoint
 import com.example.jetsoncontroller.model.RegisteredDevice
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.connection.deviceConnectionUi
@@ -37,7 +37,7 @@ internal fun DevicesHomeScreen(
     unreadAlertCount: Int,
     nowEpochMillis: Long,
     developerModeEnabled: Boolean,
-    onSectionSelected: (ControlSection) -> Unit,
+    onSectionSelected: (GeoTab) -> Unit,
     onAlertsClick: () -> Unit,
     onAddDevice: () -> Unit,
     onServerFiles: () -> Unit,

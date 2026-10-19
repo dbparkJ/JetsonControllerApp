@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dev
 
+import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -25,5 +26,22 @@ class InventoryReachabilityTest {
         assertTrue(devHubSections.flatMap { it.second }.all { it.destination.parent == DevDestination.HUB.route })
         assertEquals(DevDestination.PIPELINE.route, DevDestination.CONFIG.parent)
         assertEquals(DevDestination.PIPELINE.route, DevDestination.POLICY.parent)
+    }
+
+    @Test fun retiredAdminAndDashboardFunctionsHaveOperatorAndDeveloperHomes() {
+        val ui = listOf(File("src/main/java/com/example/jetsoncontroller/ui"),
+            File("app/src/main/java/com/example/jetsoncontroller/ui")).first { it.isDirectory }
+        fun source(path: String) = File(ui, path).readText()
+        val detail = source("devices/DeviceDetailScreen.kt")
+        assertTrue(detail.contains("DevicePowerButtons("))
+        assertTrue(detail.contains("DeviceSensorRows("))
+        val graph = source("navigation/DevGraph.kt")
+        listOf("FAN", "NETWORK", "SENSOR_TEST", "DIAGNOSTICS").forEach {
+            assertTrue("Missing former admin tool: $it", graph.contains("DevDestination.$it.route"))
+        }
+        assertTrue(source("dev/DevFanScreen.kt").contains("GeoSliderRow("))
+        assertTrue(source("dev/DevDeviceTools.kt").contains("onCamera"))
+        assertTrue(source("tasks/TasksHomeScreen.kt").contains("GeoFocusBlock("))
+        assertTrue(source("devices/DevicesHomeScreen.kt").contains("GeoFigureGrid("))
     }
 }

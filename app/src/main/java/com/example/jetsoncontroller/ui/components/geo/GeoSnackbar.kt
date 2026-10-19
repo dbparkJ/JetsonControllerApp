@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -80,13 +82,13 @@ fun GeoSnackbar(hostState: SnackbarHostState, modifier: Modifier = Modifier) {
 @Composable
 private fun OverlaySnackbar(data: SnackbarData, modifier: Modifier) {
     val label = data.visuals.actionLabel
-    val color = OverlayAdapter.onInverse
-    val actionColor = OverlayAdapter.inverseAction
+    val color = LocalGeoColors.current.onInverse
+    val actionColor = LocalGeoColors.current.inverseAction
     val measure = rememberTextMeasurer()
-    val buttonStyle = OverlayAdapter.button
+    val buttonStyle = LocalGeoType.current.button
     Surface(
         modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-        shape = RoundedCornerShape(12.dp), color = OverlayAdapter.inverse, contentColor = color, shadowElevation = 16.dp
+        shape = RoundedCornerShape(12.dp), color = LocalGeoColors.current.inverse, contentColor = color, shadowElevation = 16.dp
     ) {
         BoxWithConstraints(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
             val density = LocalDensity.current
@@ -95,7 +97,7 @@ private fun OverlaySnackbar(data: SnackbarData, modifier: Modifier) {
             val controlsWidth = actionWidth + with(density) { (if (data.visuals.withDismissAction) 56.dp else 0.dp).roundToPx() }
             val inline = controlsWidth + with(density) { 140.dp.roundToPx() } <= constraints.maxWidth
             val actions: @Composable RowScope.() -> Unit = {
-                if (label != null) OverlayAdapter.Action(GeoOverlayAction(label, data::performAction),
+                if (label != null) GeoOverlayButton(GeoOverlayAction(label, data::performAction),
                     modifier = Modifier.widthIn(max = this@BoxWithConstraints.maxWidth - if (data.visuals.withDismissAction) 56.dp else 0.dp), color = actionColor)
                 if (data.visuals.withDismissAction) {
                     if (label != null) Spacer(Modifier.width(8.dp))
@@ -104,12 +106,12 @@ private fun OverlaySnackbar(data: SnackbarData, modifier: Modifier) {
             }
             if (inline) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(data.visuals.message, Modifier.weight(1f).padding(vertical = 8.dp), color = color, style = OverlayAdapter.body)
+                    Text(data.visuals.message, Modifier.weight(1f).padding(vertical = 8.dp), color = color, style = LocalGeoType.current.body)
                     actions()
                 }
             } else {
                 Column {
-                    Text(data.visuals.message, Modifier.padding(top = 8.dp, bottom = 8.dp, end = 12.dp), color = color, style = OverlayAdapter.body)
+                    Text(data.visuals.message, Modifier.padding(top = 8.dp, bottom = 8.dp, end = 12.dp), color = color, style = LocalGeoType.current.body)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, content = actions)
                 }
             }
@@ -127,11 +129,7 @@ private fun OverlaySnackbarClose(color: Color, onClose: () -> Unit) {
         .semantics { contentDescription = "메시지 닫기" }
         .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClose),
         contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(24.dp)) {
-            drawLine(color, Offset(size.width / 4, size.height / 4), Offset(size.width * .75f, size.height * .75f),
-                strokeWidth = 1.75.dp.toPx(), cap = StrokeCap.Round)
-            drawLine(color, Offset(size.width * .75f, size.height / 4), Offset(size.width / 4, size.height * .75f),
-                strokeWidth = 1.75.dp.toPx(), cap = StrokeCap.Round)
-        }
+        androidx.compose.material3.Icon(GeoIcons.close, null, Modifier.size(24.dp), tint = color)
+
     }
 }

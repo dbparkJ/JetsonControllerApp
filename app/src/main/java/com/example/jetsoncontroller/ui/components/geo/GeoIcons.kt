@@ -391,6 +391,18 @@ object GeoIcons {
         ))
     }
 
+    val check: ImageVector by lazy {
+        icon("check", paths = arrayOf(IconPath("M5 12l4 4L19 6")))
+    }
+
+    val router: ImageVector by lazy {
+        icon("router", paths = arrayOf(
+            IconPath("M5 12h14a2 2 0 0 1 2 2v5H3v-5a2 2 0 0 1 2-2z"),
+            IconPath("M7 12V5M17 12V5M6 16h.01M10 16h.01"),
+            IconPath("M4 6a4 4 0 0 1 6 0M14 6a4 4 0 0 1 6 0")
+        ))
+    }
+
     val zoomIn: ImageVector get() = add
     val expandPanel: ImageVector get() = chevronUp
     val collapsePanel: ImageVector get() = chevronDown
@@ -451,6 +463,8 @@ object GeoIcons {
         "pending" to pending,
         "unknown" to unknown,
         "spinner" to spinner,
+        "check" to check,
+        "router" to router,
         "zoomIn" to zoomIn,
         "expandPanel" to expandPanel,
         "collapsePanel" to collapsePanel

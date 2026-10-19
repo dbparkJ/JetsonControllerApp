@@ -9,7 +9,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -17,9 +18,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.ControlNavigationRail
-import com.example.jetsoncontroller.ui.components.LocalControlNavigationRailVisible
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.dashboard.*
 import com.example.jetsoncontroller.ui.pipelines.*
 import com.example.jetsoncontroller.ui.settings.SettingsHubScreen
@@ -107,19 +106,19 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
             sensorTelemetryAvailable = true,
             sensorTelemetryFresh = !offline, cameraSensor = CameraSensorStatus(active = true),
             gnssSensor = GnssSensorStatus(active = true), imuSensor = ImuSensorStatus(active = true)))
-    val select: (ControlSection) -> Unit = { screen = when (it.tab()) {
-        ControlSection.DEVICES -> "home"
-        ControlSection.TASKS -> "tasks"
-        ControlSection.TRANSFERS -> "data"
+    val select: (GeoTab) -> Unit = { screen = when (it) {
+        GeoTab.DEVICES -> "home"
+        GeoTab.TASKS -> "tasks"
+        GeoTab.TRANSFERS -> "data"
         else -> "settings"
     } }
     JetsonControllerTheme(darkTheme = dark) {
         GeoAppShell(
             selected = when (screen) {
-                "tasks", "detail" -> ControlSection.TASKS
-                "data" -> ControlSection.TRANSFERS
-                "settings" -> ControlSection.SETTINGS
-                else -> ControlSection.DEVICES
+                "tasks", "detail" -> GeoTab.TASKS
+                "data" -> GeoTab.TRANSFERS
+                "settings" -> GeoTab.SETTINGS
+                else -> GeoTab.DEVICES
             },
             onSelect = select,
             navigationVisible = screen != "welcome",
@@ -142,7 +141,7 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
                         onSaveDiagnostics = {}, onNetwork = {}, onFiles = {}, onReboot = {}, onShutdown = {},
                         onPipelines = {}, onFan = {}, onDiagnostics = {}
                     )
-                    "welcome" -> com.example.jetsoncontroller.ui.components.GeoLoadingScene()
+                    "welcome" -> com.example.jetsoncontroller.ui.startup.StartupLoadingScene()
                     "tasks", "detail" -> PipelineListScreen(
                         state = PipelineUiState(deviceId = "demo", controlAvailable = true, pipelines = sample,
                             observedAtMillis = now, pendingActions = mapOf("gnss" to "start")),
@@ -186,7 +185,7 @@ private fun ShellGallery() {
         action = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("GEO-X-현장지원차량-2 · 같은 네트워크 · 시작할 수 있습니다.")
-                Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("수집 시작") }
+                com.example.jetsoncontroller.ui.components.geo.GeoButton("수집 시작", {}, Modifier.fillMaxWidth())
             }
         }
     ) { inlineAction ->

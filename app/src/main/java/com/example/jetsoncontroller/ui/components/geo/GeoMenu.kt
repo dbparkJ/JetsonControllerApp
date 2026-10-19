@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,7 +37,7 @@ fun GeoMenu(
     modifier: Modifier = Modifier,
     openerFocusRequester: FocusRequester? = null
 ) {
-    val t = OverlayAdapter.tokens
+    val t = LocalGeoColors.current
     if (expanded) RestoreOverlayFocus(openerFocusRequester)
     DropdownMenu(
         expanded, onDismissRequest,
@@ -55,23 +57,23 @@ fun GeoMenu(
 
 @Composable
 private fun OverlayMenuItem(item: GeoMenuItem, onDismissRequest: () -> Unit) {
-    val t = OverlayAdapter.tokens
+    val t = LocalGeoColors.current
     val interactions = remember { MutableInteractionSource() }
     val pressed by interactions.collectIsPressedAsState()
     val focused by interactions.collectIsFocusedAsState()
     Column(
         Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            .background(if (pressed) t.pressed else Color.Transparent)
+            .background(if (pressed) t.fieldPressed else Color.Transparent)
             .then(if (focused) Modifier.border(2.dp, t.focus, RoundedCornerShape(2.dp)) else Modifier)
             .clickable(interactionSource = interactions, indication = null, enabled = item.enabled, role = Role.Button) {
                 onDismissRequest()
                 item.onClick()
             }.padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Text(item.label, style = OverlayAdapter.body,
+        Text(item.label, style = LocalGeoType.current.body,
             color = if (!item.enabled) t.disabledText else if (item.destructive) t.danger else t.text)
         if (!item.enabled && item.disabledReason != null) {
-            Text(item.disabledReason, color = t.textSecondary, style = OverlayAdapter.body)
+            Text(item.disabledReason, color = t.textSecondary, style = LocalGeoType.current.body)
         }
     }
 }

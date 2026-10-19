@@ -5,7 +5,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
 import com.example.jetsoncontroller.ui.model.Formats
@@ -14,7 +14,7 @@ import com.example.jetsoncontroller.ui.model.Formats
 fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDeviceDataClick: () -> Unit,
     onRefresh: () -> Unit, onTargetSelected: (UploadTarget) -> Unit, onSessionClick: (UploadLibrarySession) -> Unit,
     onDeleteSession: (UploadLibrarySession) -> Unit, onDirectoryClick: (RemoteFileEntry) -> Unit,
-    onFileClick: (RemoteFileEntry) -> Unit, onLoadMore: () -> Unit, onSectionSelected: (ControlSection) -> Unit,
+    onFileClick: (RemoteFileEntry) -> Unit, onLoadMore: () -> Unit, onSectionSelected: (GeoTab) -> Unit,
     deletionEnabled: Boolean = false, thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
     onDismissMessage: (String) -> Unit = {}, deviceName: String = "선택한 장치", onConnection: () -> Unit = {}) {
     var picker by remember(state.deviceId) { mutableStateOf(false) }
@@ -43,7 +43,7 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
         return
     }
     DevPage("장치 경유 서버 조회", onBack, overlay = {
-        com.example.jetsoncontroller.ui.components.OperationMessageHost(state.message, onDismissMessage)
+        com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost(state.message, onDismissMessage)
     }) {
         if (!state.controlAvailable) {
             DevEmpty("$deviceName 기본 연결입니다", "장치를 같은 네트워크나 직접 연결로 연결하면 조회할 수 있습니다.", "연결 방법", onConnection)

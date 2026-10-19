@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoPalette
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -14,7 +17,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 enum class GeoBadgeVariant { SOFT, ON_MAP, ON_DARK }
 
@@ -22,17 +25,17 @@ enum class GeoBadgeVariant { SOFT, ON_MAP, ON_DARK }
 @Composable
 fun GeoBadge(
     word: String,
-    tone: StatusTone,
+    tone: Tone,
     modifier: Modifier = Modifier,
     variant: GeoBadgeVariant = GeoBadgeVariant.SOFT,
-    highContrast: Boolean = LocalContentHighContrast.current
+    highContrast: Boolean = LocalGeoPalette.current.highContrast
 ) {
-    val colors = contentColors
-    val ink = if (variant == GeoBadgeVariant.ON_DARK) colors.onMedia(tone) else colors.tone(tone)
+    val colors = LocalGeoColors.current
+    val ink = if (variant == GeoBadgeVariant.ON_DARK) mediaTone(tone) else colors.tone(tone)
     val fill = when (variant) {
         GeoBadgeVariant.SOFT -> colors.soft(tone)
         GeoBadgeVariant.ON_MAP -> colors.surface
-        GeoBadgeVariant.ON_DARK -> colors.mediaPlate
+        GeoBadgeVariant.ON_DARK -> com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaBadge
     }
     val shape = RoundedCornerShape(50)
     Row(modifier
@@ -43,6 +46,6 @@ fun GeoBadge(
         .heightIn(min = 24.dp).padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(6.dp).background(ink, CircleShape))
-        Text(word, color = ink, style = ContentType.caption.copy(fontWeight = FontWeight.SemiBold))
+        Text(word, color = ink, style = LocalGeoType.current.caption.copy(fontWeight = FontWeight.SemiBold))
     }
 }

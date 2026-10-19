@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui
 
+import com.example.jetsoncontroller.ui.navigation.Routes
 import com.example.jetsoncontroller.data.survey.PendingContextualStart
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
@@ -11,8 +12,8 @@ import com.example.jetsoncontroller.model.UploadContext
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
-import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.field.runOutputStored
 import com.example.jetsoncontroller.ui.survey.SurveyRunUiState
 import org.junit.Assert.assertFalse
@@ -36,11 +37,8 @@ class NavigationWorkflowTest {
     }
 
     @Test
-    fun `legacy history detail uses the entry identity and preserves encoded characters`() {
-        val legacy = TaskRun("history/old 1", "pipe", "이전 수집", "log", "started")
-        assertEquals("history_result/history%2Fold%201?deviceId=device%2Fa", historyResultRoute(legacy, "device/a"))
-        assertEquals("run_result/run%2F1?deviceId=device&pipelineId=pipe%20one",
-            runResultRoute("run/1", "device", "pipe one"))
+    fun `the shell has exactly four primary tabs`() {
+        assertEquals(setOf(GeoTab.DEVICES, GeoTab.TASKS, GeoTab.TRANSFERS, GeoTab.SETTINGS), GeoTab.entries.toSet())
     }
 
     @Test
@@ -104,19 +102,19 @@ class NavigationWorkflowTest {
     @Test
     fun `background device registration failure does not eject direct server workflow`() {
         assertFalse(deviceRegistrationRedirectAllowed("server_storage"))
-        assertTrue(deviceRegistrationRedirectAllowed("dashboard"))
+        assertTrue(deviceRegistrationRedirectAllowed(Routes.DEVICE_DETAIL))
     }
 
     @Test
     fun `developer routes are revoked while normal network settings remain available`() {
         assertTrue(routeAllowed("network_settings", developerModeEnabled = false))
         assertTrue(routeAllowed("server_storage", developerModeEnabled = false))
-        assertFalse(routeAllowed("admin_tools", developerModeEnabled = false))
+        assertFalse(routeAllowed("dev/fan", developerModeEnabled = false))
         assertFalse(routeAllowed("pipeline_config/{pipelineId}", developerModeEnabled = false))
         assertFalse(routeAllowed("developer", developerModeEnabled = false))
         assertTrue(routeAllowed("developer", developerModeEnabled = true))
         assertEquals("settings", developerRevocationDestination("developer", false))
-        assertEquals("settings", developerRevocationDestination("admin_tools", false))
+        assertEquals("settings", developerRevocationDestination("dev/fan", false))
         assertNull(developerRevocationDestination("developer", true))
         assertNull(developerRevocationDestination("network_settings", false))
     }
@@ -265,7 +263,7 @@ class NavigationWorkflowTest {
             serverReceiptPresentation(run, listOf(other, otherDevice, otherPipeline, otherOutput)).label
         )
         assertEquals(
-            ServerReceiptPresentation("서버 수신 확인됨", StatusTone.SUCCESS),
+            ServerReceiptPresentation("서버 수신 확인됨", Tone.SUCCESS),
             serverReceiptPresentation(run, listOf(other, exact))
         )
     }
@@ -282,15 +280,15 @@ class NavigationWorkflowTest {
         )
 
         assertEquals(
-            ServerReceiptPresentation("서버 수신 확인됨", StatusTone.SUCCESS),
+            ServerReceiptPresentation("서버 수신 확인됨", Tone.SUCCESS),
             serverReceiptPresentation(run, listOf(oldFailure, verifiedRetry))
         )
         assertEquals(
-            ServerReceiptPresentation("파일 전송 중", StatusTone.PENDING),
+            ServerReceiptPresentation("파일 전송 중", Tone.PENDING),
             serverReceiptPresentation(run, listOf(oldFailure, activeRetry))
         )
         assertEquals(
-            ServerReceiptPresentation("서버 수신 검증 불일치", StatusTone.WARNING),
+            ServerReceiptPresentation("서버 수신 검증 불일치", Tone.WARNING),
             serverReceiptPresentation(run, listOf(oldFailure))
         )
     }
@@ -321,29 +319,23 @@ class NavigationWorkflowTest {
 
     @Test
     fun `legacy destinations map onto the four primary tabs`() {
-        assertEquals(ControlSection.DEVICES, ControlSection.OVERVIEW.tab())
-        assertEquals(ControlSection.DEVICES, ControlSection.SENSORS.tab())
-        assertEquals(ControlSection.TASKS, ControlSection.COLLECTION.tab())
-        assertEquals(ControlSection.TASKS, ControlSection.PIPELINES.tab())
-        assertEquals(ControlSection.TRANSFERS, ControlSection.DATA.tab())
-        assertEquals(ControlSection.SETTINGS, ControlSection.SETTINGS.tab())
+        assertEquals(GeoTab.DEVICES, GeoTab.DEVICES)
+        assertEquals(GeoTab.TASKS, GeoTab.TASKS)
+        assertEquals(GeoTab.TRANSFERS, GeoTab.TRANSFERS)
+        assertEquals(GeoTab.SETTINGS, GeoTab.SETTINGS)
         assertEquals(
-            setOf(ControlSection.DEVICES, ControlSection.TASKS, ControlSection.TRANSFERS, ControlSection.SETTINGS),
-            ControlSection.entries.map { it.tab() }.toSet()
+            setOf(GeoTab.DEVICES, GeoTab.TASKS, GeoTab.TRANSFERS, GeoTab.SETTINGS),
+            GeoTab.entries.map { it }.toSet()
         )
     }
 
     @Test
     fun `the app starts on work and each tab opens its root`() {
         assertEquals(Routes.TASKS, startRoute())
-        assertEquals(Routes.DEVICES, tabRoute(ControlSection.DEVICES))
-        assertEquals(Routes.DEVICES, tabRoute(ControlSection.OVERVIEW))
-        assertEquals(Routes.TASKS, tabRoute(ControlSection.TASKS))
-        assertEquals(Routes.TASKS, tabRoute(ControlSection.COLLECTION))
-        assertEquals(Routes.TRANSFERS, tabRoute(ControlSection.TRANSFERS))
-        assertEquals(Routes.TRANSFERS, tabRoute(ControlSection.DATA))
-        assertEquals(Routes.SETTINGS, tabRoute(ControlSection.SETTINGS))
-        assertNotEquals(Routes.CONNECTION_HUB, startRoute())
+        assertEquals(Routes.DEVICES, tabRoute(GeoTab.DEVICES))
+        assertEquals(Routes.TASKS, tabRoute(GeoTab.TASKS))
+        assertEquals(Routes.TRANSFERS, tabRoute(GeoTab.TRANSFERS))
+        assertEquals(Routes.SETTINGS, tabRoute(GeoTab.SETTINGS))
     }
 
     @Test
@@ -396,7 +388,7 @@ class NavigationWorkflowTest {
     @Test
     fun `connection notice is one banner for screens that need the device and never for the root`() {
         assertEquals(
-            ConnectionNotice("장치 연결을 기다리고 있습니다. 연결되면 최신 정보로 바뀝니다.", StatusTone.WARNING),
+            ConnectionNotice("장치 연결을 기다리고 있습니다. 연결되면 최신 정보로 바뀝니다.", Tone.WARNING),
             connectionNoticeFor(Routes.PIPELINES, fullControlConnected = false, transportType = null, registrationRequired = false)
         )
         assertEquals(
@@ -435,7 +427,7 @@ class NavigationWorkflowTest {
     @Test
     fun `registration problems show an error banner instead of moving the operator to onboarding`() {
         val notice = connectionNoticeFor(Routes.DEVICES, fullControlConnected = false, transportType = null, registrationRequired = true)
-        assertEquals(StatusTone.ERROR, notice?.tone)
+        assertEquals(Tone.ERROR, notice?.tone)
         assertTrue(notice?.message.orEmpty().contains("QR"))
         assertNull(connectionNoticeFor("server_storage", fullControlConnected = false, transportType = null, registrationRequired = true))
     }

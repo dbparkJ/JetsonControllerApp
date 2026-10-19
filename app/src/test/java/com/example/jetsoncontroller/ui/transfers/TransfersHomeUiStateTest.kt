@@ -15,7 +15,7 @@ import com.example.jetsoncontroller.model.UploadContext
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.upload.TransferSample
 import com.example.jetsoncontroller.ui.upload.UploadUiState
 import java.time.Instant
@@ -36,7 +36,7 @@ class TransfersHomeUiStateTest {
     fun `expired GEO and Work integration shows the exact error message`() {
         val notice = deviceEventNoticeFor(status("EXPIRED", dead = 4), NOW, SEOUL)
 
-        assertEquals(StatusTone.ERROR, notice?.tone)
+        assertEquals(Tone.ERROR, notice?.tone)
         assertEquals(
             "GEO& Work 연동이 만료되었습니다. 관리자에게 연동 연장을 요청하세요.",
             notice?.text
@@ -47,7 +47,7 @@ class TransfersHomeUiStateTest {
     fun `GEO and Work integration error takes priority over queue counts`() {
         val notice = deviceEventNoticeFor(status("ERROR", dead = 4, pending = 3), NOW, SEOUL)
 
-        assertEquals(StatusTone.ERROR, notice?.tone)
+        assertEquals(Tone.ERROR, notice?.tone)
         assertEquals(
             "GEO& Work 알림을 보내지 못하고 있습니다. 수신 서버 관리자에게 알려 주세요.",
             notice?.text
@@ -58,7 +58,7 @@ class TransfersHomeUiStateTest {
     fun `dead delivery count takes priority over pending and uses grouped numbers`() {
         val notice = deviceEventNoticeFor(status("ACTIVE", dead = 1_234, pending = 7), NOW, SEOUL)
 
-        assertEquals(StatusTone.WARNING, notice?.tone)
+        assertEquals(Tone.WARNING, notice?.tone)
         assertEquals(
             "GEO& Work 알림 1,234건을 보내지 못했습니다. 수신 서버 관리자에게 알려 주세요.",
             notice?.text
@@ -69,7 +69,7 @@ class TransfersHomeUiStateTest {
     fun `pending delivery count uses grouped numbers`() {
         val notice = deviceEventNoticeFor(status("ACTIVE", pending = 2_345), NOW, SEOUL)
 
-        assertEquals(StatusTone.PENDING, notice?.tone)
+        assertEquals(Tone.PENDING, notice?.tone)
         assertEquals("GEO& Work 알림 2,345건을 보내는 중입니다.", notice?.text)
     }
 
@@ -81,7 +81,7 @@ class TransfersHomeUiStateTest {
             SEOUL
         )
 
-        assertEquals(StatusTone.SUCCESS, notice?.tone)
+        assertEquals(Tone.SUCCESS, notice?.tone)
         assertEquals("GEO& Work에 알림을 보냈습니다 · 10월 15일 08:02 과열 경고", notice?.text)
     }
 
@@ -89,7 +89,7 @@ class TransfersHomeUiStateTest {
     fun `active integration without failures or a delivery is informational`() {
         val notice = deviceEventNoticeFor(status("ACTIVE"), NOW, SEOUL)
 
-        assertEquals(StatusTone.INFO, notice?.tone)
+        assertEquals(Tone.INFO, notice?.tone)
         assertEquals("GEO& Work 알림이 켜져 있습니다.", notice?.text)
     }
 
@@ -143,7 +143,7 @@ class TransfersHomeUiStateTest {
         val state = buildTransfersHomeUiState(input(transport = TransportType.LAN))
 
         assertEquals("장치가 휴대폰과 같은 네트워크에 있을 때 서버로 보낼 수 있습니다.", state.explanation)
-        assertEquals(StatusTone.INFO, state.explanationTone)
+        assertEquals(Tone.INFO, state.explanationTone)
     }
 
     @Test
@@ -242,7 +242,7 @@ class TransfersHomeUiStateTest {
 
         val row = buildTransfersHomeUiState(input(queue = listOf(job))).verified.single()
 
-        assertEquals(StatusTone.SUCCESS, row.tone)
+        assertEquals(Tone.SUCCESS, row.tone)
         assertEquals("10월 14일 08:02 수신 확인 · 2.1 GB · 파일 3,410개", row.detail)
     }
 
@@ -270,7 +270,7 @@ class TransfersHomeUiStateTest {
         val state = buildTransfersHomeUiState(input(queue = listOf(job)))
         val row = state.awaitingVerification.single()
 
-        assertEquals(StatusTone.PENDING, row.tone)
+        assertEquals(Tone.PENDING, row.tone)
         assertEquals("수신 확인 중", row.detail)
         assertTrue(state.verified.isEmpty())
     }

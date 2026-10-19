@@ -10,7 +10,7 @@ import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.dashboard.metricIsValid
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.model.Formats
 import java.text.NumberFormat
 import java.util.Locale
@@ -75,7 +75,7 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
         state.statusFreshness != StatusFreshness.UNKNOWN && state.status.metricIsValid("temperatureC")
     }
     DevIdentity(state.deviceName, "${Formats.temperature(temperature)} · ${Formats.freshness(state.statusAgeSeconds?.let(java.time.Duration::ofSeconds))}",
-        status = if (state.isOnline) "연결됨" else "연결 안 됨", tone = if (state.isOnline) StatusTone.SUCCESS else StatusTone.UNKNOWN)
+        status = if (state.isOnline) "연결됨" else "연결 안 됨", tone = if (state.isOnline) Tone.SUCCESS else Tone.UNKNOWN)
     when (fanPageState(state)) {
         FanPageState.CHECKING -> DevText("확인 중", secondary = true)
         FanPageState.OFFLINE -> DevEmpty("팬 상태를 확인할 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 사용할 수 있습니다.")

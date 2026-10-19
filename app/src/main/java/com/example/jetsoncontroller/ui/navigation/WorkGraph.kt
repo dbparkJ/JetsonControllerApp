@@ -19,9 +19,8 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.jetsoncontroller.ui.*
-import com.example.jetsoncontroller.ui.components.ControlNavigationBar
-import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.connection.deviceConnectionUi
 import com.example.jetsoncontroller.ui.pipelines.PipelineListScreen
 import com.example.jetsoncontroller.ui.survey.SurveyRunScreen
@@ -90,7 +89,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
         val reportPending = reportDelivery == TicketReportDeliveryState.PENDING
         LaunchedEffect(link?.profileId) { link?.profileId?.let(serverTicketViewModel::refreshCapabilities) }
         val reportPresentation = ticketCompletionPresentation(
-            attached = link != null, serverReceiptConfirmed = receipt.tone == StatusTone.SUCCESS,
+            attached = link != null, serverReceiptConfirmed = receipt.tone == Tone.SUCCESS,
             role = link?.profileId?.let(serverTicketViewModel::reportRole),
             conflicted = run?.let { serverTicketViewModel.ticketConflictForRun(it.runId) } == true,
             startRejected = run?.let { serverTicketViewModel.ticketStartRejected(it.runId) } == true,
@@ -111,7 +110,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
             permissionMissing = !localNetworkPermissionGranted && !fullControlConnected,
             credentialsRejected = deviceDashboardState.connectionState is com.example.jetsoncontroller.model.ConnectionState.RegistrationRequired,
             lastResponseLabel = selectedSnapshot?.lastSeenAtEpochMillis?.let { com.example.jetsoncontroller.ui.devices.formatSeenAt(it, now.toEpochMilli()) },
-            receiptVerified = receipt.tone == StatusTone.SUCCESS, ticketLinked = link != null,
+            receiptVerified = receipt.tone == Tone.SUCCESS, ticketLinked = link != null,
             completionReported = reportDelivery == TicketReportDeliveryState.SENT, now = now,
             reportStates = fieldState.runs.mapNotNull { history ->
                 val id = history.runId ?: return@mapNotNull null
@@ -156,7 +155,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
         }
         reportRun?.let { target ->
             val valid = target.deviceId.equals(selectedDeviceId, true) && target.runId == run?.runId &&
-                receipt.tone == StatusTone.SUCCESS && link != null && reportEnabled && confirmedReportKey == reportKey
+                receipt.tone == Tone.SUCCESS && link != null && reportEnabled && confirmedReportKey == reportKey
             GeoConfirmDialog("${target.contextSnapshot.surveySectionLabel} 완료를 보고할까요?",
                 "서버 수신을 확인했습니다. GEO& Work 상태가 '완료'로 바뀝니다.", "완료 보고",
                 onConfirm = {
@@ -188,7 +187,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                     NextActionCommand.ALLOW_PERMISSION -> onRequestLocalNetworkPermission()
                     NextActionCommand.REGISTER, NextActionCommand.REGISTER_AGAIN -> navController.navigateSingle(Routes.QR_SCANNER)
                     NextActionCommand.WIFI_SETTINGS -> navController.navigateSingle(Routes.NETWORK_SETTINGS)
-                    NextActionCommand.CONNECTION_HELP -> navController.navigateSingle(Routes.CONNECTION_HUB)
+                    NextActionCommand.CONNECTION_HELP -> openConnectionMethods(navController)
                 }
             }, onRefresh = refresh, onServerConnection = { navController.navigateSingle(Routes.SETTINGS) },
             onAlerts = { navController.navigateSingle(Routes.ALERTS) }, unreadCount = alertCenterState.unreadCount,
@@ -345,7 +344,7 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
             readiness = readinessWithRelay, taskLabel = pipeline?.label ?: "수집 작업 선택",
             onSelectTask = { afterChoice = false; choice = true },
             onRemedy = {
-                if (currentScope) navController.navigateSingle(Routes.CONNECTION_HUB)
+                if (currentScope) openConnectionMethods(navController)
                 else deviceState.registeredDevices.firstOrNull { it.deviceId.equals(deviceId, true) }?.let(connectRegisteredDevice)
             }, startOpener = opener,
             ongoingRun = { WorkOngoingStrip(state.value, deviceId, deviceName) })
@@ -357,7 +356,7 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
             val checkedSurvey = survey.takeUnless { it.preflight?.preflightId == previousPreflight } ?: survey.copy(preflight = null)
             SurveyStartSheet(ticketStartSheet(ticket, deviceName, checkedSurvey, checking, changed,
                 preparationFailure ?: survey.error,
-                { navController.navigateSingle(Routes.STORAGE) }, { navController.navigateSingle(Routes.CONNECTION_HUB) },
+                { navController.navigateSingle(Routes.STORAGE) }, { openConnectionMethods(navController) },
                 onSensors = { navController.navigateSingle(Routes.DEVICE_DETAIL) }),
                 onStart = {
                     val bound = target
@@ -617,7 +616,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                         else -> null
                     },
                     onDeviceFiles = { navController.navigateSingle(Routes.STORAGE) },
-                    onConnectionMethod = { navController.navigateSingle(Routes.CONNECTION_HUB) },
+                    onConnectionMethod = { openConnectionMethods(navController) },
                     onDeviceDetails = { navController.navigateSingle(Routes.DEVICE_DETAIL) }
                 )
             }
@@ -683,7 +682,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                 }
                 val ticketCompletion = com.example.jetsoncontroller.ui.tasks.ticketCompletionPresentation(
                     attached = ticketLink != null,
-                    serverReceiptConfirmed = receiptPresentation.tone == StatusTone.SUCCESS,
+                    serverReceiptConfirmed = receiptPresentation.tone == Tone.SUCCESS,
                     role = ticketLink?.profileId?.let(serverTicketViewModel::reportRole),
                     conflicted = resultRun?.let { serverTicketViewModel.ticketConflictForRun(it.runId) } == true,
                     startRejected = resultRun?.let { serverTicketViewModel.ticketStartRejected(it.runId) } == true,
@@ -734,7 +733,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                         listOf(it.profileId, it.deviceId, it.rowId, it.ticketRevision, it.runId).toString()
                     },
                     onReportTicketCompletion = {
-                        if (receiptPresentation.tone == StatusTone.SUCCESS && completionReportEnabled) {
+                        if (receiptPresentation.tone == Tone.SUCCESS && completionReportEnabled) {
                             resultRun?.let {
                                 if (completionReportFailed) serverTicketViewModel.retryReport(it.runId, true)
                                 else serverTicketViewModel.reportCompletion(it)
@@ -752,7 +751,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                         }
                     },
                     onDeviceWifi = { navController.navigateSingle(Routes.NETWORK_SETTINGS) },
-                    onConnectionMethods = { navController.navigateSingle(Routes.CONNECTION_HUB) },
+                    onConnectionMethods = { openConnectionMethods(navController) },
                     onOpenHistory = { navController.navigateSingle(Routes.TASK_HISTORY) },
                     onTrashRecord = logEntry?.let { record -> ({ if (resultOnline) fieldToolsViewModel.deleteRun(record) }) },
                     historyState = fieldState.takeIf { it.deviceId.equals(resultDeviceId, true) },

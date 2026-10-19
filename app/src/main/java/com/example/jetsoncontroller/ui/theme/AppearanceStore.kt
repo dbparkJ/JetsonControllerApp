@@ -153,7 +153,7 @@ internal fun Context.appearanceActivity(): Activity? = when (this) {
     else -> null
 }
 
-/** Callable by startup before setContent; the Compose adapter also reconciles on first use. */
+/** Callable by startup before setContent; Compose also reconciles on first use. */
 @SuppressLint("DiscouragedApi")
 fun createAppearanceStore(activity: Activity): AppearanceStore = AppearanceStore(
     preferences = activity.getSharedPreferences("appearance", Context.MODE_PRIVATE),
@@ -191,13 +191,4 @@ fun rememberAppearancePalette(): GeoPalette {
     val appearance = rememberAppearance(store)
     LaunchedEffect(store) { store.reconcile() }
     return appearance.palette(systemDark)
-}
-
-/** Adapter for MainActivity and the existing settings dialog until its route is replaced. */
-@Composable
-fun rememberThemePreference(): Pair<ThemeMode, (ThemeMode) -> Unit> {
-    if (LocalInspectionMode.current) return ThemeMode.SYSTEM to { _ -> }
-    val store = rememberAppearanceStore()
-    val appearance = rememberAppearance(store)
-    return appearance.mode to { next -> store.setMode(next); Unit }
 }

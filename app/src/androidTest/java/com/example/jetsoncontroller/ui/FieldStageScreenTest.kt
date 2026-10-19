@@ -10,7 +10,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.jetsoncontroller.ui.model.Formats
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.field.*
 import com.example.jetsoncontroller.model.*
@@ -59,7 +59,7 @@ class FieldStageScreenTest {
         compose.setContent { JetsonControllerTheme {
             ActiveRunScreen(
                 deviceName = "화면 테스트", connectionLabel = "연결 끊김",
-                connectionTone = StatusTone.UNKNOWN, run = null, elapsedLabel = null,
+                connectionTone = Tone.UNKNOWN, run = null, elapsedLabel = null,
                 lastObservedLabel = null, sensorSummary = null, storageSummary = null,
                 stopInProgress = false, online = true, unreadCount = 0,
                 onDevices = {}, onAlerts = {}, onBack = {}, onRefresh = { refreshes++ },
@@ -78,7 +78,7 @@ class FieldStageScreenTest {
         compose.setContent { JetsonControllerTheme {
             ActiveRunScreen(
                 deviceName = "화면 테스트", connectionLabel = "연결됨",
-                connectionTone = StatusTone.SUCCESS, run = null, elapsedLabel = null,
+                connectionTone = Tone.SUCCESS, run = null, elapsedLabel = null,
                 lastObservedLabel = "13:21", sensorSummary = null, storageSummary = null,
                 stopInProgress = false, online = true, pendingStart = true,
                 unconfirmedRunId = "run-technical-id", onRetryPendingStart = { retries++ },
@@ -101,7 +101,7 @@ class FieldStageScreenTest {
         compose.setContent { JetsonControllerTheme {
             ActiveRunScreen(
                 deviceName = "MMS-4DE0", connectionLabel = "연결됨",
-                connectionTone = StatusTone.SUCCESS, run = activeRun(), elapsedLabel = "00:24",
+                connectionTone = Tone.SUCCESS, run = activeRun(), elapsedLabel = "00:24",
                 lastObservedLabel = "방금", sensorSummary = "GPS 신호 정상", storageSummary = "확인 중",
                 stopInProgress = false, online = true, stopAvailable = true,
                 unconfirmedRunId = "run-1", onRetryPendingStart = { retries++ }, unreadCount = 0,
@@ -127,7 +127,7 @@ class FieldStageScreenTest {
         compose.setContent { JetsonControllerTheme(darkTheme = true) {
             RunResultScreen(
                 deviceName = "화면 테스트", connectionLabel = "연결 끊김",
-                connectionTone = StatusTone.UNKNOWN, run = null, uploadEnabled = false,
+                connectionTone = Tone.UNKNOWN, run = null, uploadEnabled = false,
                 uploadDisabledReason = "장치 연결 필요", serverReceiptLabel = null,
                 online = false, unreadCount = 0, onDevices = {}, onAlerts = {},
                 onBack = {}, onRefresh = {}, onPrepareUpload = { transfers++ },
@@ -146,7 +146,7 @@ class FieldStageScreenTest {
         compose.setContent { JetsonControllerTheme {
             RunResultScreen(
                 deviceName = "MMS-4DE0", connectionLabel = "연결됨",
-                connectionTone = StatusTone.SUCCESS, run = run, uploadEnabled = true,
+                connectionTone = Tone.SUCCESS, run = run, uploadEnabled = true,
                 uploadDisabledReason = "", serverReceiptLabel = null, online = true,
                 unreadCount = 0, onDevices = {}, onAlerts = {}, onBack = {}, onRefresh = {},
                 onPrepareUpload = { transfers++ }, onOpenFiles = {}, onNewSurvey = {}
@@ -171,7 +171,7 @@ class FieldStageScreenTest {
         compose.setContent { JetsonControllerTheme {
             ActiveRunScreen(
                 deviceName = "MMS-4DE0", connectionLabel = "연결됨",
-                connectionTone = StatusTone.SUCCESS, run = activeRun(), elapsedLabel = null,
+                connectionTone = Tone.SUCCESS, run = activeRun(), elapsedLabel = null,
                 lastObservedLabel = "2초 전", sensorSummary = "GPS 신호 정상",
                 storageSummary = "확인 중", stopInProgress = false, online = true,
                 stopAvailable = true, unreadCount = 0, onDevices = {}, onAlerts = {}, onBack = {},
@@ -199,7 +199,7 @@ class FieldStageScreenTest {
         compose.setContent { JetsonControllerTheme {
             ActiveRunScreen(
                 deviceName = "MMS-4DE0", connectionLabel = "연결됨",
-                connectionTone = StatusTone.SUCCESS, run = activeRun(), elapsedLabel = "00:24",
+                connectionTone = Tone.SUCCESS, run = activeRun(), elapsedLabel = "00:24",
                 lastObservedLabel = "방금", sensorSummary = null, storageSummary = "확인 중",
                 stopInProgress = false, online = true, stopAvailable = stopAvailable.value,
                 unreadCount = 0, onDevices = {}, onAlerts = {}, onBack = {}, onRefresh = {},
@@ -224,7 +224,7 @@ class FieldStageScreenTest {
                 JetsonControllerTheme {
                     ActiveRunScreen(
                         deviceName = "큰 글꼴 화면 테스트 장치", connectionLabel = "연결됨",
-                        connectionTone = StatusTone.SUCCESS, run = null, elapsedLabel = null,
+                        connectionTone = Tone.SUCCESS, run = null, elapsedLabel = null,
                         lastObservedLabel = null, sensorSummary = null, storageSummary = null,
                         stopInProgress = false, online = true, pendingStart = true,
                         unreadCount = 0, onDevices = {}, onAlerts = {}, onBack = {}, onRefresh = {},

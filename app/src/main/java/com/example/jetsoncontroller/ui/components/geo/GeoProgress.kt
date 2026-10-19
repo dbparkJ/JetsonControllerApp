@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -52,7 +53,7 @@ fun GeoProgress(
     modifier: Modifier = Modifier,
     showPercentage: Boolean = true
 ) {
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     val fraction = progress?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
     val percent = fraction?.let { (it * 100).toInt() }
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -111,7 +112,7 @@ fun GeoSkeleton(
         }
     }
     if (!loading || !visible) return
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     Column(modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "불러오는 중" }) {
         repeat(rows) {
             Column(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

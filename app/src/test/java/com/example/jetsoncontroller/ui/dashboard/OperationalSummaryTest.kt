@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dashboard
 
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.model.GnssSensorStatus
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.ManagedPipeline
@@ -55,7 +56,7 @@ class OperationalSummaryTest {
         )
 
         assertEquals("최근 실행 보고 · 현재 미확인", summary.collection.value)
-        assertEquals(com.example.jetsoncontroller.ui.components.StatusTone.WARNING, summary.collection.tone)
+        assertEquals(com.example.jetsoncontroller.ui.model.Tone.WARNING, summary.collection.tone)
     }
 
     @Test

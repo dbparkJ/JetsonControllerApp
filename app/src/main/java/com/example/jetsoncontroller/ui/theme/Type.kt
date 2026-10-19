@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.theme
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -91,16 +92,7 @@ object GeoType {
     val input get() = standard.input
     val mono get() = standard.mono
 
-    @Deprecated("Use LocalGeoType.current.figure", ReplaceWith("LocalGeoType.current.figure"))
-    val numeric get() = standard.figure
-    @Deprecated("Use LocalGeoType.current.figure", ReplaceWith("LocalGeoType.current.figure"))
-    val numericLarge get() = standard.figure
-    @Deprecated("Use LocalGeoType.current.caption with tabular figures")
-    val numericSmall get() = standard.caption.copy(fontFeatureSettings = "tnum")
-    @Deprecated("Use mono", ReplaceWith("mono"))
-    val identifier get() = mono
-    @Deprecated("Eyebrow labels are retired; use count only for bell counts")
-    val eyebrow get() = count
+
 }
 
 val LocalGeoType = staticCompositionLocalOf { GeoType.standard }
@@ -112,6 +104,3 @@ internal fun geoMaterialTypography(t: GeoTypeRoles): Typography = Typography(
     bodyLarge = t.body, bodyMedium = t.body, bodySmall = t.caption,
     labelLarge = t.button, labelMedium = t.label, labelSmall = t.count
 )
-
-@Deprecated("Use MaterialTheme.typography or LocalGeoType for palette-aware weights")
-val Typography: Typography by lazy { geoMaterialTypography(GeoType.standard) }

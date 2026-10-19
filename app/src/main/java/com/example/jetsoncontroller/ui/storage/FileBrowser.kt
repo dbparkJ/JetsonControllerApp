@@ -19,8 +19,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.model.Formats
@@ -151,7 +151,7 @@ internal fun FileBrowser(
                         item { ongoingRun() }
                         if (!state.controlAvailable) item {
                             GeoInlineNote("${state.deviceName} 연결이 끊겼습니다. 마지막으로 본 목록입니다.",
-                                tone = StatusTone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
+                                tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
                                 actionLabel = "다시 연결", onAction = onReconnect)
                             GeoButton("연결 방법", onConnection, style = GeoButtonStyle.Tertiary)
                         }
@@ -208,7 +208,7 @@ internal fun FileBrowser(
                 }
             }
             Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) {
-                OperationMessageHost(state.message, onDismissMessage, "실행 취소".takeIf { state.undoTrashId != null },
+                GeoOperationMessageHost(state.message, onDismissMessage, "실행 취소".takeIf { state.undoTrashId != null },
                     onUndo.takeIf { state.undoTrashId != null })
             }
         }

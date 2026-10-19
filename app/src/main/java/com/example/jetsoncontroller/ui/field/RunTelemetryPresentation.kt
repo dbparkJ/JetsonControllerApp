@@ -6,7 +6,7 @@ import com.example.jetsoncontroller.model.StopTarget
 import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoFigure
 import com.example.jetsoncontroller.ui.model.Formats
 import java.time.Duration
@@ -163,27 +163,27 @@ internal fun telemetryObservationLabel(telemetry: RunTelemetry, receiptAgeMillis
 internal data class RunReceiptCell(
     val title: String,
     val value: String,
-    val tone: StatusTone
+    val tone: Tone
 )
 
 /** Receipt for a run the phone already holds in full (result screen). */
 internal fun pipelineRunReceiptCells(
     run: PipelineRun?,
-    serverTone: StatusTone
+    serverTone: Tone
 ): List<RunReceiptCell> {
     val finished = when {
-        run == null -> StatusTone.UNKNOWN
-        run.active || run.finishedAt == null -> StatusTone.PENDING
-        run.exitCode != null && run.exitCode != 0 -> StatusTone.WARNING
-        else -> StatusTone.SUCCESS
+        run == null -> Tone.UNKNOWN
+        run.active || run.finishedAt == null -> Tone.PENDING
+        run.exitCode != null && run.exitCode != 0 -> Tone.WARNING
+        else -> Tone.SUCCESS
     }
     val manifestState = run?.output?.manifestState.orEmpty()
     val stored = runOutputStored(run)
     val storedTone = when {
-        stored -> StatusTone.SUCCESS
-        manifestState.equals("PENDING", true) || manifestState.equals("RUNNING", true) -> StatusTone.PENDING
-        manifestState.equals("FAILED", true) || manifestState.equals("ERROR", true) -> StatusTone.WARNING
-        else -> StatusTone.UNKNOWN
+        stored -> Tone.SUCCESS
+        manifestState.equals("PENDING", true) || manifestState.equals("RUNNING", true) -> Tone.PENDING
+        manifestState.equals("FAILED", true) || manifestState.equals("ERROR", true) -> Tone.WARNING
+        else -> Tone.UNKNOWN
     }
     return listOf(
         RunReceiptCell("수집 종료", finishedValue(finished), finished),
@@ -195,19 +195,19 @@ internal fun pipelineRunReceiptCells(
 /** Receipt for a history row: only the task summary and the upload jobs are available. */
 internal fun taskRunReceiptCells(run: TaskRun, uploadJobs: List<UploadJob>): List<RunReceiptCell> {
     val finished = when {
-        run.isActiveRun() -> StatusTone.PENDING
-        run.state == "STOPPED" -> StatusTone.INFO
-        run.state == "FAILED" || (run.exitCode != null && run.exitCode != 0) -> StatusTone.WARNING
-        run.finishedAt != null || run.state == "COMPLETED" -> StatusTone.SUCCESS
-        else -> StatusTone.UNKNOWN
+        run.isActiveRun() -> Tone.PENDING
+        run.state == "STOPPED" -> Tone.INFO
+        run.state == "FAILED" || (run.exitCode != null && run.exitCode != 0) -> Tone.WARNING
+        run.finishedAt != null || run.state == "COMPLETED" -> Tone.SUCCESS
+        else -> Tone.UNKNOWN
     }
     val storedTone = when {
-        canonicalHistoryRunId(run) != null -> StatusTone.SUCCESS
+        canonicalHistoryRunId(run) != null -> Tone.SUCCESS
         run.output?.manifestState.equals("PENDING", true) ||
-            run.output?.manifestState.equals("RUNNING", true) -> StatusTone.PENDING
+            run.output?.manifestState.equals("RUNNING", true) -> Tone.PENDING
         run.output?.manifestState.equals("FAILED", true) ||
-            run.output?.manifestState.equals("ERROR", true) -> StatusTone.WARNING
-        else -> StatusTone.UNKNOWN
+            run.output?.manifestState.equals("ERROR", true) -> Tone.WARNING
+        else -> Tone.UNKNOWN
     }
     val serverTone = uploadReceiptTone(run.runId, run.deviceId, uploadJobs)
     return listOf(
@@ -222,48 +222,48 @@ internal fun taskRunReceiptCells(run: TaskRun, uploadJobs: List<UploadJob>): Lis
  * ID (and device); anything else stays unknown or waiting, and a missing match is never read as
  * a failure. Mirrors the ladder used by the result screen (serverReceiptPresentation).
  */
-internal fun uploadReceiptTone(runId: String?, deviceId: String?, jobs: List<UploadJob>): StatusTone {
-    if (runId.isNullOrBlank()) return StatusTone.UNKNOWN
+internal fun uploadReceiptTone(runId: String?, deviceId: String?, jobs: List<UploadJob>): Tone {
+    if (runId.isNullOrBlank()) return Tone.UNKNOWN
     val exact = jobs.filter { job ->
         job.context?.runId == runId &&
             (deviceId == null || job.context?.deviceId.equals(deviceId, ignoreCase = true))
     }
-    if (exact.isEmpty()) return StatusTone.UNKNOWN
+    if (exact.isEmpty()) return Tone.UNKNOWN
     return when {
-        exact.any { it.verification?.matched == true } -> StatusTone.SUCCESS
+        exact.any { it.verification?.matched == true } -> Tone.SUCCESS
         exact.any { it.state in setOf(UploadJobState.QUEUED, UploadJobState.SCANNING, UploadJobState.UPLOADING) } ->
-            StatusTone.PENDING
+            Tone.PENDING
         exact.any { it.state == UploadJobState.COMPLETED && it.verification?.matched == null } ->
-            StatusTone.PENDING
-        else -> StatusTone.WARNING
+            Tone.PENDING
+        else -> Tone.WARNING
     }
 }
 
-private fun finishedValue(tone: StatusTone): String = when (tone) {
-    StatusTone.SUCCESS -> "종료"
-    StatusTone.PENDING -> "종료 확인 중"
-    StatusTone.WARNING, StatusTone.ERROR -> "다시 확인"
+private fun finishedValue(tone: Tone): String = when (tone) {
+    Tone.SUCCESS -> "종료"
+    Tone.PENDING -> "종료 확인 중"
+    Tone.WARNING, Tone.ERROR -> "다시 확인"
     else -> "미확인"
 }
 
-private fun taskFinishedValue(tone: StatusTone): String = when (tone) {
-    StatusTone.SUCCESS -> "종료"
-    StatusTone.PENDING -> "진행 중"
-    StatusTone.INFO -> "중지됨"
-    StatusTone.WARNING, StatusTone.ERROR -> "비정상 종료"
+private fun taskFinishedValue(tone: Tone): String = when (tone) {
+    Tone.SUCCESS -> "종료"
+    Tone.PENDING -> "진행 중"
+    Tone.INFO -> "중지됨"
+    Tone.WARNING, Tone.ERROR -> "비정상 종료"
     else -> "미확인"
 }
 
-private fun storedValue(tone: StatusTone): String = when (tone) {
-    StatusTone.SUCCESS -> "저장 확인"
-    StatusTone.PENDING -> "확인 중"
-    StatusTone.WARNING, StatusTone.ERROR -> "다시 확인"
+private fun storedValue(tone: Tone): String = when (tone) {
+    Tone.SUCCESS -> "저장 확인"
+    Tone.PENDING -> "확인 중"
+    Tone.WARNING, Tone.ERROR -> "다시 확인"
     else -> "미확인"
 }
 
-private fun serverValue(tone: StatusTone): String = when (tone) {
-    StatusTone.SUCCESS -> "수신 확인"
-    StatusTone.PENDING -> "전송 중"
-    StatusTone.WARNING, StatusTone.ERROR -> "다시 확인"
+private fun serverValue(tone: Tone): String = when (tone) {
+    Tone.SUCCESS -> "수신 확인"
+    Tone.PENDING -> "전송 중"
+    Tone.WARNING, Tone.ERROR -> "다시 확인"
     else -> "미확인"
 }

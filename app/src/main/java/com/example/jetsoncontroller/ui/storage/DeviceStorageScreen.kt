@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.model.RemoteFileEntry
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -49,7 +49,7 @@ fun DeviceStorageScreen(
     onFileClick: (RemoteFileEntry) -> Unit,
     onDeleteClick: (RemoteFileEntry) -> Unit,
     onUploadClick: (String, String) -> Unit,
-    onSectionSelected: (ControlSection) -> Unit,
+    onSectionSelected: (GeoTab) -> Unit,
     onServerDataClick: () -> Unit = {},
     onTransferQueue: () -> Unit = {},
     thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,

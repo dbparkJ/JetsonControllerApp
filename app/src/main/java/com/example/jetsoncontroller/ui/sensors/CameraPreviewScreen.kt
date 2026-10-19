@@ -24,7 +24,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.CameraSensorStatus
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -103,10 +103,10 @@ fun CameraPreviewScreen(
                             CameraStageState.ERROR -> "받지 못함"
                         }
                         GeoBadge(word, when (stage) {
-                            CameraStageState.LIVE -> StatusTone.SUCCESS
-                            CameraStageState.DELAYED -> StatusTone.WARNING
-                            CameraStageState.ERROR -> StatusTone.ERROR
-                            CameraStageState.WAITING -> StatusTone.UNKNOWN
+                            CameraStageState.LIVE -> Tone.SUCCESS
+                            CameraStageState.DELAYED -> Tone.WARNING
+                            CameraStageState.ERROR -> Tone.ERROR
+                            CameraStageState.WAITING -> Tone.UNKNOWN
                         }, variant = GeoBadgeVariant.ON_DARK)
                         if (stage == CameraStageState.LIVE) cameraResolution(camera)?.let {
                             Text(it, style = type.caption, color = Color.White)

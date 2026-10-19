@@ -51,26 +51,6 @@ object GeoSpace {
         else -> space8
     }
 
-    @Deprecated("Use space2", ReplaceWith("space2")) val xs = space2
-    @Deprecated("Use space4", ReplaceWith("space4")) val sm = space4
-    @Deprecated("Use space6", ReplaceWith("space6")) val md = space6
-    @Deprecated("Use space8", ReplaceWith("space8")) val lg = space8
-    @Deprecated("Use space9", ReplaceWith("space9")) val xl = space9
-    @Deprecated("Use space10", ReplaceWith("space10")) val xxl = space10
-    @Deprecated("Use space12", ReplaceWith("space12")) val xxxl = space12
-    @Deprecated("Use space13", ReplaceWith("space13")) val huge = space13
-    @Deprecated("Use gutterForPane with measured pane width") val gutter = space9
-    @Deprecated("Use rowPadding", ReplaceWith("rowPadding")) val row = rowPadding
-}
-
-/** Compatibility names retain their roles until the remaining screens migrate. */
-object GeoRadius {
-    @Deprecated("Use GeoShape.sm", ReplaceWith("GeoShape.sm")) val xs = GeoShape.sm
-    @Deprecated("Use GeoShape.md", ReplaceWith("GeoShape.md")) val sm = GeoShape.md
-    @Deprecated("Use GeoShape.lg", ReplaceWith("GeoShape.lg")) val md = GeoShape.lg
-    @Deprecated("Use GeoShape.xl", ReplaceWith("GeoShape.xl")) val lg = GeoShape.xl
-    @Deprecated("Use GeoShape.xxl", ReplaceWith("GeoShape.xxl")) val xl = GeoShape.xxl
-    @Deprecated("Use GeoShape.pillRadius", ReplaceWith("GeoShape.pillRadius")) val pill = GeoShape.pillRadius
 }
 
 object GeoSize {
@@ -81,25 +61,11 @@ object GeoSize {
     val iconSm = 16.dp
     val iconMd = 20.dp
     val iconLg = 24.dp
-    @Deprecated("Use iconLg; R3 icons use 16, 20 or 24 dp") val iconXl = 32.dp
     val hairline = GeoShape.borderWidth
-    @Deprecated("Status left rules are retired") val statusRule = 3.dp
 }
 
 object GeoBreakpoint {
     val medium = 600.dp
     val expanded = 840.dp
     val compactHeight = 480.dp
-}
-
-@Deprecated("Use GeoSpace named uses")
-object AppSpacing {
-    val xSmall = GeoSpace.space2
-    val small = GeoSpace.space4
-    val medium = GeoSpace.space6
-    val large = GeoSpace.space8
-    val xLarge = GeoSpace.space9
-    val xxLarge = GeoSpace.space10
-    val section = GeoSpace.section
-    val screen = GeoSpace.space9
 }

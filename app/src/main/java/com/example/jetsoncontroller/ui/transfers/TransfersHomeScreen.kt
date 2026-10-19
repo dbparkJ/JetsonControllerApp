@@ -15,7 +15,7 @@ import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 
 internal data class TransferDeviceAttention(val deviceId: String, val name: String, val count: Int)
 
@@ -99,7 +99,7 @@ internal fun TransfersHomeScreen(
                         state.failed.forEach { row ->
                             GeoActionRow(row.title, "다시 보내기", { onOpenTransfer(row.jobId) },
                                 { onRetryTransfer(row.jobId) }, meta = row.cause,
-                                leading = { GeoBadge(row.stateLabel, StatusTone.ERROR) },
+                                leading = { GeoBadge(row.stateLabel, Tone.ERROR) },
                                 actionEnabled = sendEnabled, disabledReason = readiness)
                         }
                     }
@@ -150,5 +150,5 @@ internal fun TransfersHomeScreen(
 @Composable
 private fun TransferHomeRow(row: TransferRowState, onOpen: (String) -> Unit) {
     GeoRow(row.title, { onOpen(row.jobId) }, meta = row.detail,
-        badge = { GeoBadge(if (row.tone == StatusTone.SUCCESS) "수신 확인" else row.detail, row.tone) })
+        badge = { GeoBadge(if (row.tone == Tone.SUCCESS) "수신 확인" else row.detail, row.tone) })
 }

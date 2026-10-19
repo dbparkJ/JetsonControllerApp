@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo.shell
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -17,7 +18,7 @@ import androidx.compose.ui.Modifier
 @Composable
 fun GeoTopBar(modifier: Modifier = Modifier, mediaInsets: Boolean = false, content: @Composable () -> Unit = {}) {
     Column(
-        modifier.fillMaxWidth().background(if (mediaInsets) androidx.compose.ui.graphics.Color.Black else shellColors().topBar)
+        modifier.fillMaxWidth().background(if (mediaInsets) androidx.compose.ui.graphics.Color.Black else LocalGeoColors.current.topBar)
             .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top))
     ) { content() }
 }

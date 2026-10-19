@@ -15,7 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.alerts.AlertSettings
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.geo.GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoSliderRow
 import com.example.jetsoncontroller.ui.components.geo.GeoStateBlock
@@ -38,7 +38,7 @@ fun AlertSettingsScreen(
     onPipelineFailedEnabledChange: (Boolean) -> Unit,
     onUploadStartedEnabledChange: (Boolean) -> Unit,
     onUploadEndedEnabledChange: (Boolean) -> Unit,
-    onSectionSelected: (ControlSection) -> Unit = {},
+    onSectionSelected: (GeoTab) -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
     developerModeEnabled: Boolean = false,
     onBack: () -> Unit = {}

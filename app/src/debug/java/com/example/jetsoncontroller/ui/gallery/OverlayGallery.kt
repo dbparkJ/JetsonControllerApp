@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.gallery
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,7 +18,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 
@@ -24,7 +27,7 @@ private enum class OverlayGalleryPanel { CHOICE, FORM, INFO, CONFIRM, DANGER, DI
 /** Debug only. The caller owns chrome, safe drawing and theme/font-scale selection. */
 @Composable
 fun OverlayGallery(modifier: Modifier = Modifier) {
-    val t = OverlayAdapter.tokens
+    val t = LocalGeoColors.current
     var panel by remember { mutableStateOf<OverlayGalleryPanel?>(null) }
     var opener by remember { mutableStateOf<FocusRequester?>(null) }
     var strip by remember { mutableStateOf<GeoStripKind?>(GeoStripKind.DISCONNECTED) }
@@ -61,7 +64,7 @@ fun OverlayGallery(modifier: Modifier = Modifier) {
                     GeoStatusStripState(kind, device, message, actions)
                 }))
                 Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(event, style = OverlayAdapter.body)
+                    Text(event, style = LocalGeoType.current.body)
                     listOf("인증 오류" to GeoStripKind.AUTHENTICATION_ERROR, "연결 끊김" to GeoStripKind.DISCONNECTED,
                         "구역 밖" to GeoStripKind.OUTSIDE_ZONE, "수집 중" to GeoStripKind.COLLECTING,
                         "마지막 동기화" to GeoStripKind.LAST_SYNC).forEach { (label, kind) ->
@@ -70,7 +73,7 @@ fun OverlayGallery(modifier: Modifier = Modifier) {
                     GalleryButton("상태 띠 숨기기") { strip = null }
                     GeoFocusBlock(GeoFocusBlockState(
                         "$device 연결이 끊겼습니다", "마지막 응답 5분 전 · 수집은 장치에서 계속될 수 있습니다.",
-                        GeoOverlayTone.WARNING, GeoOverlayAction("다시 연결", { notice("다시 연결") }),
+                        Tone.WARNING, GeoOverlayAction("다시 연결", { notice("다시 연결") }),
                         GeoOverlayAction("연결 방법", { opener = null; panel = OverlayGalleryPanel.CHOICE })
                     ))
                     GalleryHeading("선택·입력·정보 시트")
@@ -101,7 +104,7 @@ fun OverlayGallery(modifier: Modifier = Modifier) {
                 }
             }
             Box(Modifier.align(Alignment.BottomCenter)) {
-                OperationMessageHost(operation, { shown -> if (operation == shown) operation = null },
+                GeoOperationMessageHost(operation, { shown -> if (operation == shown) operation = null },
                     actionLabel = if (undo) "실행 취소" else null,
                     onAction = if (undo) ({ notice("수집 기록을 복원했습니다.") }) else null)
             }
@@ -133,7 +136,7 @@ fun OverlayGallery(modifier: Modifier = Modifier) {
         OverlayGalleryPanel.INFORMATION -> GeoInfoDialog("연결 상태", dismiss, openerFocusRequester = opener) {
             GalleryFact("휴대폰 Wi-Fi", "GEON-5G")
             GalleryFact("장치 Wi-Fi", "GEON-5G")
-            Text("같은 네트워크입니다.", style = OverlayAdapter.body)
+            Text("같은 네트워크입니다.", style = LocalGeoType.current.body)
             repeat(8) { GalleryFact("장치", device); GalleryFact("구간", section) }
         }
         OverlayGalleryPanel.CHECKING, OverlayGalleryPanel.PASSED, OverlayGalleryPanel.FAILED -> {
@@ -159,25 +162,25 @@ fun OverlayGallery(modifier: Modifier = Modifier) {
 
 @Composable
 private fun GalleryHeading(text: String) {
-    Text(text, Modifier.padding(horizontal = 24.dp, vertical = 16.dp).semantics { heading() }, style = OverlayAdapter.title)
+    Text(text, Modifier.padding(horizontal = 24.dp, vertical = 16.dp).semantics { heading() }, style = LocalGeoType.current.title)
 }
 
 @Composable
 private fun GalleryButton(label: String, onClick: (FocusRequester) -> Unit) {
     val focus = remember { FocusRequester() }
-    OverlayAdapter.Action(GeoOverlayAction(label, { onClick(focus) }), Modifier.fillMaxWidth().focusRequester(focus))
+    GeoOverlayButton(GeoOverlayAction(label, { onClick(focus) }), Modifier.fillMaxWidth().focusRequester(focus))
 }
 
 @Composable
 private fun GalleryChoice(label: String, onClick: () -> Unit) {
-    OverlayAdapter.Action(GeoOverlayAction(label, onClick), Modifier.fillMaxWidth().heightIn(min = 56.dp))
+    GeoOverlayButton(GeoOverlayAction(label, onClick), Modifier.fillMaxWidth().heightIn(min = 56.dp))
 }
 
 @Composable
 private fun GalleryFact(label: String, value: String) {
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = OverlayAdapter.tokens.textSecondary, style = OverlayAdapter.body)
-        Text(value, style = OverlayAdapter.body)
+        Text(label, color = LocalGeoColors.current.textSecondary, style = LocalGeoType.current.body)
+        Text(value, style = LocalGeoType.current.body)
     }
 }
 

@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListState
@@ -42,7 +44,7 @@ fun GeoLogView(
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState()
 ) {
-    val colors = contentColors
+    val colors = LocalGeoColors.current
     var following by remember(listState) { mutableStateOf(true) }
     var programmatic by remember(listState) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -67,14 +69,14 @@ fun GeoLogView(
     }
 
     Column(modifier) {
-        Text(if (live) "실시간" else "보관 로그", color = colors.secondary, style = ContentType.caption,
+        Text(if (live) "실시간" else "보관 로그", color = colors.textSecondary, style = LocalGeoType.current.caption,
             modifier = Modifier.padding(bottom = 8.dp).semantics { heading() })
         Box(Modifier.fillMaxWidth().weight(1f)) {
             SelectionContainer {
                 LazyColumn(Modifier.fillMaxSize(), state = listState,
                     contentPadding = PaddingValues(bottom = 72.dp)) {
                     items(lines, key = { it.id }) { line ->
-                        Text(line.text, color = colors.text, style = ContentType.mono, modifier = Modifier.fillMaxWidth())
+                        Text(line.text, color = colors.text, style = LocalGeoType.current.mono, modifier = Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -100,14 +102,10 @@ private suspend fun scrollToLogEnd(state: LazyListState, lastIndex: Int) {
     if (remaining > 0) state.scrollBy(remaining.toFloat())
 }
 
-// TODO(3-B merge): replace with the shared floating tertiary button.
 @Composable
 private fun LatestLogAction(modifier: Modifier, onClick: () -> Unit) {
-    androidx.compose.material3.Surface(modifier, color = contentColors.surface,
+    androidx.compose.material3.Surface(modifier, color = LocalGeoColors.current.surface,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp), shadowElevation = 1.dp) {
-        Box(Modifier.contentTarget(onClick = onClick).heightIn(min = 48.dp)
-            .padding(horizontal = 12.dp, vertical = 12.dp)) {
-            Text("최신 로그", color = contentColors.primary, style = ContentType.button)
-        }
+        GeoButton("최신 로그", onClick, style = GeoButtonStyle.Tertiary)
     }
 }

@@ -36,50 +36,6 @@ class GeoPaletteTest {
             assertEquals(palette.lightStatusBarIcons, palette.lightNavigationBarIcons)
             assertEquals(palette.isDark, palette.lightSurfaceBarIcons)
         }
-        assertEquals(GeoStandard, GeoLight)
-        assertEquals(GeoGraphite, GeoDark)
-    }
-
-    @Test
-    fun `legacy names keep their semantic role in all six palettes`() {
-        GeoPalette.entries.forEach { palette ->
-            val c = palette.colors
-            assertEquals(c.surface, c.surfaceRaised)
-            assertEquals(c.sunken, c.surfaceSunken)
-            assertEquals(c.fieldPressed, c.subtle)
-            assertEquals(c.scrim, c.overlay)
-            assertEquals(c.text, c.ink)
-            assertEquals(c.text, c.inkStrong)
-            assertEquals(c.textSecondary, c.muted)
-            assertEquals(c.textSubtle, c.inkSubtle)
-            assertEquals(c.borderStrong, c.controlBorder)
-            assertEquals(c.focus, c.focusRing)
-            assertEquals(c.primaryTint, c.brandSoft)
-            assertEquals(c.primaryTintText, c.onBrandSoft)
-            assertEquals(c.primaryTint, c.accent)
-            assertEquals(c.primaryTintText, c.onAccent)
-            assertEquals(c.topBar, c.hero)
-            assertEquals(c.onTopBar, c.heroText)
-            assertEquals(c.onTopBarIcon, c.heroMuted)
-            assertEquals(c.successSoft, c.successBg)
-            assertEquals(c.onPrimary, c.onSuccess)
-            assertEquals(c.warningSoft, c.warningBg)
-            assertEquals(c.onPrimary, c.onWarning)
-            assertEquals(c.dangerSoft, c.dangerBg)
-            assertEquals(c.infoSoft, c.infoBg)
-            assertEquals(c.pendingSoft, c.pendingBg)
-            assertEquals(c.neutral, c.unknown)
-            assertEquals(c.neutralSoft, c.unknownBg)
-            assertEquals(c.neutralBorder, c.unknownBorder)
-            assertEquals(c.disabledFill, c.disabled)
-            assertEquals(c.disabledText, c.onDisabled)
-            assertEquals(c.surface, c.sectionBase)
-            assertEquals(c.sunken, c.sectionSoft)
-            assertEquals(c.field, c.sectionRaised)
-            assertEquals(c.dangerSoft, c.sectionDanger)
-            assertEquals(c.border, c.sectionBorder)
-            assertEquals(c.primaryTintText, c.onNavSelected)
-        }
     }
 
     // R3-final §4.2, in enum order. Includes alpha and absent chrome hairlines.

@@ -74,78 +74,6 @@ data class GeoColors(
     val focus: Color get() = primary
     val switchTrackOn: Color get() = primary
 
-    @Deprecated("Use surface", ReplaceWith("surface"))
-    val surfaceRaised: Color get() = surface
-    @Deprecated("Use sunken", ReplaceWith("sunken"))
-    val surfaceSunken: Color get() = sunken
-    @Deprecated("Use fieldPressed", ReplaceWith("fieldPressed"))
-    val subtle: Color get() = fieldPressed
-    @Deprecated("Use scrim", ReplaceWith("scrim"))
-    val overlay: Color get() = scrim
-    @Deprecated("Use text", ReplaceWith("text"))
-    val ink: Color get() = text
-    @Deprecated("Use text", ReplaceWith("text"))
-    val inkStrong: Color get() = text
-    @Deprecated("Use textSecondary", ReplaceWith("textSecondary"))
-    val muted: Color get() = textSecondary
-    @Deprecated("Use textSubtle", ReplaceWith("textSubtle"))
-    val inkSubtle: Color get() = textSubtle
-    @Deprecated("Use borderStrong", ReplaceWith("borderStrong"))
-    val controlBorder: Color get() = borderStrong
-    @Deprecated("Use focus", ReplaceWith("focus"))
-    val focusRing: Color get() = focus
-    @Deprecated("Use primaryTint", ReplaceWith("primaryTint"))
-    val brandSoft: Color get() = primaryTint
-    @Deprecated("Use primaryTintText", ReplaceWith("primaryTintText"))
-    val onBrandSoft: Color get() = primaryTintText
-    @Deprecated("Use primaryTint", ReplaceWith("primaryTint"))
-    val accent: Color get() = primaryTint
-    @Deprecated("Use primaryTintText", ReplaceWith("primaryTintText"))
-    val onAccent: Color get() = primaryTintText
-    @Deprecated("Use topBar", ReplaceWith("topBar"))
-    val hero: Color get() = topBar
-    @Deprecated("Use onTopBar", ReplaceWith("onTopBar"))
-    val heroText: Color get() = onTopBar
-    @Deprecated("Use onTopBarIcon", ReplaceWith("onTopBarIcon"))
-    val heroMuted: Color get() = onTopBarIcon
-    @Deprecated("Use successSoft", ReplaceWith("successSoft"))
-    val successBg: Color get() = successSoft
-    @Deprecated("Use onPrimary", ReplaceWith("onPrimary"))
-    val onSuccess: Color get() = onPrimary
-    @Deprecated("Use warningSoft", ReplaceWith("warningSoft"))
-    val warningBg: Color get() = warningSoft
-    @Deprecated("Use onPrimary", ReplaceWith("onPrimary"))
-    val onWarning: Color get() = onPrimary
-    @Deprecated("Use dangerSoft", ReplaceWith("dangerSoft"))
-    val dangerBg: Color get() = dangerSoft
-    @Deprecated("Use infoSoft", ReplaceWith("infoSoft"))
-    val infoBg: Color get() = infoSoft
-    @Deprecated("Use pendingSoft", ReplaceWith("pendingSoft"))
-    val pendingBg: Color get() = pendingSoft
-    @Deprecated("Use neutral", ReplaceWith("neutral"))
-    val unknown: Color get() = neutral
-    @Deprecated("Use neutralSoft", ReplaceWith("neutralSoft"))
-    val unknownBg: Color get() = neutralSoft
-    @Deprecated("Use neutralBorder", ReplaceWith("neutralBorder"))
-    val unknownBorder: Color get() = neutralBorder
-    @Deprecated("Use disabledFill", ReplaceWith("disabledFill"))
-    val disabled: Color get() = disabledFill
-    @Deprecated("Use disabledText", ReplaceWith("disabledText"))
-    val onDisabled: Color get() = disabledText
-    @Deprecated("Use surface", ReplaceWith("surface"))
-    val sectionBase: Color get() = surface
-    @Deprecated("Use sunken", ReplaceWith("sunken"))
-    val sectionSoft: Color get() = sunken
-    @Deprecated("Use field", ReplaceWith("field"))
-    val sectionRaised: Color get() = this.field
-    @Deprecated("Use dangerSoft", ReplaceWith("dangerSoft"))
-    val sectionDanger: Color get() = dangerSoft
-    @Deprecated("Use border", ReplaceWith("border"))
-    val sectionBorder: Color get() = border
-    @Deprecated("Use primaryTintText", ReplaceWith("primaryTintText"))
-    val onNavSelected: Color get() = primaryTintText
-    @Deprecated("Brand artwork only; use success for status")
-    val accentGreen: Color get() = if (surface == Color.White) GeoFixedColors.brandGreen else GeoFixedColors.brandGreenLight
 
     /** Canonical roles, including the four explicit aliases in the specification. */
     fun asRoleMap(): Map<String, Color> = mapOf(
@@ -624,18 +552,5 @@ object GeoFixedColors {
     val brandGreenLight = Color(0xFF64B993)
 }
 
-@Deprecated("Use GeoStandard", ReplaceWith("GeoStandard"))
-val GeoLight: GeoColors = GeoStandard
-@Deprecated("Use GeoGraphite", ReplaceWith("GeoGraphite"))
-val GeoDark: GeoColors = GeoGraphite
 
 val LocalGeoColors = staticCompositionLocalOf { GeoStandard }
-
-@Deprecated("Use GeoColors", ReplaceWith("GeoColors"))
-typealias CobaltColors = GeoColors
-@Deprecated("Use GeoStandard", ReplaceWith("GeoStandard"))
-val CobaltLight: GeoColors = GeoStandard
-@Deprecated("Use GeoGraphite", ReplaceWith("GeoGraphite"))
-val CobaltDark: GeoColors = GeoGraphite
-@Deprecated("Use LocalGeoColors", ReplaceWith("LocalGeoColors"))
-val LocalCobaltColors = LocalGeoColors

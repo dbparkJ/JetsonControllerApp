@@ -10,7 +10,6 @@ import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.ui.*
 import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
-import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
 import com.example.jetsoncontroller.ui.devices.*
 import com.example.jetsoncontroller.ui.connection.deviceConnectionUi
 import com.example.jetsoncontroller.ui.dashboard.*
@@ -22,45 +21,6 @@ import java.time.Duration
 import com.example.jetsoncontroller.ui.network.NetworkSettingsScreen
 
 internal fun NavGraphBuilder.deviceGraph(state: State<AppNavigationState>, includeRoot: Boolean = false) {
-        composable(
-            Routes.CONNECTION_HUB
-        ) {
-            with(state.value) {
-                ConnectionHubScreen(
-                    onAddDevice = { navController.navigateSingle(Routes.ONBOARDING) },
-                    onDirectConnect = { device ->
-                        repository.prepareManualWifiDirect(device.deviceId)
-                        navController.navigateSingle(Routes.WIFI_DIRECT)
-                    },
-                    onSettingsClick = { navigateToTab(navController, Routes.SETTINGS) },
-                    onUploadHistoryClick = { navController.navigateSingle(Routes.UPLOAD_QUEUE) },
-                    onServerDataClick = { navController.navigateSingle(Routes.SERVER_STORAGE) },
-                    onOpenDashboard = { navigateToDeviceRoot(navController) },
-                    unreadAlertCount = alertCenterState.unreadCount,
-                    onAlertsClick = { navController.navigateSingle(Routes.ALERTS) },
-                    lanEndpoints = lanEndpoints,
-                    registeredDevices = deviceState.registeredDevices,
-                    transportState = transportState,
-                    lanError = userFacingConnectionMessage(
-                        lanConnectionError ?: lanDiscoveryError,
-                        developerModeEnabled
-                    ),
-                    connectingLanDeviceId = connectingLanDeviceId,
-                    localNetworkPermissionGranted = localNetworkPermissionGranted,
-                    onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
-                    onRefreshLan = { repository.startLanDiscovery() },
-                    onConnectLan = { endpoint ->
-                        pendingDashboardTransport = TransportType.LAN
-                        repository.connectLan(endpoint)
-                    },
-                    onReconnectDevice = { device ->
-                        repository.connectRegisteredAutomatically(device.deviceId)
-                        navigateToDeviceRoot(navController)
-                    }
-                )
-            }
-        }
-
     (listOf(Routes.DEVICE_BROWSE) + if (includeRoot) listOf(Routes.DEVICES) else emptyList()).forEach { rootRoute ->
         composable(rootRoute) {
             with(state.value) {
@@ -154,6 +114,7 @@ internal fun NavGraphBuilder.deviceGraph(state: State<AppNavigationState>, inclu
                 }
                 DeviceDetailScreen(
                     deviceName = name,
+                    initialConnectionMethods = entry.savedStateHandle.get<Boolean>("connectionMethodsRequested") == true,
                     dashboard = dashboard,
                     snapshot = snapshot,
                     connection = deviceConnectionUi(dashboard.isOnline && dashboard.statusFreshness != StatusFreshness.UNKNOWN, dashboard.transportType,
@@ -332,4 +293,9 @@ private fun deviceRootHealthItems(state: AppNavigationState): List<DeviceHealthI
             com.example.jetsoncontroller.ui.sensors.SensorActivity.DISCONNECTED) }
         .map { (name, sensor) -> DeviceHealthItem("sensor:$name:${sensor.activity}",
             "${state.selectedDeviceName} $name ${sensor.badge}", sensor.description) }
+}
+
+internal fun openConnectionMethods(navController: androidx.navigation.NavHostController) {
+    navController.navigateSingle(Routes.DEVICE_DETAIL)
+    navController.currentBackStackEntry?.savedStateHandle?.set("connectionMethodsRequested", true)
 }

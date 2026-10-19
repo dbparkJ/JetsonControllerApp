@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -38,17 +40,17 @@ fun GeoConfirmDialog(
     require(confirmLabel.isNotBlank() && confirmLabel != "확인" && confirmLabel != "예")
     require(confirmEnabled || !disabledReason.isNullOrBlank()) { "A disabled confirmation needs a visible reason" }
     OverlayDialog(title, onDismissRequest, modifier, openerFocusRequester, footer = {
-        OverlayAdapter.Actions(
+        GeoOverlayActions(
             GeoOverlayAction(confirmLabel, onConfirm, enabled = confirmEnabled, busy = busy),
             GeoOverlayAction(dismissLabel, onDismissRequest),
             danger = kind == GeoConfirmKind.DANGER
         )
     }) {
-        Text(body, color = OverlayAdapter.tokens.text, style = OverlayAdapter.body)
+        Text(body, color = LocalGeoColors.current.text, style = LocalGeoType.current.body)
         facts()
         if (!confirmEnabled && disabledReason != null) {
             Spacer(Modifier.height(8.dp))
-            Text(disabledReason, color = OverlayAdapter.tokens.textSecondary, style = OverlayAdapter.body)
+            Text(disabledReason, color = LocalGeoColors.current.textSecondary, style = LocalGeoType.current.body)
         }
     }
 }
@@ -63,7 +65,7 @@ fun GeoInfoDialog(
 ) {
     OverlayDialog(title, onDismissRequest, modifier, openerFocusRequester, footer = {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            OverlayAdapter.Action(GeoOverlayAction("닫기", onDismissRequest))
+            GeoOverlayButton(GeoOverlayAction("닫기", onDismissRequest))
         }
     }, content = content)
 }
@@ -81,7 +83,7 @@ private fun OverlayDialog(
     val window = LocalConfiguration.current
     var bodySpace by remember(window.screenWidthDp, window.screenHeightDp, density.fontScale) { mutableIntStateOf(Int.MAX_VALUE) }
     val fallback = sheetNeedsFullScreen(with(density) { bodySpace.toDp().value }, 0f, 0f)
-    val t = OverlayAdapter.tokens
+    val t = LocalGeoColors.current
     RestoreOverlayFocus(openerFocusRequester)
     if (fallback) {
         OverlayFullScreenDialog(title, null, onDismissRequest, modifier, footer, content)
@@ -98,7 +100,7 @@ private fun OverlayDialog(
                         Column(Modifier.padding(24.dp)) {
                             OverlayViewport(
                                 header = {
-                                    Text(title, color = t.text, style = OverlayAdapter.title, modifier = Modifier.semantics { heading() })
+                                    Text(title, color = t.text, style = LocalGeoType.current.title, modifier = Modifier.semantics { heading() })
                                     Spacer(Modifier.height(8.dp))
                                 },
                                 footer = {

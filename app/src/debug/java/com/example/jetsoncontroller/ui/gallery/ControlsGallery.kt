@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.gallery
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -22,7 +23,7 @@ import com.example.jetsoncontroller.ui.components.geo.*
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ControlsGallery(modifier: Modifier = Modifier) {
-    val colors = geoControlColors()
+    val colors = LocalGeoColors.current
     var busy by rememberSaveable { mutableStateOf(false) }
     var checked by rememberSaveable { mutableStateOf(true) }
     var selected by rememberSaveable { mutableStateOf(0) }
@@ -128,5 +129,5 @@ fun ControlsGallery(modifier: Modifier = Modifier) {
 @Composable
 private fun ControlsGalleryTitle(title: String) {
     Text(title, Modifier.padding(top = 24.dp).semantics { heading() }, style = MaterialTheme.typography.titleMedium,
-        color = geoControlColors().text)
+        color = LocalGeoColors.current.text)
 }

@@ -1,13 +1,11 @@
 package com.example.jetsoncontroller.ui.settings
 
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -38,7 +36,7 @@ fun SettingsHubScreen(
     onAlertSettings: () -> Unit, onServerStorage: () -> Unit,
     onRefreshFan: () -> Unit, onFanAuto: () -> Unit, onFanManual: (Int) -> Unit,
     onReboot: () -> Unit, onShutdown: () -> Unit,
-    onDismissMessage: () -> Unit, onSection: (ControlSection) -> Unit,
+    onDismissMessage: () -> Unit, onSection: (GeoTab) -> Unit,
     onDeveloper: () -> Unit = {}, onAdminTools: () -> Unit = {},
     developerModeEnabled: Boolean = false,
     onDeveloperModeChange: (Boolean) -> Unit = {},
@@ -68,7 +66,7 @@ fun SettingsHubScreen(
             Text(
                 "설정",
                 modifier = Modifier.fillMaxWidth().padding(start = 24.dp, top = 12.dp, end = 24.dp, bottom = 8.dp),
-                color = LocalGeoColors.current.ink,
+                color = LocalGeoColors.current.text,
                 style = LocalGeoType.current.heading
             )
             LazyColumn(

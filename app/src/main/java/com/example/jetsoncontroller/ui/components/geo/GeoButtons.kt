@@ -39,51 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
-/** Phase-3 seam: replace only these aliases when the new theme roles are integrated. */
-internal class GeoControlColors(
-    val surface: Color,
-    val sunken: Color,
-    val field: Color,
-    val fieldPressed: Color,
-    val text: Color,
-    val textSecondary: Color,
-    val borderStrong: Color,
-    val primary: Color,
-    val primaryPressed: Color,
-    val onPrimary: Color,
-    val danger: Color,
-    val dangerPressed: Color,
-    val onDanger: Color,
-    val disabledFill: Color,
-    val disabledText: Color,
-    val switchTrackOff: Color,
-    val switchThumbOff: Color,
-    val switchThumbOn: Color,
-    val focus: Color,
-    val focusHalo: Color,
-    val onTopBarIcon: Color,
-    val navFocus: Color
-)
-
-@Composable
-internal fun geoControlColors(): GeoControlColors {
-    val c = LocalGeoColors.current
-    return remember(c) {
-        GeoControlColors(
-            surface = c.surface, sunken = c.surfaceSunken,
-            field = c.subtle, fieldPressed = c.subtle,
-            text = c.ink, textSecondary = c.muted, borderStrong = c.controlBorder,
-            primary = c.primary, primaryPressed = c.primaryPressed, onPrimary = c.onPrimary,
-            danger = c.danger, dangerPressed = c.danger, onDanger = c.onDanger,
-            disabledFill = c.disabled, disabledText = c.onDisabled,
-            switchTrackOff = c.controlBorder, switchThumbOff = c.surface,
-            switchThumbOn = c.onPrimary, focus = c.focusRing,
-            focusHalo = c.focusRing.copy(alpha = 0.24f),
-            onTopBarIcon = c.muted, navFocus = c.focusRing
-        )
-    }
-}
-
 internal val GeoControlShape = RoundedCornerShape(10.dp)
 
 @Composable
@@ -106,10 +61,11 @@ internal fun geoLabelTextStyle(): TextStyle = MaterialTheme.typography.labelMedi
 internal fun Modifier.geoFocusRing(
     shape: Shape,
     focused: Boolean,
-    chrome: Boolean = false
+    chrome: Boolean = false,
+    tint: Color? = null
 ): Modifier {
-    val c = geoControlColors()
-    val ring = if (chrome) c.navFocus else c.focus
+    val c = LocalGeoColors.current
+    val ring = tint ?: if (chrome) c.navFocus else c.focus
     return drawWithContent {
         if (focused) {
             fun outline(outset: Float, width: Float, color: Color) {
@@ -118,7 +74,7 @@ internal fun Modifier.geoFocusRing(
                     drawOutline(shape.createOutline(expanded, layoutDirection, this), color, style = Stroke(width))
                 }
             }
-            outline(6.dp.toPx(), 4.dp.toPx(), c.focusHalo)
+            outline(6.dp.toPx(), 4.dp.toPx(), tint?.copy(alpha = .24f) ?: c.focusHalo)
             outline(3.dp.toPx(), 2.dp.toPx(), ring)
         }
         drawContent()
@@ -138,10 +94,11 @@ fun GeoButton(
     busyLabel: String? = null,
     icon: ImageVector? = null,
     disabledReason: String? = null,
-    actionArea: Boolean = false
+    actionArea: Boolean = false,
+    contentColor: Color? = null
 ) {
     require(!busy || !busyLabel.isNullOrBlank()) { "Busy buttons require a present-progressive label" }
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     var focused by remember { mutableStateOf(false) }
@@ -151,11 +108,13 @@ fun GeoButton(
         !enabled -> c.disabledFill
         style == GeoButtonStyle.Primary -> if (pressed) c.primaryPressed else c.primary
         style == GeoButtonStyle.DangerFilled -> if (pressed) c.dangerPressed else c.danger
+        pressed && contentColor != null -> contentColor.copy(alpha = .12f)
         pressed -> c.fieldPressed
         else -> Color.Transparent
     }
     val content = when {
         !enabled -> c.disabledText
+        contentColor != null -> contentColor
         filled -> if (danger) c.onDanger else c.onPrimary
         danger -> c.danger
         style == GeoButtonStyle.Tertiary -> c.primary
@@ -172,7 +131,7 @@ fun GeoButton(
                 .heightIn(min = if (filled || actionArea) 52.dp else 48.dp)
                 .defaultMinSize(minWidth = 48.dp)
                 .onFocusChanged { focused = it.isFocused }
-                .geoFocusRing(GeoControlShape, focused)
+                .geoFocusRing(GeoControlShape, focused, tint = contentColor)
                 .clip(GeoControlShape)
                 .background(fill)
                 .then(if (border != null) Modifier.border(border, GeoControlShape) else Modifier)
@@ -212,7 +171,7 @@ fun GeoIconButton(
     disabledReason: String? = null
 ) {
     require(contentDescription.isNotBlank())
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     var focused by remember { mutableStateOf(false) }

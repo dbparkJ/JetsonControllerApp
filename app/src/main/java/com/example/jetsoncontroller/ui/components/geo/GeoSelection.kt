@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -57,7 +58,7 @@ fun GeoSwitchRow(
     GeoSelectionRow(title, description, enabled, disabledReason, modifier,
         trailing = true, selected = checked, role = Role.Switch, onSelect = { onCheckedChange(!checked) }
     ) { focused ->
-        val c = geoControlColors()
+        val c = LocalGeoColors.current
         val position by animateDpAsState(
             if (checked) 20.dp else 0.dp,
             tween(180, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)), label = "geoSwitch"
@@ -84,7 +85,7 @@ fun GeoCheckboxRow(
     GeoSelectionRow(title, description, enabled, disabledReason, modifier,
         trailing = false, selected = checked, role = Role.Checkbox, onSelect = { onCheckedChange(!checked) }
     ) { focused ->
-        val c = geoControlColors()
+        val c = LocalGeoColors.current
         Canvas(Modifier.size(20.dp).geoFocusRing(RoundedCornerShape(6.dp), focused)) {
             val fill = if (checked) { if (enabled) c.primary else c.disabledFill } else c.surface
             val stroke = if (!enabled) c.disabledText else if (checked) c.primary else c.borderStrong
@@ -117,7 +118,7 @@ fun GeoRadioRow(
     GeoSelectionRow(title, description, enabled, disabledReason, modifier,
         trailing = false, selected = selected, role = Role.RadioButton, onSelect = onClick
     ) { focused ->
-        val c = geoControlColors()
+        val c = LocalGeoColors.current
         Canvas(Modifier.size(20.dp).geoFocusRing(CircleShape, focused)) {
             val color = if (!enabled) c.disabledText else if (selected) c.primary else c.borderStrong
             drawCircle(color, radius = size.minDimension / 2 - 1.dp.toPx(), style = Stroke(2.dp.toPx()))
@@ -138,7 +139,7 @@ fun GeoRadioGroup(
     disabledReason: String? = null
 ) {
     require(options.isNotEmpty() && selectedIndex in options.indices)
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     Column(modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = label }) {
         Text(label, style = geoLabelTextStyle(), color = c.text)
         options.forEachIndexed { index, option ->
@@ -161,7 +162,7 @@ private fun GeoSelectionRow(
     indicator: @Composable (focused: Boolean) -> Unit
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled controls require a visible reason" }
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     var focused by remember { mutableStateOf(false) }
@@ -204,7 +205,7 @@ fun GeoSegmented(
 ) {
     require(options.size in 2..4 && selectedIndex in options.indices)
     require(enabled || !disabledReason.isNullOrBlank())
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val style = geoLabelTextStyle()
@@ -276,7 +277,7 @@ fun GeoSliderRow(
     require(enabled || !disabledReason.isNullOrBlank())
     val intervals = ((valueRange.endInclusive - valueRange.start) / step).roundToInt()
     require(intervals >= 1 && kotlin.math.abs(intervals * step - (valueRange.endInclusive - valueRange.start)) < 0.001f)
-    val c = geoControlColors()
+    val c = LocalGeoColors.current
     val current = value.coerceIn(valueRange)
     var focused by remember { mutableStateOf(false) }
     fun change(newValue: Float) {

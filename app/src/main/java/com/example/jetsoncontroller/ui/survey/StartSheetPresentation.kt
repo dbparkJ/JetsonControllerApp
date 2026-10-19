@@ -1,7 +1,7 @@
 package com.example.jetsoncontroller.ui.survey
 
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.model.PositionQuality
@@ -20,7 +20,7 @@ internal data class PreparationTelemetry(
     val correctionRelay: String? = null
 )
 
-internal data class PreparationReadiness(val label: String, val value: String, val tone: StatusTone)
+internal data class PreparationReadiness(val label: String, val value: String, val tone: Tone)
 
 internal fun optionalStartChecks(state: SurveyRunUiState): List<GeoStartCheck> =
     if (state.operation in setOf("create_context", "preflight")) emptyList() else state.preflight?.checks?.sensors.orEmpty()
@@ -52,19 +52,19 @@ internal fun preparationReadiness(state: SurveyRunUiState, now: Long): List<Prep
     }
     return listOf(
         PreparationReadiness("연결", if (state.online) telemetry?.connectionLabel ?: "연결됨" else "오프라인",
-            if (state.online) StatusTone.SUCCESS else StatusTone.UNKNOWN),
+            if (state.online) Tone.SUCCESS else Tone.UNKNOWN),
         PreparationReadiness("저장 공간", storage?.let { "${Formats.size(it)} 남음" } ?: "미확인",
-            if (storage != null) StatusTone.INFO else StatusTone.UNKNOWN),
+            if (storage != null) Tone.INFO else Tone.UNKNOWN),
         PreparationReadiness("위치 품질", position.word, position.tone),
         PreparationReadiness("카메라", sensors.camera.badge,
             when (sensors.camera.activity) {
-                SensorActivity.ACTIVE -> StatusTone.SUCCESS
-                SensorActivity.CONNECTED -> StatusTone.INFO
-                SensorActivity.STALE, SensorActivity.DISCONNECTED -> StatusTone.WARNING
-                else -> StatusTone.UNKNOWN
+                SensorActivity.ACTIVE -> Tone.SUCCESS
+                SensorActivity.CONNECTED -> Tone.INFO
+                SensorActivity.STALE, SensorActivity.DISCONNECTED -> Tone.WARNING
+                else -> Tone.UNKNOWN
             })
     ) + listOfNotNull(telemetry?.correctionRelay?.let {
-        PreparationReadiness("보정 정보 중계", if (state.online) it else "미확인", StatusTone.INFO)
+        PreparationReadiness("보정 정보 중계", if (state.online) it else "미확인", Tone.INFO)
     })
 }
 

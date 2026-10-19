@@ -5,8 +5,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
 import com.example.jetsoncontroller.ui.model.Formats
@@ -16,7 +16,7 @@ fun PipelineListScreen(
     state: PipelineUiState, onBack: () -> Unit, onRefresh: () -> Unit, onAdd: () -> Unit,
     onControl: (ManagedPipeline, String) -> Unit, onRemove: (ManagedPipeline) -> Unit,
     onLogs: (ManagedPipeline) -> Unit, onConfig: (ManagedPipeline) -> Unit,
-    onOutput: (ManagedPipeline) -> Unit, onSectionSelected: (ControlSection) -> Unit,
+    onOutput: (ManagedPipeline) -> Unit, onSectionSelected: (GeoTab) -> Unit,
     onClearMessage: () -> Unit, deviceName: String = "선택한 장치", unreadCount: Int = 0,
     onAlerts: () -> Unit = {}, onDetails: (ManagedPipeline) -> Unit = onLogs,
     detailId: String? = null, startCapability: Boolean = false,
@@ -62,11 +62,11 @@ fun PipelineListScreen(
             DevIdentity(pipeline.label, "$deviceName · 마지막 실행 ${devTimestamp(pipeline.execution?.startedAt)}",
                 status = taskStateLabel(pipeline, fresh, state.pendingActions[pipeline.id]),
                 tone = when {
-                    !fresh -> StatusTone.UNKNOWN
-                    pipeline.id in state.pendingActions -> StatusTone.PENDING
-                    pipeline.state == PipelineState.FAILED -> StatusTone.ERROR
-                    pipeline.state == PipelineState.RUNNING -> StatusTone.INFO
-                    else -> StatusTone.UNKNOWN
+                    !fresh -> Tone.UNKNOWN
+                    pipeline.id in state.pendingActions -> Tone.PENDING
+                    pipeline.state == PipelineState.FAILED -> Tone.ERROR
+                    pipeline.state == PipelineState.RUNNING -> Tone.INFO
+                    else -> Tone.UNKNOWN
                 })
             Spacer(Modifier.height(8.dp))
             GeoSection("실행") {

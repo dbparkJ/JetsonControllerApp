@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -77,7 +80,7 @@ fun GeoStartSheet(
     openerFocusRequester: FocusRequester? = null
 ) {
     val rules = startSheetRules(state)
-    val t = OverlayAdapter.tokens
+    val t = LocalGeoColors.current
     GeoSheet(
         title = "${state.sectionName} 수집을 시작할까요?",
         onDismissRequest = onDismissRequest,
@@ -86,7 +89,7 @@ fun GeoStartSheet(
         openerFocusRequester = openerFocusRequester,
         footer = {
             rules.blockingReason?.let {
-                Text(it, color = t.textSecondary, style = OverlayAdapter.body)
+                Text(it, color = t.textSecondary, style = LocalGeoType.current.body)
                 Spacer(Modifier.height(8.dp))
             }
             GeoSheetFooter(
@@ -96,7 +99,7 @@ fun GeoStartSheet(
         }
     ) {
         if (state.ticketLinked) {
-            Text("${state.sectionName} · ${state.projectName} · ${state.deviceName}", color = t.textSecondary, style = OverlayAdapter.body)
+            Text("${state.sectionName} · ${state.projectName} · ${state.deviceName}", color = t.textSecondary, style = LocalGeoType.current.body)
         } else {
             StartFact("장치", state.deviceName)
             StartFact("프로젝트", state.projectName)
@@ -106,31 +109,31 @@ fun GeoStartSheet(
         if (state.insideZone) {
             StartZoneBadge(state.zoneLine)
         } else {
-            Text(state.zoneLine, color = t.text, style = OverlayAdapter.body)
+            Text(state.zoneLine, color = t.text, style = LocalGeoType.current.body)
         }
         Spacer(Modifier.height(16.dp))
-        Text("시작 전 점검", color = t.text, style = OverlayAdapter.titleSmall, modifier = Modifier.semantics { heading() })
+        Text("시작 전 점검", color = t.text, style = LocalGeoType.current.titleSm, modifier = Modifier.semantics { heading() })
         // Never sort by result: a failure stays under the same check as results arrive.
         state.checks.forEach { StartCheckRow(it) }
-        if (rules.showRecheck) OverlayAdapter.Action(GeoOverlayAction("다시 점검", onRecheck))
+        if (rules.showRecheck) GeoOverlayButton(GeoOverlayAction("다시 점검", onRecheck))
         if (state.ticketLinked) {
             Spacer(Modifier.height(12.dp))
-            Text("GEO& Work 상태가 '진행 중'으로 바뀝니다.", color = t.text, style = OverlayAdapter.body)
+            Text("GEO& Work 상태가 '진행 중'으로 바뀝니다.", color = t.text, style = LocalGeoType.current.body)
         }
         Spacer(Modifier.height(4.dp))
-        Text("시작하면 이 수집의 프로젝트와 구간을 바꿀 수 없습니다.", color = t.text, style = OverlayAdapter.body)
+        Text("시작하면 이 수집의 프로젝트와 구간을 바꿀 수 없습니다.", color = t.text, style = LocalGeoType.current.body)
     }
 }
 
 @Composable
 private fun StartZoneBadge(label: String) {
-    val t = OverlayAdapter.tokens
-    Surface(shape = RoundedCornerShape(50), color = t.soft(GeoOverlayTone.SUCCESS),
+    val t = LocalGeoColors.current
+    Surface(shape = RoundedCornerShape(50), color = t.soft(Tone.SUCCESS),
         modifier = Modifier.semantics { stateDescription = label }) {
         Row(Modifier.heightIn(min = 24.dp).padding(horizontal = 8.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(6.dp).background(t.tone(GeoOverlayTone.SUCCESS), CircleShape))
-            Text(label, color = t.tone(GeoOverlayTone.SUCCESS), style = OverlayAdapter.caption)
+            Box(Modifier.size(6.dp).background(t.tone(Tone.SUCCESS), CircleShape))
+            Text(label, color = t.tone(Tone.SUCCESS), style = LocalGeoType.current.caption)
         }
     }
 }
@@ -138,18 +141,18 @@ private fun StartZoneBadge(label: String) {
 @Composable
 private fun StartFact(label: String, value: String) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = OverlayAdapter.tokens.textSecondary, style = OverlayAdapter.body)
-        Text(value, color = OverlayAdapter.tokens.text, style = OverlayAdapter.body)
+        Text(label, color = LocalGeoColors.current.textSecondary, style = LocalGeoType.current.body)
+        Text(value, color = LocalGeoColors.current.text, style = LocalGeoType.current.body)
     }
 }
 
 @Composable
 private fun StartCheckRow(check: GeoStartCheck) {
-    val t = OverlayAdapter.tokens
+    val t = LocalGeoColors.current
     val tone = when (check.phase) {
-        GeoStartPhase.CHECKING -> GeoOverlayTone.PENDING
-        GeoStartPhase.PASSED -> GeoOverlayTone.SUCCESS
-        GeoStartPhase.FAILED -> GeoOverlayTone.DANGER
+        GeoStartPhase.CHECKING -> Tone.PENDING
+        GeoStartPhase.PASSED -> Tone.SUCCESS
+        GeoStartPhase.FAILED -> Tone.ERROR
     }
     val value = when (check.phase) {
         GeoStartPhase.CHECKING -> "확인 중"
@@ -157,11 +160,11 @@ private fun StartCheckRow(check: GeoStartCheck) {
         GeoStartPhase.FAILED -> check.value ?: "실패"
     }
     val measure = rememberTextMeasurer()
-    val titleStyle = OverlayAdapter.titleSmall
-    val bodyStyle = OverlayAdapter.body
+    val titleStyle = LocalGeoType.current.titleSm
+    val bodyStyle = LocalGeoType.current.body
     val density = LocalDensity.current
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OverlayAdapter.StatusIcon(tone, Modifier.padding(top = 2.dp))
+        GeoToneIcon(tone, Modifier.padding(top = 2.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val needed = measure.measure(check.label, titleStyle, softWrap = false, maxLines = 1).size.width +
@@ -181,7 +184,7 @@ private fun StartCheckRow(check: GeoStartCheck) {
             if (check.phase == GeoStartPhase.FAILED) {
                 Text(check.reason.orEmpty(), color = t.textSecondary, style = bodyStyle)
                 check.remedy?.let { remedy ->
-                    OverlayAdapter.Action(remedy)
+                    GeoOverlayButton(remedy)
                     if (!remedy.enabled && remedy.disabledReason != null) Text(remedy.disabledReason, color = t.textSecondary, style = bodyStyle)
                 }
             }

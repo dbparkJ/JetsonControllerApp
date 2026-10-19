@@ -1,6 +1,6 @@
 package com.example.jetsoncontroller.ui.field
 
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -94,9 +94,9 @@ class FieldStageTest {
     @Test
     fun `미확인은 성공으로도 실패로도 표시하지 않는다`() {
         val plan = fieldStagePlan(FieldStageInput(connected = true, unconfirmedRunId = "run_0941"))
-        assertEquals(StatusTone.UNKNOWN, plan.tone)
-        assertNotEquals(StatusTone.SUCCESS, plan.tone)
-        assertNotEquals(StatusTone.ERROR, plan.tone)
+        assertEquals(Tone.UNKNOWN, plan.tone)
+        assertNotEquals(Tone.SUCCESS, plan.tone)
+        assertNotEquals(Tone.ERROR, plan.tone)
     }
 
     @Test
@@ -104,7 +104,7 @@ class FieldStageTest {
         val plan = fieldStagePlan(
             FieldStageInput(connected = true, runStateConfirmed = true, pendingStartRequestId = "req_1")
         )
-        assertEquals(StatusTone.PENDING, plan.tone)
+        assertEquals(Tone.PENDING, plan.tone)
     }
 
     @Test
@@ -115,7 +115,7 @@ class FieldStageTest {
                 surveySelected = true, runAwaitingResultId = "run_0941"
             )
         )
-        assertEquals(StatusTone.PENDING, plan.tone)
+        assertEquals(Tone.PENDING, plan.tone)
     }
 
     // ---- 문구 규칙 ---------------------------------------------------------

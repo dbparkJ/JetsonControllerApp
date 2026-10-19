@@ -13,9 +13,10 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import com.example.jetsoncontroller.ui.components.ConnectionRecoveryLayout
-import com.example.jetsoncontroller.ui.components.ControlNavigationBar
-import com.example.jetsoncontroller.ui.components.ControlSection
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.*
+import androidx.compose.foundation.layout.*
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -36,10 +37,10 @@ class ConnectionNoticeScreenTest {
         val restoration = StateRestorationTester(compose)
         restoration.setContent {
             JetsonControllerTheme {
-                ConnectionRecoveryLayout(device, connected, message, { resolved++ }) { modifier ->
+                NoticeFixture(device, connected, message, { resolved++ }) { modifier ->
                     Scaffold(modifier = modifier.testTag("screen"), bottomBar = {
                         Box(Modifier.testTag("navigation")) {
-                            ControlNavigationBar(ControlSection.DEVICES, {})
+                            GeoBottomBar(GeoTab.DEVICES, {})
                         }
                     }) { padding -> Text("현재 화면", Modifier.padding(padding)) }
                 }
@@ -65,7 +66,7 @@ class ConnectionNoticeScreenTest {
     @Test fun contentStartsBelowTheBannerSoTheBannerNeverCoversATitle() {
         compose.setContent {
             JetsonControllerTheme {
-                ConnectionRecoveryLayout("A", false, notice, {}) { modifier ->
+                NoticeFixture("A", false, notice, {}) { modifier ->
                     Scaffold(modifier = modifier) { padding ->
                         Text("화면 제목", Modifier.testTag("title").padding(padding))
                     }
@@ -81,13 +82,25 @@ class ConnectionNoticeScreenTest {
     @Test fun deviceRootShowsTheFourPrimaryTabsAtTheBottom() {
         compose.setContent {
             JetsonControllerTheme(darkTheme = true) {
-                Scaffold(bottomBar = { ControlNavigationBar(ControlSection.DEVICES, {}) }) { padding ->
+                Scaffold(bottomBar = { GeoBottomBar(GeoTab.DEVICES, {}) }) { padding ->
                     Text("현재 화면", Modifier.padding(padding))
                 }
             }
         }
         listOf("장치", "작업", "전송", "설정").forEach {
             compose.onNodeWithText(it).assertIsDisplayed()
+        }
+    }
+
+    @Composable
+    private fun NoticeFixture(device: String, connected: Boolean, message: String?, onResolve: () -> Unit,
+        content: @Composable (Modifier) -> Unit) {
+        GeoAppShell(GeoTab.DEVICES, {}, navigationVisible = false) {
+            Column(Modifier.fillMaxSize()) {
+                if (!connected && message != null) GeoInlineNote(message, kind = GeoNoteKind.LIVE_ERROR,
+                    actionLabel = "연결 문제 해결", onAction = onResolve)
+                Box(Modifier.weight(1f).fillMaxWidth()) { content(Modifier.fillMaxSize()) }
+            }
         }
     }
 

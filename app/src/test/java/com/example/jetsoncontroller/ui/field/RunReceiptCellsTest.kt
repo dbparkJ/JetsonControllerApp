@@ -8,7 +8,7 @@ import com.example.jetsoncontroller.model.UploadContext
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -18,19 +18,19 @@ class RunReceiptCellsTest {
 
     @Test
     fun `result receipt without a run is unknown in every cell`() {
-        val cells = pipelineRunReceiptCells(run = null, serverTone = StatusTone.UNKNOWN)
+        val cells = pipelineRunReceiptCells(run = null, serverTone = Tone.UNKNOWN)
 
         assertEquals(listOf("수집 종료", "장치 저장", "서버 수신"), cells.map { it.title })
         assertEquals(listOf("미확인", "미확인", "미확인"), cells.map { it.value })
-        assertEquals(listOf(StatusTone.UNKNOWN, StatusTone.UNKNOWN, StatusTone.UNKNOWN), cells.map { it.tone })
+        assertEquals(listOf(Tone.UNKNOWN, Tone.UNKNOWN, Tone.UNKNOWN), cells.map { it.tone })
     }
 
     @Test
     fun `server cell words follow the server tone`() {
-        assertEquals("수신 확인", pipelineRunReceiptCells(null, StatusTone.SUCCESS)[2].value)
-        assertEquals("전송 중", pipelineRunReceiptCells(null, StatusTone.PENDING)[2].value)
-        assertEquals("다시 확인", pipelineRunReceiptCells(null, StatusTone.WARNING)[2].value)
-        assertEquals(StatusTone.WARNING, pipelineRunReceiptCells(null, StatusTone.WARNING)[2].tone)
+        assertEquals("수신 확인", pipelineRunReceiptCells(null, Tone.SUCCESS)[2].value)
+        assertEquals("전송 중", pipelineRunReceiptCells(null, Tone.PENDING)[2].value)
+        assertEquals("다시 확인", pipelineRunReceiptCells(null, Tone.WARNING)[2].value)
+        assertEquals(Tone.WARNING, pipelineRunReceiptCells(null, Tone.WARNING)[2].tone)
     }
 
     @Test
@@ -40,11 +40,11 @@ class RunReceiptCellsTest {
             uploadJobs = emptyList()
         )
 
-        assertEquals(StatusTone.SUCCESS, cells[0].tone)
+        assertEquals(Tone.SUCCESS, cells[0].tone)
         assertEquals("종료", cells[0].value)
-        assertEquals(StatusTone.SUCCESS, cells[1].tone)
+        assertEquals(Tone.SUCCESS, cells[1].tone)
         assertEquals("저장 확인", cells[1].value)
-        assertEquals(StatusTone.UNKNOWN, cells[2].tone)
+        assertEquals(Tone.UNKNOWN, cells[2].tone)
         assertEquals("미확인", cells[2].value)
     }
 
@@ -54,15 +54,15 @@ class RunReceiptCellsTest {
         val otherRun = upload("job-b", runId = "run-2", state = UploadJobState.COMPLETED, matched = true)
 
         assertEquals(
-            StatusTone.SUCCESS,
+            Tone.SUCCESS,
             uploadReceiptTone("run-1", RECEIPT_DEVICE_ID, listOf(confirmed, otherRun))
         )
         assertEquals(
-            StatusTone.UNKNOWN,
+            Tone.UNKNOWN,
             uploadReceiptTone("run-3", RECEIPT_DEVICE_ID, listOf(confirmed, otherRun))
         )
         assertEquals(
-            StatusTone.UNKNOWN,
+            Tone.UNKNOWN,
             uploadReceiptTone("run-1", "another-device", listOf(confirmed))
         )
     }
@@ -71,7 +71,7 @@ class RunReceiptCellsTest {
     fun `a transfer in progress for the run is pending`() {
         val uploading = upload("job-c", runId = "run-1", state = UploadJobState.UPLOADING, matched = null)
 
-        assertEquals(StatusTone.PENDING, uploadReceiptTone("run-1", RECEIPT_DEVICE_ID, listOf(uploading)))
+        assertEquals(Tone.PENDING, uploadReceiptTone("run-1", RECEIPT_DEVICE_ID, listOf(uploading)))
         val cells = taskRunReceiptCells(taskRun("run-1"), listOf(uploading))
         assertEquals("전송 중", cells[2].value)
     }
@@ -80,14 +80,14 @@ class RunReceiptCellsTest {
     fun `a mismatched verification for the run is a warning, never an unknown failure`() {
         val mismatched = upload("job-d", runId = "run-1", state = UploadJobState.COMPLETED, matched = false)
 
-        assertEquals(StatusTone.WARNING, uploadReceiptTone("run-1", RECEIPT_DEVICE_ID, listOf(mismatched)))
+        assertEquals(Tone.WARNING, uploadReceiptTone("run-1", RECEIPT_DEVICE_ID, listOf(mismatched)))
     }
 
     @Test
     fun `a run without a run id can never be confirmed by an upload`() {
         val confirmed = upload("job-e", runId = "run-1", state = UploadJobState.COMPLETED, matched = true)
 
-        assertEquals(StatusTone.UNKNOWN, uploadReceiptTone(null, RECEIPT_DEVICE_ID, listOf(confirmed)))
+        assertEquals(Tone.UNKNOWN, uploadReceiptTone(null, RECEIPT_DEVICE_ID, listOf(confirmed)))
     }
 
     @Test
@@ -96,7 +96,7 @@ class RunReceiptCellsTest {
 
         val cells = taskRunReceiptCells(stopped, emptyList())
 
-        assertEquals(StatusTone.INFO, cells[0].tone)
+        assertEquals(Tone.INFO, cells[0].tone)
         assertEquals("중지됨", cells[0].value)
     }
 

@@ -10,8 +10,8 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
-import com.example.jetsoncontroller.ui.components.OperationMessageHost
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.transfers.*
@@ -207,11 +207,11 @@ fun UploadProgressScreen(
                             }
                             GeoSection("처리 상태", first = true) {
                                 GeoReceipt(GeoReceiptState(
-                                    collection = if (job.context != null) GeoReceiptItem("종료", StatusTone.UNKNOWN, done = true) else GeoReceiptItem(),
-                                    storage = if (job.context != null) GeoReceiptItem("저장 확인", StatusTone.SUCCESS, done = true) else GeoReceiptItem(),
+                                    collection = if (job.context != null) GeoReceiptItem("종료", Tone.UNKNOWN, done = true) else GeoReceiptItem(),
+                                    storage = if (job.context != null) GeoReceiptItem("저장 확인", Tone.SUCCESS, done = true) else GeoReceiptItem(),
                                     server = GeoReceiptItem(actions.word, actions.tone, serverMeta, receipt?.matched == true),
                                     report = GeoReceiptItem(when { reported -> "보고됨"; reportPending -> "보고 대기"; reportFailed -> "보고 실패"; else -> "보고 전" },
-                                        when { reported -> StatusTone.SUCCESS; reportPending -> StatusTone.PENDING; reportFailed -> StatusTone.WARNING; else -> StatusTone.UNKNOWN },
+                                        when { reported -> Tone.SUCCESS; reportPending -> Tone.PENDING; reportFailed -> Tone.WARNING; else -> Tone.UNKNOWN },
                                         reportMessage ?: if (linkedToTicket && receipt?.matched == true)
                                             "${ticketTitle ?: "수집 구간"} · 완료를 보고하세요."
                                         else "서버 수신을 확인한 뒤 보고할 수 있습니다.", reported)
@@ -231,7 +231,7 @@ fun UploadProgressScreen(
                                     enabled = serverMutationEnabled && deviceDeletionEnabled && !isLoading,
                                     disabledReason = serverMutationDisabledReason ?: "장치 연결을 확인하세요.")
                             }
-                            error?.let { GeoInlineNote("전송 상태를 다시 확인하고 시도하세요.", tone = StatusTone.ERROR) }
+                            error?.let { GeoInlineNote("전송 상태를 다시 확인하고 시도하세요.", tone = Tone.ERROR) }
                             if (developerModeEnabled) GeoTechInfo(listOf(
                                 GeoTechnicalValue("작업", job.id), GeoTechnicalValue("원본", job.relativePath)),
                                 developerMode = developerModeEnabled, showTechnicalInfo = com.example.jetsoncontroller.ui.dev.rememberTechnicalInfo().value)
@@ -241,7 +241,7 @@ fun UploadProgressScreen(
                 }
             }
         }
-        Box(Modifier.align(Alignment.BottomCenter)) { OperationMessageHost(message, onDismissMessage) }
+        Box(Modifier.align(Alignment.BottomCenter)) { GeoOperationMessageHost(message, onDismissMessage) }
     }
 }
 internal fun uploadSourceLifecycleLabel(job: UploadJob): String = when (job.sourceDeletionState) {

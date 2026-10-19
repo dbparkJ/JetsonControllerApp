@@ -16,7 +16,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import com.example.jetsoncontroller.model.JetsonStatus
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoDeviceStripState
 import com.example.jetsoncontroller.ui.field.FieldStageInput
 import com.example.jetsoncontroller.ui.model.Formats
@@ -46,7 +46,7 @@ internal data class TasksHomeInput(
     val zone: ZoneId = ZoneId.systemDefault(),
     val status: JetsonStatus? = null,
     val connectionWord: String = if (connected) "연결됨" else "오프라인",
-    val connectionTone: StatusTone = if (connected) StatusTone.SUCCESS else StatusTone.UNKNOWN,
+    val connectionTone: Tone = if (connected) Tone.SUCCESS else Tone.UNKNOWN,
     val basicConnection: Boolean = false,
     val checkingDevice: Boolean = false,
     val permissionMissing: Boolean = false,
@@ -209,9 +209,9 @@ internal fun workDeviceStrip(input: TasksHomeInput): GeoDeviceStripState {
             else -> input.connectionWord
         },
         connectionTone = when {
-            input.credentialsRejected -> StatusTone.ERROR
-            input.permissionMissing || input.basicConnection -> StatusTone.WARNING
-            input.checkingDevice -> StatusTone.PENDING
+            input.credentialsRejected -> Tone.ERROR
+            input.permissionMissing || input.basicConnection -> Tone.WARNING
+            input.checkingDevice -> Tone.PENDING
             else -> input.connectionTone
         },
         facts = if (input.checkingDevice) emptyList() else listOfNotNull(

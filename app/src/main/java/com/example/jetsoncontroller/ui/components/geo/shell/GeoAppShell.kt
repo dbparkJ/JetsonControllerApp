@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo.shell
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -14,8 +15,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
-import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.LocalControlNavigationRailVisible
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 
 data class GeoChromeMeasurements(
     val viewportDp: Float = 0f,
@@ -35,8 +35,8 @@ private fun Context.activity(): Activity? = when (this) {
 /** Horizontal safe drawing and IME each have one ancestor for all chrome and body. */
 @Composable
 fun GeoAppShell(
-    selected: ControlSection,
-    onSelect: (ControlSection) -> Unit,
+    selected: GeoTab,
+    onSelect: (GeoTab) -> Unit,
     navigationVisible: Boolean = true,
     modifier: Modifier = Modifier,
     mediaInsets: Boolean = false,
@@ -45,7 +45,6 @@ fun GeoAppShell(
 ) {
     val view = LocalView.current
     val inherited = LocalDensity.current
-    // The legacy theme scales tablet density; shell breakpoints and descendants use real dp.
     val density = Density(view.resources.displayMetrics.density, inherited.fontScale)
     val window = view.context.activity()?.window
     SideEffect {
@@ -56,7 +55,7 @@ fun GeoAppShell(
         // JetsonControllerTheme remains the single system-bar icon controller.
     }
     CompositionLocalProvider(LocalDensity provides density) {
-        val colors = shellColors()
+        val colors = LocalGeoColors.current
         val imeDp = with(density) { WindowInsets.ime.getBottom(this).toDp().value }
         val bottomDp = with(density) { WindowInsets.navigationBars.getBottom(this).toDp().value }
         val topDp = with(density) { WindowInsets.safeDrawing.getTop(this).toDp().value }
@@ -73,9 +72,7 @@ fun GeoAppShell(
             CompositionLocalProvider(
                 LocalGeoWindow provides geoWindow,
                 LocalGeoChrome provides GeoChromeMeasurements(maxHeight.value, topChrome,
-                    if (showNavigation && !geoWindow.rail) bottomChrome else if (imeDp == 0f) bottomDp else 0f, imeDp),
-                // Every old screen's bar becomes a no-op, including focused flows.
-                LocalControlNavigationRailVisible provides true
+                    if (showNavigation && !geoWindow.rail) bottomChrome else if (imeDp == 0f) bottomDp else 0f, imeDp)
             ) {
                 Column(Modifier.fillMaxSize().imePadding()) {
                     GeoTopBar(Modifier.onSizeChanged { topChrome = it.height / density.density }, mediaInsets = mediaInsets, content = topBar)

@@ -19,7 +19,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.theme.*
 
@@ -82,7 +82,7 @@ internal fun DevText(text: String, secondary: Boolean = false, mono: Boolean = f
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DevIdentity(name: String, detail: String? = null, status: String? = null,
-    tone: StatusTone = StatusTone.UNKNOWN) {
+    tone: Tone = Tone.UNKNOWN) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(name, style = LocalGeoType.current.heading, color = LocalGeoColors.current.text)
         if (status != null) GeoBadge(status, tone)

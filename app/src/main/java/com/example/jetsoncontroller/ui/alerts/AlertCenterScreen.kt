@@ -33,7 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.alerts.AlertRecord
 import com.example.jetsoncontroller.data.alerts.AlertSeverity
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoButton
 import com.example.jetsoncontroller.ui.components.geo.GeoButtonStyle
 import com.example.jetsoncontroller.ui.components.geo.GeoConfirmDialog
@@ -122,7 +122,7 @@ fun AlertCenterScreen(
             Text(
                 "알림",
                 Modifier.weight(1f).padding(start = 12.dp),
-                color = LocalGeoColors.current.ink,
+                color = LocalGeoColors.current.text,
                 style = LocalGeoType.current.title
             )
             Box {
@@ -221,7 +221,7 @@ private fun AlertRow(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     alert.title,
-                    color = LocalGeoColors.current.ink,
+                    color = LocalGeoColors.current.text,
                     style = LocalGeoType.current.titleSm.copy(
                         fontWeight = if (alert.read) FontWeight.Medium else FontWeight.SemiBold
                     )
@@ -234,10 +234,10 @@ private fun AlertRow(
                     )
                 }
             }
-            Text(alert.message, color = LocalGeoColors.current.ink, style = LocalGeoType.current.body)
+            Text(alert.message, color = LocalGeoColors.current.text, style = LocalGeoType.current.body)
             Text(
                 formatAlertTime(alert.createdAtEpochMillis),
-                color = LocalGeoColors.current.muted,
+                color = LocalGeoColors.current.textSecondary,
                 style = LocalGeoType.current.caption
             )
         }

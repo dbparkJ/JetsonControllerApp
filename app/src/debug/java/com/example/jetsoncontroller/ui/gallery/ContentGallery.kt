@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.gallery
 
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -10,7 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 
@@ -18,16 +19,16 @@ import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ContentGallery(modifier: Modifier = Modifier, highContrast: Boolean = false) {
-    CompositionLocalProvider(LocalContentHighContrast provides highContrast) {
-        val colors = contentColors
+    JetsonControllerTheme(palette = if (highContrast) com.example.jetsoncontroller.ui.theme.GeoPalette.HIGH_CONTRAST else com.example.jetsoncontroller.ui.theme.LocalGeoPalette.current) {
+        val colors = com.example.jetsoncontroller.ui.theme.LocalGeoColors.current
         var event by remember { mutableStateOf("아직 선택한 항목이 없습니다.") }
         var showHelp by remember { mutableStateOf(true) }
         var lineCount by remember { mutableIntStateOf(48) }
         val logState = rememberLazyListState()
         val receipt = remember {
             GeoReceiptState(
-                collection = GeoReceiptItem("종료", StatusTone.SUCCESS, done = true),
-                storage = GeoReceiptItem("저장 확인", StatusTone.SUCCESS, "1,204개 · 1.2 GB", done = true),
+                collection = GeoReceiptItem("종료", Tone.SUCCESS, done = true),
+                storage = GeoReceiptItem("저장 확인", Tone.SUCCESS, "1,204개 · 1.2 GB", done = true),
                 server = GeoReceiptItem(meta = "이 휴대폰에서 보낸 기록이 없습니다."),
                 report = GeoReceiptItem(word = "보고 전", meta = "서버 수신을 확인한 뒤 보고할 수 있습니다.")
             )
@@ -39,10 +40,10 @@ fun ContentGallery(modifier: Modifier = Modifier, highContrast: Boolean = false)
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = gutter, end = gutter, top = 16.dp, bottom = 40.dp)) {
                     item {
                         GeoSection("목록과 상태", first = true, note = "글꼴 배율 ${LocalDensity.current.fontScale}") {
-                            Text(event, color = colors.secondary, style = ContentType.body)
-                            GeoDeviceStrip(GeoDeviceStripState("GEO-X-1", "연결됨", StatusTone.SUCCESS, facts, "방금 갱신"),
+                            Text(event, color = colors.textSecondary, style = com.example.jetsoncontroller.ui.theme.LocalGeoType.current.body)
+                            GeoDeviceStrip(GeoDeviceStripState("GEO-X-1", "연결됨", Tone.SUCCESS, facts, "방금 갱신"),
                                 onClick = { event = "GEO-X-1 · 상세 보기" })
-                            GeoDeviceStrip(GeoDeviceStripState("GEO-X-현장지원차량-2", "기본 연결", StatusTone.WARNING,
+                            GeoDeviceStrip(GeoDeviceStripState("GEO-X-현장지원차량-2", "기본 연결", Tone.WARNING,
                                 facts, "방금 갱신", firstAttention = "카메라 지연"), onClick = { event = "GEO-X-현장지원차량-2 · 상세 보기" })
                         }
                     }
@@ -50,7 +51,7 @@ fun ContentGallery(modifier: Modifier = Modifier, highContrast: Boolean = false)
                         GeoSection("행", actionLabel = "전체 기록", onAction = { event = "전체 기록" }) {
                             GeoRow("장치 Wi-Fi", onClick = { event = "장치 Wi-Fi" }, value = "GEON-5G")
                             GeoRow("신월4거리 북측 보조 구간 2차 재수집", meta = "마감 10월 21일 · 담당 김현우 · 350 m",
-                                badge = { GeoBadge("할 일", StatusTone.UNKNOWN) }, onClick = { event = "수집 구간 · 상세 보기" })
+                                badge = { GeoBadge("할 일", Tone.UNKNOWN) }, onClick = { event = "수집 구간 · 상세 보기" })
                             GeoRow("장치 파일", onClick = {}, enabled = false, disabledReason = "연결되면 쓸 수 있습니다.")
                             GeoActionRow("20261018_0912", "다시 보내기", meta = "연결이 끊겨 멈췄습니다.",
                                 onOpen = { event = "20261018_0912 · 상세 보기" }, onAction = { event = "다시 보내기" })
@@ -61,9 +62,9 @@ fun ContentGallery(modifier: Modifier = Modifier, highContrast: Boolean = false)
                             GeoNumericRows(listOf(GeoNumericRow("수집 파일", "896", "MB"),
                                 GeoNumericRow("장치 저장", "14.7", "GB"), GeoNumericRow("저장 여유", "512", "GB"),
                                 GeoNumericRow("서버 수신", null)))
-                            GeoCheckRow("저장 공간", "512\u00a0GB 남음", StatusTone.SUCCESS)
-                            GeoCheckRow("장치 상태", "확인 중", StatusTone.PENDING)
-                            GeoCheckRow("저장 공간", "12\u00a0GB 남음", StatusTone.WARNING,
+                            GeoCheckRow("저장 공간", "512\u00a0GB 남음", Tone.SUCCESS)
+                            GeoCheckRow("장치 상태", "확인 중", Tone.PENDING)
+                            GeoCheckRow("저장 공간", "12\u00a0GB 남음", Tone.WARNING,
                                 failureReason = "저장 공간이 수집 설정의 최소값보다 적습니다.",
                                 remedyLabel = "장치 파일", onRemedy = { event = "장치 파일" })
                         }
@@ -71,15 +72,15 @@ fun ContentGallery(modifier: Modifier = Modifier, highContrast: Boolean = false)
                     item {
                         GeoSection("상태", count = "6개") {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("연결됨" to StatusTone.SUCCESS, "기본 연결" to StatusTone.WARNING,
-                                    "인증 필요" to StatusTone.ERROR, "수집 중" to StatusTone.INFO,
-                                    "확인 중" to StatusTone.PENDING, "미확인" to StatusTone.UNKNOWN).forEach { (word, tone) -> GeoBadge(word, tone) }
-                                GeoBadge("구역 안", StatusTone.SUCCESS, variant = GeoBadgeVariant.ON_MAP)
-                                GeoBadge("연결됨", StatusTone.SUCCESS, highContrast = true)
-                                GeoBadge("실시간", StatusTone.SUCCESS, variant = GeoBadgeVariant.ON_DARK)
-                                GeoBadge("지연", StatusTone.WARNING, variant = GeoBadgeVariant.ON_DARK)
-                                GeoBadge("대기 중", StatusTone.UNKNOWN, variant = GeoBadgeVariant.ON_DARK)
-                                GeoBadge("받지 못함", StatusTone.ERROR, variant = GeoBadgeVariant.ON_DARK)
+                                listOf("연결됨" to Tone.SUCCESS, "기본 연결" to Tone.WARNING,
+                                    "인증 필요" to Tone.ERROR, "수집 중" to Tone.INFO,
+                                    "확인 중" to Tone.PENDING, "미확인" to Tone.UNKNOWN).forEach { (word, tone) -> GeoBadge(word, tone) }
+                                GeoBadge("구역 안", Tone.SUCCESS, variant = GeoBadgeVariant.ON_MAP)
+                                GeoBadge("연결됨", Tone.SUCCESS, highContrast = true)
+                                GeoBadge("실시간", Tone.SUCCESS, variant = GeoBadgeVariant.ON_DARK)
+                                GeoBadge("지연", Tone.WARNING, variant = GeoBadgeVariant.ON_DARK)
+                                GeoBadge("대기 중", Tone.UNKNOWN, variant = GeoBadgeVariant.ON_DARK)
+                                GeoBadge("받지 못함", Tone.ERROR, variant = GeoBadgeVariant.ON_DARK)
                             }
                         }
                     }
@@ -102,7 +103,7 @@ fun ContentGallery(modifier: Modifier = Modifier, highContrast: Boolean = false)
                             if (showHelp) GeoInlineNote("공유기 없이 휴대폰과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.",
                                 onDismiss = { showHelp = false })
                             Spacer(Modifier.height(8.dp))
-                            GeoInlineNote("GEO-X-1 · 연결이 끊겼습니다. 같은 네트워크에 연결하세요.", tone = StatusTone.WARNING,
+                            GeoInlineNote("GEO-X-1 · 연결이 끊겼습니다. 같은 네트워크에 연결하세요.", tone = Tone.WARNING,
                                 kind = GeoNoteKind.LIVE_ERROR, actionLabel = "연결 방법", onAction = { event = "연결 방법" })
                         }
                     }

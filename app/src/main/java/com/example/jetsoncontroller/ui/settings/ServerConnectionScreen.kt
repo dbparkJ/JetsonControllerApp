@@ -36,7 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.ServerEndpointProfile
 import com.example.jetsoncontroller.data.server.StoredServerProfile
-import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoBadge
 import com.example.jetsoncontroller.ui.components.geo.GeoButton
 import com.example.jetsoncontroller.ui.components.geo.GeoFactRow
@@ -48,11 +48,10 @@ import com.example.jetsoncontroller.ui.components.geo.GeoStateBlock
 import com.example.jetsoncontroller.ui.components.geo.GeoStateContent
 import com.example.jetsoncontroller.ui.components.geo.GeoStateKind
 import com.example.jetsoncontroller.ui.components.geo.GeoControlShape
-import com.example.jetsoncontroller.ui.components.geo.geoControlColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.components.geo.geoFocusRing
 import com.example.jetsoncontroller.ui.components.geo.geoInputTextStyle
 import com.example.jetsoncontroller.ui.components.geo.geoLabelTextStyle
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
 @Composable
@@ -162,25 +161,25 @@ internal fun ServerConnectionScreen(
 @Composable
 private fun ServerConnectionStatusRow(state: ServerConnectionUiState) {
     val (word, tone) = when (state.status) {
-        ServerConnectionStatus.UNKNOWN -> "확인 전" to StatusTone.UNKNOWN
-        ServerConnectionStatus.CHECKING -> "확인 중" to StatusTone.PENDING
-        ServerConnectionStatus.CONNECTED -> "연결됨" to StatusTone.SUCCESS
-        ServerConnectionStatus.LOGIN_REQUIRED -> "다시 로그인 필요" to StatusTone.WARNING
-        ServerConnectionStatus.FAILED -> "연결 실패" to StatusTone.ERROR
+        ServerConnectionStatus.UNKNOWN -> "확인 전" to Tone.UNKNOWN
+        ServerConnectionStatus.CHECKING -> "확인 중" to Tone.PENDING
+        ServerConnectionStatus.CONNECTED -> "연결됨" to Tone.SUCCESS
+        ServerConnectionStatus.LOGIN_REQUIRED -> "다시 로그인 필요" to Tone.WARNING
+        ServerConnectionStatus.FAILED -> "연결 실패" to Tone.ERROR
     }
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("상태", Modifier.weight(1f), color = LocalGeoColors.current.muted,
+        Text("상태", Modifier.weight(1f), color = LocalGeoColors.current.textSecondary,
             style = LocalGeoType.current.body)
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             GeoBadge(word, tone)
             state.lastCheckedAtEpochMillis?.let {
                 Text(
                     "마지막 확인 " + formatServerCheckTime(it),
-                    color = LocalGeoColors.current.muted,
+                    color = LocalGeoColors.current.textSecondary,
                     style = LocalGeoType.current.caption
                 )
             }
@@ -193,7 +192,7 @@ private fun connectionErrorTitle(status: ServerConnectionStatus): String =
 
 @Composable
 private fun MaskedEmployeeTokenField(value: String, onValueChange: (String) -> Unit) {
-    val colors = geoControlColors()
+    val colors = LocalGeoColors.current
     var focused by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         Text("직원 토큰", color = colors.text, style = geoLabelTextStyle())

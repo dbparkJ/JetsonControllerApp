@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dashboard
 
+import com.example.jetsoncontroller.ui.dev.DevFanSnapshot
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -166,7 +167,6 @@ private data class StatusSnapshot(
     val ageSeconds: Long?
 )
 
-internal typealias FanControlSnapshot = com.example.jetsoncontroller.ui.dev.DevFanSnapshot
 
-internal fun FanControlSnapshot.finishedLoading(): FanControlSnapshot =
+internal fun DevFanSnapshot.finishedLoading(): DevFanSnapshot =
     if (loading) copy(loading = false) else this

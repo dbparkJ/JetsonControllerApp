@@ -50,16 +50,6 @@ class GeoTypeTest {
         assertEquals(high.titleSm, material.titleMedium)
     }
 
-    @Test
-    fun `compatibility type names keep their numeric or identifier semantics`() {
-        assertEquals(GeoType.standard.figure, GeoType.numeric)
-        assertEquals(GeoType.standard.figure, GeoType.numericLarge)
-        assertEquals("tnum", GeoType.numericSmall.fontFeatureSettings)
-        assertEquals(GeoType.mono, GeoType.identifier)
-        assertEquals(GeoType.count, GeoType.eyebrow)
-        assertEquals(geoMaterialTypography(GeoType.standard), Typography)
-    }
-
     private fun assertRole(
         style: TextStyle, size: Int, line: Int, weight: Int,
         trackingEm: Float = 0f, monospace: Boolean = false
