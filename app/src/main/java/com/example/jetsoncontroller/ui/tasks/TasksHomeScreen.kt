@@ -138,7 +138,7 @@ private fun ServerTicketsSection(
                             }
                             Text(
                                 "프로젝트 ${ticket.project?.takeIf(String::isNotBlank) ?: "미정"} · " +
-                                    "호기 ${ticket.unit?.takeIf(String::isNotBlank) ?: "미정"}",
+                                    (ticket.unit?.takeIf(String::isNotBlank)?.let { "호기 $it" } ?: ticketUnitLabel(ticket)),
                                 style = MaterialTheme.typography.bodySmall, color = c.muted
                             )
                             Text("담당 ${ticket.assignees.orEmpty().filter(String::isNotBlank).joinToString().ifBlank { "미지정" }}",

@@ -113,7 +113,7 @@ internal fun TicketDetailScreen(
                             StatusBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket))
                         }
                         TicketDetailRow("프로젝트", ticket.project)
-                        TicketDetailRow("호기", ticket.unit)
+                        TicketDetailRow("호기", ticket.unit?.takeIf(String::isNotBlank) ?: "미지정")
                         TicketDetailRow("담당", ticket.assignees.orEmpty().filter(String::isNotBlank).joinToString().ifBlank { "미지정" })
                         TicketDetailRow("마감", ticket.dueDate)
                         TicketDetailRow("보고", ticketReportStateLabel(ticket))

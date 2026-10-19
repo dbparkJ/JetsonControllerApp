@@ -52,11 +52,15 @@ class TicketWorkflowTest {
 
     @Test
     fun defaultUnitAndUnitFilterFollowDeviceAssignment() {
-        val tickets = listOf(ticket("a", "1호기"), ticket("b", "2호기"))
+        val unassigned = ServerTicket(rowId = "u", title = "웹에서 만든 티켓", unit = null,
+            status = com.example.jetsoncontroller.data.server.ServerTicketStatus("할 일", "OPEN"))
+        val tickets = listOf(ticket("a", "1호기"), ticket("b", "2호기"), unassigned)
         assertEquals("2호기", defaultTicketUnit("2호기", listOf("1호기", "2호기")))
         assertNull(defaultTicketUnit(null, listOf("1호기")))
-        assertEquals(listOf("b"), filterTicketsByUnit(tickets, "2호기").map { it.rowId })
+        assertEquals(listOf("b", "u"), filterTicketsByUnit(tickets, "2호기").map { it.rowId })
         assertEquals(tickets, filterTicketsByUnit(tickets, null))
+        assertEquals("호기 미지정", ticketUnitLabel(unassigned))
+        assertEquals("2호기", ticketUnitLabel(ticket("b", "2호기")))
     }
 
     @Test

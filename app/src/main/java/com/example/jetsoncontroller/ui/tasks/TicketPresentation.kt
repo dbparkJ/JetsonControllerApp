@@ -19,8 +19,13 @@ internal data class TicketCompletionPresentation(
 internal fun defaultTicketUnit(deviceUnit: String?, @Suppress("UNUSED_PARAMETER") units: List<String>): String? =
     deviceUnit?.takeIf(String::isNotBlank)
 
+/** A unit filter keeps that unit's tickets and the ones nobody has assigned to a unit yet. */
 internal fun filterTicketsByUnit(tickets: List<ServerTicket>, selectedUnit: String?): List<ServerTicket> =
-    if (selectedUnit == null) tickets else tickets.filter { it.unit == selectedUnit }
+    if (selectedUnit == null) tickets else tickets.filter { it.unit == selectedUnit || it.unit.isNullOrBlank() }
+
+/** Unit label for a ticket row or detail; an empty unit reads as unassigned, not undecided. */
+internal fun ticketUnitLabel(ticket: ServerTicket): String =
+    ticket.unit?.takeIf(String::isNotBlank) ?: "호기 미지정"
 
 internal fun ticketStartAvailability(role: String?, ticket: ServerTicket): TicketActionAvailability = when {
     role.equals("VIEWER", ignoreCase = true) -> TicketActionAvailability(
