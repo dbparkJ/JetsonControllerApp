@@ -575,6 +575,62 @@ class Advertisement(dbus.service.Object):
         print("[BLE] advertisement released", flush=True)
 
 
+def primer_local_name(advertised_name: str) -> str:
+    return "~~" if advertised_name == "~" else "~"
+
+
+class PrimerAdvertisement(Advertisement):
+    """Data unlike the real advertisement, registered and removed just before it.
+
+    Linux 5.10 remembers the last extended advertising data and scan response
+    per adapter and skips writing identical data again, although a restarted
+    service's set is re-created empty in the controller (LE Remove Advertising
+    Set). Without this, a restart advertised neither the name nor the service
+    UUID until the next reboot.
+    """
+
+    PATH = "/com/jm/jetson/advertisement_primer"
+
+    def get_properties(self) -> Dict[str, object]:
+        return {
+            ADVERTISEMENT_INTERFACE: {
+                # Not connectable, so no phone can connect while it is up.
+                "Type": dbus.String("broadcast"),
+                "LocalName": dbus.String(primer_local_name(self.device_name)),
+            }
+        }
+
+
+def register_advertisement(
+    manager, primer, advertisement, reply_handler, error_handler
+) -> None:
+    """Registers and removes `primer`, then registers `advertisement`."""
+
+    def register() -> None:
+        manager.RegisterAdvertisement(
+            advertisement.get_path(), {},
+            reply_handler=reply_handler,
+            error_handler=error_handler,
+        )
+
+    def primer_ready() -> None:
+        try:
+            manager.UnregisterAdvertisement(primer.get_path())
+        except dbus.exceptions.DBusException as error:
+            print(f"[WARN] primer advertisement not removed: {error}", flush=True)
+        register()
+
+    def primer_failed(error: Exception) -> None:
+        print(f"[WARN] primer advertisement failed: {error}", flush=True)
+        register()
+
+    manager.RegisterAdvertisement(
+        primer.get_path(), {},
+        reply_handler=primer_ready,
+        error_handler=primer_failed,
+    )
+
+
 def find_adapter(bus: dbus.SystemBus) -> Optional[str]:
     manager = dbus.Interface(bus.get_object(BLUEZ, "/"), OBJECT_MANAGER)
     for path, interfaces in manager.GetManagedObjects().items():
@@ -613,6 +669,7 @@ def main() -> None:
         JetsonService(bus, config, auth, collector, commands, wifi)
     )
     advertisement = Advertisement(bus, config.device_name)
+    primer = PrimerAdvertisement(bus, config.device_name)
     loop = GLib.MainLoop()
     registered = {"application": False, "advertisement": False}
 
@@ -645,10 +702,9 @@ def main() -> None:
     def application_ready() -> None:
         registered["application"] = True
         print("[GATT] application registered", flush=True)
-        advertisement_manager.RegisterAdvertisement(
-            advertisement.get_path(), {},
-            reply_handler=advertisement_ready,
-            error_handler=advertisement_failed,
+        register_advertisement(
+            advertisement_manager, primer, advertisement,
+            advertisement_ready, advertisement_failed,
         )
 
     def application_failed(error: Exception) -> None:

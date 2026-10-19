@@ -7,9 +7,35 @@ from jetson_control.ble import (
     SCAN_RESPONSE_HEADROOM,
     SERVICE_UUID,
     Advertisement,
+    PrimerAdvertisement,
     advertised_local_name,
     legacy_advertising_payload_sizes,
+    register_advertisement,
 )
+
+
+class FakeAdvertisement:
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+    def get_path(self) -> str:
+        return self.path
+
+
+class FakeAdvertisingManager:
+    def __init__(self, failing=()) -> None:
+        self.calls = []
+        self.failing = set(failing)
+
+    def RegisterAdvertisement(self, path, options, reply_handler, error_handler) -> None:
+        self.calls.append(("register", path))
+        if path in self.failing:
+            error_handler(Exception("rejected"))
+        else:
+            reply_handler()
+
+    def UnregisterAdvertisement(self, path) -> None:
+        self.calls.append(("unregister", path))
 
 
 class BleAdvertisingTest(unittest.TestCase):
@@ -49,6 +75,50 @@ class BleAdvertisingTest(unittest.TestCase):
         )
         self.assertEqual(str(properties["LocalName"]), "MMS-D137")
         self.assertNotIn("Includes", properties)
+
+    def test_primer_carries_neither_the_real_name_nor_the_service(self) -> None:
+        for name in ("GEO-X-1", "MMS-D137", "~"):
+            real = Advertisement.__new__(Advertisement)
+            real.device_name = advertised_local_name(name)
+            primer = PrimerAdvertisement.__new__(PrimerAdvertisement)
+            primer.device_name = advertised_local_name(name)
+
+            real_properties = real.get_properties()[ADVERTISEMENT_INTERFACE]
+            primer_properties = primer.get_properties()[ADVERTISEMENT_INTERFACE]
+
+            self.assertEqual(str(primer_properties["Type"]), "broadcast")
+            self.assertNotIn("ServiceUUIDs", primer_properties)
+            self.assertNotIn("Discoverable", primer_properties)
+            self.assertNotEqual(
+                str(primer_properties["LocalName"]), str(real_properties["LocalName"])
+            )
+
+    def test_primer_is_registered_and_removed_before_the_real_advertisement(self) -> None:
+        manager = FakeAdvertisingManager()
+        ready = []
+
+        register_advertisement(
+            manager, FakeAdvertisement("/primer"), FakeAdvertisement("/real"),
+            reply_handler=lambda: ready.append(True), error_handler=self.fail,
+        )
+
+        self.assertEqual(
+            manager.calls,
+            [("register", "/primer"), ("unregister", "/primer"), ("register", "/real")],
+        )
+        self.assertEqual(ready, [True])
+
+    def test_a_rejected_primer_still_registers_the_real_advertisement(self) -> None:
+        manager = FakeAdvertisingManager(failing={"/primer"})
+        ready = []
+
+        register_advertisement(
+            manager, FakeAdvertisement("/primer"), FakeAdvertisement("/real"),
+            reply_handler=lambda: ready.append(True), error_handler=self.fail,
+        )
+
+        self.assertEqual(manager.calls, [("register", "/primer"), ("register", "/real")])
+        self.assertEqual(ready, [True])
 
 
 if __name__ == "__main__":
