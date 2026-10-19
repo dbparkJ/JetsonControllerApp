@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.ui.theme
 
-import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.LocalTonalElevationEnabled
@@ -8,14 +7,44 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 val LocalGeoDarkTheme = compositionLocalOf { false }
+
+internal data class GeoSystemBarAppearance(
+    val statusBar: Color,
+    val navigationBar: Color,
+    val darkStatusIcons: Boolean,
+    val darkNavigationIcons: Boolean
+)
+
+internal fun systemBarAppearance(palette: GeoPalette, navigationBarUsesSurface: Boolean) = GeoSystemBarAppearance(
+    statusBar = palette.colors.topBar,
+    navigationBar = if (navigationBarUsesSurface) palette.colors.surface else palette.colors.nav,
+    darkStatusIcons = !palette.lightStatusBarIcons,
+    darkNavigationIcons = if (navigationBarUsesSurface) !palette.lightSurfaceBarIcons else !palette.lightNavigationBarIcons
+)
+
+private class SystemBarRequests {
+    var navigationSurfaces by mutableStateOf<Map<Any, Boolean>>(emptyMap())
+}
+
+private val LocalSystemBarRequests = staticCompositionLocalOf<SystemBarRequests?> { null }
+
+/** Shells/overlays declare the surface below their navigation inset; the theme owns the window. */
+@Composable
+fun GeoSystemBars(navigationBarUsesSurface: Boolean) {
+    val requests = LocalSystemBarRequests.current ?: return
+    val token = remember { Any() }
+    DisposableEffect(requests, token, navigationBarUsesSurface) {
+        requests.navigationSurfaces = requests.navigationSurfaces + (token to navigationBarUsesSurface)
+        onDispose { requests.navigationSurfaces = requests.navigationSurfaces - token }
+    }
+}
 
 internal fun geoScheme(palette: GeoPalette): ColorScheme {
     val c = palette.colors
@@ -52,12 +81,21 @@ private val AppShapes = Shapes(
     extraLarge = GeoShape.sheet
 )
 
-/** Existing callers retain their signature and use the first-install defaults. */
+/** Existing callers retain their signature; their resolved mode uses its saved palette. */
 @Composable
 fun JetsonControllerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
-) = JetsonControllerTheme(palette = GeoPalette.defaultFor(darkTheme), content = content)
+) {
+    val view = LocalView.current
+    val palette = if (view.isInEditMode) GeoPalette.defaultFor(darkTheme) else {
+        val store = rememberAppearanceStore()
+        val appearance = rememberAppearance(store)
+        LaunchedEffect(store) { store.reconcile() }
+        appearance.paletteForDarkTheme(darkTheme)
+    }
+    JetsonControllerTheme(palette = palette, content = content)
+}
 
 /** Explicit palette choice; the selected palette determines content mode and weights. */
 @Composable
@@ -68,22 +106,27 @@ fun JetsonControllerTheme(
 ) {
     val view = LocalView.current
     val type = GeoType.forPalette(palette)
+    val barRequests = remember { SystemBarRequests() }
+    val surfaceInset = barRequests.navigationSurfaces.values.lastOrNull() ?: navigationBarUsesSurface
+    val bars = systemBarAppearance(palette, surfaceInset)
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as? Activity)?.window
+            val window = view.context.appearanceActivity()?.window
             if (window != null) {
+                @Suppress("DEPRECATION")
+                window.statusBarColor = bars.statusBar.toArgb()
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = bars.navigationBar.toArgb()
+                window.isNavigationBarContrastEnforced = false
                 WindowCompat.getInsetsController(window, view).apply {
-                    isAppearanceLightStatusBars = !palette.lightStatusBarIcons
-                    isAppearanceLightNavigationBars = if (navigationBarUsesSurface) {
-                        !palette.lightSurfaceBarIcons
-                    } else {
-                        !palette.lightNavigationBarIcons
-                    }
+                    isAppearanceLightStatusBars = bars.darkStatusIcons
+                    isAppearanceLightNavigationBars = bars.darkNavigationIcons
                 }
             }
         }
     }
     CompositionLocalProvider(
+        LocalSystemBarRequests provides barRequests,
         LocalGeoColors provides palette.colors,
         LocalGeoPalette provides palette,
         LocalGeoDarkTheme provides palette.isDark,

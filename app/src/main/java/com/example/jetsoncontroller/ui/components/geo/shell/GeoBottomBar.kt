@@ -44,8 +44,8 @@ internal data class ShellColors(
 @Composable
 internal fun shellColors(): ShellColors {
     val colors = LocalGeoColors.current
-    return ShellColors(colors.canvas, colors.surface, colors.surface, colors.surface,
-        colors.ink, colors.primary, colors.inkSubtle, colors.danger)
+    return ShellColors(colors.canvas, colors.surface, colors.topBar, colors.nav,
+        colors.onTopBar, colors.navSelected, colors.navUnselected, colors.attention)
 }
 
 internal data class ShellTab(val section: ControlSection, val label: String, val icon: ImageVector)

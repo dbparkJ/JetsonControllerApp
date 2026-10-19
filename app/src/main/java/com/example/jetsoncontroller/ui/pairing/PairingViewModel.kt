@@ -1,9 +1,12 @@
 package com.example.jetsoncontroller.ui.pairing
 
 import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.JetsonGattSpec
 import com.example.jetsoncontroller.data.repository.JetsonRepository
@@ -117,28 +120,79 @@ internal fun resolvePairingError(
         null
     }
 
+internal data class PairingRecreationState(
+    val phase: PairingPhase = PairingPhase.IDLE,
+    val pairingInfo: com.example.jetsoncontroller.model.PairingInfo? = null,
+    val errorMessage: String? = null,
+    val observeRepositoryState: Boolean = false
+)
+
+private const val PAIRING_PHASE_KEY = "pairing.phase"
+private const val PAIRING_INFO_VERSION_KEY = "pairing.info.version"
+private const val PAIRING_INFO_DEVICE_ID_KEY = "pairing.info.deviceId"
+private const val PAIRING_INFO_SECRET_KEY = "pairing.info.bootstrapSecretHex"
+private const val PAIRING_ERROR_KEY = "pairing.error"
+private const val PAIRING_OBSERVE_REPOSITORY_KEY = "pairing.observeRepository"
+
+internal fun restorePairingRecreationState(handle: SavedStateHandle): PairingRecreationState {
+    val phase = handle.get<String>(PAIRING_PHASE_KEY)?.let {
+        runCatching { PairingPhase.valueOf(it) }.getOrNull()
+    } ?: PairingPhase.IDLE
+    val pairingInfo = runCatching {
+        val version = handle.get<Int>(PAIRING_INFO_VERSION_KEY) ?: return@runCatching null
+        val deviceId = handle.get<String>(PAIRING_INFO_DEVICE_ID_KEY) ?: return@runCatching null
+        val secret = handle.get<String>(PAIRING_INFO_SECRET_KEY) ?: return@runCatching null
+        com.example.jetsoncontroller.model.PairingInfo(version, deviceId, secret)
+    }.getOrNull()
+    return PairingRecreationState(
+        phase = phase,
+        pairingInfo = pairingInfo,
+        errorMessage = handle.get(PAIRING_ERROR_KEY),
+        observeRepositoryState = handle[PAIRING_OBSERVE_REPOSITORY_KEY] ?: false
+    )
+}
+
+internal fun savePairingRecreationState(handle: SavedStateHandle, state: PairingRecreationState) {
+    handle[PAIRING_PHASE_KEY] = state.phase.name
+    handle[PAIRING_INFO_VERSION_KEY] = state.pairingInfo?.version
+    handle[PAIRING_INFO_DEVICE_ID_KEY] = state.pairingInfo?.deviceId
+    handle[PAIRING_INFO_SECRET_KEY] = state.pairingInfo?.bootstrapSecretHex
+    handle[PAIRING_ERROR_KEY] = state.errorMessage
+    handle[PAIRING_OBSERVE_REPOSITORY_KEY] = state.observeRepositoryState
+}
+
+internal fun shouldConnectPairingCandidate(phase: PairingPhase, userStartedAttempt: Boolean): Boolean =
+    phase == PairingPhase.SEARCHING && userStartedAttempt
+
 class PairingViewModel(
     private val repository:
-        JetsonRepository
+        JetsonRepository,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
+
+    private val restoredState = restorePairingRecreationState(savedStateHandle)
 
     private val _qrPhase =
         MutableStateFlow(
-            PairingPhase.IDLE
+            restoredState.phase
         )
 
     private val _pairingInfo =
         MutableStateFlow<com.example.jetsoncontroller.model.PairingInfo?>(
-            null
+            restoredState.pairingInfo
         )
 
     private val _errorMessage =
         MutableStateFlow<String?>(
-            null
+            restoredState.errorMessage
         )
 
     private val _observeRepositoryState =
-        MutableStateFlow(false)
+        MutableStateFlow(restoredState.observeRepositoryState)
+
+    // Restoring a SEARCHING presentation must not initiate another BLE connection.
+    // A fresh user tap on Start or Retry opens this gate for the current ViewModel only.
+    private var userStartedAttempt = false
 
     val uiState: StateFlow<PairingUiState> =
         combine(
@@ -211,6 +265,10 @@ class PairingViewModel(
                     BleScanState.TimedOut -> Unit
                 }
 
+                if (!shouldConnectPairingCandidate(snapshot.phase, userStartedAttempt)) {
+                    return@collect
+                }
+
                 val jetsonUuid = JetsonGattSpec.SERVICE_UUID.toString()
                 when (
                     val decision = choosePairingCandidate(
@@ -232,6 +290,7 @@ class PairingViewModel(
                             "Pairing candidate found: ${decision.candidate.name}"
                         )
                         _qrPhase.value = PairingPhase.CONNECTING
+                        saveRecreationState()
                         repository.connectForPairing(decision.candidate, info)
                     }
 
@@ -247,10 +306,12 @@ class PairingViewModel(
 
     fun beginQrPairing() {
         Log.d("JetsonBLE", "Starting a new QR pairing session")
+        userStartedAttempt = false
         _observeRepositoryState.value = false
         _qrPhase.value = PairingPhase.IDLE
         _pairingInfo.value = null
         _errorMessage.value = null
+        saveRecreationState()
         repository.prepareForQrPairing()
     }
 
@@ -279,12 +340,14 @@ class PairingViewModel(
 
             // A valid QR always starts a fresh attempt. RegistrationRequired GATT
             // connections are intentionally retained by the repository.
+            userStartedAttempt = false
             _observeRepositoryState.value = false
             repository.prepareForQrPairing()
             _pairingInfo.value = info
             _errorMessage.value = null
             _qrPhase.value =
                 PairingPhase.QR_SCANNED
+            saveRecreationState()
 
             true
 
@@ -294,6 +357,7 @@ class PairingViewModel(
             _errorMessage.value =
                 e.message ?: "QR 코드 형식을 확인할 수 없습니다."
             _qrPhase.value = PairingPhase.IDLE
+            saveRecreationState()
             false
         }
     }
@@ -304,6 +368,7 @@ class PairingViewModel(
             _pairingInfo.value
                 ?: return
 
+        userStartedAttempt = true
         _observeRepositoryState.value = true
         _errorMessage.value = null
         val connectedDevice = repository.startPairing(info)
@@ -312,17 +377,20 @@ class PairingViewModel(
         } else {
             PairingPhase.SEARCHING
         }
+        saveRecreationState()
     }
 
 
     fun cancelPairing() {
         Log.d("JetsonBLE", "Pairing cancelled by user")
+        userStartedAttempt = false
         _observeRepositoryState.value = false
         repository.cancelPairing()
         _qrPhase.value =
             PairingPhase.IDLE
         _pairingInfo.value = null
         _errorMessage.value = null
+        saveRecreationState()
     }
 
 
@@ -333,9 +401,23 @@ class PairingViewModel(
     }
 
     private fun failPairing(userMessage: String) {
+        userStartedAttempt = false
         _observeRepositoryState.value = false
         _errorMessage.value = userMessage
         _qrPhase.value = PairingPhase.ERROR
+        saveRecreationState()
+    }
+
+    private fun saveRecreationState() {
+        savePairingRecreationState(
+            savedStateHandle,
+            PairingRecreationState(
+                phase = _qrPhase.value,
+                pairingInfo = _pairingInfo.value,
+                errorMessage = _errorMessage.value,
+                observeRepositoryState = _observeRepositoryState.value
+            )
+        )
     }
 
     private data class PairingSearchSnapshot(
@@ -361,5 +443,9 @@ class PairingViewModel(
                 repository
             ) as T
         }
+
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T =
+            PairingViewModel(repository, extras.createSavedStateHandle()) as T
     }
 }

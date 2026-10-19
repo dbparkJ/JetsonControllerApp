@@ -85,6 +85,7 @@ internal object Routes {
     const val SETTINGS = "settings"
     const val ADMIN_TOOLS = "admin_tools"
     const val ALERT_SETTINGS = "alert_settings"
+    const val THEME = "settings/theme"
     const val DATA = "data_hub"
     const val LOCAL_TRASH = "local_trash"
     const val PIPELINE_DETAIL = "pipeline_detail/{pipelineId}"

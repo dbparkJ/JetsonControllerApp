@@ -50,7 +50,8 @@ fun SettingsHubScreen(
     onDismissMessage: () -> Unit, onSection: (ControlSection) -> Unit,
     onDeveloper: () -> Unit = {}, onAdminTools: () -> Unit = {},
     developerModeEnabled: Boolean = false,
-    onDeveloperModeChange: (Boolean) -> Unit = {}
+    onDeveloperModeChange: (Boolean) -> Unit = {},
+    onTheme: (() -> Unit)? = null
 ) {
     val (theme, setTheme) = rememberThemePreference()
     var themePickerOpen by rememberSaveable { mutableStateOf(false) }
@@ -177,7 +178,7 @@ fun SettingsHubScreen(
                                         icon = Icons.Default.Palette,
                                         title = "화면 테마",
                                         value = theme.label,
-                                        onClick = { themePickerOpen = true }
+                                        onClick = { onTheme?.invoke() ?: run { themePickerOpen = true } }
                                     )
                                 }
                                 SettingsGroup("서버") {

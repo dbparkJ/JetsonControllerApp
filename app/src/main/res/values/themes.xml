@@ -1,13 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!--
-      The Android 12+ system splash shows only the canvas tone and the GEO& symbol.
-      The in-app loading scene appears only if device restore takes longer than 300 ms.
-      values-night/themes.xml supplies the dark canvas.
-    -->
     <style name="Theme.JetsonController" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowSplashScreenBackground">#EDF0F5</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowBackground">#FFFFFF</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <!-- Stable names: API 31+ persists the chosen dark-palette theme across process death. -->
+    <style name="Theme.GeoX.Splash.Graphite" parent="Theme.JetsonController">
+        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_symbol</item>
+    </style>
+    <style name="Theme.GeoX.Splash.Navy" parent="Theme.JetsonController">
+        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_symbol</item>
+    </style>
+    <style name="Theme.GeoX.Splash.Dim" parent="Theme.JetsonController">
+        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_symbol</item>
     </style>
 </resources>

@@ -249,7 +249,7 @@ class SurveyRunViewModelTest {
         val persistence = FakePersistence(states = mapOf(
             "device-a" to SurveyRunLocalState(lastPipelineId = "pipe", lastRunId = "run-1")
         ))
-        val viewModel = SurveyRunViewModel(source, persistence) { clock }
+        val viewModel = SurveyRunViewModel(source, persistence, elapsedRealtimeMillis = { clock })
         advanceUntilIdle()
         source.connection.value = SurveyDeviceConnection("device-a", true)
         advanceUntilIdle()

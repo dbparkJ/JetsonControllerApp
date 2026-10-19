@@ -68,6 +68,7 @@ fun GeoAppShell(
             val showNavigation = navigationVisible && imeDp == 0f
             val geoWindow = geoWindow(maxWidth.value,
                 (maxHeight.value - topDp - bottomDp).coerceAtLeast(0f), density.fontScale, showNavigation)
+            com.example.jetsoncontroller.ui.theme.GeoSystemBars(navigationBarUsesSurface = !showNavigation || geoWindow.rail)
             CompositionLocalProvider(
                 LocalGeoWindow provides geoWindow,
                 LocalGeoChrome provides GeoChromeMeasurements(maxHeight.value, topChrome,

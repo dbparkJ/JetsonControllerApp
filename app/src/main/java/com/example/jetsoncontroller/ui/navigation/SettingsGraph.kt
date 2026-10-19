@@ -30,11 +30,15 @@ internal fun NavGraphBuilder.settingsGraph(state: State<AppNavigationState>, inc
                         onDeveloper = { navController.navigateSingle("developer") },
                         onAdminTools = { navController.navigateSingle(Routes.ADMIN_TOOLS) },
                         developerModeEnabled = developerModeEnabled,
-                        onDeveloperModeChange = developerModePreference::updateEnabled)
+                        onDeveloperModeChange = developerModePreference::updateEnabled,
+                        onTheme = { navController.navigateSingle(Routes.THEME) })
                 }
             }
         }
     }
+        composable(Routes.THEME) {
+            com.example.jetsoncontroller.ui.settings.ThemeScreen(onBack = { state.value.navController.popBackStack() })
+        }
         composable(Routes.ALERT_SETTINGS) {
             with(state.value) {
                 AlertSettingsScreen(

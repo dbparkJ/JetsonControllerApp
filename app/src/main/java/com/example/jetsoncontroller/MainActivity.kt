@@ -4,25 +4,27 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.jetsoncontroller.ui.JetsonApp
 import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
-import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
-
-/** The loading scene is shown only when the device restore has taken longer than this. */
-internal const val LOADING_SCENE_DELAY_MS = 300L
+import com.example.jetsoncontroller.ui.startup.AppRestoreState
+import com.example.jetsoncontroller.ui.startup.AppRestoreViewModel
+import com.example.jetsoncontroller.ui.startup.StartupContent
+import com.example.jetsoncontroller.ui.startup.StartupTiming
 
 internal object BluetoothPermissionPolicy {
 
@@ -130,17 +132,6 @@ class MainActivity :
         }
     }
 
-    private fun connectivityPermissions(): Array<String> {
-        val permissions = bluetoothPermissions().toMutableList()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions += Manifest.permission.NEARBY_WIFI_DEVICES
-        }
-        if (Build.VERSION.SDK_INT >= 37) {
-            permissions += Manifest.permission.ACCESS_LOCAL_NETWORK
-        }
-        return permissions.distinct().toTypedArray()
-    }
-
     private fun hasWifiScanPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -177,7 +168,8 @@ class MainActivity :
     override fun onCreate(
         savedInstanceState: Bundle?
     ) {
-
+        val timing = StartupTiming(SystemClock.uptimeMillis(), splashVisible = true)
+        setTheme(R.style.Theme_JetsonController)
         super.onCreate(
             savedInstanceState
         )
@@ -187,6 +179,26 @@ class MainActivity :
         val app =
             application
                 as JetsonApplication
+
+        val restoreViewModel = ViewModelProvider(this, AppRestoreViewModel.Factory(app.credentialStore))[
+            AppRestoreViewModel::class.java
+        ]
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        var composedState: AppRestoreState = AppRestoreState.Loading
+        val root = window.decorView
+        root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val ready = timing.canDraw(composedState, SystemClock.uptimeMillis())
+                if (ready) root.viewTreeObserver.removeOnPreDrawListener(this)
+                else root.postInvalidateOnAnimation()
+                return ready
+            }
+        })
+        // The pre-draw gate releases either a resolved scene or the loader after 300 ms.
+        splashScreen.setOnExitAnimationListener { splash ->
+            timing.splashRemoved(restoreViewModel.state.value, SystemClock.uptimeMillis())
+            splash.remove()
+        }
 
         setContent {
 
@@ -199,55 +211,13 @@ class MainActivity :
                     refreshPermissionState()
                 }
 
-            // Number of registered devices, read from the same store the repository
-            // restores from. Null until that read completes.
-            var registeredDeviceCount by remember { mutableStateOf<Int?>(null) }
-            LaunchedEffect(Unit) {
-                registeredDeviceCount = runCatching {
-                    app.credentialStore.registeredDevices.first().size
-                }.getOrElse { app.repository.registeredDevices.value.size }
+            val restoreState by restoreViewModel.state.collectAsStateWithLifecycle()
+            SideEffect { composedState = restoreState }
+            val palette = com.example.jetsoncontroller.ui.theme.rememberAppearancePalette()
+            SideEffect {
+                window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.colors.surface.toArgb()))
             }
-
-            // Permissions are requested at launch only when a device is registered. With no
-            // device, the 장치 root's first-run card asks through the existing callbacks.
-            var launchPermissionChecked by rememberSaveable { mutableStateOf(false) }
-            LaunchedEffect(registeredDeviceCount) {
-                val count = registeredDeviceCount ?: return@LaunchedEffect
-                if (launchPermissionChecked) return@LaunchedEffect
-                launchPermissionChecked = true
-                if (count == 0) return@LaunchedEffect
-                val missingConnectivityPermissions = connectivityPermissions().filter {
-                    ContextCompat.checkSelfPermission(
-                        this@MainActivity,
-                        it
-                    ) != PackageManager.PERMISSION_GRANTED
-                }
-                if (missingConnectivityPermissions.isNotEmpty()) {
-                    permissionLauncher.launch(missingConnectivityPermissions.toTypedArray())
-                }
-            }
-
-            // The loading scene appears only if the restore is still running after 300 ms.
-            // A fast restore never shows it, so there is no fixed splash delay.
-            var showLoading by remember { mutableStateOf(false) }
-            LaunchedEffect(registeredDeviceCount) {
-                if (registeredDeviceCount == null) {
-                    delay(LOADING_SCENE_DELAY_MS)
-                    showLoading = true
-                } else {
-                    showLoading = false
-                }
-            }
-
-
-            val (themeMode, _) = com.example.jetsoncontroller.ui.theme.rememberThemePreference()
-            JetsonControllerTheme(darkTheme = when (themeMode) {
-                com.example.jetsoncontroller.ui.theme.ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
-                com.example.jetsoncontroller.ui.theme.ThemeMode.LIGHT -> false
-                com.example.jetsoncontroller.ui.theme.ThemeMode.DARK -> true
-            }) {
-
-                androidx.compose.foundation.layout.Box {
+            StartupContent(restoreState, timing, restoreViewModel::retry, palette) {
                 JetsonApp(
                     repository =
                         app.repository,
@@ -303,10 +273,6 @@ class MainActivity :
                         }
                     }
                 )
-                if (showLoading) {
-                    com.example.jetsoncontroller.ui.components.GeoLoadingScene()
-                }
-                }
             }
         }
     }

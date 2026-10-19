@@ -1,9 +1,12 @@
 package com.example.jetsoncontroller.ui.survey
 
 import android.content.Context
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.jetsoncontroller.data.network.JetsonApiException
 import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.repository.JetsonRepository
@@ -206,12 +209,47 @@ internal data class SurveyRunUiState(
     ))
 }
 
+internal data class SurveyRecreationState(
+    val deviceId: String? = null,
+    val pipelineId: String? = null,
+    val pipelineLabel: String = "",
+    val pendingStartRequestId: String? = null
+)
+
+private const val SURVEY_RESTORE_DEVICE_KEY = "survey.restore.deviceId"
+private const val SURVEY_RESTORE_PIPELINE_KEY = "survey.restore.pipelineId"
+private const val SURVEY_RESTORE_LABEL_KEY = "survey.restore.pipelineLabel"
+private const val SURVEY_PENDING_START_ID_KEY = "survey.pendingStart.clientRequestId"
+
+internal fun restoreSurveyRecreationState(handle: SavedStateHandle): SurveyRecreationState =
+    SurveyRecreationState(
+        deviceId = handle[SURVEY_RESTORE_DEVICE_KEY],
+        pipelineId = handle[SURVEY_RESTORE_PIPELINE_KEY],
+        pipelineLabel = handle[SURVEY_RESTORE_LABEL_KEY] ?: "",
+        pendingStartRequestId = handle[SURVEY_PENDING_START_ID_KEY]
+    )
+
+internal fun saveSurveyRecreationState(handle: SavedStateHandle, state: SurveyRecreationState) {
+    handle[SURVEY_RESTORE_DEVICE_KEY] = state.deviceId
+    handle[SURVEY_RESTORE_PIPELINE_KEY] = state.pipelineId
+    handle[SURVEY_RESTORE_LABEL_KEY] = state.pipelineLabel
+    handle[SURVEY_PENDING_START_ID_KEY] = state.pendingStartRequestId
+}
+
 internal class SurveyRunViewModel(
     private val source: SurveyRunDataSource,
     private val persistence: SurveyRunPersistence,
-    private val elapsedRealtimeMillis: () -> Long = { System.nanoTime() / 1_000_000L }
+    private val elapsedRealtimeMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
-    private val _uiState = kotlinx.coroutines.flow.MutableStateFlow(SurveyRunUiState())
+    private val restoredRecreationState = restoreSurveyRecreationState(savedStateHandle)
+    private val _uiState = kotlinx.coroutines.flow.MutableStateFlow(
+        SurveyRunUiState(
+            deviceId = restoredRecreationState.deviceId,
+            pipelineId = restoredRecreationState.pipelineId,
+            pipelineLabel = restoredRecreationState.pipelineLabel
+        )
+    )
     val uiState = _uiState
     private var generation = 0L
     private var operationJob: Job? = null
@@ -309,6 +347,7 @@ internal class SurveyRunViewModel(
             message = null,
             error = null
         )
+        saveRecreationState()
         loadDeviceState(generation, _uiState.value.deviceId, _uiState.value.online, pipelineId)
     }
 
@@ -342,6 +381,7 @@ internal class SurveyRunViewModel(
                 } ?: _uiState.value.unconfirmedRunId,
                 restoringLocalState = false
             )
+            saveRecreationState()
             if (pipelineId != null && loaded.preparationDraft != null && loaded.preparationDraft.pipelineId != pipelineId) {
                 val chosen = loaded.preparationDraft.copy(pipelineId = pipelineId)
                 persistence.savePreparationDraft(deviceId ?: return@launch, chosen)
@@ -580,6 +620,7 @@ internal class SurveyRunViewModel(
                     (it as? JetsonApiException)?.statusCode != 404
                 }?.let { userFacingFailure(it).technicalDetail }
             )
+            saveRecreationState()
         }
     }
 
@@ -660,6 +701,7 @@ internal class SurveyRunViewModel(
     private fun persistDraft(draft: PreparationDraft) {
         localState = localState.copy(preparationDraft = draft)
         _uiState.value = _uiState.value.copy(preparationDraft = draft)
+        saveRecreationState()
         val previous = draftSaveJob
         draftSaveJob = viewModelScope.launch {
             previous?.join()
@@ -843,6 +885,7 @@ internal class SurveyRunViewModel(
             if (!current(expected, pipelineId) || _uiState.value.deviceId != deviceId) return@launch
             localState = localState.copy(pendingStart = pending)
             _uiState.value = _uiState.value.copy(pendingStart = pending)
+            saveRecreationState()
             // Persistence can suspend long enough for a device switch or a preflight to expire.
             try {
                 ensureDevice(expected, pipelineId, deviceId)
@@ -858,6 +901,7 @@ internal class SurveyRunViewModel(
                 if (current(expected, pipelineId)) {
                     localState = localState.copy(pendingStart = null)
                     _uiState.value = _uiState.value.copy(pendingStart = null, preflight = null)
+                    saveRecreationState()
                 }
                 throw error
             }
@@ -902,6 +946,7 @@ internal class SurveyRunViewModel(
                     errorCode = null,
                     technicalError = null
                 )
+                saveRecreationState()
             }.onFailure { error ->
                 if (error is JetsonCommandResultUnknownException) {
                     if (current(expected, pipelineId)) _uiState.value = _uiState.value.copy(
@@ -910,6 +955,7 @@ internal class SurveyRunViewModel(
                         error = "시작 결과를 아직 확인하지 못했습니다. 시작 상태 확인을 눌러 확인하세요.",
                         errorCode = "RESULT_UNKNOWN"
                     )
+                    saveRecreationState()
                 } else {
                     if (error is JetsonApiException && error.statusCode in 400..499) {
                         persistence.savePendingStart(deviceId, null)
@@ -925,6 +971,7 @@ internal class SurveyRunViewModel(
                                 preflight = null,
                                 unconfirmedRunId = conflictingRunId
                             )
+                            saveRecreationState()
                             persistence.saveUnconfirmedRun(deviceId, conflictingRunId)
                         }
                     }
@@ -1054,6 +1101,19 @@ internal class SurveyRunViewModel(
         if (current(expected, pipelineId)) showError(error)
     }
 
+    private fun saveRecreationState() {
+        val state = _uiState.value
+        saveSurveyRecreationState(
+            savedStateHandle,
+            SurveyRecreationState(
+                deviceId = state.deviceId,
+                pipelineId = state.pipelineId,
+                pipelineLabel = state.pipelineLabel,
+                pendingStartRequestId = state.pendingStart?.clientRequestId ?: localState.pendingStart?.clientRequestId
+            )
+        )
+    }
+
     class Factory(
         private val repository: JetsonRepository,
         context: Context,
@@ -1063,6 +1123,12 @@ internal class SurveyRunViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = SurveyRunViewModel(
             RepositorySurveyRunDataSource(repository, ticketValidator), persistence
+        ) as T
+
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T = SurveyRunViewModel(
+            RepositorySurveyRunDataSource(repository, ticketValidator), persistence,
+            savedStateHandle = extras.createSavedStateHandle()
         ) as T
     }
 }
