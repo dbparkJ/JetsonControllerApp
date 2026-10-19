@@ -75,6 +75,15 @@ def rename_units(connection, previous, schema: dict) -> None:
     connection.execute(f"UPDATE device_units SET unit={case} WHERE unit IN ({marks})", (*pairs, *renames))
 
 
+def close_missing_tickets(connection, open_ids, destination: str, now: float) -> int:
+    """Close stored open tickets a full pass no longer returned (deleted, moved or removed rows)."""
+    return connection.execute(
+        """UPDATE board_tickets SET archived_at=?, synced_at=? WHERE destination=? AND archived_at IS NULL
+           AND status_category!='DONE' AND row_id NOT IN (SELECT value FROM json_each(?))""",
+        (timestamp(now), timestamp(now), destination, json.dumps(sorted(open_ids))),
+    ).rowcount
+
+
 def row_values(row: dict, schema: dict) -> dict:
     values = row.get("values") or {}
     return {name: values.get(prop["id"], {}).get("value")
@@ -162,6 +171,7 @@ class TicketSync:
         self._cursor = None
         self._maximum = None
         self._full = True
+        self._seen = None
         self._next_sync = 0.0
         self._failures = 0
 
@@ -226,7 +236,7 @@ class TicketSync:
             reserved = True
             if self._fingerprint != fingerprint:
                 self._validated = self._schema = self._query = self._cursor = self._maximum = None
-                self._schema_checked = None
+                self._schema_checked = self._seen = None
                 self._full, self._next_sync, self._failures = True, 0.0, 0
                 with self.database.immediate() as connection:
                     previous = connection.execute("SELECT * FROM ticket_sync WHERE target=?", (TARGET,)).fetchone()
@@ -258,6 +268,7 @@ class TicketSync:
                     self._query = {"status": "open" if self._full else "all", "limit": 100}
                     if not self._full and self._maximum is not None:
                         self._query["updatedSince"] = timestamp(self._maximum - 5)
+                    self._seen = set() if self._full else None
                 query = dict(self._query)
                 if self._cursor is not None:
                     query["cursor"] = self._cursor
@@ -305,27 +316,33 @@ class TicketSync:
                         rename_units(connection, previous, schema)
                         connection.execute("UPDATE ticket_sync SET schema_json=? WHERE target=? AND config_fingerprint=?",
                                            (canonical_json(schema).decode(), TARGET, fingerprint))
-                    if self._schema is not None:
-                        # Open rows may hold other values the change renamed; read them all again.
-                        self._full = True
+                # Every schema read is followed by a full pass over the open rows. It picks up values
+                # a schema change renamed and closes tickets that left the board without an
+                # archivedAt update reaching the incremental sync.
                 self._schema, self._validated, self._config = schema, fingerprint, config
-                self._schema_checked = now
+                self._schema_checked, self._full = now, True
             else:
                 maximum = self._maximum
                 with self.database.immediate() as connection:
                     for row in data["items"]:
                         upsert_ticket(connection, row, self._schema, now)
+                        if self._seen is not None:
+                            self._seen.add(row["id"])
                         updated = parse_timestamp(row["updatedAt"])
                         maximum = updated if maximum is None else max(maximum, updated)
                     cursor = data["nextCursor"]
                     if cursor is None:
+                        if self._seen is not None:
+                            closed = close_missing_tickets(connection, self._seen, self._schema["destination"], now)
+                            if closed:
+                                LOGGER.info("closed_missing_tickets=%s", closed)
                         connection.execute(
                             "UPDATE ticket_sync SET synced_at=?, max_updated_at=? WHERE target=? AND config_fingerprint=?",
                             (timestamp(now), timestamp(maximum) if maximum is not None else None, TARGET, fingerprint),
                         )
                 self._maximum, self._cursor = maximum, cursor
                 if cursor is None:
-                    self._full, self._query, self._next_sync = False, None, now + 120
+                    self._full, self._query, self._seen, self._next_sync = False, None, None, now + 120
             return True
         finally:
             if reserved:

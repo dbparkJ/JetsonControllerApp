@@ -256,11 +256,34 @@ class TicketsCoreTest(unittest.TestCase):
         self.assertEqual(self.stored_units(), ["GEO-X-1", "geo X-2"])
         self.assertTrue(self.sync.run_once(NOW + 601.5))
         self.assertEqual(parse_qs(urlsplit(self.api.requests[-1].url).query)["status"], ["open"])
-        # An unchanged schema is read again later without starting another full sync.
+        # Ten minutes later the schema is read again, followed by another full pass.
         self.assertTrue(self.sync.run_once(NOW + 1202))
         self.assertEqual(len(self.board_reads()), 3)
         self.assertTrue(self.sync.run_once(NOW + 1202.5))
-        self.assertEqual(parse_qs(urlsplit(self.api.requests[-1].url).query)["status"], ["all"])
+        self.assertEqual(parse_qs(urlsplit(self.api.requests[-1].url).query)["status"], ["open"])
+
+    def test_rows_that_leave_the_board_unseen_are_closed_by_the_next_full_pass(self):
+        for row_id in ("row-2", "row-3", "row-4"):
+            self.api.add(row_id)
+        self.initialize()
+        self.assertTrue(self.sync.run_once(NOW + 1))
+        self.assertEqual(len(self.tickets()), 4)
+        # A deleted row drops out of every listing without an archivedAt update.
+        removed = self.api.rows.pop("row-2")
+        self.assertTrue(self.sync.run_once(NOW + 121))
+        self.assertTrue(self.sync.run_once(NOW + 121.5))
+        self.assertIsNone(self.tickets()[1]["archived_at"])
+        self.assertTrue(self.sync.run_once(NOW + 601))
+        # Closing waits for the last page of the full pass.
+        self.assertTrue(self.sync.run_once(NOW + 601.5))
+        self.assertIsNone(self.tickets()[1]["archived_at"])
+        self.assertTrue(self.sync.run_once(NOW + 602))
+        self.assertEqual([t["row_id"] for t in self.tickets() if t["archived_at"]], ["row-2"])
+        # A restored row is open again after the following full pass.
+        self.api.rows["row-2"] = {**removed, "revision": 2}
+        for moment in (NOW + 1202, NOW + 1202.5, NOW + 1203):
+            self.assertTrue(self.sync.run_once(moment))
+        self.assertEqual([t["row_id"] for t in self.tickets() if t["archived_at"]], [])
 
     def test_restart_carries_a_unit_rename_into_tickets_and_device_units(self):
         self.initialize()
