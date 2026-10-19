@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.survey
 
+import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.model.PreparationDraft
 import com.example.jetsoncontroller.model.PreparationSelection
 import com.example.jetsoncontroller.model.StartTarget
@@ -7,6 +8,14 @@ import com.example.jetsoncontroller.model.StopTarget
 
 internal const val PreflightMaxAgeMillis = 120_000L
 internal const val TicketChangedMessage = "GEO& Work에서 이 구간이 바뀌었습니다. 다시 확인하세요."
+
+/** Until Phase 5 asks the server per start: the ticket is still on the last synced board at the same revision. */
+internal fun ticketStillMatches(draft: PreparationDraft, profileId: String?, tickets: List<ServerTicket>): Boolean {
+    val rowId = draft.ticketRowId ?: return true
+    if (draft.serverProfileId != null && profileId != draft.serverProfileId) return false
+    val ticket = tickets.firstOrNull { it.rowId == rowId } ?: return false
+    return draft.ticketRevision == null || ticket.revision == null || ticket.revision == draft.ticketRevision
+}
 
 internal fun startRevalidationError(
     target: StartTarget,

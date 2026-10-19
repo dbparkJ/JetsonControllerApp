@@ -376,7 +376,14 @@ fun JetsonApp(
         )
 
     val surveyRunViewModel: SurveyRunViewModel = viewModel(
-        factory = SurveyRunViewModel.Factory(repository, fieldContext)
+        factory = SurveyRunViewModel.Factory(repository, fieldContext) { draft ->
+            val tickets = serverTicketViewModel.uiState.value
+            if (com.example.jetsoncontroller.ui.survey.ticketStillMatches(draft, tickets.profileId, tickets.tickets)) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException(com.example.jetsoncontroller.ui.survey.TicketChangedMessage))
+            }
+        }
     )
 
     val cameraPreviewViewModel: CameraPreviewViewModel =
