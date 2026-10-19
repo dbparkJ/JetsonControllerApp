@@ -2,6 +2,7 @@ package com.example.jetsoncontroller.ui.devices
 
 import com.example.jetsoncontroller.data.devices.DeviceSnapshot
 import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.model.MetricValidity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -56,7 +57,7 @@ class DeviceHomePresentationTest {
     }
 
     @Test
-    fun `zero readings stay unknown instead of being saved as measurements`() {
+    fun `legacy zero temperature and missing totals stay unknown`() {
         val snapshot = snapshotFromStatus(
             deviceId = "dev-a",
             deviceName = "MMS-4DE0",
@@ -104,8 +105,114 @@ class DeviceHomePresentationTest {
         )
         assertEquals("81°C", stored.temperature)
         assertEquals("마지막 값 기준", stored.sourceNote)
-        assertEquals("확인 안 됨", stored.cpuGpu)
+        assertEquals("미확인", stored.cpuGpu)
     }
+
+    @Test
+    fun `invalid live readings do not show numbers or fall back to cached values`() {
+        listOf("unavailable", "stale").forEach { validity ->
+            val status = measuredStatus().copy(metricValidity = metricNames.associateWith { MetricValidity(validity) })
+            val figures = deviceFigures(status, snapshotOf(measuredStatus()))
+            assertEquals("미확인", figures.temperature)
+            assertEquals("미확인", figures.storageFree)
+            assertEquals("미확인", figures.cpuGpu)
+            assertEquals("미확인", figures.memory)
+            assertNull(figures.storageFreeDetail)
+            assertNull(figures.memoryDetail)
+            assertNull(figures.sourceNote)
+
+            val saved = snapshotOf(status)
+            assertNull(saved.temperatureC)
+            assertNull(saved.storagePercent)
+            assertNull(saved.storageAvailableBytes)
+            assertNull(saved.storageTotalBytes)
+            assertNull(saved.cpuPercent)
+            assertNull(saved.gpuPercent)
+            assertNull(saved.memoryUsedMb)
+            assertNull(saved.memoryTotalMb)
+            assertEquals("마지막 값 기준", deviceFigures(null, saved).sourceNote)
+        }
+    }
+
+    @Test
+    fun `valid zero readings survive live presentation and snapshot persistence`() {
+        val status = measuredStatus().copy(
+            temperatureC = 0f,
+            cpuPercent = 0,
+            gpuPercent = 0,
+            ramUsedMb = 0,
+            storagePercent = 100,
+            storageAvailableBytes = 0,
+            metricValidity = metricNames.associateWith { MetricValidity("valid") }
+        )
+        val saved = snapshotOf(status)
+        assertEquals(0f, saved.temperatureC)
+        assertEquals(0, saved.cpuPercent)
+        assertEquals(0, saved.gpuPercent)
+        assertEquals(0, saved.memoryUsedMb)
+        assertEquals(0L, saved.storageAvailableBytes)
+        listOf(deviceFigures(status, null), deviceFigures(null, saved)).forEach { figures ->
+            assertEquals("0°C", figures.temperature)
+            assertEquals("0% · 0%", figures.cpuGpu)
+            assertEquals("0%", figures.storageFree)
+            assertEquals("0.0 GB", figures.memory)
+        }
+        val emptyStorage = status.copy(storagePercent = 0)
+        assertEquals(0, snapshotOf(emptyStorage).storagePercent)
+        assertEquals("100%", deviceFigures(emptyStorage, null).storageFree)
+    }
+
+    @Test
+    fun `each metric uses its own validity including dependent totals`() {
+        metricNames.forEach { name ->
+            val status = measuredStatus().copy(metricValidity = mapOf(name to MetricValidity("unavailable")))
+            val saved = snapshotOf(status)
+            val live = deviceFigures(status, null)
+            val offline = deviceFigures(null, saved)
+            assertEquals(live.copy(sourceNote = "마지막 값 기준"), offline)
+            when (name) {
+                "temperatureC" -> assertEquals("미확인", live.temperature)
+                "cpuPercent" -> assertEquals("미확인 · 41%", live.cpuGpu)
+                "gpuPercent" -> assertEquals("23% · 미확인", live.cpuGpu)
+                "storagePercent" -> assertEquals("미확인", live.storageFree)
+                "storageAvailableBytes" -> assertNull(live.storageFreeDetail)
+                "storageTotalBytes" -> {
+                    assertEquals("미확인", live.storageFree)
+                    assertNull(live.storageFreeDetail)
+                }
+                "ramUsedMb" -> assertEquals("미확인", live.memory)
+                "ramTotalMb" -> {
+                    assertEquals("미확인", live.memory)
+                    assertNull(live.memoryDetail)
+                }
+            }
+        }
+    }
+
+    private val metricNames = listOf(
+        "temperatureC", "cpuPercent", "gpuPercent", "storagePercent", "storageAvailableBytes",
+        "storageTotalBytes", "ramUsedMb", "ramTotalMb"
+    )
+
+    private fun measuredStatus() = JetsonStatus(
+        temperatureC = 62.4f,
+        storagePercent = 38,
+        storageTotalBytes = 1_000_000_000_000L,
+        storageAvailableBytes = 412_000_000_000L,
+        cpuPercent = 23,
+        gpuPercent = 41,
+        ramUsedMb = 3174,
+        ramTotalMb = 7577
+    )
+
+    private fun snapshotOf(status: JetsonStatus) = snapshotFromStatus(
+        deviceId = "dev-a",
+        deviceName = "MMS-4DE0",
+        status = status,
+        observedAtEpochMillis = 5L,
+        pendingTransferCount = null,
+        runningLabel = null
+    )
 
     @Test
     fun `the chip names the state and the one fact that matters for it`() {

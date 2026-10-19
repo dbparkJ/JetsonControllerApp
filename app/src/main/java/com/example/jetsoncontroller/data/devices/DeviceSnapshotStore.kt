@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.jetsoncontroller.model.MetricValidity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.IOException
@@ -35,7 +36,8 @@ data class DeviceSnapshot(
     val memoryUsedMb: Int? = null,
     val memoryTotalMb: Int? = null,
     val runningLabel: String? = null,
-    val pendingTransferCount: Int? = null
+    val pendingTransferCount: Int? = null,
+    val metricValidity: Map<String, MetricValidity>? = null
 )
 
 /**
@@ -88,11 +90,26 @@ internal fun mergeDeviceSnapshot(
     if (existing != null && incoming.lastSeenAtEpochMillis < existing.lastSeenAtEpochMillis) {
         return current
     }
-    return current + (key to incoming.copy(deviceId = key))
+    return current + (key to incoming.copy(deviceId = key).withValidMetrics())
 }
 
 internal fun encodeDeviceSnapshots(snapshots: Map<String, DeviceSnapshot>): String =
-    snapshotGson.toJson(snapshots.values.toList(), snapshotListType)
+    snapshotGson.toJson(snapshots.values.map { it.withValidMetrics() }, snapshotListType)
+
+/** Legacy snapshots have no validity metadata, so their zero CPU/GPU readings are ambiguous. */
+internal fun DeviceSnapshot.withValidMetrics(): DeviceSnapshot {
+    fun valid(name: String): Boolean = metricValidity?.get(name)?.validity?.let { it == "valid" } ?: true
+    return copy(
+        temperatureC = temperatureC.takeIf { valid("temperatureC") },
+        storagePercent = storagePercent.takeIf { valid("storagePercent") && valid("storageTotalBytes") },
+        storageAvailableBytes = storageAvailableBytes.takeIf { valid("storageAvailableBytes") && valid("storageTotalBytes") },
+        storageTotalBytes = storageTotalBytes.takeIf { valid("storageTotalBytes") },
+        cpuPercent = cpuPercent.takeIf { valid("cpuPercent") },
+        gpuPercent = gpuPercent.takeIf { valid("gpuPercent") },
+        memoryUsedMb = memoryUsedMb.takeIf { valid("ramUsedMb") && valid("ramTotalMb") },
+        memoryTotalMb = memoryTotalMb.takeIf { valid("ramTotalMb") }
+    )
+}
 
 /** Unreadable or blank storage yields an empty map, so one bad write cannot hide every device. */
 internal fun decodeDeviceSnapshots(raw: String?): Map<String, DeviceSnapshot> {
@@ -100,6 +117,7 @@ internal fun decodeDeviceSnapshots(raw: String?): Map<String, DeviceSnapshot> {
     return runCatching {
         snapshotGson.fromJson<List<DeviceSnapshot>>(raw, snapshotListType).orEmpty()
             .filter { it.deviceId.isNotBlank() }
+            .map { it.withValidMetrics() }
             .associateBy { deviceSnapshotKey(it.deviceId) }
     }.getOrDefault(emptyMap())
 }

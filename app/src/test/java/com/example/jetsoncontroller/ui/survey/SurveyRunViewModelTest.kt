@@ -32,6 +32,185 @@ class SurveyRunViewModelTest {
     @After fun resetMain() = Dispatchers.resetMain()
 
     @Test
+    fun `result loads clicked run without replacing latest active collection`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val latest = run("latest", true, project, section)
+        val clicked = run("older", false, project, section)
+        val source = FakeSource(project, section).also {
+            it.connection.value = SurveyDeviceConnection("device-a", true)
+            it.runResult = Result.success(latest)
+        }
+        val persistence = FakePersistence(states = mapOf("device-a" to
+            SurveyRunLocalState(lastPipelineId = "pipe", lastRunId = "latest")))
+        val viewModel = SurveyRunViewModel(source, persistence)
+        advanceUntilIdle()
+        assertEquals(latest, viewModel.uiState.value.latestRun)
+
+        source.runResult = Result.success(clicked)
+        viewModel.openResult(RunResultTarget("device-a", "older", "pipe"), latest)
+        advanceUntilIdle()
+
+        assertEquals(clicked, viewModel.resultState.value.run)
+        assertEquals(latest, viewModel.uiState.value.latestRun)
+        assertEquals(latest, viewModel.uiState.value.activeRun)
+        viewModel.acknowledgeResult("older")
+        assertFalse(viewModel.uiState.value.resultAcknowledged)
+    }
+
+    @Test
+    fun `result rejects another run device or pipeline and never reads the wrong connection`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val exact = run("clicked", false, project, section)
+        val source = FakeSource(project, section).also {
+            it.connection.value = SurveyDeviceConnection("device-a", true)
+        }
+        val viewModel = SurveyRunViewModel(source, FakePersistence())
+        advanceUntilIdle()
+        val target = RunResultTarget("device-a", "clicked", "pipe")
+        listOf(exact.copy(runId = "other"), exact.copy(deviceId = "device-b"),
+            exact.copy(pipelineId = "other")).forEach { wrong ->
+            source.runResult = Result.success(wrong)
+            viewModel.openResult(target, wrong)
+            advanceUntilIdle()
+            assertNull(viewModel.resultState.value.run)
+            assertTrue(viewModel.resultState.value.error != null)
+        }
+        val calls = source.runRequests.size
+        viewModel.openResult(target.copy(deviceId = "device-b"))
+        advanceUntilIdle()
+        assertEquals(calls, source.runRequests.size)
+        assertNull(viewModel.resultState.value.run)
+    }
+
+    @Test
+    fun `late result response cannot replace the next clicked identity`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val gate = CompletableDeferred<Unit>()
+        val source = FakeSource(project, section).also {
+            it.connection.value = SurveyDeviceConnection("device-a", true)
+            it.runLookup = { id ->
+                if (id == "older") withContext(NonCancellable) { gate.await() }
+                Result.success(run(id, false, project, section))
+            }
+        }
+        val viewModel = SurveyRunViewModel(source, FakePersistence())
+        advanceUntilIdle()
+        viewModel.openResult(RunResultTarget("device-a", "older", "pipe"))
+        runCurrent()
+        viewModel.openResult(RunResultTarget("device-a", "newer", "pipe"))
+        runCurrent()
+        assertEquals("newer", viewModel.resultState.value.run?.runId)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("newer", viewModel.resultState.value.run?.runId)
+    }
+
+    @Test
+    fun `viewing result leaves pending start and uncertainty ordered first`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val pending = pending("pipe", "project", "section")
+        val source = FakeSource(project, section).also {
+            it.connection.value = SurveyDeviceConnection("device-a", true)
+        }
+        val viewModel = SurveyRunViewModel(source, FakePersistence(states = mapOf(
+            "device-a" to SurveyRunLocalState(pendingStart = pending))))
+        advanceUntilIdle()
+        val before = viewModel.uiState.value
+        source.runResult = Result.success(run("older", false, project, section))
+        viewModel.openResult(RunResultTarget("device-a", "older", "pipe"))
+        advanceUntilIdle()
+        assertEquals(before, viewModel.uiState.value)
+        assertEquals(pending, viewModel.uiState.value.pendingStart)
+        assertFalse(viewModel.uiState.value.canStart)
+    }
+
+    @Test
+    fun `result response after device switch is discarded`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val gate = CompletableDeferred<Unit>()
+        val source = FakeSource(project, section).also {
+            it.connection.value = SurveyDeviceConnection("device-a", true)
+            it.runLookup = { id ->
+                withContext(NonCancellable) { gate.await() }
+                Result.success(run(id, false, project, section))
+            }
+        }
+        val viewModel = SurveyRunViewModel(source, FakePersistence())
+        advanceUntilIdle()
+        viewModel.openResult(RunResultTarget("device-a", "clicked", "pipe"))
+        runCurrent()
+        source.connection.value = SurveyDeviceConnection("device-b", true)
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertNull(viewModel.resultState.value.run)
+        assertFalse(viewModel.resultState.value.loading)
+        assertEquals("device-b", viewModel.uiState.value.deviceId)
+    }
+
+    @Test
+    fun `offline result retains only an exact cached snapshot`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val clicked = run("clicked", false, project, section)
+        val source = FakeSource(project, section).also {
+            it.connection.value = SurveyDeviceConnection("device-a", false)
+        }
+        val viewModel = SurveyRunViewModel(source, FakePersistence())
+        advanceUntilIdle()
+        viewModel.openResult(RunResultTarget("device-a", "clicked", "pipe"), clicked)
+        assertEquals(clicked, viewModel.resultState.value.run)
+        viewModel.openResult(RunResultTarget("device-a", "other", "pipe"), clicked)
+        assertNull(viewModel.resultState.value.run)
+        assertTrue(source.runRequests.isEmpty())
+    }
+
+    @Test
+    fun `saved result logs retain exact pipeline and log and discard late dismissed response`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val project = project("project")
+        val section = section(project, "section")
+        val gate = CompletableDeferred<Unit>()
+        val source = FakeSource(project, section).also {
+            it.connection.value = SurveyDeviceConnection("device-a", true)
+            it.logLookup = { _, logId ->
+                if (logId == "legacy-log") withContext(NonCancellable) { gate.await() }
+                Result.success(logId)
+            }
+        }
+        val viewModel = SurveyRunViewModel(source, FakePersistence())
+        advanceUntilIdle()
+        viewModel.openResultLog(RunLogTarget("device-a", "old-pipe", "legacy-log"))
+        runCurrent()
+        val exact = RunLogTarget("device-a", "clicked-pipe", "clicked-log")
+        viewModel.openResultLog(exact)
+        runCurrent()
+        assertEquals(exact, viewModel.resultLog.value.target)
+        assertEquals("clicked-log", viewModel.resultLog.value.text)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("clicked-log", viewModel.resultLog.value.text)
+        assertEquals(listOf("old-pipe" to "legacy-log", "clicked-pipe" to "clicked-log"), source.logRequests)
+        viewModel.dismissResultLog()
+        assertNull(viewModel.resultLog.value.text)
+        viewModel.openResultLog(exact.copy(deviceId = "device-b"))
+        advanceUntilIdle()
+        assertNull(viewModel.resultLog.value.target)
+        assertEquals(2, source.logRequests.size)
+    }
+
+    @Test
     fun `late telemetry from predecessor cannot replace successor in same pipeline`() {
         val project = project("project")
         val section = section(project, "section")
@@ -450,6 +629,10 @@ class SurveyRunViewModelTest {
     ) : SurveyRunDataSource {
         val connection = MutableStateFlow(SurveyDeviceConnection(null, false))
         var runResult: Result<PipelineRun>? = null
+        var runLookup: (suspend (String) -> Result<PipelineRun>)? = null
+        val runRequests = mutableListOf<String>()
+        var logLookup: (suspend (String, String) -> Result<String>)? = null
+        val logRequests = mutableListOf<Pair<String, String>>()
         var contextualReceipt: ContextualStartReceipt? = null
         private val projects = listOf(project)
         private val sections = listOf(section)
@@ -467,8 +650,14 @@ class SurveyRunViewModelTest {
             configuredPreflight?.let { Result.success(it) } ?: Result.failure(UnsupportedOperationException())
         override suspend fun contextualStart(pipelineId: String, request: ContextualStartRequest) =
             Result.failure<ManagedPipeline>(startFailure ?: UnsupportedOperationException())
-        override suspend fun pipelineRun(runId: String) =
-            runResult ?: Result.failure<PipelineRun>(UnsupportedOperationException())
+        override suspend fun pipelineRun(runId: String): Result<PipelineRun> {
+            runRequests += runId
+            return runLookup?.invoke(runId) ?: runResult ?: Result.failure(UnsupportedOperationException())
+        }
+        override suspend fun runLog(pipelineId: String, logId: String): Result<String> {
+            logRequests += pipelineId to logId
+            return logLookup?.invoke(pipelineId, logId) ?: Result.failure(UnsupportedOperationException())
+        }
         override suspend fun pipelines() = Result.success(listOf(ManagedPipeline(
             id = "pipe", label = "수집", entrypoint = "run.py", config = "config", virtualenv = ".venv",
             contextualStart = contextualReceipt

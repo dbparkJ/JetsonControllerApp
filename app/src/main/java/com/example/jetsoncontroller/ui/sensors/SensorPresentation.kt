@@ -1,6 +1,9 @@
 package com.example.jetsoncontroller.ui.sensors
 
 import com.example.jetsoncontroller.model.GnssSensorStatus
+import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
+import com.example.jetsoncontroller.ui.dashboard.statusFreshness
 
 enum class GnssReceptionState {
     GNSS_OFF,
@@ -30,7 +33,7 @@ enum class SensorActivity {
     UNCONFIGURED,
     ACTIVE,
     CONNECTED,
-    WAITING,
+    WAITING, // Waiting for trustworthy telemetry; CONNECTED is an idle sensor.
     STALE,
     DISCONNECTED
 }
@@ -41,50 +44,101 @@ data class SensorPresentation(
     val description: String
 )
 
+data class SensorPresentations(
+    val camera: SensorPresentation,
+    val gnss: SensorPresentation,
+    val imu: SensorPresentation
+)
+
+/** Sample age uses the existing CURRENT window, independently of status response age. */
+fun sensorPresentations(
+    status: JetsonStatus,
+    deviceOnline: Boolean,
+    nowEpochMillis: Long
+): SensorPresentations = SensorPresentations(
+    camera = sensorPresentation(
+        configured = status.cameraConfigured || status.cameraSensor.configured,
+        connected = status.cameraSensor.connected,
+        active = status.cameraSensor.active,
+        telemetryAvailable = status.sensorTelemetryAvailable,
+        telemetryFresh = status.sensorTelemetryFresh,
+        legacyRunning = status.cameraRunning,
+        deviceOnline = deviceOnline,
+        lastSampleAtEpochMillis = status.cameraSensor.lastFrameAtEpochMillis,
+        nowEpochMillis = nowEpochMillis
+    ),
+    gnss = sensorPresentation(
+        configured = status.gnssConfigured || status.gnssSensor.configured,
+        connected = status.gnssSensor.connected,
+        active = status.gnssSensor.active,
+        telemetryAvailable = status.sensorTelemetryAvailable,
+        telemetryFresh = status.sensorTelemetryFresh,
+        legacyRunning = status.gnssRunning,
+        deviceOnline = deviceOnline,
+        lastSampleAtEpochMillis = status.gnssSensor.lastSampleAtEpochMillis,
+        nowEpochMillis = nowEpochMillis
+    ),
+    imu = sensorPresentation(
+        configured = status.imuConfigured || status.imuSensor.configured,
+        connected = status.imuSensor.connected,
+        active = status.imuSensor.active,
+        telemetryAvailable = status.sensorTelemetryAvailable,
+        telemetryFresh = status.sensorTelemetryFresh,
+        legacyRunning = status.imuRunning,
+        deviceOnline = deviceOnline,
+        lastSampleAtEpochMillis = status.imuSensor.lastSampleAtEpochMillis,
+        nowEpochMillis = nowEpochMillis
+    )
+)
+
+@Suppress("UNUSED_PARAMETER") // Retained for callers of the former service-running fallback.
 fun sensorPresentation(
     configured: Boolean,
     connected: Boolean,
     active: Boolean,
     telemetryAvailable: Boolean,
     telemetryFresh: Boolean,
-    legacyRunning: Boolean
+    legacyRunning: Boolean,
+    deviceOnline: Boolean = false,
+    lastSampleAtEpochMillis: Long? = null,
+    nowEpochMillis: Long = 0L
 ): SensorPresentation = when {
+    !deviceOnline || !telemetryAvailable -> unknownSensorPresentation()
     !configured -> SensorPresentation(
         SensorActivity.UNCONFIGURED,
         "미설정",
         "센서 서비스가 설정되지 않았습니다"
     )
-    telemetryAvailable && !telemetryFresh -> SensorPresentation(
+    !telemetryFresh || (active && lastSampleAtEpochMillis != null &&
+        statusFreshness(lastSampleAtEpochMillis, nowEpochMillis) == StatusFreshness.STALE) -> SensorPresentation(
         SensorActivity.STALE,
         "지연",
-        "센서 상태 응답이 지연되고 있습니다"
+        "센서 데이터 수신이 지연되고 있습니다"
     )
-    telemetryAvailable && active -> SensorPresentation(
+    active && lastSampleAtEpochMillis != null && lastSampleAtEpochMillis > nowEpochMillis -> unknownSensorPresentation()
+    active && lastSampleAtEpochMillis == null -> unknownSensorPresentation()
+    active -> SensorPresentation(
         SensorActivity.ACTIVE,
-        "활성",
+        "수신 중",
         "센서 데이터 수신 중"
     )
-    telemetryAvailable && connected -> SensorPresentation(
+    connected -> SensorPresentation(
         SensorActivity.CONNECTED,
-        "연결",
+        "대기 중",
         "센서 연결됨 · 데이터 대기 중"
     )
-    telemetryAvailable -> SensorPresentation(
+    else -> SensorPresentation(
         SensorActivity.DISCONNECTED,
         "미연결",
         "센서 응답이 없습니다"
     )
-    legacyRunning -> SensorPresentation(
-        SensorActivity.ACTIVE,
-        "실행",
-        "센서 서비스 실행 중"
-    )
-    else -> SensorPresentation(
-        SensorActivity.WAITING,
-        "대기",
-        "센서 서비스 대기 또는 중지"
-    )
 }
+
+private fun unknownSensorPresentation(): SensorPresentation = SensorPresentation(
+    SensorActivity.WAITING,
+    "미확인",
+    "장치 또는 센서 데이터를 확인할 수 없습니다"
+)
 
 fun gnssReceptionState(
     gnssAvailable: Boolean,

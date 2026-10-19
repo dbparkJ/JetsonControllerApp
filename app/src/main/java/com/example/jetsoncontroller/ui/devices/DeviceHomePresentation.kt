@@ -1,7 +1,9 @@
 package com.example.jetsoncontroller.ui.devices
 
 import com.example.jetsoncontroller.data.devices.DeviceSnapshot
+import com.example.jetsoncontroller.data.devices.withValidMetrics
 import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.ui.dashboard.metricIsValid
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,8 +66,8 @@ internal fun shouldRecordSnapshot(online: Boolean, statusIsCurrent: Boolean, obs
     online && statusIsCurrent && observedAt != null
 
 /**
- * Builds the snapshot for one fresh status. Zero or empty values mean the device did not
- * report them, so they stay unknown instead of being saved as real readings.
+ * Builds the snapshot for one fresh status. Valid zero readings are preserved; invalid
+ * metrics stay missing, including when the device supplied a nonzero fallback value.
  */
 internal fun snapshotFromStatus(
     deviceId: String,
@@ -81,7 +83,7 @@ internal fun snapshotFromStatus(
         deviceId = deviceId,
         deviceName = deviceName,
         lastSeenAtEpochMillis = observedAtEpochMillis,
-        temperatureC = status.temperatureC.takeIf { it > 0f },
+        temperatureC = status.temperatureC.takeIf { it > 0f || status.metricValidity["temperatureC"]?.validity == "valid" },
         storagePercent = status.storagePercent.takeIf { storageKnown },
         storageAvailableBytes = status.storageAvailableBytes.takeIf { storageKnown },
         storageTotalBytes = status.storageTotalBytes.takeIf { storageKnown },
@@ -90,8 +92,9 @@ internal fun snapshotFromStatus(
         memoryUsedMb = status.ramUsedMb.takeIf { memoryKnown },
         memoryTotalMb = status.ramTotalMb.takeIf { memoryKnown },
         runningLabel = runningLabel,
-        pendingTransferCount = pendingTransferCount
-    )
+        pendingTransferCount = pendingTransferCount,
+        metricValidity = status.metricValidity
+    ).withValidMetrics()
 }
 
 /** Display text for the device figures. Unknown values say so instead of showing zero. */
@@ -111,27 +114,42 @@ internal data class DeviceFigures(
  * and labelled as the last known value, so an offline device still shows its numbers.
  */
 internal fun deviceFigures(live: JetsonStatus?, snapshot: DeviceSnapshot?): DeviceFigures {
+    val stored = snapshot?.withValidMetrics()
     val storageFreeBytes = if (live != null) {
-        live.storageAvailableBytes.takeIf { live.storageTotalBytes > 0L }
+        live.storageAvailableBytes.takeIf {
+            live.storageTotalBytes > 0L && live.metricIsValid("storageTotalBytes") && live.metricIsValid("storageAvailableBytes")
+        }
     } else {
-        snapshot?.storageAvailableBytes
+        stored?.storageAvailableBytes
     }
     val storageUsedPercent = if (live != null) {
-        live.storagePercent.takeIf { live.storageTotalBytes > 0L }
+        live.storagePercent.takeIf {
+            live.storageTotalBytes > 0L && live.metricIsValid("storageTotalBytes") && live.metricIsValid("storagePercent")
+        }
     } else {
-        snapshot?.storagePercent
+        stored?.storagePercent
     }
-    val temperature = if (live != null) live.temperatureC.takeIf { it > 0f } else snapshot?.temperatureC
-    val cpu = if (live != null) live.cpuPercent else snapshot?.cpuPercent
-    val gpu = if (live != null) live.gpuPercent else snapshot?.gpuPercent
-    val memoryUsed = if (live != null) live.ramUsedMb.takeIf { live.ramTotalMb > 0 } else snapshot?.memoryUsedMb
-    val memoryTotal = if (live != null) live.ramTotalMb.takeIf { it > 0 } else snapshot?.memoryTotalMb
+    val temperature = if (live != null) {
+        live.temperatureC.takeIf {
+            live.metricIsValid("temperatureC") && (it > 0f || live.metricValidity["temperatureC"]?.validity == "valid")
+        }
+    } else stored?.temperatureC
+    val cpu = if (live != null) live.cpuPercent.takeIf { live.metricIsValid("cpuPercent") } else stored?.cpuPercent
+    val gpu = if (live != null) live.gpuPercent.takeIf { live.metricIsValid("gpuPercent") } else stored?.gpuPercent
+    val memoryTotal = if (live != null) {
+        live.ramTotalMb.takeIf { it > 0 && live.metricIsValid("ramTotalMb") }
+    } else stored?.memoryTotalMb
+    val memoryUsed = if (live != null) {
+        live.ramUsedMb.takeIf { memoryTotal != null && live.metricIsValid("ramUsedMb") }
+    } else stored?.memoryUsedMb
     val sourceNote = if (live == null && snapshot != null) "마지막 값 기준" else null
     return DeviceFigures(
         temperature = temperature?.let { "${it.roundToInt()}°C" } ?: UNKNOWN_FIGURE,
         storageFree = storageUsedPercent?.let { "${(100 - it).coerceIn(0, 100)}%" } ?: UNKNOWN_FIGURE,
         storageFreeDetail = storageFreeBytes?.takeIf { it > 0L }?.let { formatStorage(it) },
-        cpuGpu = if (cpu != null && gpu != null) "$cpu% · $gpu%" else UNKNOWN_FIGURE,
+        cpuGpu = if (cpu == null && gpu == null) UNKNOWN_FIGURE else {
+            "${cpu?.let { "$it%" } ?: UNKNOWN_FIGURE} · ${gpu?.let { "$it%" } ?: UNKNOWN_FIGURE}"
+        },
         memory = if (memoryUsed != null && memoryTotal != null && memoryTotal > 0) {
             formatMemory(memoryUsed)
         } else {
@@ -142,7 +160,7 @@ internal fun deviceFigures(live: JetsonStatus?, snapshot: DeviceSnapshot?): Devi
     )
 }
 
-private const val UNKNOWN_FIGURE = "확인 안 됨"
+private const val UNKNOWN_FIGURE = "미확인"
 
 /** Decimal gigabytes, or terabytes from 1 TB, as the storage figures show them. */
 internal fun formatStorage(bytes: Long): String =

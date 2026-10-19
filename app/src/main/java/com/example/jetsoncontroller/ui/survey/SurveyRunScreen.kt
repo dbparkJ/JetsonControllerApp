@@ -89,11 +89,15 @@ internal fun SurveyRunScreen(
     developerModeEnabled: Boolean = false,
     /** Display name of the selected device. Never the device ID; falls back to a neutral label. */
     deviceName: String? = null,
-    ticketTitle: String? = null
+    ticketTitle: String? = null,
+    ticketMessage: String? = null,
+    ticketPreparationReady: Boolean = true,
+    ticketPreparationKey: String? = null
 ) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
     val c = LocalGeoColors.current
     val displayName = deviceName?.takeIf(String::isNotBlank) ?: "선택한 장치"
-    var confirmStart by remember(state.deviceId, state.pipelineId, state.preflight?.preflightId) {
+    var confirmStart by remember(state.deviceId, state.pipelineId, state.preflight?.preflightId, ticketPreparationKey, ticketPreparationReady) {
         mutableStateOf(false)
     }
     if (confirmStart) {
@@ -146,17 +150,17 @@ internal fun SurveyRunScreen(
                         )
                         state.preflight?.ready == true -> GeoPrimaryAction(
                             "수집 시작", { confirmStart = true },
-                            enabled = state.canStart,
+                            enabled = state.canStart && ticketPreparationReady,
                             icon = Icons.Default.CheckCircle
                         )
                         state.preflight != null -> GeoPrimaryAction(
                             "장치 다시 점검", onPreflight,
-                            enabled = state.canPreflight,
+                            enabled = state.canPreflight && ticketPreparationReady,
                             icon = Icons.Default.Refresh
                         )
                         else -> GeoPrimaryAction(
                             "장치 점검", onPreflight,
-                            enabled = state.canPreflight,
+                            enabled = state.canPreflight && ticketPreparationReady,
                             icon = Icons.Default.CheckCircle
                         )
                     }
@@ -174,6 +178,7 @@ internal fun SurveyRunScreen(
                 verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
             ) {
                 item { PreparationSteps(if (state.preflight == null) 0 else 1) }
+                ticketMessage?.let { message -> item { AppBanner(message, StatusTone.WARNING) } }
                 ticketTitle?.takeIf(String::isNotBlank)?.let { title ->
                     item {
                         AppBanner("구간 티켓: $title", StatusTone.INFO)

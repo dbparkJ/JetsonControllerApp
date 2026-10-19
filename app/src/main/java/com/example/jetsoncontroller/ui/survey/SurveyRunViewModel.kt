@@ -63,6 +63,21 @@ internal data class RunPolicyDraft(
 
 internal data class SurveyDeviceConnection(val deviceId: String?, val online: Boolean)
 
+internal data class RunResultTarget(val deviceId: String, val runId: String, val pipelineId: String? = null) {
+    fun matches(run: PipelineRun): Boolean = run.runId == runId &&
+        run.deviceId.equals(deviceId, true) && (pipelineId == null || run.pipelineId == pipelineId)
+}
+
+internal data class RunResultUiState(
+    val target: RunResultTarget? = null,
+    val run: PipelineRun? = null,
+    val loading: Boolean = false,
+    val error: String? = null
+)
+
+internal data class RunLogTarget(val deviceId: String, val pipelineId: String, val logId: String)
+internal data class RunLogUiState(val target: RunLogTarget? = null, val text: String? = null, val error: String? = null)
+
 internal interface SurveyRunDataSource {
     val deviceConnection: Flow<SurveyDeviceConnection>
     suspend fun projects(): Result<List<SurveyProject>>
@@ -74,6 +89,7 @@ internal interface SurveyRunDataSource {
     suspend fun preflight(pipelineId: String, request: PipelinePreflightRequest): Result<PipelinePreflight>
     suspend fun contextualStart(pipelineId: String, request: ContextualStartRequest): Result<ManagedPipeline>
     suspend fun pipelineRun(runId: String): Result<PipelineRun>
+    suspend fun runLog(pipelineId: String, logId: String): Result<String>
     suspend fun pipelines(): Result<List<ManagedPipeline>>
     suspend fun roots(): Result<List<RemoteRoot>>
 }
@@ -102,6 +118,8 @@ internal class RepositorySurveyRunDataSource(private val repository: JetsonRepos
     override suspend fun contextualStart(pipelineId: String, request: ContextualStartRequest) =
         repository.contextualStart(pipelineId, request)
     override suspend fun pipelineRun(runId: String) = repository.pipelineRun(runId)
+    override suspend fun runLog(pipelineId: String, logId: String) =
+        repository.taskRunLog(pipelineId, logId).map { it.content.ifBlank { "저장된 로그가 없습니다." } }
     override suspend fun pipelines() = repository.getPipelines()
     override suspend fun roots() = repository.getRoots()
 }
@@ -162,6 +180,14 @@ internal class SurveyRunViewModel(
     private var deviceLoadJob: Job? = null
     private var telemetryJob: Job? = null
     private var localState = SurveyRunLocalState()
+    private val _resultState = kotlinx.coroutines.flow.MutableStateFlow(RunResultUiState())
+    val resultState: kotlinx.coroutines.flow.StateFlow<RunResultUiState> = _resultState
+    private var resultJob: Job? = null
+    private var resultRequest = 0L
+    private val _resultLog = kotlinx.coroutines.flow.MutableStateFlow(RunLogUiState())
+    val resultLog: kotlinx.coroutines.flow.StateFlow<RunLogUiState> = _resultLog
+    private var resultLogJob: Job? = null
+    private var resultLogRequest = 0L
 
     init {
         viewModelScope.launch {
@@ -170,6 +196,10 @@ internal class SurveyRunViewModel(
                 operationJob?.cancel()
                 deviceLoadJob?.cancel()
                 telemetryJob?.cancel()
+                resultJob?.cancel()
+                resultRequest++
+                _resultState.value = _resultState.value.copy(loading = false)
+                dismissResultLog()
                 val previous = _uiState.value
                 val sameDevice = previous.deviceId.equals(connection.deviceId, ignoreCase = true)
                 val pipelineId = previous.pipelineId.takeIf { sameDevice }
@@ -261,6 +291,50 @@ internal class SurveyRunViewModel(
     }
 
     fun refresh() = refreshInternal(generation)
+
+    /** Browsing a result never replaces the live collection or its pending start. */
+    fun openResult(target: RunResultTarget, seed: PipelineRun? = null) {
+        resultJob?.cancel()
+        val request = ++resultRequest
+        val cached = _resultState.value.takeIf { it.target == target }?.run
+            ?: seed?.takeIf(target::matches)
+        _resultState.value = RunResultUiState(target, cached)
+        val connection = _uiState.value
+        if (!connection.online || !connection.deviceId.equals(target.deviceId, true)) return
+        val expectedGeneration = generation
+        _resultState.value = _resultState.value.copy(loading = true)
+        resultJob = viewModelScope.launch {
+            val result = source.pipelineRun(target.runId)
+            if (request != resultRequest || expectedGeneration != generation) return@launch
+            val observed = result.getOrNull()?.takeIf(target::matches)
+            _resultState.value = RunResultUiState(
+                target = target,
+                run = observed ?: cached,
+                error = if (observed == null) "선택한 수집 결과를 확인하지 못했습니다." else null
+            )
+        }
+    }
+
+    fun openResultLog(target: RunLogTarget) {
+        dismissResultLog()
+        val state = _uiState.value
+        if (!state.online || !state.deviceId.equals(target.deviceId, true)) return
+        val request = resultLogRequest
+        val expectedGeneration = generation
+        _resultLog.value = RunLogUiState(target)
+        resultLogJob = viewModelScope.launch {
+            val result = source.runLog(target.pipelineId, target.logId)
+            if (request != resultLogRequest || expectedGeneration != generation) return@launch
+            _resultLog.value = RunLogUiState(target, result.getOrNull(),
+                if (result.isFailure) "저장된 기록을 불러오지 못했습니다. 다시 시도하세요." else null)
+        }
+    }
+
+    fun dismissResultLog() {
+        resultLogJob?.cancel()
+        resultLogRequest++
+        _resultLog.value = RunLogUiState()
+    }
 
     /** Refreshes only the exact accepted run used by the active screen's lightweight poll. */
     fun refreshRunTelemetry() {

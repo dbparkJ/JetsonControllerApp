@@ -41,6 +41,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
     onUploadOutput: (TaskRun) -> Unit = {},
     onUndoDelete: () -> Unit = {},
     onTrash: () -> Unit = {},
+    onOpenResult: (TaskRun) -> Unit = {},
     developerModeEnabled: Boolean = false
 ) {
     var tab by rememberSaveable(state.deviceId) { mutableStateOf("전체") }
@@ -130,7 +131,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                         }
                     }
                 ) {
-                    Surface(color = c.sectionSoft, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
+                    Surface(onClick = { onOpenResult(run) }, color = c.sectionSoft, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Icon(if (run.isActiveRun() && state.online && state.historyCurrent) Icons.Default.PlayCircle else Icons.Default.Assignment, null, tint = c.primary)

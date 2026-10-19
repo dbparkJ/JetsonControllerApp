@@ -8,6 +8,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
@@ -43,8 +44,14 @@ fun OperationMessageHost(
         }
     }
     SnackbarHost(host) { data ->
-        Snackbar(modifier = Modifier.testTag("operation-message"), dismissAction = {
-            IconButton(onClick = { data.dismiss() }) { Icon(Icons.Default.Close, "메시지 닫기") }
-        }) { Text(data.visuals.message) }
+        Snackbar(
+            modifier = Modifier.testTag("operation-message"),
+            action = data.visuals.actionLabel?.let { label ->
+                { TextButton(onClick = { data.performAction() }) { Text(label) } }
+            },
+            dismissAction = {
+                IconButton(onClick = { data.dismiss() }) { Icon(Icons.Default.Close, "메시지 닫기") }
+            }
+        ) { Text(data.visuals.message) }
     }
 }

@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.dashboard
 
 import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.model.MetricValidity
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import org.junit.Assert.assertEquals
@@ -33,6 +34,32 @@ class DashboardHealthTest {
         assertEquals(DashboardHealthLevel.ATTENTION, health.level)
         assertEquals(2, health.issues.size)
         assertTrue(health.issues.first().contains("82"))
+    }
+
+    @Test
+    fun invalidMetricsNeedAttentionWithoutReportingTheirNumericFallbacks() {
+        val invalid = health(JetsonStatus(
+            temperatureC = 82f,
+            storagePercent = 93,
+            metricValidity = mapOf(
+                "temperatureC" to MetricValidity("unavailable"),
+                "storagePercent" to MetricValidity("stale")
+            )
+        ))
+        assertEquals(setOf(DashboardHealthIssue.UNAVAILABLE_METRICS), invalid.issueKinds)
+        assertEquals(listOf("일부 장치 지표가 미확인 상태입니다."), invalid.issues)
+    }
+
+    @Test
+    fun validZeroMetricsAreHealthy() {
+        val zero = health(JetsonStatus(metricValidity = mapOf(
+            "cpuPercent" to MetricValidity("valid"),
+            "gpuPercent" to MetricValidity("valid"),
+            "temperatureC" to MetricValidity("valid"),
+            "storagePercent" to MetricValidity("valid")
+        )))
+        assertEquals(DashboardHealthLevel.HEALTHY, zero.level)
+        assertTrue(zero.issueKinds.isEmpty())
     }
 
     @Test

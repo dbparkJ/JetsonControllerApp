@@ -52,14 +52,14 @@ internal fun TicketDetailScreen(
 ) {
     val c = LocalGeoColors.current
     val availability = ticketStartAvailability(role, ticket)
-    var confirmStart by remember(ticket.rowId) { mutableStateOf(false) }
+    var confirmStart by remember(ticket.rowId, ticket.revision, availability.enabled) { mutableStateOf(false) }
     if (confirmStart) {
         AlertDialog(
             onDismissRequest = { confirmStart = false },
             title = { Text("수집 시작") },
             text = { Text("${ticket.title} 수집을 시작합니다. 티켓이 '진행 중'으로 바뀝니다.") },
             confirmButton = {
-                TextButton(onClick = { confirmStart = false; onStart() }) { Text("시작") }
+                TextButton(onClick = { confirmStart = false; if (availability.enabled) onStart() }) { Text("시작") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmStart = false }) { Text("취소") }

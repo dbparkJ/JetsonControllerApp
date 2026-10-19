@@ -26,6 +26,45 @@ import org.mockito.Mockito.`when`
 
 class NavigationWorkflowTest {
     @Test
+    fun `recent history opens its canonical run even before final manifest`() {
+        val clicked = TaskRun("history-older", "pipe", "이전 수집", "saved-log", "started",
+            runId = "older-run", deviceId = "device")
+        assertEquals("run_result/older-run?deviceId=device&pipelineId=pipe&historyId=history-older",
+            historyResultRoute(clicked, "device"))
+        assertNotEquals(historyResultRoute(clicked, "device"),
+            historyResultRoute(clicked.copy(id = "history-latest", runId = "latest-run"), "device"))
+    }
+
+    @Test
+    fun `legacy history detail uses the entry identity and preserves encoded characters`() {
+        val legacy = TaskRun("history/old 1", "pipe", "이전 수집", "log", "started")
+        assertEquals("history_result/history%2Fold%201?deviceId=device%2Fa", historyResultRoute(legacy, "device/a"))
+        assertEquals("run_result/run%2F1?deviceId=device&pipelineId=pipe%20one",
+            runResultRoute("run/1", "device", "pipe one"))
+    }
+
+    @Test
+    fun `result back preserves task history and transfer sources`() {
+        listOf(Routes.TASKS, Routes.TASK_HISTORY, Routes.UPLOAD_PROGRESS, Routes.TRANSFERS, Routes.ACTIVE_RUN).forEach {
+            assertEquals(it, resultReturnRoute(it))
+        }
+        assertEquals(Routes.TASKS, resultReturnRoute(null))
+    }
+
+    @Test
+    fun `result saved log keeps the clicked pipeline and log identity`() {
+        val run = pipelineRun("older-run", "device", "pipe", false)
+        `when`(run.logId).thenReturn("saved-older-log")
+        `when`(run.startedAt).thenReturn("started")
+        `when`(run.state).thenReturn("COMPLETED")
+        val entry = resultLogEntry(run)
+        assertEquals("saved-older-log", entry.logId)
+        assertEquals("older-run", entry.runId)
+        assertEquals("pipe", entry.pipelineId)
+        assertEquals("device", entry.deviceId)
+    }
+
+    @Test
     fun `collection tab resumes protected work before offering a new task`() {
         val pending = PendingContextualStart(
             "pipe", "project", 1, "section", 1, "policy", "preflight", "request"
@@ -188,6 +227,8 @@ class NavigationWorkflowTest {
         )
 
         assertTrue(shouldAdoptDiscoveredPipeline(state, discovered))
+        assertFalse(shouldAdoptDiscoveredPipeline(state.copy(unconfirmedRunId = "unconfirmed"), discovered))
+        assertFalse(shouldAdoptDiscoveredPipeline(state.copy(restoringLocalState = true), discovered))
         assertFalse(shouldAdoptDiscoveredPipeline(state.copy(resultAcknowledged = false), discovered))
         assertFalse(
             shouldAdoptDiscoveredPipeline(

@@ -74,6 +74,7 @@ fun SensorScreen(
         }
     ) { paddingValues ->
         AdaptiveContent(Modifier.fillMaxSize().padding(paddingValues)) {
+        val sensors = sensorPresentations(status, deviceOnline, System.currentTimeMillis())
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = GeoSpace.lg),
@@ -86,14 +87,7 @@ fun SensorScreen(
                 SensorStatusRow(
                     icon = Icons.Default.CameraAlt,
                     name = "카메라",
-                    presentation = sensorPresentation(
-                        configured = status.cameraConfigured || camera.configured,
-                        connected = camera.connected,
-                        active = camera.active,
-                        telemetryAvailable = status.sensorTelemetryAvailable,
-                        telemetryFresh = status.sensorTelemetryFresh,
-                        legacyRunning = status.cameraRunning
-                    ),
+                    presentation = sensors.camera,
                     detail = if (
                         camera.active && camera.frameWidth != null && camera.frameHeight != null
                     ) {
@@ -111,22 +105,7 @@ fun SensorScreen(
                     sensorActive = gnss.active,
                     legacyRunning = status.gnssRunning
                 )
-                val presentation = if (!deviceOnline) {
-                    SensorPresentation(
-                        activity = SensorActivity.DISCONNECTED,
-                        badge = "오프라인",
-                        description = "장치가 오프라인입니다"
-                    )
-                } else {
-                    sensorPresentation(
-                        configured = status.gnssConfigured || gnss.configured,
-                        connected = gnss.connected,
-                        active = gnss.active,
-                        telemetryAvailable = status.sensorTelemetryAvailable,
-                        telemetryFresh = status.sensorTelemetryFresh,
-                        legacyRunning = status.gnssRunning
-                    )
-                }
+                val presentation = sensors.gnss
                 val gnssStateKnown = deviceOnline &&
                     (!status.sensorTelemetryAvailable || status.sensorTelemetryFresh)
                 SensorStatusRow(
@@ -149,18 +128,10 @@ fun SensorScreen(
                 })
             }
             item {
-                val imu = status.imuSensor
                 SensorStatusRow(
                     icon = Icons.Default.Sensors,
                     name = "IMU",
-                    presentation = sensorPresentation(
-                        configured = status.imuConfigured || imu.configured,
-                        connected = imu.connected,
-                        active = imu.active,
-                        telemetryAvailable = status.sensorTelemetryAvailable,
-                        telemetryFresh = status.sensorTelemetryFresh,
-                        legacyRunning = status.imuRunning
-                    ),
+                    presentation = sensors.imu,
                     detail = null
                 )
             }

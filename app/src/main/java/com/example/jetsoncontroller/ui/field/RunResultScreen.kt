@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.field
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.PipelineOutputManifest
 import com.example.jetsoncontroller.model.PipelineRun
+import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.ui.components.*
 import com.example.jetsoncontroller.ui.theme.*
 import com.example.jetsoncontroller.ui.theme.TextButton
@@ -52,7 +54,12 @@ internal fun RunResultScreen(
     onRefresh: () -> Unit,
     onPrepareUpload: () -> Unit,
     onOpenFiles: () -> Unit,
-    onNewSurvey: () -> Unit
+    onNewSurvey: () -> Unit,
+    historyEntry: TaskRun? = null,
+    resultMessage: String? = null,
+    onOpenLog: (() -> Unit)? = null,
+    savedLog: String? = null,
+    onDismissLog: () -> Unit = {}
 ) {
     val c = LocalGeoColors.current
     var menuExpanded by remember { mutableStateOf(false) }
@@ -71,6 +78,20 @@ internal fun RunResultScreen(
         else -> StatusTone.UNKNOWN
     }
     val canUpload = run != null && stored && uploadEnabled
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    savedLog?.let { text ->
+        AlertDialog(
+            onDismissRequest = onDismissLog,
+            title = { Text("저장된 로그 · 최근 64KB") },
+            text = {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(text, Modifier.heightIn(max = 440.dp)
+                        .verticalScroll(androidx.compose.foundation.rememberScrollState()))
+                }
+            },
+            confirmButton = { TextButton(onClick = onDismissLog) { Text("닫기") } }
+        )
+    }
 
     Scaffold(
         containerColor = c.canvas,
@@ -100,6 +121,11 @@ internal fun RunResultScreen(
                             leadingIcon = { Icon(Icons.Default.Refresh, null) },
                             enabled = online,
                             onClick = { menuExpanded = false; onRefresh() }
+                        )
+                        if (onOpenLog != null) DropdownMenuItem(
+                            text = { Text("실행 로그") },
+                            enabled = online,
+                            onClick = { menuExpanded = false; onOpenLog() }
                         )
                     }
                 },
@@ -134,6 +160,22 @@ internal fun RunResultScreen(
                 contentPadding = PaddingValues(top = GeoSpace.sm, bottom = GeoSpace.xl),
                 verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)
             ) {
+                resultMessage?.let { message ->
+                    item { AppBanner(message, StatusTone.WARNING) }
+                }
+                if (run == null && historyEntry != null) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
+                            Text(historyEntry.label, style = MaterialTheme.typography.titleLarge)
+                            Text(com.example.jetsoncontroller.ui.storage.localDateTimeLabel(historyEntry.startedAt))
+                            val presentation = historyRunPresentation(historyEntry, online, false)
+                            StatusBadge(presentation.first, presentation.second)
+                            RunQualityEvidence(historyEntry.quality)
+                            Text("저장된 이력입니다. 실행 식별 정보가 없으면 전송 전에 수집 결과를 확인해야 합니다.")
+                        }
+                    }
+                    return@LazyColumn
+                }
                 if (run == null) {
                     item {
                         GeoStateBlock(
@@ -142,7 +184,7 @@ internal fun RunResultScreen(
                             tone = StatusTone.UNKNOWN,
                             primaryLabel = "다시 확인",
                             onPrimary = onRefresh,
-                            secondaryLabel = "수집 이력 열기",
+                            secondaryLabel = "뒤로",
                             onSecondary = onBack
                         )
                     }

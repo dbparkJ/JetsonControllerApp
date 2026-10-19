@@ -6,6 +6,8 @@ import com.example.jetsoncontroller.data.server.ServerDeviceEventIntegrationStat
 import com.example.jetsoncontroller.data.server.ServerDeviceEventStatus
 import com.example.jetsoncontroller.data.server.ServerDeviceEventWindow
 import com.example.jetsoncontroller.data.transport.TransportType
+import com.example.jetsoncontroller.model.PipelineOutputManifest
+import com.example.jetsoncontroller.model.PipelineRunOutput
 import com.google.gson.Gson
 import com.example.jetsoncontroller.model.SurveyContextSnapshot
 import com.example.jetsoncontroller.model.TaskRun
@@ -159,7 +161,7 @@ class TransfersHomeUiStateTest {
         val job = job("job-1", UploadJobState.UPLOADING, bytesTotal = 1_000L, bytesTransferred = 250L)
 
         val active = buildTransfersHomeUiState(input(queue = listOf(job)))
-            .active ?: error("active transfer expected")
+            .active.singleOrNull() ?: error("active transfer expected")
 
         assertNull(active.speedLabel)
         assertNull(active.remainingLabel)
@@ -182,7 +184,7 @@ class TransfersHomeUiStateTest {
         )
 
         val active = buildTransfersHomeUiState(input(queue = listOf(job), samples = samples))
-            .active ?: error("active transfer expected")
+            .active.singleOrNull() ?: error("active transfer expected")
 
         assertEquals("1.0 MB/s", active.speedLabel)
         assertEquals("약 10분", active.remainingLabel)
@@ -197,7 +199,7 @@ class TransfersHomeUiStateTest {
         )
 
         val active = buildTransfersHomeUiState(input(queue = listOf(job), samples = samples))
-            .active ?: error("active transfer expected")
+            .active.singleOrNull() ?: error("active transfer expected")
 
         assertNull(active.speedLabel)
         assertNull(active.remainingLabel)
@@ -241,11 +243,11 @@ class TransfersHomeUiStateTest {
         val row = buildTransfersHomeUiState(input(queue = listOf(job))).verified.single()
 
         assertEquals(StatusTone.SUCCESS, row.tone)
-        assertEquals("10월 14일 08:02 수신 · 2.0 GB · 파일 3,410개", row.detail)
+        assertEquals("10월 14일 08:02 수신 확인 · 2.0 GB · 파일 3,410개", row.detail)
     }
 
     @Test
-    fun `a mismatched verification is a warning and not an unknown failure`() {
+    fun `a mismatched verification needs attention and is not shown as received`() {
         val verification = UploadVerification(
             jobId = "job-5",
             state = "MISMATCH",
@@ -254,18 +256,165 @@ class TransfersHomeUiStateTest {
         )
         val job = job("job-5", UploadJobState.COMPLETED, verification = verification)
 
-        val row = buildTransfersHomeUiState(input(queue = listOf(job))).verified.single()
+        val state = buildTransfersHomeUiState(input(queue = listOf(job)))
 
-        assertEquals(StatusTone.WARNING, row.tone)
+        assertEquals("내용 불일치", state.failed.single().stateLabel)
+        assertTrue(state.verified.isEmpty())
+        assertTrue(state.awaitingVerification.isEmpty())
     }
 
     @Test
-    fun `a finished upload waiting for server confirmation is pending`() {
+    fun `a finished upload without a receipt is waiting for server verification`() {
         val job = job("job-6", UploadJobState.COMPLETED, verification = null)
 
-        val row = buildTransfersHomeUiState(input(queue = listOf(job))).verified.single()
+        val state = buildTransfersHomeUiState(input(queue = listOf(job)))
+        val row = state.awaitingVerification.single()
 
         assertEquals(StatusTone.PENDING, row.tone)
+        assertEquals("수신 확인 중", row.detail)
+        assertTrue(state.verified.isEmpty())
+    }
+
+    @Test
+    fun `a matched receipt for another job does not verify this transfer`() {
+        val verification = UploadVerification(
+            jobId = "different-job",
+            state = "MATCHED",
+            matched = true,
+            deletionAllowed = true
+        )
+        val job = job("job-7", UploadJobState.COMPLETED, verification = verification)
+
+        val state = buildTransfersHomeUiState(input(queue = listOf(job)))
+
+        assertTrue(state.verified.isEmpty())
+        assertEquals("job-7", state.awaitingVerification.single().jobId)
+    }
+
+    @Test
+    fun `a matched receipt from a different source session is not accepted`() {
+        val verification = UploadVerification(
+            jobId = "job-8",
+            targetId = "target",
+            remoteSessionId = "another-session",
+            sourceName = "job-8",
+            state = "MATCHED",
+            matched = true,
+            deletionAllowed = true
+        )
+        val job = job("job-8", UploadJobState.COMPLETED, verification = verification)
+
+        val state = buildTransfersHomeUiState(input(queue = listOf(job)))
+
+        assertTrue(state.verified.isEmpty())
+        assertEquals("job-8", state.awaitingVerification.single().jobId)
+    }
+
+    @Test
+    fun `cancelled jobs are not shown as server received even with a matched receipt`() {
+        val verification = UploadVerification(
+            jobId = "job-9",
+            state = "MATCHED",
+            matched = true,
+            deletionAllowed = true
+        )
+        val job = job("job-9", UploadJobState.CANCELLED, verification = verification)
+
+        val state = buildTransfersHomeUiState(input(queue = listOf(job)))
+
+        assertTrue(state.verified.isEmpty())
+        assertTrue(state.failed.isEmpty())
+        assertTrue(state.queued.isEmpty())
+        assertTrue(state.awaitingVerification.isEmpty())
+        assertNull(state.emptyText)
+    }
+
+    @Test
+    fun `a failed job is not shown as received even if its receipt says matched`() {
+        val verification = UploadVerification(
+            jobId = "job-failed",
+            state = "MATCHED",
+            matched = true,
+            deletionAllowed = true
+        )
+        val job = job("job-failed", UploadJobState.FAILED, verification = verification)
+
+        val state = buildTransfersHomeUiState(input(queue = listOf(job)))
+
+        assertEquals("실패", state.failed.single().stateLabel)
+        assertTrue(state.verified.isEmpty())
+    }
+
+    @Test
+    fun `server received group contains only the newest three matched jobs`() {
+        val jobs = (1..4).map { index ->
+            val id = "job-$index"
+            job(
+                id,
+                UploadJobState.COMPLETED,
+                verification = UploadVerification(
+                    jobId = id,
+                    state = "MATCHED",
+                    matched = true,
+                    deletionAllowed = true,
+                    verifiedAt = "2026-10-${14 + index}T08:00:00Z"
+                )
+            )
+        }
+
+        val state = buildTransfersHomeUiState(input(queue = jobs))
+
+        assertEquals(listOf("job-4", "job-3", "job-2"), state.verified.map { it.jobId })
+    }
+
+    @Test
+    fun `stored runs without an upload job appear in the sendable collection group`() {
+        val state = buildTransfersHomeUiState(input(runs = listOf(taskRun("run-sendable", stored = true))))
+
+        assertEquals(listOf("run-sendable"), state.sendableRuns.map { it.runId })
+        assertEquals("서버 수신 기록이 없습니다.", state.sendableRuns.single().detail)
+    }
+
+    @Test
+    fun `a job for the same stored source prevents a duplicate sendable row`() {
+        val run = taskRun("run-existing", stored = true)
+        val job = job("job-existing", UploadJobState.COMPLETED, runId = "run-existing")
+
+        val state = buildTransfersHomeUiState(input(queue = listOf(job), runs = listOf(run)))
+
+        assertTrue(state.sendableRuns.isEmpty())
+        assertEquals("job-existing", state.awaitingVerification.single().jobId)
+    }
+
+    @Test
+    fun `a job for another output of the same run does not hide the stored source`() {
+        val run = taskRun("run-output", stored = true)
+        val job = job("job-other-output", UploadJobState.COMPLETED, runId = "run-output", outputId = "other-output")
+
+        val state = buildTransfersHomeUiState(input(queue = listOf(job), runs = listOf(run)))
+
+        assertEquals(listOf("run-output"), state.sendableRuns.map { it.runId })
+    }
+
+    @Test
+    fun `a verified job for the exact stored source removes it from the sendable group`() {
+        val run = taskRun("run-received", stored = true)
+        val job = job(
+            "job-received",
+            UploadJobState.COMPLETED,
+            runId = "run-received",
+            verification = UploadVerification(
+                jobId = "job-received",
+                state = "MATCHED",
+                matched = true,
+                deletionAllowed = true
+            )
+        )
+
+        val state = buildTransfersHomeUiState(input(queue = listOf(job), runs = listOf(run)))
+
+        assertTrue(state.sendableRuns.isEmpty())
+        assertEquals(listOf("job-received"), state.verified.map { it.jobId })
     }
 
     @Test
@@ -275,9 +424,18 @@ class TransfersHomeUiStateTest {
 
         val state = buildTransfersHomeUiState(input(queue = listOf(active, waiting), current = active))
 
-        assertEquals("job-1", state.active?.jobId)
+        assertEquals("job-1", state.active.single().jobId)
         assertEquals(listOf("job-2"), state.queued.map { it.jobId })
-        assertEquals("보내기 순서를 기다리는 중입니다.", state.queued.single().detail)
+        assertEquals("대기 중", state.queued.single().detail)
+    }
+
+    @Test
+    fun `scanning transfer uses the file checking state word`() {
+        val scanning = job("job-scanning", UploadJobState.SCANNING)
+
+        val active = buildTransfersHomeUiState(input(queue = listOf(scanning))).active.single()
+
+        assertEquals("파일 확인 중", active.stateLabel)
     }
 
     @Test
@@ -286,7 +444,7 @@ class TransfersHomeUiStateTest {
         val job = job("job-7", UploadJobState.UPLOADING, bytesTotal = 100L, bytesTransferred = 10L, runId = "run-3")
 
         val active = buildTransfersHomeUiState(input(queue = listOf(job), runs = listOf(run)))
-            .active ?: error("active transfer expected")
+            .active.singleOrNull() ?: error("active transfer expected")
 
         assertEquals("한빛시 도로대장 · 3구간", active.title)
         assertEquals("MMS-4DE0 → 수신 서버", active.subtitle)
@@ -330,11 +488,12 @@ class TransfersHomeUiStateTest {
         bytesTransferred: Long? = 0L,
         errorMessage: String? = null,
         verification: UploadVerification? = null,
-        runId: String? = null
+        runId: String? = null,
+        outputId: String? = null
     ) = UploadJob(
         id = id,
         rootId = "data",
-        relativePath = "runs/$id",
+        relativePath = "runs/${runId ?: id}",
         targetId = "target",
         state = state,
         bytesTotal = bytesTotal,
@@ -353,13 +512,13 @@ class TransfersHomeUiStateTest {
                 pipelineId = "pipe",
                 sourceRevision = "source",
                 configSha256 = "config",
-                outputId = "out",
+                outputId = outputId ?: "out-$it",
                 createdAt = "created"
             )
         }
     )
 
-    private fun taskRun(id: String) = TaskRun(
+    private fun taskRun(id: String, stored: Boolean = false) = TaskRun(
         id = id,
         pipelineId = "pipe",
         label = "도로 수집",
@@ -379,6 +538,13 @@ class TransfersHomeUiStateTest {
             surveySectionLabel = "3구간",
             surveySectionRevision = 1,
             capturedAt = "captured"
-        )
+        ),
+        output = if (stored) PipelineRunOutput(
+            rootId = "data",
+            path = "runs/$id",
+            outputId = "out-$id",
+            manifestState = "FINAL",
+            manifest = PipelineOutputManifest(runId = id, generatedAt = "2026-10-14T06:42:00Z")
+        ) else null
     )
 }

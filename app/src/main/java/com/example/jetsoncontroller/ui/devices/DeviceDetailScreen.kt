@@ -47,6 +47,7 @@ import com.example.jetsoncontroller.data.devices.DeviceSnapshot
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
+import com.example.jetsoncontroller.ui.sensors.sensorPresentations
 import com.example.jetsoncontroller.ui.theme.Button
 import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -249,15 +250,16 @@ internal fun DeviceDetailScreen(
             }
             item {
                 DetailSection("센서") {
+                    val sensors = sensorPresentations(dashboard.status, online, System.currentTimeMillis())
                     LinkRow(
                         title = "카메라",
-                        value = if (dashboard.status.cameraSensor.active) "수신 중" else "꺼짐",
+                        value = sensors.camera.badge,
                         onClick = onCamera
                     )
                     DetailDivider()
                     LinkRow(
                         title = "위치(GNSS)",
-                        value = if (dashboard.status.gnssSensor.active) "수신 중" else "꺼짐",
+                        value = sensors.gnss.badge,
                         onClick = onGnss
                     )
                 }

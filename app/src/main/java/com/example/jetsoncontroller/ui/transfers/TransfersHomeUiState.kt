@@ -8,6 +8,8 @@ import com.example.jetsoncontroller.data.transport.serverUploadUnavailableMessag
 import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
+import com.example.jetsoncontroller.model.UploadVerification
+import com.example.jetsoncontroller.ui.field.canonicalHistoryRunId
 import com.example.jetsoncontroller.ui.components.formatGeoDateTime
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.tasks.formatTaskTime
@@ -73,7 +75,14 @@ internal data class TransferRowState(
 internal data class FailedTransferState(
     val jobId: String,
     val title: String,
+    val stateLabel: String,
     val cause: String
+)
+
+internal data class StoredRunTransferState(
+    val runId: String,
+    val title: String,
+    val detail: String
 )
 
 internal data class TransfersHomeUiState(
@@ -81,9 +90,11 @@ internal data class TransfersHomeUiState(
     val explanation: String,
     val explanationTone: StatusTone,
     val deviceEventNotice: DeviceEventNoticeState?,
-    val active: ActiveTransferState?,
-    val queued: List<TransferRowState>,
+    val active: List<ActiveTransferState>,
     val failed: List<FailedTransferState>,
+    val sendableRuns: List<StoredRunTransferState>,
+    val queued: List<TransferRowState>,
+    val awaitingVerification: List<TransferRowState>,
     val verified: List<TransferRowState>,
     /** Shown only when there is nothing to list at all. */
     val emptyText: String?
@@ -92,41 +103,86 @@ internal data class TransfersHomeUiState(
 internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHomeUiState {
     val upload = input.upload
     val jobs = (listOfNotNull(upload.currentJob) + upload.queue).distinctBy { it.id }
-    val activeJob = jobs.firstOrNull { it.id == upload.currentJob?.id && isInFlight(it.state) }
-        ?: jobs.firstOrNull { isInFlight(it.state) }
     val deviceName = input.deviceName?.takeIf(String::isNotBlank) ?: UnnamedDeviceLabel
-    val active = activeJob?.let { job -> activeTransfer(job, upload, input, deviceName) }
+    val active = jobs.filter { isInFlight(it.state) }
+        .map { job -> activeTransfer(job, upload, input, deviceName) }
+    val failed = jobs
+        .filter { job ->
+            job.state != UploadJobState.CANCELLED &&
+                !isInFlight(job.state) &&
+                (job.state == UploadJobState.FAILED || verifiedFor(job)?.matched == false)
+        }
+        .map { job ->
+            val mismatched = job.state != UploadJobState.FAILED && verifiedFor(job)?.matched == false
+            FailedTransferState(
+                jobId = job.id,
+                title = transferTitle(job, input.runs),
+                stateLabel = if (mismatched) "내용 불일치" else "실패",
+                cause = if (mismatched) {
+                    "서버에 받은 내용이 보낸 내용과 일치하지 않습니다. 다시 보내 주세요."
+                } else {
+                    userFacingConnectionMessage(job.errorMessage, input.developerModeEnabled)
+                        ?: DefaultTransferFailureText
+                }
+            )
+        }
+    val sendableRuns = input.runs
+        .distinctBy {
+            Triple(it.deviceId?.lowercase(Locale.US), canonicalHistoryRunId(it), it.output?.outputId)
+        }
+        .filter(::isStoredRun)
+        .filter { run ->
+            jobs.none { job -> job.state != UploadJobState.CANCELLED && jobMatchesRunSource(job, run) }
+        }
+        .map { run ->
+            StoredRunTransferState(
+                runId = canonicalHistoryRunId(run).orEmpty(),
+                title = transferTitle(run),
+                detail = "서버 수신 기록이 없습니다."
+            )
+        }
     val queued = jobs
-        .filter { it.id != activeJob?.id && (it.state == UploadJobState.QUEUED || isInFlight(it.state)) }
+        .filter { it.state == UploadJobState.QUEUED && verifiedFor(it)?.matched != false }
         .map { job ->
             TransferRowState(
                 jobId = job.id,
                 title = transferTitle(job, input.runs),
-                detail = if (job.state == UploadJobState.QUEUED) "보내기 순서를 기다리는 중입니다." else "보내는 중입니다.",
+                detail = "대기 중",
+                tone = StatusTone.UNKNOWN
+            )
+        }
+    val awaitingVerification = jobs
+        .filter { job ->
+            job.state == UploadJobState.COMPLETED && verifiedFor(job) == null
+        }
+        .map { job ->
+            TransferRowState(
+                jobId = job.id,
+                title = transferTitle(job, input.runs),
+                detail = "수신 확인 중",
                 tone = StatusTone.PENDING
             )
         }
-    val failed = jobs
-        .filter { it.state == UploadJobState.FAILED }
-        .map { job ->
-            FailedTransferState(
-                jobId = job.id,
-                title = transferTitle(job, input.runs),
-                cause = userFacingConnectionMessage(job.errorMessage, input.developerModeEnabled)
-                    ?: DefaultTransferFailureText
-            )
+    val verified = jobs
+        .filter { job -> job.state == UploadJobState.COMPLETED && verifiedFor(job)?.matched == true }
+        .sortedByDescending { job ->
+            val verification = verifiedFor(job)
+            parseInstantOrNull(verification?.verifiedAt ?: job.verifiedAt)?.toEpochMilli() ?: Long.MIN_VALUE
         }
-    val verified = jobs.mapNotNull { job -> verifiedRow(job, input) }
+        .take(3)
+        .mapNotNull { job -> verifiedRow(job, input) }
     val (explanation, explanationTone) = explanationFor(input.transport)
     return TransfersHomeUiState(
         explanation = explanation,
         explanationTone = explanationTone,
         deviceEventNotice = deviceEventNoticeFor(input.deviceEventStatus, input.now, input.zone),
         active = active,
-        queued = queued,
         failed = failed,
+        sendableRuns = sendableRuns,
+        queued = queued,
+        awaitingVerification = awaitingVerification,
         verified = verified,
-        emptyText = if (jobs.isEmpty()) {
+        emptyText = if (jobs.isEmpty() && sendableRuns.isEmpty()) {
             "보낸 파일이 없습니다. 보낼 파일을 고르면 여기에서 진행을 확인할 수 있습니다."
         } else {
             null
@@ -184,6 +240,45 @@ internal fun deviceEventNoticeFor(
 private fun isInFlight(state: UploadJobState): Boolean =
     state == UploadJobState.SCANNING || state == UploadJobState.UPLOADING
 
+/** Accept a receipt only when it belongs to this job and every supplied source key agrees. */
+private fun verifiedFor(job: UploadJob): UploadVerification? {
+    val verification = job.verification ?: return null
+    if (verification.jobId != job.id) return null
+    if (verification.targetId != null && verification.targetId != job.targetId) return null
+    if (verification.remoteSessionId != null && verification.remoteSessionId != job.remoteSessionId) return null
+    val sourceName = listOf(job.sourceName, job.folderName, job.relativePath.substringAfterLast('/'))
+        .firstOrNull { !it.isNullOrBlank() }
+    if (verification.sourceName != null && verification.sourceName != sourceName) return null
+    return verification
+}
+
+private fun isStoredRun(run: TaskRun): Boolean {
+    if (run.active || run.finishedAt == null) return false
+    val output = run.output ?: return false
+    return canonicalHistoryRunId(run) != null && output.rootId.isNotBlank() &&
+        output.path.isNotBlank() && output.outputId.isNotBlank()
+}
+
+/** Match a job to a run only when its run, device, output and stored path all identify that source. */
+private fun jobMatchesRunSource(job: UploadJob, run: TaskRun): Boolean {
+    val runId = canonicalHistoryRunId(run) ?: return false
+    val output = run.output ?: return false
+    val context = job.context ?: return false
+    return context.runId == runId &&
+        context.deviceId.equals(run.deviceId, ignoreCase = true) &&
+        context.pipelineId == run.pipelineId &&
+        context.surveyProjectId == run.contextSnapshot?.surveyProjectId &&
+        context.surveySectionId == run.contextSnapshot?.surveySectionId &&
+        context.outputId == output.outputId &&
+        job.rootId == output.rootId &&
+        job.relativePath.trim('/') == output.path.trim('/')
+}
+
+private fun transferTitle(run: TaskRun): String =
+    run.contextSnapshot?.let { "${it.surveyProjectLabel} · ${it.surveySectionLabel}" }
+        ?: run.label.takeIf(String::isNotBlank)
+        ?: "수집 결과"
+
 private fun activeTransfer(
     job: UploadJob,
     upload: UploadUiState,
@@ -204,7 +299,7 @@ private fun activeTransfer(
         jobId = job.id,
         title = transferTitle(job, input.runs),
         subtitle = "$deviceName → 수신 서버$files",
-        stateLabel = if (job.state == UploadJobState.UPLOADING) "보내는 중" else "검사 중",
+        stateLabel = if (job.state == UploadJobState.UPLOADING) "보내는 중" else "파일 확인 중",
         stateTone = if (job.state == UploadJobState.UPLOADING) StatusTone.INFO else StatusTone.PENDING,
         progress = if (total != null && transferred != null) {
             (transferred.toFloat() / total.toFloat()).coerceIn(0f, 1f)
@@ -219,34 +314,17 @@ private fun activeTransfer(
 }
 
 private fun verifiedRow(job: UploadJob, input: TransfersHomeInput): TransferRowState? {
-    val verification = job.verification
-    return when {
-        verification?.matched == true -> {
-            val received = formatTaskTime(verification.verifiedAt ?: job.verifiedAt, input.zone)
-            val size = (verification.bytesTotal ?: job.bytesTotal)?.let { formatSize(it) }
-            val files = verification.filesTotal?.let { "파일 ${String.format(Locale.US, "%,d", it)}개" }
-            TransferRowState(
-                jobId = job.id,
-                title = transferTitle(job, input.runs),
-                detail = listOfNotNull(received?.let { "$it 수신" }, size, files).joinToString(" · ")
-                    .ifBlank { "서버 수신을 확인했습니다." },
-                tone = StatusTone.SUCCESS
-            )
-        }
-        verification?.matched == false -> TransferRowState(
-            jobId = job.id,
-            title = transferTitle(job, input.runs),
-            detail = "서버에 받은 내용이 보낸 내용과 일치하지 않습니다. 다시 보내 주세요.",
-            tone = StatusTone.WARNING
-        )
-        job.state == UploadJobState.COMPLETED -> TransferRowState(
-            jobId = job.id,
-            title = transferTitle(job, input.runs),
-            detail = "보내기는 끝났고 서버 수신을 확인하고 있습니다.",
-            tone = StatusTone.PENDING
-        )
-        else -> null
-    }
+    val verification = verifiedFor(job)?.takeIf { it.matched } ?: return null
+    val received = formatTaskTime(verification.verifiedAt ?: job.verifiedAt, input.zone)
+    val size = (verification.bytesTotal ?: job.bytesTotal)?.let { formatSize(it) }
+    val files = verification.filesTotal?.let { "파일 ${String.format(Locale.US, "%,d", it)}개" }
+    return TransferRowState(
+        jobId = job.id,
+        title = transferTitle(job, input.runs),
+        detail = listOfNotNull(received?.let { "$it 수신 확인" }, size, files).joinToString(" · ")
+            .ifBlank { "수신 확인" },
+        tone = StatusTone.SUCCESS
+    )
 }
 
 /** Why uploads may be unavailable, in one line. Only same-network uploads are allowed. */

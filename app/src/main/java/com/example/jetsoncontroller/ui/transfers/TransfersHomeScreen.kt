@@ -54,7 +54,9 @@ internal fun TransfersHomeScreen(
     onOpenServerFiles: () -> Unit,
     onOpenTransfer: (String) -> Unit,
     onCancelTransfer: (String) -> Unit,
-    onRetryTransfer: (String) -> Unit
+    onRetryTransfer: (String) -> Unit,
+    onSendRun: (String) -> Unit,
+    onOpenHistory: () -> Unit
 ) {
     val c = LocalGeoColors.current
     var confirmCancelJobId by remember { mutableStateOf<String?>(null) }
@@ -92,13 +94,23 @@ internal fun TransfersHomeScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            state.active?.let { active ->
+            if (state.active.isNotEmpty()) {
                 item {
-                    ActiveTransferCard(
-                        active = active,
-                        onOpen = { onOpenTransfer(active.jobId) },
-                        onCancel = { confirmCancelJobId = active.jobId }
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "보내는 중",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = c.ink
+                        )
+                        state.active.forEach { active ->
+                            ActiveTransferCard(
+                                active = active,
+                                onOpen = { onOpenTransfer(active.jobId) },
+                                onCancel = { confirmCancelJobId = active.jobId }
+                            )
+                        }
+                    }
                 }
             }
             if (state.failed.isNotEmpty()) {
@@ -107,6 +119,16 @@ internal fun TransfersHomeScreen(
                         state.failed.forEachIndexed { index, row ->
                             if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
                             FailedTransferRow(row, onRetry = { onRetryTransfer(row.jobId) })
+                        }
+                    }
+                }
+            }
+            if (state.sendableRuns.isNotEmpty()) {
+                item {
+                    TransferSection(title = "보낼 수집") {
+                        state.sendableRuns.forEachIndexed { index, row ->
+                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
+                            StoredRunTransferRow(row, onSend = { onSendRun(row.runId) })
                         }
                     }
                 }
@@ -121,11 +143,21 @@ internal fun TransfersHomeScreen(
                     }
                 }
             }
+            if (state.awaitingVerification.isNotEmpty()) {
+                item {
+                    TransferSection(title = "수신 확인 중") {
+                        state.awaitingVerification.forEachIndexed { index, row ->
+                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
+                            PlainTransferRow(row, onClick = { onOpenTransfer(row.jobId) })
+                        }
+                    }
+                }
+            }
             if (state.verified.isNotEmpty()) {
                 item {
                     TransferSection(title = "서버 수신 확인", trailing = {
-                        TextButton(onClick = onOpenServerFiles) {
-                            Text("서버 파일", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = c.primary)
+                        TextButton(onClick = onOpenHistory) {
+                            Text("전체 기록", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = c.primary)
                         }
                     }) {
                         state.verified.forEachIndexed { index, row ->
@@ -276,7 +308,7 @@ private fun FailedTransferRow(row: FailedTransferState, onRetry: () -> Unit) {
             Icon(visuals.icon, contentDescription = null, tint = visuals.content, modifier = Modifier.size(20.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(row.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = c.ink)
-                Text(row.cause, style = MaterialTheme.typography.bodySmall, color = c.inkStrong)
+                Text("${row.stateLabel} · ${row.cause}", style = MaterialTheme.typography.bodySmall, color = c.inkStrong)
             }
         }
         OutlinedButton(
@@ -284,6 +316,24 @@ private fun FailedTransferRow(row: FailedTransferState, onRetry: () -> Unit) {
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.heightIn(min = 40.dp)
         ) { Text("다시 시도", color = c.ink) }
+    }
+}
+
+@Composable
+private fun StoredRunTransferRow(row: StoredRunTransferState, onSend: () -> Unit) {
+    val c = LocalGeoColors.current
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(row.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = c.ink)
+            Text(row.detail, style = MaterialTheme.typography.bodySmall, color = c.muted)
+        }
+        TextButton(onClick = onSend, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text("보내기", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = c.primary)
+        }
     }
 }
 

@@ -21,7 +21,14 @@ import com.example.jetsoncontroller.data.server.ticketReportKey
 import com.example.jetsoncontroller.data.server.ticketReportResponseIsTerminal
 import com.example.jetsoncontroller.data.storage.RecentServerJobsCache
 import com.example.jetsoncontroller.model.PipelineRun
+import com.example.jetsoncontroller.model.TaskRun
+import com.example.jetsoncontroller.model.SurveyProject
+import com.example.jetsoncontroller.model.SurveySection
 import com.google.gson.Gson
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -61,15 +68,99 @@ private data class CachedTicketSnapshot(
     val integration: ServerTicketIntegration?
 )
 
+internal data class TicketPreparation(
+    val profileId: String,
+    val credentialRevision: String,
+    val deviceId: String,
+    val ticket: ServerTicket,
+    val pipelineId: String? = null,
+    val surveyProjectId: String? = null,
+    val surveySectionId: String? = null
+) {
+    fun pendingSelection(): PendingTicketSelection? = pipelineId?.let {
+        PendingTicketSelection(profileId, ticket.rowId, ticket.title, ticket.project, ticket.unit, deviceId, it)
+    }
+}
+
+/** The ticket snapshot includes its row revision, even before a pipeline has been chosen. */
+internal class TicketPreparationStore(private val file: File, private val gson: Gson = Gson()) {
+    fun read(): TicketPreparation? = runCatching {
+        if (file.isFile) gson.fromJson(file.readText(Charsets.UTF_8), TicketPreparation::class.java) else null
+    }.getOrNull()
+
+    fun save(preparation: TicketPreparation?) {
+        file.parentFile?.mkdirs()
+        val temporary = File(file.parentFile, ".${file.name}.tmp")
+        try {
+            FileOutputStream(temporary).use { output ->
+                output.write(gson.toJson(preparation).toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+            Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            temporary.delete()
+        }
+    }
+}
+
+internal fun ticketPreparation(
+    profileId: String,
+    credentialRevision: String,
+    deviceId: String,
+    ticket: ServerTicket,
+    pipelineId: String?,
+    runs: List<TaskRun>
+): TicketPreparation {
+    val context = ticket.runId?.takeIf(String::isNotBlank)?.let { runId ->
+        runs.singleOrNull { run ->
+            run.runId == runId && run.contextSnapshot?.deviceId.equals(deviceId, true) &&
+                (run.deviceId == null || run.deviceId.equals(deviceId, true))
+        }?.contextSnapshot
+    }
+    return TicketPreparation(profileId, credentialRevision, deviceId, ticket, pipelineId,
+        context?.surveyProjectId, context?.surveySectionId)
+}
+
+internal fun ticketPreparationMatches(
+    preparation: TicketPreparation,
+    profileId: String?,
+    deviceId: String?,
+    credentialRevision: String,
+    ticket: ServerTicket?
+): Boolean = preparation.profileId == profileId && preparation.deviceId.equals(deviceId, true) &&
+    preparation.credentialRevision == credentialRevision && ticket != null && ticket.rowId == preparation.ticket.rowId &&
+    ticket.revision == preparation.ticket.revision
+
+internal fun ticketPreparationProject(preparation: TicketPreparation, projects: List<SurveyProject>): SurveyProject? =
+    if (preparation.surveyProjectId != null) projects.singleOrNull { it.surveyProjectId == preparation.surveyProjectId }
+    else projects.singleOrNull { it.label == preparation.ticket.project }
+
+internal fun ticketPreparationSection(preparation: TicketPreparation, sections: List<SurveySection>): SurveySection? =
+    if (preparation.surveySectionId != null) sections.singleOrNull {
+        it.surveySectionId == preparation.surveySectionId && it.surveyProjectId == preparation.surveyProjectId
+    } else sections.singleOrNull { it.label == preparation.ticket.title }
+
+internal fun ticketPreparationContextMatches(preparation: TicketPreparation, project: SurveyProject?, section: SurveySection?): Boolean =
+    project != null && section != null && section.surveyProjectId == project.surveyProjectId &&
+        (if (preparation.surveyProjectId != null) preparation.surveyProjectId == project.surveyProjectId
+         else preparation.ticket.project.isNullOrBlank() || preparation.ticket.project == project.label) &&
+        (if (preparation.surveySectionId != null) preparation.surveySectionId == section.surveySectionId
+         else preparation.ticket.title == section.label)
+
 internal class ServerTicketViewModel(context: Context) : ViewModel() {
     private val cache = RecentServerJobsCache(context.noBackupFilesDir.resolve("server-job-cache"))
     private val profiles = ServerProfileStore(context, cache)
     private val reportStore = TicketReportStore(context.filesDir.resolve("ticket-reports.json"), Gson())
+    private val preparationStore = TicketPreparationStore(context.filesDir.resolve("ticket-preparation.json"))
+    private val _preparation = MutableStateFlow(preparationStore.read())
+    val preparation = _preparation.asStateFlow()
     private val reportMutex = Mutex()
     private val _uiState = MutableStateFlow(ServerTicketUiState())
     val uiState = _uiState.asStateFlow()
     private val snapshotsByScope = mutableMapOf<String, CachedTicketSnapshot>()
     private var refreshJob: Job? = null
+    private var preparationJob: Job? = null
 
     fun selectUnit(unit: String?) {
         val current = _uiState.value.copy(selectedUnit = unit)
@@ -197,23 +288,21 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
     fun prepareTicket(
         profileId: String,
         deviceId: String,
-        pipelineId: String,
+        pipelineId: String?,
         ticket: ServerTicket,
+        runs: List<TaskRun> = emptyList(),
         onReady: () -> Unit
     ) {
         viewModelScope.launch {
             try {
-                reportStore.savePendingSelection(
-                    PendingTicketSelection(
-                        profileId = profileId,
-                        rowId = ticket.rowId,
-                        title = ticket.title,
-                        project = ticket.project,
-                        unit = ticket.unit,
-                        deviceId = deviceId,
-                        pipelineId = pipelineId
-                    )
-                )
+                val previousDevice = _preparation.value?.deviceId ?: deviceId
+                check(reportStore.pendingSelectionForDevice(previousDevice)?.clientRequestId == null)
+                val connection = profiles.connection(profileId) ?: error("Missing profile")
+                val prepared = ticketPreparation(profileId, connection.credentialRevision, deviceId,
+                    ticket, pipelineId, runs)
+                preparationStore.save(prepared)
+                _preparation.value = prepared
+                prepared.pendingSelection()?.let(reportStore::savePendingSelection)
                 onReady()
             } catch (_: Throwable) {
                 _uiState.value = _uiState.value.copy(
@@ -225,14 +314,62 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
     }
 
     fun pendingSelection(deviceId: String, pipelineId: String): PendingTicketSelection? =
-        reportStore.pendingSelection(deviceId, pipelineId)
+        reportStore.pendingSelection(deviceId, pipelineId) ?: _preparation.value?.takeIf {
+            it.deviceId.equals(deviceId, true) && it.pipelineId == pipelineId
+        }?.pendingSelection()
+
+    /** Rechecks the saved row revision and server credentials before choosing or starting. */
+    fun usePreparedTicket(profileId: String?, deviceId: String?, pipelineId: String, onReady: () -> Unit) {
+        val prepared = _preparation.value ?: return
+        if (prepared.profileId != profileId || !prepared.deviceId.equals(deviceId, true)) {
+            setReportMessage(prepared.ticket.rowId, "선택한 장치와 서버에서 티켓을 다시 선택하세요.")
+            return
+        }
+        if (preparationJob?.isActive == true ||
+            reportStore.pendingSelectionForDevice(prepared.deviceId)?.clientRequestId != null) return
+        preparationJob = viewModelScope.launch {
+            try {
+                val connection = profileId?.let { profiles.connection(it) } ?: error("Missing profile")
+                check(connection.credentialRevision == prepared.credentialRevision)
+                val repo = repository(connection)
+                val capabilities = repo.connect().getOrThrow()
+                val ticket = repo.tickets(prepared.deviceId).getOrThrow().tickets.orEmpty()
+                    .singleOrNull { it.rowId == prepared.ticket.rowId }
+                check(ticketPreparationMatches(prepared, profileId, deviceId, connection.credentialRevision, ticket))
+                check(ticket != null && ticketStartAvailability(capabilities.employee.role, ticket).enabled)
+                if (_preparation.value != prepared ||
+                    reportStore.pendingSelectionForDevice(prepared.deviceId)?.clientRequestId != null) return@launch
+                val chosen = prepared.copy(pipelineId = pipelineId)
+                preparationStore.save(chosen)
+                reportStore.savePendingSelection(requireNotNull(chosen.pendingSelection()))
+                _preparation.value = chosen
+                onReady()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                setReportMessage(prepared.ticket.rowId, "티켓 정보가 바뀌었거나 확인할 수 없습니다. 작업에서 티켓을 다시 선택하세요.")
+            }
+        }
+    }
 
     fun clearPendingSelection(deviceId: String, pipelineId: String) {
         reportStore.clearPendingSelection(deviceId, pipelineId)
+        if (_preparation.value?.let { it.deviceId.equals(deviceId, true) && it.pipelineId == pipelineId } == true) {
+            preparationStore.save(null)
+            _preparation.value = null
+        }
     }
 
     fun clearPendingSelectionIfUnarmed(deviceId: String, pipelineId: String? = null) {
-        val pending = reportStore.pendingSelectionForDevice(deviceId) ?: return
+        val pending = reportStore.pendingSelectionForDevice(deviceId)
+        if (pending == null) {
+            if (_preparation.value?.let { it.deviceId.equals(deviceId, true) &&
+                    (pipelineId == null || it.pipelineId == pipelineId) } == true) {
+                preparationStore.save(null)
+                _preparation.value = null
+            }
+            return
+        }
         if (pending.clientRequestId == null && (pipelineId == null || pending.pipelineId == pipelineId)) {
             clearPendingSelection(deviceId, pending.pipelineId)
         }
@@ -264,9 +401,16 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             try {
                 reportMutex.withLock {
+                    val selectionToBind = reportStore.pendingSelection(deviceId, pipelineId)?.takeIf {
+                        it.clientRequestId != null && it.clientRequestId == clientRequestId
+                    }
                     val link = reportStore.bindPendingSelection(runId, deviceId, pipelineId, clientRequestId)
                         ?: reportStore.link(runId)
                         ?: return@withLock
+                    if (selectionToBind != null && _preparation.value?.let { it.ticket.rowId == link.rowId &&
+                            it.deviceId.equals(deviceId, true) && it.pipelineId == pipelineId } == true) {
+                        runCatching { preparationStore.save(null) }.onSuccess { _preparation.value = null }
+                    }
                     if (_uiState.value.tickets.firstOrNull { it.rowId == link.rowId }
                             ?.let { ticketConflictCopy(it) != null } == true
                         || reportStore.isConflict(link.rowId)
