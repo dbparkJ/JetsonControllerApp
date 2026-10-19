@@ -160,6 +160,21 @@ class TicketsCoreTest(unittest.TestCase):
         with closing(self.database.connect()) as connection:
             return [dict(r) for r in connection.execute("SELECT * FROM board_tickets ORDER BY row_id")]
 
+    def board_reads(self):
+        base = "/api/v1/boards/" + self.api.board["id"]
+        return [r for r in self.api.requests if urlsplit(r.url).path == base and r.method == "GET"]
+
+    def device_unit(self, unit=None):
+        with self.database.immediate() as connection:
+            if unit is not None:
+                connection.execute("INSERT INTO device_units VALUES (?, ?)", (DEVICE_ID, unit))
+            return connection.execute("SELECT unit FROM device_units WHERE device_id=?", (DEVICE_ID,)).fetchone()[0]
+
+    def stored_units(self):
+        with closing(self.database.connect()) as connection:
+            schema = json.loads(connection.execute("SELECT schema_json FROM ticket_sync").fetchone()[0])
+        return [u["name"] for u in schema["units"]]
+
     def enqueue(self, kind="STARTED", run_id="capture/run-123456789", row_id="row-1"):
         key = f"run:{run_id}:" + ("started" if kind == "STARTED" else "completed")
         payload = {"rowId": row_id, "runId": run_id, "type": kind, "originalKey": key,
@@ -225,6 +240,51 @@ class TicketsCoreTest(unittest.TestCase):
         self.api.add("row-1", revision=1, updated=NOW + 10)
         self.sync.run_once(NOW + 242)
         self.assertEqual(self.tickets()[0]["revision"], 2)
+
+    def test_unit_renamed_on_the_board_reaches_tickets_and_device_units_without_restart(self):
+        self.initialize()
+        self.device_unit("geo X-1")
+        self.api.units[0]["name"] = "GEO-X-1"
+        self.assertTrue(self.sync.run_once(NOW + 121))
+        self.assertEqual(len(self.board_reads()), 1)
+        self.assertEqual(self.tickets()[0]["unit"], "geo X-1")
+        # Ten minutes after the last schema read, the next sync reads the board again.
+        self.assertTrue(self.sync.run_once(NOW + 601))
+        self.assertEqual(len(self.board_reads()), 2)
+        self.assertEqual(self.tickets()[0]["unit"], "GEO-X-1")
+        self.assertEqual(self.device_unit(), "GEO-X-1")
+        self.assertEqual(self.stored_units(), ["GEO-X-1", "geo X-2"])
+        self.assertTrue(self.sync.run_once(NOW + 601.5))
+        self.assertEqual(parse_qs(urlsplit(self.api.requests[-1].url).query)["status"], ["open"])
+        # An unchanged schema is read again later without starting another full sync.
+        self.assertTrue(self.sync.run_once(NOW + 1202))
+        self.assertEqual(len(self.board_reads()), 3)
+        self.assertTrue(self.sync.run_once(NOW + 1202.5))
+        self.assertEqual(parse_qs(urlsplit(self.api.requests[-1].url).query)["status"], ["all"])
+
+    def test_restart_carries_a_unit_rename_into_tickets_and_device_units(self):
+        self.initialize()
+        self.device_unit("geo X-1")
+        self.api.units[0]["name"] = "GEO-X-1"
+        restarted = TicketSync(self.database, self.configuration, sender=self.api, clock=lambda: NOW)
+        self.assertTrue(restarted.run_once(NOW + 1))
+        self.assertEqual(self.tickets()[0]["unit"], "GEO-X-1")
+        self.assertEqual(self.device_unit(), "GEO-X-1")
+
+    def test_swapped_unit_names_follow_their_option_ids(self):
+        self.api.add("row-2", unit=1)
+        self.initialize()
+        self.device_unit("geo X-1")
+        self.api.units[0]["name"], self.api.units[1]["name"] = "geo X-2", "geo X-1"
+        self.assertTrue(self.sync.run_once(NOW + 601))
+        self.assertEqual([t["unit"] for t in self.tickets()], ["geo X-2", "geo X-1"])
+        self.assertEqual(self.device_unit(), "geo X-2")
+
+    def test_schema_mismatch_found_on_a_later_read_pauses_tickets(self):
+        self.initialize()
+        self.api.board["properties"].pop()
+        self.sync.run_once(NOW + 601)
+        self.assertEqual(self.configuration.state(), {"state": "ERROR", "detail": "BOARD_SCHEMA_MISMATCH"})
 
     def test_shared_rate_limit_and_retry_after_backoff(self):
         self.api.faults.append(SendResult(429, "RATE_LIMITED", "9"))

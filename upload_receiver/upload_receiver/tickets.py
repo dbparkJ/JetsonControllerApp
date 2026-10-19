@@ -16,6 +16,8 @@ from .signing import canonical_json
 
 LOGGER = logging.getLogger(__name__)
 TARGET = "geon-work-tickets"
+# Board options can be renamed at any time (호기 'geo X-1' → 'GEO-X-1'); re-read the schema this often.
+SCHEMA_REFRESH_SECONDS = 600.0
 PROPERTIES = {
     "프로젝트": "TEXT", "호기": "SELECT", "담당": "PERSON", "마감": "DATE",
     "상태": "STATUS", "수집 작업자": "TEXT", "runId": "TEXT",
@@ -53,6 +55,24 @@ def resolve_schema(board: dict) -> dict:
                 "statusKeys": status_keys, "blockedStatusIds": blocked}
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         raise ValueError("BOARD_SCHEMA_MISMATCH") from error
+
+
+def rename_units(connection, previous, schema: dict) -> None:
+    """Carry 호기 options renamed in place (same id) into stored tickets and device units."""
+    if not previous or previous.get("destination") != schema["destination"]:
+        return
+    old = {u["id"]: u["name"] for u in previous.get("units", [])}
+    renames = {old[u["id"]]: u["name"] for u in schema["units"]
+               if u["id"] in old and old[u["id"]] != u["name"]}
+    if not renames:
+        return
+    # One CASE per statement, so swapped names cannot be renamed twice.
+    case = "CASE unit " + " ".join("WHEN ? THEN ?" for _ in renames) + " END"
+    pairs = [name for rename in renames.items() for name in rename]
+    marks = ", ".join("?" for _ in renames)
+    connection.execute(f"UPDATE board_tickets SET unit={case} WHERE destination=? AND unit IN ({marks})",
+                       (*pairs, schema["destination"], *renames))
+    connection.execute(f"UPDATE device_units SET unit={case} WHERE unit IN ({marks})", (*pairs, *renames))
 
 
 def row_values(row: dict, schema: dict) -> dict:
@@ -136,6 +156,7 @@ class TicketSync:
         self._fingerprint = None
         self._validated = None
         self._schema = None
+        self._schema_checked = None
         self._config = None
         self._query = None
         self._cursor = None
@@ -205,6 +226,7 @@ class TicketSync:
             reserved = True
             if self._fingerprint != fingerprint:
                 self._validated = self._schema = self._query = self._cursor = self._maximum = None
+                self._schema_checked = None
                 self._full, self._next_sync, self._failures = True, 0.0, 0
                 with self.database.immediate() as connection:
                     previous = connection.execute("SELECT * FROM ticket_sync WHERE target=?", (TARGET,)).fetchone()
@@ -225,7 +247,11 @@ class TicketSync:
                         connection.execute("INSERT OR REPLACE INTO ticket_sync VALUES (?, ?, NULL, NULL, NULL, ?)",
                                            (TARGET, fingerprint, destination))
                 self._fingerprint = fingerprint
-            if self._schema is None:
+            # Re-read the schema between row syncs, never in the middle of paging.
+            schema_request = self._schema is None or (
+                self._query is None and now >= self._schema_checked + SCHEMA_REFRESH_SECONDS
+            )
+            if schema_request:
                 request = self._request("", config=config)
             else:
                 if self._query is None:
@@ -258,7 +284,7 @@ class TicketSync:
                 return True
             self._failures = 0
             data = result.data or {}
-            if self._schema is None:
+            if schema_request:
                 try:
                     schema = resolve_schema(data)
                 except ValueError:
@@ -266,10 +292,24 @@ class TicketSync:
                         self._pause(connection, "BOARD_SCHEMA_MISMATCH", fingerprint, now)
                     return True
                 schema["destination"] = config.api_base_url + "/api/v1/boards/" + config.board_id
-                with self.database.immediate() as connection:
-                    connection.execute("UPDATE ticket_sync SET schema_json=? WHERE target=? AND config_fingerprint=?",
-                                       (canonical_json(schema).decode(), TARGET, fingerprint))
+                if schema != self._schema:
+                    with self.database.immediate() as connection:
+                        previous = self._schema
+                        if previous is None:
+                            # After a restart, compare with the schema this configuration last stored.
+                            stored = connection.execute(
+                                "SELECT schema_json FROM ticket_sync WHERE target=? AND config_fingerprint=?",
+                                (TARGET, fingerprint),
+                            ).fetchone()
+                            previous = json.loads(stored[0]) if stored and stored[0] else None
+                        rename_units(connection, previous, schema)
+                        connection.execute("UPDATE ticket_sync SET schema_json=? WHERE target=? AND config_fingerprint=?",
+                                           (canonical_json(schema).decode(), TARGET, fingerprint))
+                    if self._schema is not None:
+                        # Open rows may hold other values the change renamed; read them all again.
+                        self._full = True
                 self._schema, self._validated, self._config = schema, fingerprint, config
+                self._schema_checked = now
             else:
                 maximum = self._maximum
                 with self.database.immediate() as connection:

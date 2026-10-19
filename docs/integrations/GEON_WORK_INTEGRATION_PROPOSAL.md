@@ -163,6 +163,7 @@ GEO& Work 계약(2026-10-18, GEON Work 커밋 6e5dc0d6, 운영 배포 전)과 �
 - 설정: `geon-work.json`에 `"tickets": {"apiBaseUrl": "https://<GEO& Work API>", "apiToken": "geon_…", "boardId": "<uuid>"}`를 더합니다. 운영 값은 소유자가 비밀 파일로 옮깁니다. 나가는 주소는 `webhookUrl`·`apiBaseUrl`의 호스트뿐입니다.
 - 보드 구조 확인: 시작할 때와 설정이 바뀔 때 보드를 읽어 위 속성과 상태 선택지를 이름으로 찾습니다. 하나라도 없으면 티켓 상태 `ERROR`(`BOARD_SCHEMA_MISMATCH`)로 두고 PATCH를 보내지 않습니다.
 - 동기화: 처음에는 `status=open` 전체, 그 뒤 2분마다 `status=all&updatedSince=<마지막 최대 updatedAt − 5초>`로 `nextCursor`가 없을 때까지 받아 `board_tickets`에 행 id·revision·제목·프로젝트·호기·담당·마감·상태·runId·보관 여부를 저장합니다.
+- 스키마 재조회: 보드 스키마(속성·상태·호기 선택지)는 시작할 때 읽고, 그 뒤에는 10분마다 행 동기화 사이에 다시 읽습니다. 바뀌었으면 열린 행 전체를 다시 받습니다. 같은 id의 호기 선택지 이름이 바뀌면(예: geo X-1 → GEO-X-1) 저장된 티켓의 호기와 장치 호기 지정도 새 이름으로 바꿉니다. 재시작할 때도 마지막으로 저장한 스키마와 비교해 똑같이 처리합니다.
 - 장치 ↔ 호기: 관리 명령 `set-device-unit --device-id <uuid> --unit <호기 선택지 이름>`으로 정합니다. 앱의 호기 필터 기본값이 됩니다.
 - 앱용 API(직원 토큰, 다른 `/v1/server/*`와 같은 프로젝트 권한 검사):
   - `GET /v1/server/tickets?projectId=&deviceId=&unit=&status=open|all` → `{tickets[], units[], deviceUnit, syncedAt, integration{state, detail}}`. 티켓에는 `rowId, title, project, unit, assignees[], dueDate, status{name, category}, revision, updatedAt, runId, report{state, code}`이 들어갑니다.
