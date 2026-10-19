@@ -8,8 +8,8 @@ import com.example.jetsoncontroller.data.bluetooth.JetsonGattSpec
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.JetsonDevice
 import com.example.jetsoncontroller.model.RegisteredDevice
-import com.example.jetsoncontroller.model.canonicalBleNameForDeviceId
 import com.example.jetsoncontroller.model.legacyBleNameForDeviceId
+import com.example.jetsoncontroller.model.registeredDeviceDisplayName
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -237,8 +237,8 @@ class DeviceListViewModel(
         reconnectJob = viewModelScope.launch {
             val jetsonUuid =
                 JetsonGattSpec.SERVICE_UUID.toString()
-            val canonicalBleName =
-                canonicalBleNameForDeviceId(device.deviceId)
+            val expectedBleName =
+                registeredDeviceDisplayName(device.deviceId, device.deviceName)
             val legacyBleName =
                 legacyBleNameForDeviceId(device.deviceId)
 
@@ -248,7 +248,7 @@ class DeviceListViewModel(
             ): ReconnectCandidateDecision<JetsonDevice> =
                 chooseReconnectCandidate(
                     candidates = candidates,
-                    expectedBleName = canonicalBleName,
+                    expectedBleName = expectedBleName,
                     legacyExpectedBleName = legacyBleName,
                     isScanning = isScanning,
                     nameOf = { it.name },

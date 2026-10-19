@@ -39,6 +39,37 @@ class ReconnectCandidateSelectionTest {
     }
 
     @Test
+    fun `renamed device is found by its registered name among other Jetsons`() {
+        val other = Candidate(
+            name = "geo X-2",
+            advertisesService = true
+        )
+        val registered = Candidate(
+            name = "geo X-1",
+            advertisesService = true
+        )
+
+        val decision = chooseReconnectCandidate(
+            candidates = listOf(other, registered),
+            expectedBleName = com.example.jetsoncontroller.model.registeredDeviceDisplayName(
+                "9b58f0b4-70bd-4ddb-a9a8-d3e879d9d137",
+                "geo X-1"
+            ),
+            legacyExpectedBleName = "MMS-9D137",
+            isScanning = true,
+            nameOf = { it.name },
+            advertisesJetsonService = { it.advertisesService }
+        )
+
+        assertSame(
+            registered,
+            (decision as
+                ReconnectCandidateDecision.Connect<Candidate>)
+                .candidate
+        )
+    }
+
+    @Test
     fun `legacy device ID alias is an immediate exact reconnect match`() {
         val legacy = Candidate(
             name = "MMS-9D137",

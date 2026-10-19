@@ -250,6 +250,7 @@ class JetsonRepository(
                         deviceId = deviceId,
                         deviceName = state.deviceName
                     )
+                    deviceId?.let { rememberAdvertisedDeviceName(it, state.deviceName) }
                     _capabilities.value = ControlCapabilities(
                         systemControlConfigured = false,
                         powerCommandsEnabled = true,
@@ -508,6 +509,7 @@ class JetsonRepository(
                     deviceId = probe.hello.deviceId,
                     deviceName = probe.hello.deviceName
                 )
+                rememberReportedDeviceName(probe.hello.deviceId, probe.hello.deviceName)
                 gattClient.disconnect()
                 return
             }
@@ -985,12 +987,35 @@ class JetsonRepository(
         gattClient.connectForPairing(
             device = device.device,
             displayName =
-                canonicalPairingDisplayName(
+                pairingDisplayName(
                     pairingInfo = info,
                     advertisedDisplayName = device.name
                 ),
             pairingInfo = info
         )
+    }
+
+    /**
+     * An authenticated BLE link knows the device by its advertised name, which can be
+     * cut short, so it only replaces a stored MMS-style name, never the owner's own one.
+     */
+    private fun rememberAdvertisedDeviceName(deviceId: String, deviceName: String?) {
+        val stored = registeredDevices.value.firstOrNull {
+            it.deviceId.equals(deviceId, ignoreCase = true)
+        }?.deviceName ?: return
+        if (registeredDeviceDisplayName(deviceId, stored) != canonicalBleNameForDeviceId(deviceId)) return
+        rememberReportedDeviceName(deviceId, deviceName)
+    }
+
+    /** An authenticated hello carries the device's own name; the registered name follows it. */
+    private fun rememberReportedDeviceName(deviceId: String, deviceName: String?) {
+        val reported = deviceName?.trim()?.takeIf(String::isNotEmpty) ?: return
+        scope.launch {
+            credentialStore.updateDeviceName(
+                deviceId,
+                registeredDeviceDisplayName(deviceId, reported)
+            )
+        }
     }
 
     fun cancelPairing() {
@@ -1283,6 +1308,7 @@ class JetsonRepository(
                             deviceId = hello.deviceId,
                             deviceName = hello.deviceName
                         )
+                        rememberReportedDeviceName(hello.deviceId, hello.deviceName)
                         connectedSuccessfully = true
                         Log.i(
                             "JetsonLAN",
@@ -1989,12 +2015,11 @@ private fun isDirectTrustFailure(error: Throwable?): Boolean =
         error is JetsonAuthenticationRecoveryException ||
         error is JetsonResponseSignatureException || error is JetsonUnsignedServerErrorException
 
-@Suppress("UNUSED_PARAMETER")
-internal fun canonicalPairingDisplayName(
+internal fun pairingDisplayName(
     pairingInfo: PairingInfo,
     advertisedDisplayName: String
 ): String =
-    pairingInfo.expectedBleName
+    registeredDeviceDisplayName(pairingInfo.deviceId, advertisedDisplayName)
 
 internal fun isLanEndpointCandidate(
     endpoint: DeviceEndpoint,

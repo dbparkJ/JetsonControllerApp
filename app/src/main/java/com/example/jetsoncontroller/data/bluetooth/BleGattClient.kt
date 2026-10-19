@@ -17,6 +17,7 @@ import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.model.PairingInfo
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.WifiProvisionRequest
+import com.example.jetsoncontroller.model.registeredDeviceDisplayName
 import com.example.jetsoncontroller.protocol.PairingAuth
 import com.example.jetsoncontroller.protocol.StatusCodec
 import com.example.jetsoncontroller.protocol.UuidCodec
@@ -74,7 +75,9 @@ class BleGattClient(
 
     private data class PairingSession(
         val info: PairingInfo,
-        val displayName: String
+        val displayName: String,
+        // A QR registration names the device; a reconnect keeps the name already stored.
+        val registersDevice: Boolean = false
     )
 
     private var pairingSession: PairingSession? = null
@@ -116,7 +119,7 @@ class BleGattClient(
         pairingInfo: PairingInfo
     ) {
         disconnect()
-        pairingSession = PairingSession(pairingInfo, displayName)
+        pairingSession = PairingSession(pairingInfo, displayName, registersDevice = true)
         verifiedDeviceId = null
         expectedReconnectDeviceId = pairingInfo.deviceId.lowercase()
         
@@ -399,7 +402,7 @@ class BleGattClient(
             return true
         }
 
-        pairingSession = PairingSession(info, currentDeviceName)
+        pairingSession = PairingSession(info, currentDeviceName, registersDevice = true)
         proceedToAuthentication(gatt, info)
         return true
     }
@@ -479,7 +482,10 @@ class BleGattClient(
             if (completedSession != null) {
                 scope.launch {
                     credentialStore.saveCredential(
-                        completedSession.info
+                        completedSession.info,
+                        deviceName = completedSession.displayName
+                            .takeIf { completedSession.registersDevice }
+                            ?.let { registeredDeviceDisplayName(completedSession.info.deviceId, it) }
                     )
                 }
             }

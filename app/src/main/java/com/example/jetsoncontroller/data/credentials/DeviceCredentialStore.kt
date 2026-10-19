@@ -71,29 +71,53 @@ class DeviceCredentialStore(private val context: Context) {
         return String(cipher.doFinal(encrypted), Charsets.UTF_8)
     }
 
+    /** Without [deviceName] (a re-authentication) the device keeps the name stored for it. */
     suspend fun saveCredential(
         pairingInfo: PairingInfo,
-        deviceName: String = pairingInfo.expectedBleName
+        deviceName: String? = null
     ) {
         val (encryptedSecret, iv) = encrypt(pairingInfo.bootstrapSecretHex)
         val normalizedDeviceId = pairingInfo.deviceId.lowercase()
         val key = stringPreferencesKey("device_$normalizedDeviceId")
-        val encoded = JSONObject()
-            .put("version", 1)
-            .put("deviceName", deviceName)
-            .put("encryptedSecret", encryptedSecret)
-            .put("iv", iv)
-            .toString()
 
         context.dataStore.edit { prefs ->
-            prefs.asMap().keys
+            val existingKeys = prefs.asMap().keys
                 .map { it.name }
                 .filter {
                     it.startsWith("device_") &&
                         it.removePrefix("device_").equals(normalizedDeviceId, ignoreCase = true)
                 }
-                .forEach { prefs.remove(stringPreferencesKey(it)) }
-            prefs[key] = encoded
+            val storedName = existingKeys.firstNotNullOfOrNull { name ->
+                prefs[stringPreferencesKey(name)]?.let(::decodeCredential)?.deviceName
+            }
+            existingKeys.forEach { prefs.remove(stringPreferencesKey(it)) }
+            prefs[key] = JSONObject()
+                .put("version", 1)
+                .put("deviceName", deviceName ?: storedName ?: pairingInfo.expectedBleName)
+                .put("encryptedSecret", encryptedSecret)
+                .put("iv", iv)
+                .toString()
+        }
+    }
+
+    /** Renames a registered device in place; the stored secret is left untouched. */
+    suspend fun updateDeviceName(deviceId: String, deviceName: String) {
+        val name = deviceName.trim().takeIf(String::isNotEmpty) ?: return
+        context.dataStore.edit { prefs ->
+            val key = prefs.asMap().keys
+                .map { stringPreferencesKey(it.name) }
+                .firstOrNull {
+                    it.name.startsWith("device_") &&
+                        it.name.removePrefix("device_").equals(deviceId, ignoreCase = true)
+                } ?: return@edit
+            val credential = prefs[key]?.let(::decodeCredential) ?: return@edit
+            if (credential.deviceName == name) return@edit
+            prefs[key] = JSONObject()
+                .put("version", 1)
+                .put("deviceName", name)
+                .put("encryptedSecret", credential.encryptedSecretBase64)
+                .put("iv", credential.ivBase64)
+                .toString()
         }
     }
 

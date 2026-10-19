@@ -67,7 +67,7 @@ android {
                 applicationIdSuffix = debugApplicationIdSuffix
                 versionNameSuffix = "-side"
                 // A distinct launcher label keeps the two installs apart ('&' is not XML-safe here).
-                manifestPlaceholders["appLabel"] = "장치 관리 시험판"
+                manifestPlaceholders["appLabel"] = "GEO-X 시험판"
             }
         }
         release {
