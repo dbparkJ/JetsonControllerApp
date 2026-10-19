@@ -2,17 +2,18 @@ package com.example.jetsoncontroller.ui.field
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.theme.LocalCobaltColors
+import com.example.jetsoncontroller.ui.model.Formats
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -183,7 +184,7 @@ internal fun qualityDurationLabel(durationMillis: Long): String {
     }
 }
 
-private fun formatPercent(ratio: Double): String = String.format(Locale.US, "%.0f%%", ratio * 100.0)
+private fun formatPercent(ratio: Double): String = Formats.percent(ratio * 100.0)
 
 internal fun precisionMetricLabel(quality: RunQuality?): String = quality?.rtkFixRatio
     ?.takeIf { it.isFinite() && it in 0.0..1.0 && (quality.rtkObservedDurationMillis ?: 0L) > 0L }
@@ -194,81 +195,73 @@ internal fun precisionMetricLabel(quality: RunQuality?): String = quality?.rtkFi
     }?.ratio?.let(::formatPercent)
     ?: "미확인"
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RunQualityEvidence(
     quality: RunQuality?,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    title: String = "위치 품질"
+    title: String = "위치 품질",
+    zoneObservation: ResultZoneObservation? = null,
+    subtitle: String? = null
 ) {
     val presentation = runQualityPresentation(quality)
-    val colors = LocalCobaltColors.current
-    var showDetails by remember { mutableStateOf(false) }
-    val inheritedDensity = LocalDensity.current
+    val colors = LocalGeoColors.current
+    var showDetails by remember(quality) { mutableStateOf(false) }
+    val openerFocus = remember { FocusRequester() }
     if (showDetails) {
-        ModalBottomSheet(onDismissRequest = { showDetails = false }) {
-            CompositionLocalProvider(LocalDensity provides inheritedDensity) {
-                LazyColumn(
-                    Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item { Text("$title 상세", style = MaterialTheme.typography.titleLarge) }
-                    items(presentation.slices) { slice ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(slice.label)
-                            Text(qualityDurationLabel(slice.durationMillis), color = colors.muted)
-                        }
+        GeoSheet(title, { showDetails = false }, kind = GeoSheetKind.INFO, subtitle = subtitle,
+            openerFocusRequester = openerFocus) {
+            if (presentation.slices.isEmpty()) {
+                GeoInlineNote(presentation.detail)
+            } else {
+                PrecisionBar(presentation.slices)
+                presentation.slices.forEach { slice ->
+                    GeoFactRow(slice.label, qualityDurationLabel(slice.durationMillis), numeric = true)
+                }
+                Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary)
+            }
+            if (presentation.problems.isNotEmpty()) GeoSection("문제 구간") {
+                quality?.problemIntervals.orEmpty().forEach { problem ->
+                    Column(Modifier.fillMaxWidth().contentDivider().padding(vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(qualityProblemLabel(problem), style = LocalGeoType.current.titleSm, color = colors.text)
+                        Text(qualityProblemTimeLabel(problem), style = LocalGeoType.current.caption, color = colors.textSecondary)
                     }
-                    if (presentation.problems.isNotEmpty()) {
-                        item { HorizontalDivider(color = colors.border) }
-                        items(quality?.problemIntervals.orEmpty()) { problem ->
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(qualityProblemLabel(problem))
-                                Text(qualityProblemTimeLabel(problem), style = MaterialTheme.typography.bodySmall, color = colors.muted)
-                            }
-                        }
-                    }
-                    item { TextButton(onClick = { showDetails = false }) { Text("닫기") } }
+                }
+            }
+            zoneObservation?.let {
+                GeoSection("수집 구역") {
+                    GeoFactRow("구역 밖 기록", "${it.excursions}회 · ${qualityDurationLabel(it.outsideMillis)}")
+                    GeoFactRow("관찰하지 못한 시간", qualityDurationLabel(it.unobservedMillis))
+                    Text("구역 밖 기록은 관찰한 시간 기준입니다.", style = LocalGeoType.current.caption,
+                        color = colors.textSecondary)
                 }
             }
         }
     }
-    Surface(modifier.fillMaxWidth(), color = colors.surface, shape = RoundedCornerShape(18.dp)) {
-        Column(
-            Modifier.padding(if (compact) 12.dp else 18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(title, style = MaterialTheme.typography.labelLarge, color = colors.muted)
-            Text(presentation.headline, style = MaterialTheme.typography.titleMedium)
+    if (compact) {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(presentation.headline, style = LocalGeoType.current.titleSm, color = colors.text)
             PrecisionBar(presentation.slices)
-            if (presentation.slices.isNotEmpty()) {
-                Text(
-                    presentation.slices.joinToString(" · ") {
-                        "${it.label} ${qualityDurationLabel(it.durationMillis)}"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.muted
-                )
-            }
-            Text(presentation.detail, style = MaterialTheme.typography.bodySmall, color = colors.muted)
-            if (presentation.slices.isNotEmpty() || presentation.problems.isNotEmpty()) {
-                TextButton(onClick = { showDetails = true }) { Text("품질 상세 보기") }
-            }
+            Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary)
+        }
+    } else {
+        GeoSection(title, modifier) {
+            GeoRow("위치 품질 자세히", { showDetails = true }, meta = presentation.headline,
+                modifier = Modifier.focusRequester(openerFocus))
         }
     }
 }
-
 @Composable
 internal fun PrecisionBar(slices: List<PrecisionSlice>) {
     if (slices.isEmpty()) return
-    val colors = LocalCobaltColors.current
+    val colors = LocalGeoColors.current
     val denominator = slices.sumOf { it.durationMillis }.takeIf { it > 0L } ?: return
     Row(Modifier.fillMaxWidth().height(8.dp)) {
         slices.filter { it.durationMillis > 0L }.forEach { slice ->
             Box(
                 Modifier.weight(slice.durationMillis.toFloat() / denominator.toFloat()).height(8.dp)
-                    .background(qualityBandColor(slice.band, colors.primary, colors.warning, colors.unknown, colors.danger))
+                    .background(qualityBandColor(slice.band, colors.primary, colors.warning, colors.neutral, colors.danger))
             )
         }
     }
@@ -282,8 +275,8 @@ internal fun qualityBandColor(band: LocationQualityBand, precise: Color, approxi
         LocationQualityBand.NONE -> none
     }
 
-private val QualityTimestampFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss")
-    .withZone(ZoneId.systemDefault())
+private val QualityTimestampFormatter = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.KOREA)
+    .withZone(ZoneId.of("Asia/Seoul"))
 
 private val PrecisionBandOrder = listOf(
     LocationQualityBand.PRECISE,

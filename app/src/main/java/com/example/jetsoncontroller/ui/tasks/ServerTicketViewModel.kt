@@ -19,7 +19,9 @@ import com.example.jetsoncontroller.data.server.ServerTicketRequestException
 import com.example.jetsoncontroller.data.server.ServerProfileStore
 import com.example.jetsoncontroller.data.server.TicketCacheSnapshot
 import com.example.jetsoncontroller.data.server.TicketCacheStore
+import com.example.jetsoncontroller.data.server.TicketReportDeliveryState
 import com.example.jetsoncontroller.data.server.TicketReportStore
+import com.example.jetsoncontroller.data.server.TicketReportTarget
 import com.example.jetsoncontroller.data.server.TicketRunLink
 import com.example.jetsoncontroller.data.server.ticketReportKey
 import com.example.jetsoncontroller.data.server.ticketReportResponseIsTerminal
@@ -57,6 +59,7 @@ internal data class ServerTicketUiState(
     val isLoading: Boolean = false,
     val quietError: String? = null,
     val reportMessages: Map<String, String> = emptyMap(),
+    val reportOutboxRevision: Long = 0L,
     val lastSyncedAt: String? = null,
     val isCached: Boolean = false
 ) {
@@ -486,6 +489,7 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                         ticketRevision = link.ticketRevision
                     )
                     reportStore.enqueue(report)
+                    notifyReportOutboxChanged()
                     sendPending(report)
                 }
             } catch (cancelled: CancellationException) {
@@ -530,11 +534,15 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                         setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
                         return@withLock
                     }
-                    val connection = profiles.connection(link.profileId) ?: return@withLock
+                    val connection = profiles.connection(link.profileId) ?: run {
+                        setReportMessage(link.rowId, "서버에 연결되면 보고할 수 있습니다.")
+                        return@withLock
+                    }
                     val repo = repository(connection)
                     val currentTicket = repo.tickets(link.deviceId, status = "all").getOrThrow()
                         .tickets.orEmpty().singleOrNull { it.rowId == link.rowId }
-                    if (currentTicket == null || currentTicket.revision.isNullOrBlank() ||
+                    if (currentTicket == null || link.ticketRevision.isNullOrBlank() ||
+                        currentTicket.revision != link.ticketRevision ||
                         ticketConflictCopy(currentTicket) != null
                     ) {
                         setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
@@ -545,6 +553,27 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                         setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
                         return@withLock
                     }
+                    val target = TicketReportTarget(
+                        profileId = link.profileId,
+                        rowId = link.rowId,
+                        ticketRevision = link.ticketRevision,
+                        runId = run.runId,
+                        receiptId = receipt.sessionId
+                    )
+                    if (!ticketReportTargetMatches(
+                            target = target,
+                            profileId = connection.profile.profileId,
+                            ticket = currentTicket,
+                            runId = run.runId,
+                            deviceId = link.deviceId,
+                            receiptId = receipt.sessionId,
+                            receipt = receipt,
+                            requireReceipt = true
+                        )
+                    ) {
+                        setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
+                        return@withLock
+                    }
                     val report = PendingTicketReport(
                         key = key,
                         rowId = link.rowId,
@@ -552,16 +581,17 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                         deviceId = link.deviceId,
                         profileId = link.profileId,
                         createdAt = Instant.now().toString(),
-                        ticketRevision = currentTicket.revision,
-                        receiptId = receipt.sessionId
+                        ticketRevision = target.ticketRevision,
+                        receiptId = target.receiptId
                     )
                     reportStore.enqueue(report)
+                    notifyReportOutboxChanged()
                     sendPending(report)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                setReportMessage(link.rowId, ticketReportErrorCopy("REPORT_TARGET_CHANGED"))
+                setReportMessage(link.rowId, "서버에 연결되면 보고할 수 있습니다.")
             }
         }
     }
@@ -577,6 +607,42 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
     fun pendingReport(runId: String, completed: Boolean): Boolean = reportStore.pendingReports()
         .any { it.key == ticketReportKey(runId, completed) }
 
+    fun reportDeliveryState(runId: String, completed: Boolean): TicketReportDeliveryState =
+        reportStore.deliveryState(ticketReportKey(runId, completed))
+
+    fun ticketReportDeliveryState(rowId: String): TicketReportDeliveryState {
+        for (link in reportStore.linksForRow(rowId).asReversed()) {
+            for (completed in listOf(true, false)) {
+                val state = reportStore.deliveryState(ticketReportKey(link.runId, completed))
+                if (state != TicketReportDeliveryState.NONE) return state
+            }
+        }
+        return reportStore.pendingReportsForRow(rowId).lastOrNull()?.let {
+            reportStore.deliveryState(it.key)
+        } ?: TicketReportDeliveryState.NONE
+    }
+
+    /** Retries one failed outbox entry without changing its saved ticket/run/receipt target. */
+    fun retryReport(runId: String, completed: Boolean) {
+        val key = ticketReportKey(runId, completed)
+        if (reportStore.deliveryState(key) != TicketReportDeliveryState.FAILED) return
+        viewModelScope.launch {
+            reportMutex.withLock {
+                val report = reportStore.pendingReport(key)
+                    ?.takeIf { it.lastAttemptFailed } ?: return@withLock
+                sendPending(report)
+            }
+        }
+    }
+
+    /** Lets a ticket row retry the newest transiently failed report attached to it. */
+    fun retryTicketReport(rowId: String) {
+        val report = reportStore.pendingReportsForRow(rowId).lastOrNull {
+            reportStore.deliveryState(it.key) == TicketReportDeliveryState.FAILED
+        } ?: return
+        retryReport(report.runId, report.key.endsWith(":completed"))
+    }
+
     fun reportSettled(runId: String, completed: Boolean): Boolean =
         reportStore.isSettled(ticketReportKey(runId, completed))
 
@@ -591,6 +657,11 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
     )?.let(::ticketReportErrorCopy)
 
     fun ticketMessage(rowId: String): String? = _uiState.value.reportMessages[rowId]
+        ?: when (ticketReportDeliveryState(rowId)) {
+            TicketReportDeliveryState.PENDING -> "보고 대기"
+            TicketReportDeliveryState.FAILED -> "보고 실패"
+            else -> null
+        }
         ?: reportStore.linksForRow(rowId).asReversed().firstNotNullOfOrNull { link ->
             reportStore.errorCode(ticketReportKey(link.runId, completed = true))
                 ?: reportStore.errorCode(ticketReportKey(link.runId, completed = false))
@@ -639,12 +710,16 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
 
     private suspend fun sendPending(report: PendingTicketReport) {
         try {
+            if (reportStore.markRetrying(report.key)) notifyReportOutboxChanged()
             if (reportStore.isConflict(report.rowId)) {
                 reportStore.applyResponse(report.key, 409, "HUMAN_CHANGED")
                 setReportMessage(report.rowId, ticketReportErrorCopy("HUMAN_CHANGED"))
                 return
             }
-            val connection = profiles.connection(report.profileId) ?: return
+            val connection = profiles.connection(report.profileId) ?: run {
+                if (reportStore.markFailed(report.key)) notifyReportOutboxChanged()
+                return
+            }
             val repo = repository(connection)
             val isCompletion = report.key.endsWith(":completed")
             val currentTicket = repo.tickets(report.deviceId, status = "all").getOrThrow()
@@ -684,12 +759,14 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                     reportStore.applyResponse(report.key, status, code)
                     if (code == "HUMAN_CHANGED") reportStore.markConflict(report.rowId)
                     setReportMessage(report.rowId, ticketReportErrorCopy(code))
+                } else if (reportStore.markFailed(report.key)) {
+                    notifyReportOutboxChanged()
                 }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            // A missing profile, network failure, or server failure leaves the durable outbox intact.
+            if (reportStore.markFailed(report.key)) notifyReportOutboxChanged()
         }
     }
 
@@ -733,11 +810,24 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
     }
 
     private fun setReportMessage(rowId: String, message: String) {
-        _uiState.value = _uiState.value.copy(reportMessages = _uiState.value.reportMessages + (rowId to message))
+        val current = _uiState.value
+        _uiState.value = current.copy(
+            reportMessages = current.reportMessages + (rowId to message),
+            reportOutboxRevision = current.reportOutboxRevision + 1
+        )
     }
 
     private fun clearReportMessage(rowId: String) {
-        _uiState.value = _uiState.value.copy(reportMessages = _uiState.value.reportMessages - rowId)
+        val current = _uiState.value
+        _uiState.value = current.copy(
+            reportMessages = current.reportMessages - rowId,
+            reportOutboxRevision = current.reportOutboxRevision + 1
+        )
+    }
+
+    private fun notifyReportOutboxChanged() {
+        val current = _uiState.value
+        _uiState.value = current.copy(reportOutboxRevision = current.reportOutboxRevision + 1)
     }
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {

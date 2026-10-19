@@ -97,7 +97,7 @@ class TicketWorkflowTest {
 
         val inProgress = ticket("p", "geo X-1", "IN_PROGRESS")
         assertFalse(inProgress.status!!.isBlocked)
-        assertEquals(com.example.jetsoncontroller.ui.components.StatusTone.PENDING, ticketStatusTone(inProgress))
+        assertEquals(com.example.jetsoncontroller.ui.components.StatusTone.INFO, ticketStatusTone(inProgress))
     }
 
     @Test

@@ -35,6 +35,9 @@ val diagnosticsBuildId = providers.gradleProperty("diagnosticsBuildId")
 // Optional package suffix for a side-by-side debug install; validated so it stays a legal id part.
 val debugApplicationIdSuffix = providers.gradleProperty("debugApplicationIdSuffix").orNull
     ?.takeIf { it.matches(Regex("\\.[a-z][a-z0-9_]{0,30}")) }
+// Optional launcher label for that install, e.g. -PdebugAppLabel="GEO-X 재설계"; '&', '<' and quotes are refused.
+val debugAppLabel = providers.gradleProperty("debugAppLabel").orNull
+    ?.trim()?.takeIf { it.isNotEmpty() && it.length <= 30 && it.none { c -> c in "&<>\"'" } }
 
 android {
     namespace = "com.example.jetsoncontroller"
@@ -67,7 +70,7 @@ android {
                 applicationIdSuffix = debugApplicationIdSuffix
                 versionNameSuffix = "-side"
                 // A distinct launcher label keeps the two installs apart ('&' is not XML-safe here).
-                manifestPlaceholders["appLabel"] = "GEO-X 시험판"
+                manifestPlaceholders["appLabel"] = debugAppLabel ?: "GEO-X 시험판"
             }
         }
         release {

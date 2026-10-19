@@ -1,52 +1,24 @@
 package com.example.jetsoncontroller.ui.transfers
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.AppBanner
-import com.example.jetsoncontroller.ui.components.StatusBadge
-import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.components.statusVisuals
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.components.StatusTone
 
-/**
- * 전송 root: what is moving now, what is waiting, what failed and why, and which uploads the
- * server has confirmed. Callbacks carry job IDs; the integrator owns the navigation.
- */
+internal data class TransferDeviceAttention(val deviceId: String, val name: String, val count: Int)
+
 @Composable
 internal fun TransfersHomeScreen(
     state: TransfersHomeUiState,
@@ -56,319 +28,127 @@ internal fun TransfersHomeScreen(
     onCancelTransfer: (String) -> Unit,
     onRetryTransfer: (String) -> Unit,
     onSendRun: (String) -> Unit,
-    onOpenHistory: () -> Unit
+    onOpenHistory: () -> Unit,
+    onOpenRun: (String) -> Unit = onSendRun,
+    deviceId: String? = null,
+    deviceName: String = "선택된 장치 없음",
+    readiness: String = state.explanation,
+    attention: List<TransferDeviceAttention> = emptyList(),
+    onSelectDevice: (String) -> Unit = {},
+    onDevicePicker: () -> Unit = {},
+    onAlerts: () -> Unit = {},
+    onRefresh: () -> Unit = {},
+    sendEnabled: Boolean = true,
+    controlAvailable: Boolean = sendEnabled,
+    onFixedCancel: ((TransferActionTarget) -> Unit)? = null,
+    onDeviceConfirmationClosed: () -> Unit = {},
+    onConnectionRemedy: () -> Unit = {},
+    ongoingRun: @Composable () -> Unit = {}
 ) {
     val c = LocalGeoColors.current
-    var confirmCancelJobId by remember { mutableStateOf<String?>(null) }
-    confirmCancelJobId?.let { jobId ->
-        AlertDialog(
-            onDismissRequest = { confirmCancelJobId = null },
-            containerColor = c.surface,
-            title = { Text("전송을 취소할까요?") },
-            text = { Text("취소한 전송은 처음부터 다시 보내야 합니다.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmCancelJobId = null
-                    onCancelTransfer(jobId)
-                }) { Text("전송 취소", color = c.danger) }
+    val t = LocalGeoType.current
+    val scroll = rememberLazyListState()
+    var cancel by remember { mutableStateOf<ActiveTransferState?>(null) }
+    LaunchedEffect(deviceId) {
+        if (cancel != null && cancel?.target?.deviceId?.equals(deviceId, true) == false) {
+            cancel = null
+            onDeviceConfirmationClosed()
+        }
+    }
+    cancel?.let { fixed ->
+        GeoConfirmDialog("${fixed.title} 전송을 취소할까요?", TransferCancelBody, "전송 취소",
+            onConfirm = {
+                cancel = null
+                if (fixed.target != null && onFixedCancel != null) onFixedCancel(fixed.target)
+                else onCancelTransfer(fixed.jobId)
             },
-            dismissButton = {
-                TextButton(onClick = { confirmCancelJobId = null }) { Text("계속 보내기") }
-            }
-        )
+            onDismissRequest = { cancel = null }, dismissLabel = "계속 보내기", kind = GeoConfirmKind.DANGER)
     }
-
-    Column(Modifier.fillMaxSize().background(c.canvas)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp).height(56.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("전송", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.ink)
-            TextButton(onClick = onPickFiles) {
-                Text("보낼 파일 고르기", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = c.primary)
+    TransferPage("전송", header = { TransferRootHeader(deviceName, onDevicePicker, onAlerts) }) {
+        GeoActionArea(visibilityKey = deviceId ?: "transfers", action = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(readiness, style = t.body, color = c.textSecondary)
+                if (!sendEnabled) GeoButton("연결 방법", onConnectionRemedy, style = GeoButtonStyle.Tertiary)
+                GeoButton("파일 보내기", onPickFiles, Modifier.fillMaxWidth(), actionArea = true)
             }
-        }
-        LazyColumn(
-            Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            if (state.active.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "보내는 중",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = c.ink
-                        )
+        }) { inlineAction ->
+            LazyColumn(state = scroll, modifier = Modifier.fillMaxSize().semantics {
+                customActions = listOf(CustomAccessibilityAction("다시 확인") { onRefresh(); true })
+            }, contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
+                item { ongoingRun() }
+                if (state.active.isNotEmpty()) item {
+                    GeoSection("보내는 중", first = true) {
                         state.active.forEach { active ->
-                            ActiveTransferCard(
-                                active = active,
-                                onOpen = { onOpenTransfer(active.jobId) },
-                                onCancel = { confirmCancelJobId = active.jobId }
-                            )
+                            Column(Modifier.fillMaxWidth().clickable { onOpenTransfer(active.jobId) }
+                                .padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                GeoRow(active.title, { onOpenTransfer(active.jobId) },
+                                    badge = { GeoBadge(active.stateLabel, active.stateTone) })
+                                GeoProgress(active.progress)
+                                Text(listOfNotNull(active.sentLabel, active.speedLabel?.replace("/s", "/초"),
+                                    active.remainingLabel?.let { "$it 남음" }).joinToString(" · "),
+                                    style = t.caption, color = c.textSecondary)
+                                if (active.canCancel) GeoButton("전송 취소", { cancel = active },
+                                    style = GeoButtonStyle.DangerOutline, enabled = controlAvailable,
+                                    disabledReason = readiness)
+                            }
                         }
                     }
                 }
-            }
-            if (state.failed.isNotEmpty()) {
+                if (state.failed.isNotEmpty()) item {
+                    GeoSection("확인이 필요한 전송", first = state.active.isEmpty()) {
+                        state.failed.forEach { row ->
+                            GeoActionRow(row.title, "다시 보내기", { onOpenTransfer(row.jobId) },
+                                { onRetryTransfer(row.jobId) }, meta = row.cause,
+                                leading = { GeoBadge(row.stateLabel, StatusTone.ERROR) },
+                                actionEnabled = sendEnabled, disabledReason = readiness)
+                        }
+                    }
+                }
+                if (state.sendableRuns.isNotEmpty()) item {
+                    GeoSection("보낼 수집", first = state.active.isEmpty() && state.failed.isEmpty()) {
+                        state.sendableRuns.forEach { row ->
+                            GeoActionRow(row.title, "보내기", { onOpenRun(row.runId) }, { onSendRun(row.runId) },
+                                meta = row.detail, actionEnabled = sendEnabled, disabledReason = readiness)
+                        }
+                    }
+                }
+                if (state.queued.isNotEmpty()) item {
+                    GeoSection("대기 중") { state.queued.forEach { TransferHomeRow(it, onOpenTransfer) } }
+                }
+                if (state.awaitingVerification.isNotEmpty()) item {
+                    GeoSection("수신 확인 중") { state.awaitingVerification.forEach { TransferHomeRow(it, onOpenTransfer) } }
+                }
                 item {
-                    TransferSection(title = "확인이 필요한 전송") {
-                        state.failed.forEachIndexed { index, row ->
-                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                            FailedTransferRow(row, onRetry = { onRetryTransfer(row.jobId) })
+                    GeoSection("서버 수신 확인", actionLabel = "전체 기록", onAction = onOpenHistory) {
+                        state.verified.forEach { TransferHomeRow(it, onOpenTransfer) }
+                        state.emptyText?.let {
+                            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "보낸 파일이 없습니다", it))
                         }
                     }
                 }
-            }
-            if (state.sendableRuns.isNotEmpty()) {
+                if (attention.isNotEmpty()) item {
+                    GeoSection("다른 장치") { attention.forEach { other ->
+                        GeoRow("${other.name} · 확인이 필요한 전송 ${other.count}건", { onSelectDevice(other.deviceId) },
+                            meta = "이 장치로 바꾸기")
+                    } }
+                }
                 item {
-                    TransferSection(title = "보낼 수집") {
-                        state.sendableRuns.forEachIndexed { index, row ->
-                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                            StoredRunTransferRow(row, onSend = { onSendRun(row.runId) })
+                    GeoSection("서버") {
+                        GeoRow("서버 수신 결과", onOpenServerFiles)
+                        state.deviceEventNotice?.let { notice ->
+                            GeoFactRow("GEO& Work 알림", notice.text)
                         }
                     }
+                    GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary)
                 }
-            }
-            if (state.queued.isNotEmpty()) {
-                item {
-                    TransferSection(title = "대기 중") {
-                        state.queued.forEachIndexed { index, row ->
-                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                            PlainTransferRow(row, onClick = { onOpenTransfer(row.jobId) })
-                        }
-                    }
-                }
-            }
-            if (state.awaitingVerification.isNotEmpty()) {
-                item {
-                    TransferSection(title = "수신 확인 중") {
-                        state.awaitingVerification.forEachIndexed { index, row ->
-                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                            PlainTransferRow(row, onClick = { onOpenTransfer(row.jobId) })
-                        }
-                    }
-                }
-            }
-            if (state.verified.isNotEmpty()) {
-                item {
-                    TransferSection(title = "서버 수신 확인", trailing = {
-                        TextButton(onClick = onOpenHistory) {
-                            Text("전체 기록", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = c.primary)
-                        }
-                    }) {
-                        state.verified.forEachIndexed { index, row ->
-                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                            PlainTransferRow(row, onClick = { onOpenTransfer(row.jobId) })
-                        }
-                    }
-                }
-            }
-            state.emptyText?.let { text ->
-                item {
-                    Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = c.muted,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                }
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    state.deviceEventNotice?.let { notice ->
-                        AppBanner(message = notice.text, tone = notice.tone)
-                    }
-                    ExplanationLine(state.explanation, state.explanationTone)
-                }
+                item { inlineAction() }
             }
         }
     }
 }
 
 @Composable
-private fun ActiveTransferCard(active: ActiveTransferState, onOpen: () -> Unit, onCancel: () -> Unit) {
-    val c = LocalGeoColors.current
-    Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        active.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = c.ink,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(active.subtitle, style = MaterialTheme.typography.bodySmall, color = c.muted)
-                }
-                StatusBadge(active.stateLabel, active.stateTone)
-            }
-            val progress = active.progress
-            if (progress != null) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                    color = c.primary,
-                    trackColor = c.subtle
-                )
-            } else {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                    color = c.primary,
-                    trackColor = c.subtle
-                )
-            }
-            MetricsRow(active)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = onOpen,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).heightIn(min = 44.dp)
-                ) { Text("자세히", color = c.ink) }
-                if (active.canCancel) {
-                    OutlinedButton(
-                        onClick = onCancel,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f).heightIn(min = 44.dp)
-                    ) { Text("전송 취소", color = c.danger) }
-                }
-            }
-        }
-    }
-}
-
-/** Sent bytes always; speed and remaining time only when they were actually computed. */
-@Composable
-private fun MetricsRow(active: ActiveTransferState) {
-    val c = LocalGeoColors.current
-    val cells = buildList {
-        add("보낸 용량" to active.sentLabel)
-        active.speedLabel?.let { add("속도" to it) }
-        active.remainingLabel?.let { add("남은 시간" to it) }
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        cells.forEach { (label, value) ->
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(label, style = MaterialTheme.typography.labelMedium, color = c.muted)
-                Text(
-                    value,
-                    style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
-                    fontWeight = FontWeight.Bold,
-                    color = c.ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TransferSection(
-    title: String,
-    trailing: @Composable (() -> Unit)? = null,
-    content: @Composable () -> Unit
-) {
-    val c = LocalGeoColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.ink)
-            trailing?.invoke()
-        }
-        Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-            Column { content() }
-        }
-    }
-}
-
-@Composable
-private fun FailedTransferRow(row: FailedTransferState, onRetry: () -> Unit) {
-    val c = LocalGeoColors.current
-    val visuals = statusVisuals(StatusTone.ERROR)
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-            Icon(visuals.icon, contentDescription = null, tint = visuals.content, modifier = Modifier.size(20.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(row.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = c.ink)
-                Text("${row.stateLabel} · ${row.cause}", style = MaterialTheme.typography.bodySmall, color = c.inkStrong)
-            }
-        }
-        OutlinedButton(
-            onClick = onRetry,
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.heightIn(min = 40.dp)
-        ) { Text("다시 시도", color = c.ink) }
-    }
-}
-
-@Composable
-private fun StoredRunTransferRow(row: StoredRunTransferState, onSend: () -> Unit) {
-    val c = LocalGeoColors.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(row.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = c.ink)
-            Text(row.detail, style = MaterialTheme.typography.bodySmall, color = c.muted)
-        }
-        TextButton(onClick = onSend, modifier = Modifier.heightIn(min = 48.dp)) {
-            Text("보내기", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = c.primary)
-        }
-    }
-}
-
-@Composable
-private fun PlainTransferRow(row: TransferRowState, onClick: () -> Unit) {
-    val c = LocalGeoColors.current
-    val visuals = statusVisuals(row.tone)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 60.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Icon(visuals.icon, contentDescription = null, tint = visuals.content, modifier = Modifier.size(20.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(row.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = c.ink)
-            Text(row.detail, style = MaterialTheme.typography.bodySmall, color = c.muted)
-        }
-        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = c.inkSubtle, modifier = Modifier.size(20.dp))
-    }
-}
-
-@Composable
-private fun ExplanationLine(text: String, tone: StatusTone) {
-    val c = LocalGeoColors.current
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-        Icon(
-            Icons.Default.Info,
-            contentDescription = null,
-            tint = statusVisuals(tone).content,
-            modifier = Modifier.size(16.dp).padding(top = 1.dp)
-        )
-        Text(text, style = MaterialTheme.typography.bodySmall, color = c.inkStrong)
-    }
+private fun TransferHomeRow(row: TransferRowState, onOpen: (String) -> Unit) {
+    GeoRow(row.title, { onOpen(row.jobId) }, meta = row.detail,
+        badge = { GeoBadge(if (row.tone == StatusTone.SUCCESS) "수신 확인" else row.detail, row.tone) })
 }

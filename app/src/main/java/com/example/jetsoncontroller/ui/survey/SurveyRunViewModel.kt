@@ -89,6 +89,7 @@ internal data class RunLogUiState(val target: RunLogTarget? = null, val text: St
 
 internal interface SurveyRunDataSource {
     val deviceConnection: Flow<SurveyDeviceConnection>
+    val preparationTelemetry: Flow<PreparationTelemetry> get() = kotlinx.coroutines.flow.flowOf(PreparationTelemetry())
     suspend fun projects(): Result<List<SurveyProject>>
     suspend fun createProject(request: SurveyLabelMutationRequest): Result<SurveyProject>
     suspend fun sections(projectId: String): Result<List<SurveySection>>
@@ -111,6 +112,25 @@ internal class RepositorySurveyRunDataSource(
     private val repository: JetsonRepository,
     private val ticketValidator: (suspend (PreparationDraft) -> Result<Unit>)? = null
 ) : SurveyRunDataSource {
+    override val preparationTelemetry: Flow<PreparationTelemetry> = combine(
+        repository.selectedDeviceId, repository.status, repository.transportState, repository.mobileRtkRelayState
+    ) { deviceId, status, transport, relay ->
+        val connected = transport as? TransportState.Connected
+        PreparationTelemetry(deviceId,
+            status.takeIf { connected?.deviceId.equals(deviceId, true) } ?: JetsonStatus(), when (connected?.type) {
+            TransportType.LAN -> "같은 네트워크"
+            TransportType.WIFI_DIRECT -> "직접 연결"
+            TransportType.BLE -> "기본 연결"
+            else -> "미확인"
+        }, relay.pipelineId?.let {
+            when {
+                relay.error != null -> "오류"
+                relay.active -> "중계 중"
+                relay.preparing -> "연결하는 중"
+                else -> "꺼짐"
+            }
+        })
+    }
     override val deviceConnection: Flow<SurveyDeviceConnection> = combine(
         repository.selectedDeviceId,
         repository.transportState
@@ -179,16 +199,21 @@ internal data class SurveyRunUiState(
     val message: String? = null,
     val error: String? = null,
     val errorCode: String? = null,
-    val technicalError: String? = null
+    val technicalError: String? = null,
+    val preparationTelemetry: PreparationTelemetry = PreparationTelemetry(),
+    val preparationTaskState: PipelineState = PipelineState.UNKNOWN,
+    val lastExecutionStartedAt: String? = null
 ) {
     val contextLocked: Boolean
         get() = activeRun?.active == true || acceptedStart != null || pendingStart != null ||
             unconfirmedRunId != null || (latestRun?.active == false && !resultAcknowledged)
     val selectionComplete: Boolean
         get() = selectedProject != null && selectedSection != null
+    val preparationSelectionComplete: Boolean
+        get() = selectionComplete || preparationDraft?.let { it.project != null && it.section != null } == true
     val canPreflight: Boolean
         get() = online && controlAvailable && !restoringLocalState && !pipelineId.isNullOrBlank() &&
-            runStateConfirmed && observedActiveRunCount == 0 && !contextLocked && operation == null && selectionComplete && policy != null &&
+            runStateConfirmed && observedActiveRunCount == 0 && !contextLocked && operation == null && preparationSelectionComplete && policy != null &&
             (preparationDraft == null || preparationDraft.pipelineId == pipelineId)
     val canStart: Boolean
         get() = canPreflight && preflight?.ready == true &&
@@ -256,6 +281,7 @@ internal class SurveyRunViewModel(
     private var deviceLoadJob: Job? = null
     private var telemetryJob: Job? = null
     private var localState = SurveyRunLocalState()
+    private var latestPreparationTelemetry = PreparationTelemetry()
     private var draftSaveJob: Job? = null
     private val _resultState = kotlinx.coroutines.flow.MutableStateFlow(RunResultUiState())
     val resultState: kotlinx.coroutines.flow.StateFlow<RunResultUiState> = _resultState
@@ -267,6 +293,14 @@ internal class SurveyRunViewModel(
     private var resultLogRequest = 0L
 
     init {
+        viewModelScope.launch {
+            source.preparationTelemetry.collect { telemetry ->
+                latestPreparationTelemetry = telemetry
+                if (telemetry.deviceId.equals(_uiState.value.deviceId, true)) {
+                    _uiState.value = _uiState.value.copy(preparationTelemetry = telemetry)
+                }
+            }
+        }
         viewModelScope.launch {
             source.deviceConnection.collect { connection ->
                 val expected = ++generation
@@ -284,6 +318,9 @@ internal class SurveyRunViewModel(
                     _uiState.value = previous.copy(
                         online = connection.online,
                         controlAvailable = connection.controlAvailable,
+                        preparationTelemetry = latestPreparationTelemetry.takeIf {
+                            it.deviceId.equals(connection.deviceId, true)
+                        } ?: PreparationTelemetry(),
                         runStateConfirmed = false,
                         preflight = null,
                         preflightReceivedAtElapsedRealtime = null,
@@ -303,6 +340,9 @@ internal class SurveyRunViewModel(
                         deviceId = connection.deviceId,
                         online = connection.online,
                         controlAvailable = connection.controlAvailable,
+                        preparationTelemetry = latestPreparationTelemetry.takeIf {
+                            it.deviceId.equals(connection.deviceId, true)
+                        } ?: PreparationTelemetry(),
                         pipelineId = pipelineId,
                         pipelineLabel = previous.pipelineLabel.takeIf { sameDevice }.orEmpty(),
                         restoringLocalState = true,
@@ -496,7 +536,8 @@ internal class SurveyRunViewModel(
                 draftProject.id, draftProject.revision, draftSection.id, draftSection.revision
             ) else localState.selection.takeIf { localState.preparationDraft == null }
             val selectedProject = projectList.firstOrNull {
-                it.surveyProjectId == storedSelection?.surveyProjectId && it.revision == storedSelection.surveyProjectRevision
+                it.surveyProjectId == (draftProject?.id ?: storedSelection?.surveyProjectId) &&
+                    it.revision == (draftProject?.revision ?: storedSelection?.surveyProjectRevision)
             }
             val sections = selectedProject?.let { source.sections(it.surveyProjectId) }
             if (!current(expectedGeneration, pipelineId)) return@launch
@@ -576,6 +617,8 @@ internal class SurveyRunViewModel(
                 selectedProject = selectedProject,
                 selectedSection = selectedSection,
                 pipelineLabel = currentPipeline?.label ?: _uiState.value.pipelineLabel,
+                preparationTaskState = currentPipeline?.state ?: PipelineState.UNKNOWN,
+                lastExecutionStartedAt = currentPipeline?.execution?.startedAt,
                 roots = roots.getOrThrow(),
                 policy = loadedPolicy,
                 policyDraft = loadedPolicy?.toDraft() ?: RunPolicyDraft(
@@ -715,6 +758,8 @@ internal class SurveyRunViewModel(
         }
     }
 
+    private var preflightAfterContext = false
+
     /** Called only by the explicit start transaction, never by opening preparation or choosing a task. */
     fun createStartContext(target: PreparationDraft) {
         val state = _uiState.value
@@ -764,12 +809,22 @@ internal class SurveyRunViewModel(
             _uiState.value = _uiState.value.copy(preparationDraft = draft, selectedSection = section,
                 sections = (_uiState.value.sections + section).distinctBy { it.surveySectionId }, operation = null,
                 preflight = null, preflightReceivedAtElapsedRealtime = null)
+            if (preflightAfterContext) {
+                preflightAfterContext = false
+                runPreflight()
+            }
         }
     }
 
     private suspend fun checkCreationScope(expected: Long, target: PreparationDraft) {
         ensureDevice(expected, target.pipelineId.orEmpty(), target.deviceId)
         requireTarget(!_uiState.value.contextLocked, "진행 중인 수집과 시작 요청을 먼저 확인하세요.")
+        requireTarget(_uiState.value.preparationDraft?.let {
+            sameTicketIdentity(it, target) && it.projectRequestId == target.projectRequestId &&
+                it.sectionRequestId == target.sectionRequestId
+        } == true, "프로젝트와 구간을 다시 확인하세요.")
+        source.revalidateTicket(target).getOrElse { throw StartTargetChangedException(TicketChangedMessage) }
+        ensureDevice(expected, target.pipelineId.orEmpty(), target.deviceId)
     }
 
     fun setSensorRequirement(sensor: String, choice: SensorRequirementChoice) = editPolicy {
@@ -810,14 +865,32 @@ internal class SurveyRunViewModel(
     fun runPreflight() {
         val state = _uiState.value
         val pipelineId = state.pipelineId ?: return
-        val project = state.selectedProject ?: return
-        val section = state.selectedSection ?: return
         val policy = state.policy ?: return
         if (!state.canPreflight) return
+        // The check API needs an existing project and section. A new one is created only here, when the
+        // operator taps 수집 시작 (the start transaction), once per persisted request id; then the check runs.
+        val project = state.selectedProject
+        val section = state.selectedSection
+        if (project == null || section == null) {
+            val draft = state.preparationDraft
+            if (draft != null && draft.project != null && draft.section != null) {
+                preflightAfterContext = true
+                createStartContext(draft)
+                return
+            }
+            _uiState.value = state.copy(preflight = null, preflightReceivedAtElapsedRealtime = null,
+                error = DraftPreflightUnavailableMessage)
+            return
+        }
         val request = PipelinePreflightRequest(
             project.surveyProjectId, section.surveySectionId, project.revision, section.revision, policy.revision
         )
         launch("preflight") { expected, expectedPipeline ->
+            _uiState.value = _uiState.value.copy(preflight = null, preflightReceivedAtElapsedRealtime = null)
+            draftSaveJob?.join()
+            source.revalidateTicket(state.preparationDraft ?: state.manualDraft())
+                .getOrElse { throw StartTargetChangedException(TicketChangedMessage) }
+            ensureDevice(expected, expectedPipeline, requireNotNull(state.deviceId))
             source.preflight(pipelineId, request).onSuccess { checked ->
                 if (!current(expected, expectedPipeline)) return@onSuccess
                 if (!preflightMatches(checked, state.deviceId, pipelineId, project, section, policy)) {
@@ -827,7 +900,7 @@ internal class SurveyRunViewModel(
                     preflight = checked,
                     preflightReceivedAtElapsedRealtime = elapsedRealtimeMillis(),
                     operation = null,
-                    message = if (checked.ready) "시작 전 점검이 준비됨으로 확인되었습니다." else null,
+                    message = null,
                     error = if (checked.ready) null else "시작 전 점검에서 확인할 항목이 있습니다."
                 )
             }.onFailure { showErrorIfCurrent(it, expected, expectedPipeline) }
@@ -890,6 +963,10 @@ internal class SurveyRunViewModel(
             try {
                 ensureDevice(expected, pipelineId, deviceId)
                 if (target != null) {
+                    // The ticket may change while context/policy/persistence calls are suspended.
+                    source.revalidateTicket(target.draft)
+                        .getOrElse { throw StartTargetChangedException(TicketChangedMessage) }
+                    ensureDevice(expected, pipelineId, deviceId)
                     val failure = startRevalidationError(target, _uiState.value.copy(pendingStart = null),
                         System.currentTimeMillis(), elapsedRealtimeMillis())
                     requireTarget(failure == null, failure.orEmpty())

@@ -31,9 +31,9 @@ class SurveyRunScreenTest {
             onRetry = { retries++ }
         )
 
-        compose.onNodeWithText("수집할 구간을 선택하세요").assertIsDisplayed()
-        compose.onNodeWithText("시작 상태 확인").assertIsEnabled().performClick()
-        compose.onNodeWithContentDescription("프로젝트 또는 조사 구간 만들기").assertIsNotEnabled()
+        compose.onNodeWithText("도로 수집").assertIsDisplayed()
+        compose.onNodeWithText("시작 결과 확인").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("수집 시작").assertDoesNotExist()
         compose.onNodeWithText("정책 저장").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, retries) }
     }
@@ -52,11 +52,11 @@ class SurveyRunScreenTest {
     @Test fun preparationShowsProjectAndExplicitSectionSelection() {
         show(readyState().copy(preflight = null))
 
-        compose.onNodeWithText("수집할 구간을 선택하세요").assertIsDisplayed()
+        compose.onNodeWithText("수집 준비").assertIsDisplayed()
         compose.onNodeWithText("강남대로 1구간").assertIsDisplayed()
         compose.onNodeWithText("테헤란로 2구간").assertIsDisplayed()
-        compose.onNodeWithContentDescription("선택됨").assertIsDisplayed()
-        compose.onNodeWithText("장치 점검").assertIsEnabled()
+        compose.onNodeWithText("강남대로 1구간").assertIsSelected()
+        compose.onNodeWithText("수집 시작").performScrollTo().assertIsEnabled()
         capture("survey-prep")
     }
 
@@ -79,7 +79,7 @@ class SurveyRunScreenTest {
             }
         }
 
-        compose.onNodeWithText("수집 시작").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("수집 시작").performScrollTo().assertIsDisplayed().assertIsEnabled()
         capture("survey-start-2x")
     }
 
@@ -87,11 +87,38 @@ class SurveyRunScreenTest {
         var starts = 0
         show(readyState(), onStart = { starts++ })
 
-        compose.onNodeWithText("수집 시작").assertIsEnabled().performClick()
-        compose.onNodeWithText("수집을 시작할까요?").assertIsDisplayed()
+        compose.onNodeWithText("수집 시작").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("강남대로 1구간 수집을 시작할까요?").assertIsDisplayed()
         compose.runOnIdle { assertEquals(0, starts) }
-        compose.onNodeWithTag("confirm-start").performClick()
+        compose.onAllNodesWithText("수집 시작").onLast().performClick()
         compose.runOnIdle { assertEquals(1, starts) }
+    }
+
+    @Test fun creatingNewContextKeepsStartSheetOpenUntilCheckReturns() {
+        val ready = readyState()
+        val draft = PreparationDraft("MMS-4DE0", pipelineId = "capture",
+            project = PreparationSelection.CreateNew("서울 도로 조사"),
+            section = PreparationSelection.CreateNew("강남대로 1구간"),
+            projectRequestId = "project-request", sectionRequestId = "section-request")
+        val current = androidx.compose.runtime.mutableStateOf(ready.copy(
+            selectedProject = null, selectedSection = null, preflight = null, preparationDraft = draft))
+        compose.setContent { JetsonControllerTheme { SurveyRunScreen(
+            current.value, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {},
+            { current.value = current.value.copy(operation = "create_context") }, {}, {}, {}
+        ) } }
+        compose.onNodeWithText("수집 시작").performScrollTo().performClick()
+        compose.onNodeWithTag("start-sheet").assertExists()
+        compose.onNodeWithText("점검하는 중").assertIsNotEnabled()
+        compose.runOnIdle {
+            current.value = ready.copy(operation = "preflight", preflight = null, preparationDraft = draft.copy(
+                project = PreparationSelection.Existing("project", 1),
+                section = PreparationSelection.Existing("section", 1)))
+        }
+        compose.onNodeWithTag("start-sheet").assertExists()
+        compose.onNodeWithText("점검하는 중").assertIsNotEnabled()
+        compose.runOnIdle { current.value = current.value.copy(operation = null, preflight = ready.preflight) }
+        compose.onNodeWithTag("start-sheet").assertExists()
+        compose.onNode(hasText("수집 시작") and hasClickAction() and hasAnyAncestor(isDialog())).assertIsEnabled()
     }
 
     private fun show(
@@ -120,7 +147,7 @@ class SurveyRunScreenTest {
             surveyProject = SurveyProjectSummary("project", "서울 도로 조사", 1),
             surveySection = SurveySectionSummary("section", "project", "강남대로 1구간", 1),
             contextSnapshot = context, policy = policy, sourceRevision = "source", configRevision = "config",
-            checkedAt = "checked", checkedAtEpochMillis = 1,
+            checkedAt = "checked", checkedAtEpochMillis = System.currentTimeMillis(),
             checks = PipelinePreflightChecks(
                 time = PreflightCheck("READY"),
                 storage = PreflightStorageCheck("READY", "data", "", 100, 0),
@@ -130,7 +157,8 @@ class SurveyRunScreenTest {
         return SurveyRunUiState(
             deviceId = "MMS-4DE0", online = true, pipelineId = "capture", pipelineLabel = "도로 영상 수집",
             projects = listOf(project), sections = listOf(section, secondSection), selectedProject = project,
-            selectedSection = section, policy = policy, policyDraft = policy.toDraft(), preflight = preflight
+            selectedSection = section, policy = policy, policyDraft = policy.toDraft(), preflight = preflight,
+            runStateConfirmed = true, preflightReceivedAtElapsedRealtime = System.nanoTime() / 1_000_000L
         )
     }
 

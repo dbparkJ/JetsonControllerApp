@@ -181,76 +181,7 @@ internal fun NavGraphBuilder.focusedRoutes(state: State<AppNavigationState>) {
         }
 
         composable(Routes.ACTIVE_RUN) {
-            with(state.value) {
-                val status = deviceDashboardState.status
-                val statusFresh = deviceDashboardState.isOnline &&
-                    deviceDashboardState.statusFreshness == StatusFreshness.CURRENT
-                val activeRun = surveyRunState.activeRun
-                val stopTarget = matchingStopTarget(activeRun, pipelineState.pipelines)
-                com.example.jetsoncontroller.ui.field.ActiveRunScreen(
-                    deviceName = selectedDeviceName,
-                    connectionLabel = com.example.jetsoncontroller.ui.connection
-                        .deviceConnectionUi(deviceDashboardState.isOnline, deviceDashboardState.transportType).label,
-                    connectionTone = com.example.jetsoncontroller.ui.connection
-                        .deviceConnectionUi(deviceDashboardState.isOnline, deviceDashboardState.transportType).tone,
-                    run = activeRun ?: surveyRunState.latestRun?.takeIf { it.active },
-                    telemetryReceivedAtElapsedRealtime = surveyRunState.telemetryReceivedAtElapsedRealtime,
-                    // 장치가 경과 시간을 제공하지 않으므로 앱이 만들어내지 않습니다.
-                    elapsedLabel = null,
-                    lastObservedLabel = pipelineState.observedAtMillis?.let {
-                        java.text.DateFormat.getTimeInstance().format(java.util.Date(it))
-                    },
-                    sensorSummary = if (!deviceDashboardState.isOnline || !status.sensorTelemetryAvailable) null
-                        else listOf(
-                            status.cameraSensor.active,
-                            status.gnssSensor.active,
-                            status.imuSensor.active
-                        ).count { it }.let { "${it}개 수신" },
-                    storageSummary = if (statusFresh) "${status.storagePercent}% 사용" else null,
-                    stopInProgress = pipelineState.busyPipelineId != null,
-                    online = deviceDashboardState.isOnline,
-                    stopAvailable = stopTarget != null,
-                    pendingStart = surveyRunState.pendingStart != null,
-                    unconfirmedRunId = surveyRunState.unconfirmedRunId,
-                    onRetryPendingStart = surveyRunViewModel::retryPendingStart,
-                    developerModeEnabled = developerModeEnabled,
-                    unreadCount = alertCenterState.unreadCount,
-                    onDevices = { navigateToDeviceRoot(navController) },
-                    onAlerts = { navController.navigateSingle(Routes.ALERTS) },
-                    onBack = { navController.popBackStack() },
-                    // The run ending does not move the operator; the screen offers this button instead.
-                    onOpenResult = {
-                        surveyRunState.latestRun?.let { run ->
-                            navController.navigateSingle(runResultRoute(run.runId, run.deviceId, run.pipelineId)) {
-                                popUpTo(Routes.ACTIVE_RUN) { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        }
-                    },
-                    onRefresh = { surveyRunViewModel.refresh(); pipelineViewModel.refresh() },
-                    onStop = {
-                        activeRun?.let { confirmedRun ->
-                            matchingStopTarget(confirmedRun, pipelineState.pipelines)?.let { target ->
-                                pipelineViewModel.control(
-                                    target,
-                                    "stop",
-                                    expectedRunId = confirmedRun.runId
-                                )
-                            }
-                        }
-                    },
-                    onCamera = { navController.navigateSingle(Routes.CAMERA_PREVIEW) },
-                    onMap = {
-                        requestedMapHistoryEntryId = null
-                        requestedMapActiveRunId = (
-                            activeRun ?: surveyRunState.latestRun?.takeIf { it.active }
-                        )?.runId
-                        fieldToolsViewModel.refresh(retainLoaded = true)
-                        navController.navigateSingle(Routes.GNSS_MAP)
-                    },
-                    onHome = { resetToDeviceRoot(navController) }
-                )
-            }
+            com.example.jetsoncontroller.ui.field.ActiveRunRoute(state.value)
         }
 
         composable(Routes.CAMERA_PREVIEW) {

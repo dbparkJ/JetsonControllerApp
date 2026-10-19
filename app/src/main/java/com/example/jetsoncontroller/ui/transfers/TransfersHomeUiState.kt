@@ -62,7 +62,8 @@ internal data class ActiveTransferState(
     val speedLabel: String?,
     /** Null when remaining time cannot be computed. */
     val remainingLabel: String?,
-    val canCancel: Boolean
+    val canCancel: Boolean,
+    val target: TransferActionTarget? = null
 )
 
 internal data class TransferRowState(
@@ -103,6 +104,7 @@ internal data class TransfersHomeUiState(
 internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHomeUiState {
     val upload = input.upload
     val jobs = (listOfNotNull(upload.currentJob) + upload.queue).distinctBy { it.id }
+        .filter { it.context == null || upload.deviceId == null || it.context.deviceId.equals(upload.deviceId, true) }
     val deviceName = input.deviceName?.takeIf(String::isNotBlank) ?: UnnamedDeviceLabel
     val active = jobs.filter { isInFlight(it.state) }
         .map { job -> activeTransfer(job, upload, input, deviceName) }
@@ -131,6 +133,7 @@ internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHome
             Triple(it.deviceId?.lowercase(Locale.US), canonicalHistoryRunId(it), it.output?.outputId)
         }
         .filter(::isStoredRun)
+        .filter { upload.deviceId == null || it.deviceId.equals(upload.deviceId, true) }
         .filter { run ->
             jobs.none { job -> job.state != UploadJobState.CANCELLED && jobMatchesRunSource(job, run) }
         }
@@ -242,14 +245,7 @@ private fun isInFlight(state: UploadJobState): Boolean =
 
 /** Accept a receipt only when it belongs to this job and every supplied source key agrees. */
 private fun verifiedFor(job: UploadJob): UploadVerification? {
-    val verification = job.verification ?: return null
-    if (verification.jobId != job.id) return null
-    if (verification.targetId != null && verification.targetId != job.targetId) return null
-    if (verification.remoteSessionId != null && verification.remoteSessionId != job.remoteSessionId) return null
-    val sourceName = listOf(job.sourceName, job.folderName, job.relativePath.substringAfterLast('/'))
-        .firstOrNull { !it.isNullOrBlank() }
-    if (verification.sourceName != null && verification.sourceName != sourceName) return null
-    return verification
+    return matchingTransferVerification(job)
 }
 
 private fun isStoredRun(run: TaskRun): Boolean {
@@ -309,7 +305,8 @@ private fun activeTransfer(
         sentLabel = uploadProgressBytesLabel(transferred, job.bytesTotal),
         speedLabel = rate.bytesPerSecond?.let(::transferRateLabel),
         remainingLabel = rate.remainingSeconds?.let(::approximateRemainingLabel),
-        canCancel = job.state == UploadJobState.QUEUED || isInFlight(job.state)
+        canCancel = job.state == UploadJobState.QUEUED || isInFlight(job.state),
+        target = upload.deviceId?.let { transferActionTarget(it, job) }
     )
 }
 

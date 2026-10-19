@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.components.StatusTone
 import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
@@ -82,7 +83,7 @@ class FieldStageScreenTest {
             )
         } }
         compose.onNodeWithText("수집 종료").assertDoesNotExist()
-        compose.onNodeWithText("수집 상태 다시 확인").performClick()
+        compose.onNodeWithText("상태 다시 확인").performClick()
         compose.runOnIdle { assertEquals(1, refreshes); assertEquals(0, stops) }
         capture("active-run-unknown")
     }
@@ -102,7 +103,7 @@ class FieldStageScreenTest {
             )
         } }
 
-        compose.onNodeWithText("시작 상태 확인").assertIsEnabled().performClick()
+        compose.onNodeWithText("시작 결과 확인").assertIsEnabled().performClick()
         compose.onNodeWithText("수집 종료").assertDoesNotExist()
         compose.onNodeWithText("run-technical-id").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, retries); assertEquals(0, stops) }
@@ -125,10 +126,10 @@ class FieldStageScreenTest {
             )
         } }
 
-        compose.onNodeWithText("수집 상태").assertIsDisplayed()
+        compose.onNodeWithText("수집 상태를 확인할 수 없습니다").assertIsDisplayed()
         compose.onNodeWithText("수집이 진행 중입니다").assertDoesNotExist()
         compose.onNodeWithText("수집 종료").assertDoesNotExist()
-        compose.onNodeWithText("수집 상태 확인").assertIsEnabled().performClick()
+        compose.onNodeWithText("상태 다시 확인").assertIsEnabled().performClick()
         compose.runOnIdle {
             assertEquals(1, refreshes)
             assertEquals(0, retries)
@@ -145,17 +146,17 @@ class FieldStageScreenTest {
                 connectionTone = StatusTone.UNKNOWN, run = null, uploadEnabled = false,
                 uploadDisabledReason = "장치 연결 필요", serverReceiptLabel = null,
                 online = false, unreadCount = 0, onDevices = {}, onAlerts = {},
-                onBack = { history++ }, onRefresh = {}, onPrepareUpload = { transfers++ },
-                onOpenFiles = {}, onNewSurvey = {}
+                onBack = {}, onRefresh = {}, onPrepareUpload = { transfers++ },
+                onOpenFiles = {}, onNewSurvey = {}, onOpenHistory = { history++ }
             )
         } }
-        compose.onNodeWithText("파일 전송 준비").assertIsNotEnabled()
-        compose.onNodeWithText("수집 이력 열기").performClick()
+        compose.onNodeWithText("서버로 보내기").assertDoesNotExist()
+        compose.onNodeWithText("수집 기록").performClick()
         compose.runOnIdle { assertEquals(1, history); assertEquals(0, transfers) }
         capture("result-unknown-dark")
     }
 
-    @Test fun terminalResultKeepsThreeIndependentFactsAndEnablesTransfer() {
+    @Test fun terminalResultKeepsReceiptFactsAndEnablesSending() {
         var transfers = 0
         val run = terminalRun()
         compose.setContent { JetsonControllerTheme {
@@ -174,9 +175,9 @@ class FieldStageScreenTest {
         compose.onNodeWithText("저장 확인").assertIsDisplayed()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("서버 수신"))
         compose.onNodeWithText("서버 수신").assertIsDisplayed()
-        compose.onNodeWithText("미확인").assertIsDisplayed()
+        compose.onAllNodesWithText("미확인")[0].assertIsDisplayed()
         capture("result-terminal")
-        compose.onNodeWithText("파일 전송 준비").assertIsEnabled().performClick()
+        compose.onNodeWithText("서버로 보내기").performScrollTo().assertIsEnabled().performClick()
         compose.onNodeWithText("/data/raw/run-1").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, transfers) }
     }
@@ -194,17 +195,17 @@ class FieldStageScreenTest {
             )
         } }
 
-        compose.onNodeWithText("수집이 진행 중입니다").assertIsDisplayed()
+        compose.onNodeWithText("강남대로 1구간").assertIsDisplayed()
         compose.onNodeWithText("00:31").assertIsDisplayed()
-        compose.onNodeWithText("2.1 GB").assertIsDisplayed()
-        compose.onNodeWithText("홈으로").assertIsDisplayed()
-        compose.onNodeWithText("위치 정보 확인").assertIsDisplayed()
+        compose.onNodeWithText(Formats.size(2_232_703_765L)).assertIsDisplayed()
+        compose.onNodeWithContentDescription("뒤로").assertIsDisplayed()
+        compose.onNodeWithText("지도 크게 보기").performScrollTo().assertIsDisplayed()
         capture("active-running")
         compose.onNodeWithText("수집 종료").assertIsEnabled().performClick()
-        compose.onNodeWithText("수집을 종료할까요?").assertIsDisplayed()
+        compose.onNodeWithText("강남대로 1구간 수집을 종료할까요?").assertIsDisplayed()
         compose.runOnIdle { assertEquals(0, stops) }
         captureDialog("active-stop-confirm")
-        compose.onNodeWithTag("confirm-stop").assertIsEnabled().performClick()
+        compose.onNode(hasText("수집 종료") and hasClickAction() and hasAnyAncestor(isDialog())).assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, stops) }
     }
 
@@ -223,10 +224,10 @@ class FieldStageScreenTest {
         } }
 
         compose.onNodeWithText("수집 종료").performClick()
-        compose.onNodeWithText("수집을 종료할까요?").assertIsDisplayed()
+        compose.onNodeWithText("강남대로 1구간 수집을 종료할까요?").assertIsDisplayed()
         compose.runOnIdle { stopAvailable.value = false }
         compose.waitForIdle()
-        compose.onNodeWithText("수집을 종료할까요?").assertDoesNotExist()
+        compose.onNodeWithText("강남대로 1구간 수집을 종료할까요?").assertDoesNotExist()
         compose.runOnIdle { assertEquals(0, stops) }
     }
 
@@ -249,7 +250,7 @@ class FieldStageScreenTest {
             }
         }
 
-        compose.onNodeWithText("시작 상태 확인").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("시작 결과 확인").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithText("수집 종료").assertDoesNotExist()
         capture("active-pending-2x")
     }

@@ -1,52 +1,22 @@
-package com.example.jetsoncontroller.ui.upload
+﻿package com.example.jetsoncontroller.ui.upload
 
-import com.example.jetsoncontroller.ui.theme.TextButton
-import com.example.jetsoncontroller.ui.theme.Button
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadTarget
-import com.example.jetsoncontroller.ui.components.EmptyState
-import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.OperationMessageHost
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.transfers.*
+import com.example.jetsoncontroller.ui.model.Formats
+import java.time.Instant
+import java.time.ZoneId
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UploadQueueScreen(
     queue: List<UploadJob>,
@@ -64,181 +34,84 @@ fun UploadQueueScreen(
     developerModeEnabled: Boolean = false,
     onHome: () -> Unit = onBack,
     onFiles: () -> Unit = onBack,
-    onDismissMessage: (String) -> Unit = {}
+    onDismissMessage: (String) -> Unit = {},
+    jobDates: Map<String, String> = emptyMap(),
+    onFixedDelete: ((TransferActionTarget) -> Unit)? = null,
+    currentDeviceId: String? = deviceId,
+    onDeviceConfirmationClosed: () -> Unit = {},
+    ongoingRun: @Composable () -> Unit = {}
 ) {
-    val targetLabels = targets.associate { it.id to it.label }
-    var pendingDeletion by remember(deviceId, mutationEnabled) { mutableStateOf<UploadJob?>(null) }
-    pendingDeletion?.let { job ->
-        AlertDialog(
-            onDismissRequest = { pendingDeletion = null },
-            title = { Text("업로드 기록을 삭제할까요?") },
-            text = {
-                Text(
-                    "선택한 완료·실패·취소 기록만 목록에서 삭제합니다. " +
-                        "장치의 원본과 서버에 업로드된 데이터는 삭제되지 않습니다."
-                )
-            },
-            confirmButton = {
-                Button(
-                    enabled = mutationEnabled,
-                    onClick = {
-                        pendingDeletion = null
-                        onDeleteJob(job)
-                    }
-                ) { Text("기록 삭제") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeletion = null }) { Text("취소") }
-            }
-        )
+    var selected by rememberSaveable(deviceId) { mutableIntStateOf(0) }
+    var picker by remember { mutableStateOf(false) }
+    var deletion by remember(deviceId) { mutableStateOf<Pair<TransferActionTarget, UploadJob>?>(null) }
+    LaunchedEffect(currentDeviceId) {
+        if (deletion != null && !deviceId.equals(currentDeviceId, true)) {
+            deletion = null
+            onDeviceConfirmationClosed()
+        }
     }
-    Scaffold(
-        snackbarHost = { OperationMessageHost(message, onDismissMessage) },
-        topBar = {
-            TopAppBar(
-                title = { Text("업로드 확인") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onHome) {
-                        Icon(Icons.Default.Home, contentDescription = "홈으로")
-                    }
-                    IconButton(onClick = onFiles) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = "파일로")
-                    }
-                    if (developerModeEnabled) {
-                        IconButton(onClick = onManageTargets) {
-                            Icon(Icons.Default.Dns, contentDescription = "업로드 서버 관리")
-                        }
-                    }
-                    IconButton(onClick = onRefresh, enabled = mutationEnabled && !isLoading) {
-                        Icon(Icons.Default.Refresh, contentDescription = "새로고침")
-                    }
+    val options = listOf("전체", "실패", "완료", "취소")
+    val visible = queue.filter { transferLogMatches(it, selected) }
+    deletion?.let { (target, job) ->
+        GeoConfirmDialog("전송 기록을 삭제할까요?", TransferRecordDeleteBody, "기록 삭제",
+            onConfirm = { deletion = null; if (onFixedDelete != null) onFixedDelete(target) else onDeleteJob(job) },
+            onDismissRequest = { deletion = null },
+            confirmEnabled = mutationEnabled && !isLoading, disabledReason = "장치 연결을 확인하세요.")
+    }
+    if (picker) GeoSheet("전송 기록 필터", { picker = false }) {
+        options.forEachIndexed { i, name -> GeoRadioRow(name, i == selected, { selected = i; picker = false }) }
+    }
+    Box(Modifier.fillMaxSize()) {
+        TransferPage("전송 기록", onBack) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
+                item { ongoingRun() }
+                if (queue.isNotEmpty()) item {
+                    GeoSegmented("전송 기록 필터", options, selected, { selected = it }, { picker = true })
                 }
-            )
-        }
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                error?.let {
-                    item {
-                        InlineMessage(
-                            message = it,
-                            isError = true,
-                            modifier = Modifier.padding(20.dp)
-                        )
-                    }
+                if (isLoading) item { GeoProgress() }
+                error?.let { item { GeoInlineNote("전송 기록을 불러오지 못했습니다. 다시 시도하세요.",
+                    actionLabel = "다시 확인", onAction = onRefresh) } }
+                if (visible.isEmpty() && !isLoading) item {
+                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "전송 기록이 없습니다",
+                        "파일을 보내면 여기에 남습니다."), fullScreen = true)
                 }
-                if (queue.isEmpty() && !isLoading) {
-                    item {
-                        EmptyState(
-                            title = "업로드 기록이 없습니다",
-                            message = "업로드를 시작하면 진행 상태와 완료·실패 기록이 표시됩니다."
-                        )
-                    }
-                }
-                items(queue, key = { job -> job.id }) { job ->
-                    val total = job.bytesTotal ?: 0L
-                    val transferred = job.bytesTransferred ?: 0L
-                    val progress = if (total > 0L) {
-                        (transferred.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-                    } else {
-                        null
-                    }
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                job.folderName ?: job.sourceName
-                                    ?: job.relativePath.substringAfterLast('/').ifEmpty { "/" },
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        supportingContent = {
-                            Column {
-                                Text(
-                                    listOfNotNull(
-                                        stateLabel(job.state),
-                                        targetLabels[job.targetId]
-                                            ?: if (developerModeEnabled) job.targetId else "업로드 서버",
-                                        job.currentFile?.substringAfterLast('/')
-                                            ?.takeIf { developerModeEnabled },
-                                        job.etaSeconds?.takeIf {
-                                            isActiveUploadState(job.state) && it >= 0L
-                                        }
-                                            ?.let { "예상 ${formatEta(it)}" }
-                                    ).joinToString(" · "),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                job.context?.let { context ->
-                                    Text(
-                                        if (developerModeEnabled) {
-                                            "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId} · Run ${context.runId}"
-                                        } else {
-                                            "조사 실행과 연결됨"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                if (progress != null) {
-                                    LinearProgressIndicator(
-                                        progress = { progress },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 8.dp)
-                                    )
-                                    Text(
-                                        "${formatSize(transferred)} / ${formatSize(total)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(top = 4.dp)
-                                    )
-                                } else {
-                                    LinearProgressIndicator(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 8.dp)
-                                    )
-                                }
+                visible.groupBy { transferLogDay(jobDates[it.id] ?: it.verifiedAt) }.forEach { (day, jobs) ->
+                    item(key = day) {
+                        GeoSection(day) { jobs.forEach { job ->
+                            val actions = transferDetailActions(job)
+                            var menu by remember(deviceId, job.id) { mutableStateOf(false) }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                GeoRow(transferSourceName(job), { onJobClick(job) }, Modifier.weight(1f),
+                                    meta = if (job.state == com.example.jetsoncontroller.model.UploadJobState.FAILED)
+                                        "연결이 끊겨 멈췄습니다." else listOfNotNull(
+                                            targets.firstOrNull { it.id == job.targetId }?.let(::transferTargetLabel),
+                                            job.bytesTotal?.let(Formats::size)).joinToString(" · "),
+                                    badge = { GeoBadge(actions.word, actions.tone) })
+                                if (isDeletableUploadJob(job)) Box {
+                                    GeoIconButton(GeoIcons.more, "${transferSourceName(job)} 메뉴", { menu = true })
+                                    GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
+                                        deletion = transferActionTarget(deviceId.orEmpty(), job) to job
+                                    }, destructive = true, enabled = mutationEnabled && !isLoading,
+                                        disabledReason = "장치 연결을 확인하세요.")))
+                                } else Spacer(Modifier.width(48.dp))
                             }
-                        },
-                        leadingContent = {
-                            Icon(
-                                Icons.Default.CloudUpload,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        trailingContent = {
-                            if (isDeletableUploadJob(job)) {
-                                IconButton(
-                                    onClick = { pendingDeletion = job },
-                                    enabled = mutationEnabled && !isLoading
-                                ) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "업로드 기록 삭제"
-                                    )
-                                }
-                            }
-                        },
-                        modifier = Modifier.clickable { onJobClick(job) }
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+                        } }
+                    }
                 }
-            }
-            if (isLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
-                )
+                item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary) }
             }
         }
+        Box(Modifier.align(Alignment.BottomCenter)) { OperationMessageHost(message, onDismissMessage) }
+    }
+}
+
+internal fun transferLogDay(value: String?, now: Instant = Instant.now()): String {
+    val date = value?.let { runCatching { Instant.parse(it).atZone(ZoneId.of("Asia/Seoul")).toLocalDate() }.getOrNull() }
+        ?: return "전송 기록"
+    val today = now.atZone(ZoneId.of("Asia/Seoul")).toLocalDate()
+    return when (date) {
+        today -> "오늘"
+        today.minusDays(1) -> "어제"
+        else -> "${date.monthValue}월 ${date.dayOfMonth}일"
     }
 }

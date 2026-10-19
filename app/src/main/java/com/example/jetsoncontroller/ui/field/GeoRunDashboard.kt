@@ -1,35 +1,41 @@
 package com.example.jetsoncontroller.ui.field
 
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
-import com.example.jetsoncontroller.ui.components.*
+import com.example.jetsoncontroller.ui.components.OperationMessageHost
+import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import java.time.Duration
+import java.time.Instant
 import kotlin.math.roundToInt
 
+@Suppress("UNUSED_PARAMETER")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
@@ -42,253 +48,197 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
     onUndoDelete: () -> Unit = {},
     onTrash: () -> Unit = {},
     onOpenResult: (TaskRun) -> Unit = {},
-    developerModeEnabled: Boolean = false
+    developerModeEnabled: Boolean = false,
+    uploadJobs: List<UploadJob> = emptyList(),
+    statusStrip: @Composable () -> Unit = {}
 ) {
-    var tab by rememberSaveable(state.deviceId) { mutableStateOf("전체") }
-    val c = LocalGeoColors.current
+    var tab by rememberSaveable(state.deviceId) { mutableIntStateOf(0) }
+    var showFilter by rememberSaveable(state.deviceId) { mutableStateOf(false) }
+    var revealedRunId by rememberSaveable(state.deviceId) { mutableStateOf<String?>(null) }
+    val filterFocus = remember { FocusRequester() }
+    val options = listOf("전체", "진행 중", "완료")
     val runs = state.runs.filter { when (tab) {
-        "진행 중" -> it.isActiveRun()
-        "완료" -> it.state in listOf("COMPLETED", "STOPPED", "FAILED", "UNKNOWN")
+        1 -> it.isActiveRun()
+        2 -> !it.isActiveRun()
         else -> true
     } }
-    var revealedRunId by rememberSaveable(state.deviceId) { mutableStateOf<String?>(null) }
     LaunchedEffect(revealedRunId, state.deviceId, state.online, state.deletingRunId, state.runs) {
         val revealed = state.runs.firstOrNull { it.id == revealedRunId }
-        if (revealed == null || !state.online || state.deletingRunId != null || revealed.isActiveRun()) {
-            revealedRunId = null
-        }
+        if (revealed == null || !state.online || state.deletingRunId != null || revealed.isActiveRun()) revealedRunId = null
     }
-    state.log?.takeIf { developerModeEnabled }?.let { text -> AlertDialog(onDismissRequest = onDismissLog,
-        title = { Text("저장된 로그 · 최근 64KB") },
-        text = { SelectionContainer { Text(text, Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) } },
-        confirmButton = { TextButton(onClick = onDismissLog) { Text("닫기") } }) }
-    Scaffold(snackbarHost = { OperationMessageHost(
-        state.message, onDismissMessage,
-        actionLabel = "실행 취소".takeIf { state.undoTrashId != null },
-        onAction = onUndoDelete.takeIf { state.undoTrashId != null }
-    ) },
-        topBar = {
-            TopAppBar(
-                title = { Text("수집 이력") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onTrash) {
-                        Icon(Icons.Default.DeleteOutline, "휴지통")
-                    }
-                    if (developerModeEnabled) {
-                        IconButton(onClick = onRefresh, enabled = state.online && !state.loading) {
-                            Icon(Icons.Default.Refresh, "기록 새로고침")
-                        }
-                    }
-                }
-            )
-        }, bottomBar = {
-            Surface(color = c.surface, tonalElevation = 2.dp) {
-                Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp)) {
-                    Button(
-                        onClick = onNew,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                    ) { Text("새 수집 준비") }
-                }
-            }
-        }) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-        LazyColumn(Modifier.fillMaxHeight().widthIn(max = 760.dp).fillMaxWidth(),
-            contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("전체", "진행 중", "완료").forEach { label -> FilterChip(tab == label, { tab = label }, label = { Text(label) }) }
-            } }
-            if (state.loading || state.deletingRunId != null) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            state.error?.let { error ->
+    if (showFilter) GeoSheet("보기", { showFilter = false }, openerFocusRequester = filterFocus) {
+        options.forEachIndexed { index, label -> GeoRow(label, { tab = index; showFilter = false }) }
+    }
+    val log = state.log
+    if (developerModeEnabled && log != null) {
+        SavedHistoryLogScreen(state.runs.firstOrNull { it.id == state.logEntryId }?.label ?: "수집 기록", log, onDismissLog, statusStrip)
+        return
+    }
+    FieldDetailFrame("수집 기록", onBack, statusStrip = statusStrip, snackbar = {
+        OperationMessageHost(state.message, onDismissMessage,
+            actionLabel = "실행 취소".takeIf { state.undoTrashId != null },
+            onAction = onUndoDelete.takeIf { state.undoTrashId != null })
+    }) {
+        PullToRefreshBox(isRefreshing = state.loading, onRefresh = { if (state.online) onRefresh() }) {
+            LazyColumn(Modifier.fillMaxSize().semantics {
+                customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
+            }, contentPadding = PaddingValues(horizontal = LocalGeoWindow.current.gutterDp.dp,
+                vertical = 16.dp)) {
                 item {
-                    AppBanner(
-                        error,
-                        StatusTone.ERROR,
-                        actionLabel = "다시 시도",
-                        onAction = onRefresh
-                    )
-                }
-            }
-            if (developerModeEnabled) state.technicalError?.let { detail ->
-                item { SelectionContainer { Text(detail, style = MaterialTheme.typography.bodySmall) } }
-            }
-            items(runs, key = { it.id }) { run ->
-                val runPresentation = historyRunPresentation(run, state.online, state.historyCurrent)
-                val canDelete = state.online && state.deletingRunId == null && !run.isActiveRun()
-                TwoStageHistorySwipe(
-                    runId = run.id,
-                    enabled = canDelete,
-                    revealed = revealedRunId == run.id,
-                    onRevealChange = { reveal -> revealedRunId = run.id.takeIf { reveal } },
-                    onTrash = {
-                        if (canDelete) {
-                            revealedRunId = null
-                            onDeleteRun(run)
-                        }
+                    GeoSegmented("보기", options, tab, { tab = it }, { showFilter = true },
+                        modifier = Modifier.focusRequester(filterFocus))
+                    state.error?.let { GeoInlineNote(it, tone = StatusTone.ERROR, kind = GeoNoteKind.LIVE_ERROR,
+                        actionLabel = "다시 시도", onAction = onRefresh) }
+                    if (!state.online && state.runs.isNotEmpty()) GeoInlineNote(
+                        "장치 연결이 끊겼습니다. 표시된 기록은 마지막으로 확인한 값입니다.", tone = StatusTone.UNKNOWN)
+                    HistoryFreshness(state, onRefresh)
+                    if (developerModeEnabled) state.technicalError?.let {
+                        FieldTechnicalInfo("history-error", listOf(GeoTechnicalValue("오류", it)), true, state.online, null)
                     }
-                ) {
-                    Surface(onClick = { onOpenResult(run) }, color = c.sectionSoft, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Icon(if (run.isActiveRun() && state.online && state.historyCurrent) Icons.Default.PlayCircle else Icons.Default.Assignment, null, tint = c.primary)
-                                Text(run.label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                                StatusBadge(runPresentation.first, runPresentation.second)
-                            }
-                            Text(com.example.jetsoncontroller.ui.storage.localDateTimeLabel(run.startedAt), style = MaterialTheme.typography.bodySmall, color = c.muted)
-                            RunQualityEvidence(run.quality, compact = true, title = "수집 요약")
-                            run.contextSnapshot?.let { context ->
-                                Text("${context.surveyProjectLabel} · ${context.surveySectionLabel}",
-                                    style = MaterialTheme.typography.bodyMedium)
-                            }
-                            run.output?.let { output ->
-                                val manifest = output.manifest
-                                Text(
-                                    when {
-                                        manifest != null -> "저장 파일 ${manifest.fileCount}개 · ${outputBytesLabel(manifest.bytesTotal)}"
-                                        output.manifestState.equals("PENDING", true) ||
-                                            output.manifestState.equals("RUNNING", true) -> "저장 결과 확인 중"
-                                        output.manifestState.equals("FAILED", true) ||
-                                            output.manifestState.equals("ERROR", true) -> "저장 결과 확인 필요"
-                                        else -> "저장 결과 미확인"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = c.muted
-                                )
-                                if (developerModeEnabled) {
-                                    Text(
-                                        "manifest ${output.manifestState}" +
-                                            (manifest?.let { " · expectation ${it.expectationState}" } ?: ""),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = c.muted
-                                    )
+                }
+                val groups = runs.groupBy { historyDayLabel(it.startedAt) }
+                groups.forEach { (day, dayRuns) ->
+                    item(key = "day-$day") {
+                        GeoSection(day) {
+                            dayRuns.forEach { run ->
+                                key(state.deviceId, run.id) {
+                                    val canDelete = state.online && state.deletingRunId == null && !run.isActiveRun()
+                                    val trash = { if (canDelete) { revealedRunId = null; onDeleteRun(run) } }
+                                    TwoStageHistorySwipe(run.id, canDelete, revealedRunId == run.id,
+                                        { reveal -> revealedRunId = run.id.takeIf { reveal } }, trash) {
+                                        HistoryRecordRow(run, historyReceipt(run, uploadJobs),
+                                            onOpen = { onOpenResult(run) }, onTrash = trash, canDelete = canDelete,
+                                            disabledReason = if (!state.online) "장치에 연결한 뒤 기록을 휴지통으로 옮길 수 있습니다."
+                                                else "수집 중이거나 다른 기록을 처리하고 있습니다.")
+                                    }
                                 }
-                            }
-                            OutlinedButton(onClick = { onRoute(run) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("수집 경로")
-                            }
-                            if (developerModeEnabled) {
-                                OutlinedButton(onClick = { onLog(run) }, enabled = state.online,
-                                    modifier = Modifier.fillMaxWidth()) { Text("실행 로그") }
-                            }
-                            if (canonicalHistoryRunId(run) != null) {
-                                Button(onClick = { onUploadOutput(run) }, modifier = Modifier.fillMaxWidth()) {
-                                    Icon(Icons.Default.CloudUpload, null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("이 실행 결과 전송")
-                                }
-                            }
-                            if (developerModeEnabled && run.isActiveRun()) pipelines.firstOrNull { it.id == run.pipelineId }?.let { pipeline ->
-                                TextButton(onClick = { onPipeline(pipeline) }) { Text("진행 상태 · 작업 제어") }
                             }
                         }
                     }
                 }
-            }
-            if (runs.isEmpty() && !state.loading) item {
-                Box(Modifier.fillMaxWidth().padding(vertical = 56.dp), contentAlignment = Alignment.Center) {
-                    Text("수집 이력이 없습니다", style = MaterialTheme.typography.titleMedium, color = c.muted)
+                if (runs.isEmpty() && !state.loading && state.error == null) item {
+                    Spacer(Modifier.height(32.dp))
+                    if (!state.online && state.runs.isEmpty()) {
+                        GeoStateBlock(GeoStateContent(GeoStateKind.OFFLINE, "수집 기록을 확인할 수 없습니다",
+                            "장치에 연결한 뒤 수집 기록을 확인하세요."))
+                    } else GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                        "수집 기록이 없습니다", "수집을 마치면 여기에 남습니다."))
                 }
+                if (state.nextOffset != null) item {
+                    GeoButton("이전 기록 더 불러오기", onMore, style = GeoButtonStyle.Tertiary,
+                        enabled = state.online && !state.loading && state.deletingRunId == null)
+                }
+                item { Spacer(Modifier.height(40.dp)) }
             }
-            if (state.nextOffset != null) item { OutlinedButton(onClick = onMore, enabled = state.online && !state.loading && state.deletingRunId == null, modifier = Modifier.fillMaxWidth()) { Text("이전 기록 더 불러오기") } }
-        }
         }
     }
 }
 
 @Composable
-private fun TwoStageHistorySwipe(
-    runId: String,
-    enabled: Boolean,
-    revealed: Boolean,
-    onRevealChange: (Boolean) -> Unit,
-    onTrash: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    val density = LocalDensity.current
-    val revealPx = with(density) { 84.dp.toPx() }
-    var offsetPx by remember(runId, revealed) { mutableFloatStateOf(if (revealed) revealPx else 0f) }
-    var sent by remember(runId, revealed) { mutableStateOf(false) }
-    LaunchedEffect(enabled) {
-        if (!enabled) {
-            offsetPx = 0f
-            onRevealChange(false)
-        }
+private fun HistoryFreshness(state: FieldState, onRefresh: () -> Unit) {
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(state.historyUpdatedAt) {
+        while (true) { now = Instant.now(); kotlinx.coroutines.delay(60_000) }
     }
-    Box(
-        Modifier.fillMaxWidth().testTag("task-run-$runId").semantics {
-            if (enabled) customActions = listOf(
-                CustomAccessibilityAction("작업 이력을 휴지통으로 이동") {
-                    if (!sent) {
-                        sent = true
-                        onTrash()
-                    }
-                    true
-                }
-            )
+    val updated = state.historyUpdatedAt?.let(Instant::ofEpochMilli) ?: return
+    val age = Duration.between(updated, now).coerceAtLeast(Duration.ZERO)
+    if (age.seconds > 60 || !state.online) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(Formats.freshness(age, updated, now), Modifier.weight(1f),
+                style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
+            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, enabled = state.online)
         }
-    ) {
-        Surface(
-            onClick = {
-                if (enabled && !sent) {
-                    sent = true
-                    onTrash()
-                }
-            },
-            color = LocalGeoColors.current.danger,
-            contentColor = LocalGeoColors.current.onDanger,
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier.matchParentSize().testTag("task-run-trash-$runId")
-        ) {
-            Row(
-                Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
-            ) {
-                Icon(Icons.Default.DeleteOutline, null)
-                Spacer(Modifier.width(8.dp))
-                Text("휴지통", style = MaterialTheme.typography.labelLarge)
-            }
-        }
-        Box(
-            Modifier.fillMaxWidth()
-                .offset { IntOffset(offsetPx.roundToInt(), 0) }
-                // The tag follows the layout modifier so instrumentation observes the
-                // translated card bounds after the first-stage reveal.
-                .testTag("task-run-content-$runId")
-                .draggable(
-                    enabled = enabled,
-                    orientation = Orientation.Horizontal,
-                    state = rememberDraggableState { delta ->
-                        offsetPx = (offsetPx + delta).coerceIn(0f, revealPx * 2f)
-                    },
-                    onDragStopped = {
-                        if (!enabled) {
-                            offsetPx = 0f
-                            onRevealChange(false)
-                        } else if (revealed && offsetPx >= revealPx * 1.65f) {
-                            if (!sent) {
-                                sent = true
-                                onTrash()
-                            }
-                        } else if (offsetPx >= revealPx * 0.55f) {
-                            offsetPx = revealPx
-                            onRevealChange(true)
-                        } else {
-                            offsetPx = 0f
-                            onRevealChange(false)
-                        }
-                    }
-                )
-        ) { content() }
     }
 }
 
-private fun outputBytesLabel(bytes: Long): String =
-    com.example.jetsoncontroller.ui.model.Formats.size(bytes)
+@Composable
+private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () -> Unit,
+    onTrash: () -> Unit, canDelete: Boolean, disabledReason: String) {
+    var menu by rememberSaveable(run.id) { mutableStateOf(false) }
+    val menuFocus = remember { FocusRequester() }
+    LaunchedEffect(canDelete) { if (!canDelete) menu = false }
+    val colors = LocalGeoColors.current
+    Row(Modifier.fillMaxWidth().background(colors.surface).contentDivider(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f).contentTarget(onClick = onOpen).semantics(mergeDescendants = true) {
+            contentDescription = "${run.contextSnapshot?.surveySectionLabel ?: run.label}, 상세 보기"
+        }.padding(vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(run.contextSnapshot?.surveySectionLabel
+                ?: run.output?.path?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                ?: run.label, style = LocalGeoType.current.titleSm,
+                color = colors.text)
+            val output = run.output
+            Text(listOfNotNull(output?.path?.trimEnd('/')?.substringAfterLast('/'), resultTime(run.startedAt),
+                elapsedResultDuration(run.startedAt, run.finishedAt)?.let(Formats::duration),
+                output?.manifest?.bytesTotal?.let(Formats::size)).joinToString(" · "),
+                style = LocalGeoType.current.caption, color = colors.textSecondary)
+            GeoReceiptLine(receipt)
+        }
+        Box {
+            GeoIconButton(GeoIcons.more, "${run.label} 메뉴", { menu = true },
+                modifier = Modifier.focusRequester(menuFocus))
+            GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("휴지통으로 이동", onTrash,
+                destructive = true, enabled = canDelete, disabledReason = disabledReason)), openerFocusRequester = menuFocus)
+        }
+    }
+}
+
+internal fun historyReceipt(run: TaskRun, jobs: List<UploadJob>): GeoReceiptState {
+    val cells = taskRunReceiptCells(run, emptyList())
+    val exact = jobs.filter { job ->
+        val context = run.contextSnapshot
+        val output = run.output
+        val upload = job.context
+        canonicalHistoryRunId(run) != null && upload != null && context != null && output != null &&
+            upload.runId == canonicalHistoryRunId(run) && upload.deviceId.equals(context.deviceId, true) &&
+            upload.pipelineId == run.pipelineId && upload.outputId == output.outputId &&
+            upload.surveyProjectId == context.surveyProjectId && upload.surveySectionId == context.surveySectionId &&
+            job.rootId == output.rootId && job.relativePath.trim('/') == output.path.trim('/')
+    }
+    val server = when {
+        exact.any { it.state == UploadJobState.COMPLETED && resultVerification(it)?.matched == true } ->
+            GeoReceiptItem("수신 확인", StatusTone.SUCCESS, done = true)
+        exact.any { it.state in setOf(UploadJobState.QUEUED, UploadJobState.SCANNING, UploadJobState.UPLOADING) } ->
+            GeoReceiptItem("전송 중", StatusTone.PENDING)
+        exact.any { resultVerification(it)?.matched == false } -> GeoReceiptItem("내용 불일치", StatusTone.WARNING)
+        exact.any { it.state == UploadJobState.COMPLETED } -> GeoReceiptItem("수신 미확인", StatusTone.PENDING)
+        else -> GeoReceiptItem()
+    }
+    return GeoReceiptState(GeoReceiptItem(cells[0].value, cells[0].tone),
+        GeoReceiptItem(cells[1].value, cells[1].tone), server)
+}
+
+@Composable
+private fun TwoStageHistorySwipe(runId: String, enabled: Boolean, revealed: Boolean,
+    onRevealChange: (Boolean) -> Unit, onTrash: () -> Unit, content: @Composable () -> Unit) {
+    val revealPx = with(LocalDensity.current) { 84.dp.toPx() }
+    var offsetPx by remember(runId, revealed) { mutableFloatStateOf(if (revealed) revealPx else 0f) }
+    var sent by remember(runId, revealed) { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (!enabled) { offsetPx = 0f; onRevealChange(false) } }
+    Box(Modifier.fillMaxWidth().testTag("task-run-$runId").semantics {
+        if (enabled) customActions = listOf(CustomAccessibilityAction("작업 이력을 휴지통으로 이동") {
+            if (!sent) { sent = true; onTrash() }; true
+        })
+    }) {
+        if (offsetPx > 0f) GeoButton("휴지통", {
+            if (enabled && !sent) { sent = true; onTrash() }
+        }, modifier = Modifier.matchParentSize().testTag("task-run-trash-$runId"),
+            enabled = enabled, style = GeoButtonStyle.DangerFilled)
+        Box(Modifier.fillMaxWidth().offset { IntOffset(offsetPx.roundToInt(), 0) }
+            .testTag("task-run-content-$runId").draggable(enabled = enabled,
+                orientation = Orientation.Horizontal,
+                state = rememberDraggableState { offsetPx = (offsetPx + it).coerceIn(0f, revealPx * 2f) },
+                onDragStopped = {
+                    when {
+                        !enabled -> { offsetPx = 0f; onRevealChange(false) }
+                        revealed && offsetPx >= revealPx * 1.65f -> if (!sent) { sent = true; onTrash() }
+                        offsetPx >= revealPx * .55f -> { offsetPx = revealPx; onRevealChange(true) }
+                        else -> { offsetPx = 0f; onRevealChange(false) }
+                    }
+                })) { content() }
+    }
+}
 
 internal fun historyRunPresentation(run: TaskRun, online: Boolean, historyCurrent: Boolean): Pair<String, StatusTone> = when {
     run.isActiveRun() && (!online || !historyCurrent) -> "최근 실행 보고 · 현재 미확인" to StatusTone.WARNING

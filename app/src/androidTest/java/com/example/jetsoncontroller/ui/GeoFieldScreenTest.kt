@@ -32,7 +32,7 @@ class GeoFieldScreenTest {
         capture("welcome-dark")
     }
 
-    @Test fun historyFiltersAndPlusOpenSelectionWithoutRunningAnything() {
+    @Test fun historyFiltersDoNotOfferPreparationOrRunAnything() {
         var newRequests = 0
         val runs = listOf(TaskRun("a", "capture", "진행 화면 예시", "a.log", "2026-09-12T01:00:00Z", state = "RUNNING"),
             TaskRun("b", "capture", "완료 화면 예시", "b.log", "2026-09-11T01:00:00Z", state = "COMPLETED"))
@@ -48,8 +48,8 @@ class GeoFieldScreenTest {
         compose.onAllNodesWithText("완료")[0].performClick()
         compose.onNodeWithText("진행 화면 예시").assertDoesNotExist()
         compose.onNodeWithText("완료 화면 예시").assertIsDisplayed()
-        compose.onNodeWithText("새 수집 준비").performClick()
-        compose.runOnIdle { assertEquals(1, newRequests) }
+        compose.onNodeWithText("새 수집 준비").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(0, newRequests) }
     }
 
     @Test fun dateAndTypeFiltersPreserveSingleFileAndFolderTransfers() {

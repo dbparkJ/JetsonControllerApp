@@ -14,7 +14,8 @@ data class PendingTicketReport(
     val profileId: String,
     val createdAt: String,
     val ticketRevision: String? = null,
-    val receiptId: String? = null
+    val receiptId: String? = null,
+    val lastAttemptFailed: Boolean = false
 ) {
     fun target(): TicketReportTarget = TicketReportTarget(
         profileId = profileId,
@@ -24,6 +25,8 @@ data class PendingTicketReport(
         receiptId = receiptId
     )
 }
+
+enum class TicketReportDeliveryState { NONE, PENDING, FAILED, SENT, REJECTED }
 
 data class TicketReportTarget(
     val profileId: String,
@@ -74,6 +77,54 @@ class TicketReportStore(
 ) {
     @Synchronized
     fun pendingReports(): List<PendingTicketReport> = read().pendingReports
+
+    @Synchronized
+    fun pendingReport(key: String): PendingTicketReport? =
+        read().pendingReports.firstOrNull { it.key == key }
+
+    @Synchronized
+    fun pendingReportsForRow(rowId: String): List<PendingTicketReport> =
+        read().pendingReports.filter { it.rowId == rowId }
+
+    @Synchronized
+    fun deliveryState(key: String): TicketReportDeliveryState {
+        val data = read()
+        val pending = data.pendingReports.firstOrNull { it.key == key }
+        if (pending != null) {
+            return if (pending.lastAttemptFailed) TicketReportDeliveryState.FAILED
+            else TicketReportDeliveryState.PENDING
+        }
+        if (key !in data.settledKeys) return TicketReportDeliveryState.NONE
+        return if (data.responseCodes[key] == 202 && data.errorCodes[key] == null) {
+            TicketReportDeliveryState.SENT
+        } else {
+            TicketReportDeliveryState.REJECTED
+        }
+    }
+
+    /** Marks a queued report as failed while keeping its immutable target available for retry. */
+    @Synchronized
+    fun markFailed(key: String): Boolean {
+        val data = read()
+        val index = data.pendingReports.indexOfFirst { it.key == key }
+        if (index < 0 || data.pendingReports[index].lastAttemptFailed) return false
+        val reports = data.pendingReports.toMutableList()
+        reports[index] = reports[index].copy(lastAttemptFailed = true)
+        write(data.copy(pendingReports = reports))
+        return true
+    }
+
+    /** Clears the failed marker immediately before another delivery attempt. */
+    @Synchronized
+    fun markRetrying(key: String): Boolean {
+        val data = read()
+        val index = data.pendingReports.indexOfFirst { it.key == key }
+        if (index < 0 || !data.pendingReports[index].lastAttemptFailed) return false
+        val reports = data.pendingReports.toMutableList()
+        reports[index] = reports[index].copy(lastAttemptFailed = false)
+        write(data.copy(pendingReports = reports))
+        return true
+    }
 
     /** A repeated enqueue with the same idempotency key preserves the original report. */
     @Synchronized

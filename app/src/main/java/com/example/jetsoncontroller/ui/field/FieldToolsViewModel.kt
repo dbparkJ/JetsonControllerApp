@@ -30,14 +30,20 @@ data class FieldState(
     val sensorTests: Map<String, SensorTestResult> = emptyMap(), val sensorTestError: String? = null,
     val captureBusy: Boolean = false, val captureMessage: String? = null,
     val log: String? = null, val deletingRunId: String? = null, val undoTrashId: String? = null,
-    val message: String? = null
+    val message: String? = null,
+    val historyUpdatedAt: Long? = null,
+    val undoTarget: HistoryUndoTarget? = null,
+    val logEntryId: String? = null
 )
+
+data class HistoryUndoTarget(val deviceId: String, val trashId: String, val originalPath: String)
 
 class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel() {
     private val _state = MutableStateFlow(FieldState())
     val state = _state.asStateFlow()
     private var generation = 0L
     private var routeRequestGeneration = 0L
+    private var logRequestGeneration = 0L
     private var historyJob: Job? = null
     private var routeJob: Job? = null
     private var logJob: Job? = null
@@ -52,6 +58,7 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                 .distinctUntilChanged().collectLatest { (id, transport) ->
                     generation++
                     routeRequestGeneration++
+                    logRequestGeneration++
                     historyJob?.cancel(); routeJob?.cancel(); logJob?.cancel(); terminalJob?.cancel(); captureJob?.cancel(); deleteJob?.cancel()
                     networkJob?.cancel(); sensorTestJob?.cancel()
                     // Field tools are HTTP calls, so they need the shared full-control rule (LAN or Wi-Fi Direct).
@@ -87,7 +94,8 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                     _state.value = previous.copy(runs = merged,
                         nextOffset = if (!more && retainLoaded && previous.runs.size > result.runs.size)
                             previous.nextOffset?.plus(added) else result.nextOffset,
-                        historyCurrent = true, loading = false, error = null, technicalError = null)
+                        historyCurrent = true, loading = false, error = null, technicalError = null,
+                        historyUpdatedAt = System.currentTimeMillis())
                 }
 
             }.onFailure { error -> if (g == generation) {
@@ -121,12 +129,18 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         }
     }
     fun openLog(run: TaskRun) {
+        if (!_state.value.online || (run.deviceId != null && !run.deviceId.equals(_state.value.deviceId, true))) return
+        if (run.contextSnapshot != null && !run.contextSnapshot.deviceId.equals(_state.value.deviceId, true)) return
         logJob?.cancel()
         val g = generation
+        val request = ++logRequestGeneration
+        _state.value = _state.value.copy(log = null, logEntryId = run.id)
         logJob = viewModelScope.launch {
             repository.taskRunLog(run.pipelineId, run.logId).onSuccess {
-                if (g == generation) _state.value = _state.value.copy(log = it.content.ifBlank { "저장된 로그가 없습니다." })
-            }.onFailure { error -> if (g == generation) {
+                if (routeResponseIsCurrent(g, generation, request, logRequestGeneration, _state.value.logEntryId, run.id)) {
+                    _state.value = _state.value.copy(log = it.content.ifBlank { "저장된 로그가 없습니다." })
+                }
+            }.onFailure { error -> if (routeResponseIsCurrent(g, generation, request, logRequestGeneration, _state.value.logEntryId, run.id)) {
                 val failure = userFacingFailure(error, "저장된 기록을 불러오지 못했습니다. 다시 시도하세요.")
                 _state.value = _state.value.copy(error = failure.message,
                     technicalError = failure.technicalDetail)
@@ -135,18 +149,28 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
     }
     fun stopRoutePolling() { routeRequestGeneration++; routeJob?.cancel() }
     fun dismissMessage(shown: String) {
-        if (_state.value.message == shown) _state.value = _state.value.copy(message = null, undoTrashId = null)
+        if (_state.value.message == shown) _state.value = _state.value.copy(message = null, undoTrashId = null, undoTarget = null)
     }
     fun deleteRun(run: TaskRun) {
         if (!_state.value.online || _state.value.deletingRunId != null || run.isActiveRun()) return
+        val deviceId = _state.value.deviceId ?: return
+        if (run.deviceId != null && !run.deviceId.equals(deviceId, true)) return
+        if (run.contextSnapshot != null && !run.contextSnapshot.deviceId.equals(deviceId, true)) return
         val g = generation
         historyJob?.cancel()
         routeJob?.cancel()
         routeRequestGeneration++
         logJob?.cancel()
+        logRequestGeneration++
         _state.value = _state.value.copy(deletingRunId = run.id, loading = false,
-            error = null, technicalError = null, message = null)
+            error = null, technicalError = null, message = null, undoTrashId = null, undoTarget = null)
         deleteJob = viewModelScope.launch {
+            if (g != generation || !_state.value.online || !_state.value.deviceId.equals(deviceId, true) ||
+                _state.value.runs.firstOrNull { it.id == run.id }?.isActiveRun() == true) {
+                if (g == generation) _state.value = _state.value.copy(deletingRunId = null,
+                    error = "수집 상태가 바뀌어 기록을 휴지통으로 옮길 수 없습니다. 다시 확인하세요.")
+                return@launch
+            }
             repository.deleteTaskRun(run.pipelineId, run.logId).onSuccess { trashed ->
                 if (g == generation) {
                     val current = _state.value
@@ -157,9 +181,12 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                         routeQuality = if (current.selectedRun?.id == run.id) null else current.routeQuality,
                         log = null,
                         undoTrashId = trashed.trashId.takeIf { trashed.restoreSupported && trashed.state == "TRASHED" },
+                        undoTarget = HistoryUndoTarget(deviceId, trashed.trashId,
+                            trashed.relativePath ?: "${run.pipelineId}/${run.logId}")
+                            .takeIf { trashed.restoreSupported && trashed.state == "TRASHED" },
                         message = if (trashed.restoreSupported && trashed.state == "TRASHED") {
-                            "작업 이력을 휴지통으로 옮겼습니다. 수집 원본 데이터는 유지됩니다."
-                        } else "작업 이력을 휴지통으로 옮겼지만 이 항목은 복원할 수 없습니다.")
+                            "수집 기록을 휴지통으로 옮겼습니다."
+                        } else "수집 기록을 휴지통으로 옮겼지만 이 항목은 복원할 수 없습니다.")
                     refresh()
                 }
             }.onFailure {
@@ -176,19 +203,39 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
         }
     }
     fun undoDeleteRun() {
+        val target = _state.value.undoTarget ?: return
+        undoDeleteRun(target)
+    }
+    fun undoDeleteRun(target: HistoryUndoTarget) {
         if (!_state.value.online || _state.value.deletingRunId != null) return
-        val trashId = _state.value.undoTrashId ?: return
+        if (_state.value.undoTarget != target || !_state.value.deviceId.equals(target.deviceId, true)) return
+        val trashId = target.trashId
         val g = generation
         _state.value = _state.value.copy(deletingRunId = trashId, message = null,
             error = null, technicalError = null)
         deleteJob?.cancel()
         deleteJob = viewModelScope.launch {
+            // Restore only the same still-restorable trash item, never a newer snackbar target.
+            val entry = repository.getTrash().getOrElse { error ->
+                if (g == generation) _state.value = _state.value.copy(deletingRunId = null,
+                    message = "수집 기록을 휴지통으로 옮겼습니다.",
+                    error = userFacingFailure(error, "휴지통을 확인하지 못했습니다. 다시 시도하세요.").message)
+                return@launch
+            }.entries.firstOrNull { it.trashId == trashId }
+            if (g != generation || _state.value.undoTarget != target || !_state.value.online ||
+                !_state.value.deviceId.equals(target.deviceId, true)) return@launch
+            if (!historyUndoMatches(target, entry)) {
+                _state.value = _state.value.copy(deletingRunId = null, undoTrashId = null, undoTarget = null,
+                    message = "이 기록은 더 이상 복원할 수 없습니다.")
+                return@launch
+            }
             repository.restoreTrash(trashId).onSuccess { restored ->
                 if (g == generation) {
                     _state.value = _state.value.copy(
                         deletingRunId = null,
                         undoTrashId = null,
-                        message = if (restored.state == "RESTORED") "${restored.name} 작업 이력을 복원했습니다."
+                        undoTarget = null,
+                        message = if (restored.state == "RESTORED") "${restored.name} 수집 기록을 복원했습니다."
                         else "복원 상태를 다시 확인해 주세요."
                     )
                     refresh()
@@ -200,12 +247,17 @@ class FieldToolsViewModel(private val repository: JetsonRepository) : ViewModel(
                         "작업 기록을 복원하지 못했습니다. 휴지통을 다시 확인하세요."
                     )
                     _state.value = _state.value.copy(deletingRunId = null,
-                        error = failure.message, technicalError = failure.technicalDetail)
+                        error = failure.message, technicalError = failure.technicalDetail,
+                        message = "수집 기록을 휴지통으로 옮겼습니다.")
                 }
             }
         }
     }
-    fun dismissLog() { _state.value = _state.value.copy(log = null) }
+    fun dismissLog() {
+        logRequestGeneration++
+        logJob?.cancel()
+        _state.value = _state.value.copy(log = null, logEntryId = null)
+    }
     fun dismissCaptureMessage(shown: String) {
         if (_state.value.captureMessage == shown) {
             _state.value = _state.value.copy(captureMessage = null)
@@ -303,6 +355,10 @@ internal fun historyRefreshShowsLoading(
     retainLoaded: Boolean,
     hasLoadedRuns: Boolean
 ): Boolean = more || !retainLoaded || !hasLoadedRuns
+
+internal fun historyUndoMatches(target: HistoryUndoTarget, entry: TrashEntry?): Boolean =
+    entry != null && entry.trashId == target.trashId && entry.relativePath == target.originalPath &&
+        entry.category == "RUN_HISTORY" && entry.state == "TRASHED" && entry.restoreSupported
 
 internal fun TaskRun.isActiveRun(): Boolean = active || state in setOf("STARTING", "RUNNING", "STOPPING")
 

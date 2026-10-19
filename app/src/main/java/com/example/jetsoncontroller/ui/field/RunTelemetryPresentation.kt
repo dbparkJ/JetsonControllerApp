@@ -2,10 +2,14 @@ package com.example.jetsoncontroller.ui.field
 
 import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.model.RunTelemetry
+import com.example.jetsoncontroller.model.StopTarget
 import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoFigure
+import com.example.jetsoncontroller.ui.model.Formats
+import java.time.Duration
 import java.util.Locale
 
 internal const val RunTelemetryFreshMillis = 15_000L
@@ -39,20 +43,99 @@ internal fun smoothedDurationMillis(
 }
 
 internal fun runDurationLabel(durationMillis: Long?): String {
-    val totalSeconds = durationMillis?.takeIf { it >= 0L }?.div(1_000L) ?: return "—"
-    val hours = totalSeconds / 3_600L
-    val minutes = totalSeconds % 3_600L / 60L
-    val seconds = totalSeconds % 60L
-    return if (hours > 0L) "%d:%02d:%02d".format(Locale.US, hours, minutes, seconds)
-    else "%02d:%02d".format(Locale.US, minutes, seconds)
+    return Formats.clock(durationMillis?.takeIf { it >= 0L }?.let(Duration::ofMillis))
 }
 
-internal fun runBytesLabel(bytes: Long?): String = when {
-    bytes == null || bytes < 0L -> "확인 중"
-    bytes >= 1_073_741_824L -> "%.1f GB".format(Locale.US, bytes / 1_073_741_824.0)
-    bytes >= 1_048_576L -> "%.1f MB".format(Locale.US, bytes / 1_048_576.0)
-    bytes >= 1_024L -> "%.0f KB".format(Locale.US, bytes / 1_024.0)
-    else -> "$bytes B"
+internal fun runBytesLabel(bytes: Long?): String = Formats.size(bytes)
+
+internal enum class ActiveRunState {
+    START_CHECKING, COLLECTING, DISCONNECTED, UNKNOWN, STOP_CHECKING, ENDED
+}
+
+internal fun runHasEnded(run: PipelineRun?): Boolean = run != null && !run.active &&
+    (run.finishedAt != null || run.state.uppercase(Locale.ROOT) in setOf("COMPLETED", "STOPPED", "FAILED"))
+
+internal fun activeRunState(
+    run: PipelineRun?, online: Boolean, awaitingStart: Boolean, stopping: Boolean,
+    stopAvailable: Boolean
+): ActiveRunState = when {
+    awaitingStart -> ActiveRunState.START_CHECKING
+    stopping -> ActiveRunState.STOP_CHECKING
+    !online -> ActiveRunState.DISCONNECTED
+    runHasEnded(run) -> ActiveRunState.ENDED
+    run?.active == true && stopAvailable -> ActiveRunState.COLLECTING
+    else -> ActiveRunState.UNKNOWN
+}
+
+internal fun runTarget(run: PipelineRun): StopTarget = StopTarget(run.deviceId, run.pipelineId, run.runId)
+
+internal fun StopTarget.matches(run: PipelineRun?): Boolean = run != null &&
+    deviceId.equals(run.deviceId, true) && pipelineId == run.pipelineId && runId == run.runId
+
+internal enum class RunStopStep { IDLE, CONFIRMING, STOPPING, RESULT_OPENED }
+internal enum class RunStopEvent { REQUEST, CONFIRM, DISMISS, OBSERVE, FAILURE }
+internal data class RunStopFlow(val step: RunStopStep = RunStopStep.IDLE, val target: StopTarget? = null)
+internal data class RunStopTransition(
+    val flow: RunStopFlow, val command: StopTarget? = null, val openResult: StopTarget? = null
+)
+
+/** Only an explicit confirmation arms navigation, and only matching terminal evidence completes it. */
+internal fun reduceRunStop(
+    flow: RunStopFlow,
+    event: RunStopEvent,
+    run: PipelineRun?,
+    online: Boolean,
+    stopAvailable: Boolean,
+    awaitingStart: Boolean = false,
+    stopInProgress: Boolean = false
+): RunStopTransition {
+    val allowed = online && stopAvailable && run?.active == true && !awaitingStart && !stopInProgress
+    val same = flow.target?.matches(run) == true
+    val idle = RunStopTransition(RunStopFlow())
+    return when (event) {
+        RunStopEvent.REQUEST -> if (flow.step == RunStopStep.IDLE && allowed && run != null) {
+            RunStopTransition(RunStopFlow(RunStopStep.CONFIRMING, runTarget(run)))
+        } else RunStopTransition(flow)
+        RunStopEvent.CONFIRM -> if (flow.step == RunStopStep.CONFIRMING && allowed && same) {
+            RunStopTransition(flow.copy(step = RunStopStep.STOPPING), command = flow.target)
+        } else if (flow.step == RunStopStep.CONFIRMING && !same) idle else RunStopTransition(flow)
+        RunStopEvent.DISMISS -> if (flow.step == RunStopStep.CONFIRMING) idle else RunStopTransition(flow)
+        RunStopEvent.FAILURE -> if (flow.step == RunStopStep.STOPPING) idle else RunStopTransition(flow)
+        RunStopEvent.OBSERVE -> when {
+            flow.step == RunStopStep.CONFIRMING &&
+                (!same || run?.active != true || awaitingStart || (online && !stopAvailable)) -> idle
+            flow.step == RunStopStep.STOPPING && run != null && !same -> idle
+            flow.step == RunStopStep.STOPPING && same && online && !awaitingStart && runHasEnded(run) ->
+                RunStopTransition(flow.copy(step = RunStopStep.RESULT_OPENED), openResult = flow.target)
+            else -> RunStopTransition(flow)
+        }
+    }
+}
+
+internal fun activeRunFigures(
+    run: PipelineRun?, durationMillis: Long?, elapsedFallback: String?, state: ActiveRunState,
+    telemetryAgeMillis: Long?, outsideCount: Int?
+): List<GeoFigure> {
+    val telemetry = verifiedRunTelemetry(run)
+    val hidden = state == ActiveRunState.START_CHECKING
+    val stale = state in setOf(ActiveRunState.DISCONNECTED, ActiveRunState.UNKNOWN) ||
+        (run?.active == true && (telemetryAgeMillis == null || telemetryAgeMillis > RunTelemetryFreshMillis))
+    val elapsed = if (telemetry != null) durationMillis?.let(::runDurationLabel) else elapsedFallback
+    val quality = run?.quality
+    val ratio = quality?.rtkFixRatio?.takeIf {
+        it.isFinite() && it in 0.0..1.0 && (quality.rtkObservedDurationMillis ?: 0L) > 0L
+    }
+    val bytesStale = telemetry?.collectionBytesState.equals("STALE", true) ||
+        (telemetry != null && telemetryAgeMillis != null && telemetryAgeMillis +
+            (telemetry.observedAtEpochMillis - telemetry.bytesObservedAtEpochMillis).coerceAtLeast(0L) > RunTelemetryFreshMillis)
+    fun figure(label: String, value: String?, old: Boolean = stale) =
+        GeoFigure(label, value, valid = !hidden && value != null && value !in setOf("미확인", "—", "확인 중"), stale = old)
+    return listOf(
+        figure("경과 시간", elapsed),
+        figure("수집 용량", telemetry?.collectedBytes?.let(::runBytesLabel), stale || bytesStale),
+        figure("정밀 위치", ratio?.let { Formats.percent(it * 100.0) }),
+        figure("구역 밖 기록", outsideCount?.takeIf { it >= 0 }?.let { Formats.occurrenceCount(it.toLong()) })
+    )
 }
 
 internal fun telemetryFreshnessLabel(ageMillis: Long?, bytesState: String?): String = when {

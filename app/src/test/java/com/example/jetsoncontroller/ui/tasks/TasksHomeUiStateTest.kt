@@ -116,7 +116,7 @@ class TasksHomeUiStateTest {
         val row = buildTasksHomeUiState(input(runs = listOf(run))).recent.single()
 
         assertEquals("한빛시 도로대장 · 4구간", row.title)
-        assertEquals("10월 15일 00:12 · 42분 · 18.0 GB", row.meta)
+        assertEquals("10월 15일 00:12 · 42분 · 19.3\u00a0GB", row.meta)
     }
 
     @Test
@@ -134,13 +134,13 @@ class TasksHomeUiStateTest {
     }
 
     @Test
-    fun `the editing note names developer mode only for developers`() {
+    fun `developer mode leaves the daily task screen unchanged`() {
         assertEquals(
-            "작업 등록과 편집은 관리자에게 요청하세요.",
+            "작업 등록은 관리자에게 요청하세요.",
             buildTasksHomeUiState(input()).otherTasksNote
         )
         assertEquals(
-            "등록과 편집은 개발자 모드에서 합니다.",
+            "작업 등록은 관리자에게 요청하세요.",
             buildTasksHomeUiState(input(developerModeEnabled = true)).otherTasksNote
         )
     }

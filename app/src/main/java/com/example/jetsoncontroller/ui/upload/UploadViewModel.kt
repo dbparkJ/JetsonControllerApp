@@ -16,6 +16,8 @@ import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.model.UploadContext
+import com.example.jetsoncontroller.ui.transfers.*
+import com.google.gson.Gson
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
@@ -45,6 +47,8 @@ data class UploadUiState(
     val linkedRunId: String? = null,
     val linkedRun: PipelineRun? = null,
     val verification: UploadVerification? = null,
+    val transferRun: PipelineRun? = null,
+    val otherDeviceQueues: Map<String, List<UploadJob>> = emptyMap(),
     val isCalculatingSource: Boolean = false,
     val isLoading: Boolean = false,
     val isSavingTarget: Boolean = false,
@@ -73,13 +77,25 @@ class UploadViewModel(
     private val workspace = DeviceWorkspace { UploadUiState() }
     private var connectionGeneration = 0L
     private val deletedQueueJobIds = mutableSetOf<String>()
+    private val cachedQueues = mutableMapOf<String, List<UploadJob>>()
+    private val transferRuns = mutableMapOf<String, PipelineRun>()
+    private val gson = Gson()
 
     init {
         viewModelScope.launch {
             combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
                 deviceId to transport
             }.collectLatest { (deviceId, transport) ->
-                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId)
+                val previous = _uiState.value
+                previous.deviceId?.let { cachedQueues[it.lowercase()] =
+                    (listOfNotNull(previous.currentJob) + previous.queue).distinctBy { job -> job.id } }
+                _uiState.value = workspace.select(deviceId, previous).copy(deviceId = deviceId,
+                    otherDeviceQueues = cachedQueues.filterKeys { !it.equals(deviceId, true) })
+                if (_uiState.value.currentJob == null) {
+                    val restored = savedStateHandle.get<String>("transferJob:${deviceId?.lowercase()}")
+                        ?.let { runCatching { gson.fromJson(it, UploadJob::class.java) }.getOrNull() }
+                    if (restored != null) applyCurrentJob(restored)
+                }
                 connectionGeneration += 1
                 cancelConnectionJobs()
                 deletedQueueJobIds.clear()
@@ -199,6 +215,7 @@ class UploadViewModel(
 
     /** Applies a poll of the current job: queue entry, verification and one progress sample. */
     private fun applyCurrentJob(job: UploadJob) {
+        savedStateHandle["transferJob:${_uiState.value.deviceId?.lowercase()}"] = gson.toJson(job)
         val state = _uiState.value
         val observed = if (job.bytesTransferred != null && isActiveUploadState(job.state)) {
             TransferSample(
@@ -302,7 +319,7 @@ class UploadViewModel(
             return
         }
         if (!force &&
-            _uiState.value.sourceSummaryKey == key &&
+            _uiState.value.sourceSummaryKey == key && _uiState.value.linkedRunId == linkedRunId &&
             (_uiState.value.sourceSummary != null || _uiState.value.isCalculatingSource)
         ) return
         sourceSummaryJob?.cancel()
@@ -371,9 +388,14 @@ class UploadViewModel(
         }
     }
 
-    fun startUpload(rootId: String, path: String, targetId: String) {
-        if (!_uiState.value.controlAvailable ||
-            !_uiState.value.deviceId.equals(repository.selectedDeviceId.value, true)) return
+    fun startUpload(rootId: String, path: String, targetId: String,
+        expectedDeviceId: String? = _uiState.value.deviceId, onStarted: (UploadJob) -> Unit = {}) {
+        val transport = repository.transportState.value as? TransportState.Connected
+        if (!expectedDeviceId.equals(repository.selectedDeviceId.value, true) ||
+            !_uiState.value.controlAvailable || transport == null || transport.type != TransportType.LAN ||
+            !_uiState.value.deviceId.equals(repository.selectedDeviceId.value, true) ||
+            !transport.deviceId.equals(_uiState.value.deviceId, true) ||
+            _uiState.value.targets.none { it.id == targetId }) return
         if (!_uiState.value.sourceSummary.matchesUploadSource(rootId, path)) {
             _uiState.value = _uiState.value.copy(
                 message = null,
@@ -387,16 +409,18 @@ class UploadViewModel(
             _uiState.value = _uiState.value.copy(error = "수집 실행의 업로드 컨텍스트를 다시 확인해 주세요.")
             return
         }
-        if (linkedRun != null && (linkedRun.active || linkedRun.output.manifestState != "FINAL")) {
+        if (linkedRun != null && (!linkedRunMatchesSource(linkedRun, expectedDeviceId, rootId, path) ||
+                linkedRun.output.manifestState != "FINAL")) {
             _uiState.value = _uiState.value.copy(
                 error = "수집 실행 결과 manifest가 FINAL로 확인된 뒤 전송할 수 있습니다."
             )
             return
         }
-        startNewUpload(rootId, path, targetId, _uiState.value.linkedRun?.uploadContext)
+        startNewUpload(rootId, path, targetId, _uiState.value.linkedRun?.uploadContext, onStarted)
     }
 
-    private fun startNewUpload(rootId: String, path: String, targetId: String, context: UploadContext? = null) {
+    private fun startNewUpload(rootId: String, path: String, targetId: String, context: UploadContext? = null,
+        onStarted: (UploadJob) -> Unit = {}) {
         if (actionJob?.isActive == true || _uiState.value.isLoading) return
         _uiState.value = _uiState.value.copy(isLoading = true)
         val generation = connectionGeneration
@@ -414,7 +438,8 @@ class UploadViewModel(
             repository.startUpload(rootId, path, targetId, context)
                 .onSuccess { job ->
                     if (generation == connectionGeneration) {
-                        if (context != null && job.context != context) {
+                        if (job.id.isBlank() || job.rootId != rootId || job.relativePath != path || job.targetId != targetId ||
+                            (context != null && job.context != context)) {
                             _uiState.value = _uiState.value.copy(
                                 isLoading = false,
                                 currentJob = null,
@@ -430,7 +455,8 @@ class UploadViewModel(
                             verification = null,
                             isLoading = false
                         )
-                        startCurrentPolling(job.id, generation)
+                        openJob(job)
+                        onStarted(job)
                     }
                 }
                 .onFailure { error ->
@@ -471,247 +497,138 @@ class UploadViewModel(
         }
     }
 
-    /** Retries a failed job from the transfers list, making it the current job first. */
+    private fun currentTarget(): TransferActionTarget? {
+        val state = _uiState.value
+        val deviceId = state.deviceId ?: return null
+        val job = state.currentJob ?: return null
+        return transferActionTarget(deviceId, job)
+    }
+
     fun retryJob(job: UploadJob) {
-        if (job.state != UploadJobState.FAILED) return
-        openJob(job)
-        retryCurrentUpload()
+        val device = _uiState.value.deviceId ?: return
+        mutateTransfer(transferActionTarget(device, job), TransferMutation.RETRY)
     }
 
-    fun cancelCurrentUpload() {
-        if (!_uiState.value.controlAvailable) return
-        val jobId = _uiState.value.currentJob?.id ?: return
-        val generation = connectionGeneration
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isLoading = true,
-                message = null,
-                error = null
-            )
-            repository.cancelUpload(jobId)
-                .onSuccess { job ->
-                    if (generation == connectionGeneration) {
-                        currentPollingJob?.cancel()
-                        rememberCurrentJobId(job.id)
-                        _uiState.value = _uiState.value.copy(
-                            currentJob = job,
-                            queue = upsertJob(_uiState.value.queue, job),
-                            isLoading = false
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            error = userFacingFailure(error, "업로드를 취소하지 못했습니다. 다시 시도하세요.").message,
-                            isLoading = false
-                        )
-                    }
-                }
-        }
-    }
+    fun cancelCurrentUpload() { currentTarget()?.let { mutateTransfer(it, TransferMutation.CANCEL) } }
+    fun retryCurrentUpload() { currentTarget()?.let { mutateTransfer(it, TransferMutation.RETRY) } }
+    fun verifyCurrentUpload() { currentTarget()?.let { mutateTransfer(it, TransferMutation.VERIFY) } }
+    fun deleteCurrentSource() { currentTarget()?.let { mutateTransfer(it, TransferMutation.CLEAN_UP) } }
+    fun restoreCurrentSource() { currentTarget()?.let { mutateTransfer(it, TransferMutation.RESTORE) } }
 
-    fun retryCurrentUpload() {
-        if (!_uiState.value.controlAvailable) return
-        val current = _uiState.value.currentJob ?: return
-        if (canStartFreshReupload(current, _uiState.value.verification)) {
-            startNewUpload(current.rootId, current.relativePath, current.targetId, current.context)
-            return
-        }
-        if (current.state != UploadJobState.FAILED) return
-        val jobId = current.id
-        val generation = connectionGeneration
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                verification = null,
-                isLoading = true,
-                message = null,
-                error = null
-            )
-            repository.retryUpload(jobId)
-                .onSuccess { job ->
-                    if (generation == connectionGeneration) {
-                        rememberCurrentJobId(job.id)
-                        _uiState.value = _uiState.value.copy(
-                            currentJob = job,
-                            queue = upsertJob(_uiState.value.queue, job),
-                            verification = null,
-                            isLoading = false
-                        )
-                        startCurrentPolling(job.id, generation)
-                    }
-                }
-                .onFailure { error ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            error = userFacingFailure(error, "업로드를 다시 시작하지 못했습니다. 다시 시도하세요.").message,
-                            isLoading = false
-                        )
-                    }
-                }
-        }
+    fun deleteJobFromQueue(job: UploadJob) {
+        val device = _uiState.value.deviceId ?: return
+        mutateTransfer(transferActionTarget(device, job), TransferMutation.DELETE_RECORD)
     }
 
     fun openJob(job: UploadJob) {
         currentPollingJob?.cancel()
         rememberCurrentJobId(job.id)
-        _uiState.value = _uiState.value.copy(
-            currentJob = job,
-            verification = job.verification,
-            message = null,
-            error = null
-        )
-        if (job.state in activeUploadStates) startCurrentPolling(job.id)
-    }
-
-    fun deleteJobFromQueue(job: UploadJob) {
-        if (!_uiState.value.controlAvailable) return
-        if (!isDeletableUploadJob(job)) {
-            _uiState.value = _uiState.value.copy(
-                message = null,
-                error = "진행 중인 업로드 기록은 삭제할 수 없습니다."
-            )
-            return
-        }
-        val generation = connectionGeneration
-        queueRefreshJob?.cancel()
-        queueActionJob?.cancel()
-        queueActionJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isLoading = true,
-                message = null,
-                error = null
-            )
-            repository.deleteUploadJob(job.id)
-                .onSuccess {
-                    if (generation == connectionGeneration) {
-                        deletedQueueJobIds += job.id
-                        val deletingCurrent = _uiState.value.currentJob?.id == job.id
-                        if (deletingCurrent) {
-                            currentPollingJob?.cancel()
-                            rememberCurrentJobId(null)
+        applyCurrentJob(job)
+        _uiState.value = _uiState.value.copy(message = null, error = null, transferRun = null)
+        val runId = job.context?.runId
+        if (runId != null) {
+            val cacheKey = "${_uiState.value.deviceId}:$runId"
+            val cached = transferRuns[cacheKey] ?: savedStateHandle.get<String>("transferRun:$cacheKey")
+                ?.let { runCatching { gson.fromJson(it, PipelineRun::class.java) }.getOrNull() }
+            _uiState.value = _uiState.value.copy(transferRun = cached)
+            if (_uiState.value.controlAvailable) {
+                val generation = connectionGeneration
+                viewModelScope.launch {
+                    repository.pipelineRun(runId).onSuccess { run ->
+                        if (generation == connectionGeneration && run.uploadContext == job.context &&
+                            linkedRunMatchesSource(run, _uiState.value.deviceId, job.rootId, job.relativePath)) {
+                            transferRuns[cacheKey] = run
+                            savedStateHandle["transferRun:$cacheKey"] = gson.toJson(run)
+                            if (_uiState.value.currentJob?.id == job.id) _uiState.value = _uiState.value.copy(transferRun = run)
                         }
-                        _uiState.value = _uiState.value.copy(
-                            queue = _uiState.value.queue.filterNot { it.id == job.id },
-                            currentJob = _uiState.value.currentJob?.takeUnless {
-                                it.id == job.id
-                            },
-                            verification = _uiState.value.verification?.takeUnless {
-                                deletingCurrent
-                            },
-                            isLoading = false,
-                            message = "업로드 기록을 목록에서 삭제했습니다."
-                        )
                     }
                 }
-                .onFailure { error ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = userFacingFailure(error, "업로드 기록을 삭제하지 못했습니다. 다시 시도하세요.").message
-                        )
-                    }
-                }
+            }
         }
+        if (job.state in activeUploadStates && _uiState.value.controlAvailable) startCurrentPolling(job.id)
     }
 
-    fun verifyCurrentUpload() {
-        if (!_uiState.value.controlAvailable) return
-        val jobId = _uiState.value.currentJob?.id ?: return
+    /** Fetch and revalidate the immutable tuple immediately before each mutation. */
+    fun mutateTransfer(target: TransferActionTarget, mutation: TransferMutation, onUpdated: (UploadJob) -> Unit = {}) {
+        if (actionJob?.isActive == true || !_uiState.value.controlAvailable ||
+            !target.deviceId.equals(repository.selectedDeviceId.value, true)) return
         val generation = connectionGeneration
-        actionJob?.cancel()
         actionJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, message = null, error = null)
-            repository.verifyUploadSource(jobId)
-                .onSuccess { verification ->
-                    if (generation == connectionGeneration) {
-                        rememberCurrentJobId(jobId)
-                        _uiState.value = _uiState.value.copy(
-                            verification = verification,
-                            isLoading = false,
-                            message = if (verification.matched) {
-                                "서버 데이터와 원본이 일치합니다."
-                            } else {
-                                "서버 데이터와 원본이 일치하지 않습니다."
-                            }
-                        )
+            try {
+                val job = repository.getUploadJob(target.jobId).getOrThrow()
+                check(generation == connectionGeneration && target.matches(repository.selectedDeviceId.value, job)) {
+                    "전송 대상이 바뀌었습니다. 다시 확인하세요."
+                }
+                val transport = repository.transportState.value as? TransportState.Connected
+                check(transport?.deviceId.equals(target.deviceId, true) && transport?.type != TransportType.BLE)
+                if (mutation in setOf(TransferMutation.RETRY, TransferMutation.VERIFY, TransferMutation.CLEAN_UP)) {
+                    check(transport?.type == TransportType.LAN) { "같은 네트워크에서 다시 확인하세요." }
+                }
+                check(transferMutationAllowed(target, repository.selectedDeviceId.value, job, mutation,
+                    transport?.type != TransportType.BLE && transport?.deviceId.equals(target.deviceId, true),
+                    transport?.type == TransportType.LAN))
+                val actions = transferDetailActions(job)
+                val updated = when (mutation) {
+                    TransferMutation.CANCEL -> {
+                        check(transferActionAllowed(job, TransferDetailAction.CANCEL))
+                        repository.cancelUpload(target.jobId).getOrThrow()
+                    }
+                    TransferMutation.RETRY -> {
+                        check(transferActionAllowed(job, TransferDetailAction.RETRY))
+                        if (job.state == UploadJobState.FAILED) repository.retryUpload(target.jobId).getOrThrow()
+                        else repository.startUpload(target.rootId, target.path, target.targetId, job.context).getOrThrow()
+                    }
+                    TransferMutation.VERIFY -> {
+                        check(job.state == UploadJobState.COMPLETED)
+                        val receipt = repository.verifyUploadSource(target.jobId).getOrThrow()
+                        check(matchingTransferVerification(job, receipt) != null)
+                        job.copy(verification = receipt)
+                    }
+                    TransferMutation.CLEAN_UP -> {
+                        check(actions.canCleanUp)
+                        val receipt = repository.verifyUploadSource(target.jobId).getOrThrow()
+                        check(matchingTransferVerification(job, receipt)?.let { it.matched && it.deletionAllowed } == true)
+                        check(generation == connectionGeneration && target.deviceId.equals(repository.selectedDeviceId.value, true))
+                        repository.deleteUploadSource(target.jobId).getOrThrow()
+                    }
+                    TransferMutation.RESTORE -> {
+                        check(actions.canRestore)
+                        val restored = repository.restoreTrash(requireNotNull(target.trashId)).getOrThrow()
+                        check(restored.state == "RESTORED")
+                        repository.getUploadJob(target.jobId).getOrThrow()
+                    }
+                    TransferMutation.DELETE_RECORD -> {
+                        check(isDeletableUploadJob(job))
+                        repository.deleteUploadJob(target.jobId).getOrThrow()
+                        if (generation == connectionGeneration) {
+                            deletedQueueJobIds += job.id
+                            savedStateHandle.remove<String>("transferJob:${target.deviceId.lowercase()}")
+                            val current = _uiState.value.currentJob
+                            if (current?.id == job.id) { currentPollingJob?.cancel(); rememberCurrentJobId(null) }
+                            _uiState.value = _uiState.value.copy(queue = _uiState.value.queue.filterNot { it.id == job.id },
+                                currentJob = current?.takeUnless { it.id == job.id }, isLoading = false,
+                                verification = _uiState.value.verification.takeUnless { current?.id == job.id },
+                                message = "전송 기록을 목록에서 삭제했습니다.")
+                        }
+                        return@launch
                     }
                 }
-                .onFailure { error ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = userFacingFailure(error, "서버 데이터를 확인하지 못했습니다. 다시 시도하세요.").message
-                        )
-                    }
-                }
-        }
-    }
-
-    fun deleteCurrentSource() {
-        if (!_uiState.value.controlAvailable) return
-        val jobId = _uiState.value.currentJob?.id ?: return
-        val generation = connectionGeneration
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, message = null, error = null)
-            repository.deleteUploadSource(jobId)
-                .onSuccess { job ->
-                    if (generation == connectionGeneration) {
-                        rememberCurrentJobId(job.id)
-                        _uiState.value = _uiState.value.copy(
-                            currentJob = job,
-                            queue = upsertJob(_uiState.value.queue, job),
-                            verification = job.verification,
-                            isLoading = false,
-                            message = if (job.sourceRecoverable && job.sourceTrashId != null) {
-                                "확인된 업로드 원본을 장치 휴지통으로 옮겼습니다."
-                            } else "원본 처리 결과를 다시 확인해 주세요."
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    if (generation == connectionGeneration) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = userFacingFailure(error, "업로드 원본을 휴지통으로 옮기지 못했습니다. 다시 시도하세요.").message
-                        )
-                    }
-                }
-        }
-    }
-
-    fun restoreCurrentSource() {
-        if (!_uiState.value.controlAvailable) return
-        val current = _uiState.value.currentJob ?: return
-        val trashId = current.sourceTrashId?.takeIf { current.sourceRecoverable } ?: return
-        val generation = connectionGeneration
-        actionJob?.cancel()
-        actionJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, message = null, error = null)
-            repository.restoreTrash(trashId).onSuccess { restored ->
-                if (generation != connectionGeneration) return@onSuccess
-                repository.getUploadJob(current.id).onSuccess { refreshed ->
-                    if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
-                        currentJob = refreshed,
-                        queue = upsertJob(_uiState.value.queue, refreshed),
-                        isLoading = false,
-                        message = if (restored.state == "RESTORED") "업로드 원본을 복원했습니다."
-                        else "복원 상태를 다시 확인해 주세요."
-                    )
-                }.onFailure { error ->
-                    if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = userFacingFailure(error, "복원 후 업로드 상태를 확인하지 못했습니다. 다시 시도하세요.").message
-                    )
-                }
-            }.onFailure { error ->
-                if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = userFacingFailure(error, "업로드 원본을 복원하지 못했습니다. 휴지통을 다시 확인하세요.").message
-                )
+                if (generation != connectionGeneration) return@launch
+                check(updated.rootId == target.rootId && updated.relativePath == target.path &&
+                    updated.targetId == target.targetId && updated.context == target.context)
+                if (_uiState.value.currentJob?.id == target.jobId) {
+                    rememberCurrentJobId(updated.id)
+                    applyCurrentJob(updated)
+                    if (updated.state in activeUploadStates) startCurrentPolling(updated.id, generation)
+                } else _uiState.value = _uiState.value.copy(queue = upsertJob(_uiState.value.queue, updated))
+                _uiState.value = _uiState.value.copy(isLoading = false)
+                onUpdated(updated)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(isLoading = false,
+                    error = userFacingFailure(error, "전송 대상을 다시 확인하고 시도하세요.").message)
             }
         }
     }
@@ -785,6 +702,10 @@ class UploadViewModel(
                     }
                 }
         }
+    }
+
+    fun confirmationClosedForDeviceChange() {
+        _uiState.value = _uiState.value.copy(message = "장치를 바꿔서 열려 있던 확인 창을 닫았습니다.")
     }
 
     fun clearFeedback() {
@@ -882,7 +803,7 @@ internal fun UploadSourceSummary?.matchesUploadSource(rootId: String, path: Stri
 internal fun canStartFreshReupload(
     job: UploadJob,
     verification: UploadVerification?
-): Boolean = job.state == UploadJobState.COMPLETED && verification?.matched == false
+): Boolean = job.state == UploadJobState.COMPLETED && matchingTransferVerification(job, verification)?.matched == false
 
 internal fun mergeActiveUploadJobs(
     history: List<UploadJob>,

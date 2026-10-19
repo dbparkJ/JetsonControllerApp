@@ -626,7 +626,8 @@ fun JetsonApp(
     }
     // "수집 시작" from the device root, the device detail and the pinned card on the 작업 root:
     // open the preparation screen of the field-collection task directly (the last one opened, or
-    // the only task on the device). Only when it cannot be told apart does the task list open.
+    // the only task on the device). An ambiguous choice opens the task sheet.
+    var chooseSurveyTask by androidx.compose.runtime.saveable.rememberSaveable(selectedDeviceId) { mutableStateOf(false) }
     val openSurveyPreparation: () -> Unit = openSurvey@ {
         selectedDeviceId?.let { serverTicketViewModel.clearPendingSelectionIfUnarmed(it) }
         val pipelines = pipelineState.pipelines
@@ -634,11 +635,15 @@ fun JetsonApp(
             pipelines.firstOrNull { it.id == id }
         } ?: pipelines.singleOrNull()
         if (pipeline == null) {
-            navController.navigate(Routes.PIPELINES) { launchSingleTop = true }
+            chooseSurveyTask = true
             return@openSurvey
         }
         openPipelinePreparation(pipeline)
     }
+    if (chooseSurveyTask) com.example.jetsoncontroller.ui.survey.TaskChoiceSheet(
+        state = pipelineState, deviceId = selectedDeviceId.orEmpty(), deviceName = selectedDeviceName,
+        ticketTitle = null, onSelect = { pipeline -> chooseSurveyTask = false; openPipelinePreparation(pipeline) },
+        onDismissRequest = { chooseSurveyTask = false })
     val openHistoryResult: (com.example.jetsoncontroller.model.TaskRun) -> Unit = { history ->
         val deviceId = history.deviceId ?: history.contextSnapshot?.deviceId ?: fieldState.deviceId
         if (deviceId != null) {

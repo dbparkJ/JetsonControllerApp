@@ -15,6 +15,20 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.example.jetsoncontroller.model.JetsonStatus
+import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.GeoDeviceStripState
+import com.example.jetsoncontroller.ui.field.FieldStageInput
+import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.model.NextAction
+import com.example.jetsoncontroller.ui.model.NextActionInput
+import com.example.jetsoncontroller.ui.model.OperationState
+import com.example.jetsoncontroller.ui.model.TaskState
+import com.example.jetsoncontroller.ui.model.CompletionReportState
+import com.example.jetsoncontroller.ui.model.nextAction
+import com.example.jetsoncontroller.ui.dashboard.metricIsValid
+import com.example.jetsoncontroller.ui.sensors.SensorActivity
+import com.example.jetsoncontroller.ui.sensors.sensorPresentations
 
 internal const val RECENT_TASK_LIMIT = 3
 
@@ -29,7 +43,23 @@ internal data class TasksHomeInput(
     val uploadJobs: List<UploadJob>,
     val pipelines: List<ManagedPipeline>,
     val developerModeEnabled: Boolean,
-    val zone: ZoneId = ZoneId.systemDefault()
+    val zone: ZoneId = ZoneId.systemDefault(),
+    val status: JetsonStatus? = null,
+    val connectionWord: String = if (connected) "연결됨" else "오프라인",
+    val connectionTone: StatusTone = if (connected) StatusTone.SUCCESS else StatusTone.UNKNOWN,
+    val basicConnection: Boolean = false,
+    val checkingDevice: Boolean = false,
+    val permissionMissing: Boolean = false,
+    val credentialsRejected: Boolean = false,
+    val lastResponseLabel: String? = null,
+    val receiptVerified: Boolean = false,
+    val ticketLinked: Boolean = false,
+    val completionReported: Boolean = false,
+    val now: Instant = Instant.now(),
+    val reportStates: Map<String, CompletionReportState> = emptyMap(),
+    val lastObservedAt: Instant? = null,
+    val storageWarningPercent: Int = 85,
+    val temperatureWarningC: Int = 80
 )
 
 /** The pinned 현장 수집 card. [startBlockedReason] is one line, shown only while the start is off. */
@@ -51,7 +81,8 @@ internal data class RecentRunState(
     val runId: String,
     val title: String,
     val meta: String,
-    val cells: List<RunReceiptCell>
+    val cells: List<RunReceiptCell>,
+    val report: CompletionReportState? = null
 )
 
 internal data class OtherTaskState(
@@ -71,7 +102,9 @@ internal data class TasksHomeUiState(
     val otherTasks: List<OtherTaskState>,
     val otherTasksNote: String,
     val otherTasksEmptyText: String,
-    val ticketSection: ServerTicketUiState? = null
+    val ticketSection: ServerTicketUiState? = null,
+    val focus: NextAction? = null,
+    val deviceStrip: GeoDeviceStripState? = null
 )
 
 internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
@@ -112,15 +145,91 @@ internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
                     title = pipeline.label,
                     caption = formatTaskTime(pipeline.execution?.startedAt, input.zone)
                         ?.let { "마지막 실행 $it" } ?: "실행 기록 없음",
-                    stateLabel = taskStateLabel(pipeline, confirmed = input.connected)
+                    stateLabel = workTaskState(pipeline, input.connected).word
                 )
             },
-        otherTasksNote = if (input.developerModeEnabled) {
-            "등록과 편집은 개발자 모드에서 합니다."
-        } else {
-            "작업 등록과 편집은 관리자에게 요청하세요."
+        otherTasksNote = "작업 등록은 관리자에게 요청하세요.",
+        otherTasksEmptyText = "이 장치에 등록된 작업이 없습니다",
+        focus = workNextAction(input).takeUnless { input.checkingDevice && !input.permissionMissing && !input.credentialsRejected &&
+            survey.pendingStart == null && survey.unconfirmedRunId == null },
+        deviceStrip = workDeviceStrip(input)
+    )
+}
+
+internal fun workNextAction(input: TasksHomeInput): NextAction {
+    val s = input.survey
+    return nextAction(NextActionInput(
+        deviceName = input.deviceName ?: UnnamedDeviceLabel,
+        field = FieldStageInput(
+            connected = input.connected || input.basicConnection,
+            runStateConfirmed = s.runStateConfirmed && !s.restoringLocalState,
+            activeRunId = s.activeRun?.takeIf { it.active }?.runId,
+            pendingStartRequestId = s.pendingStart?.clientRequestId,
+            unconfirmedRunId = s.unconfirmedRunId,
+            runAwaitingResultId = s.latestRun?.takeIf { !it.active && !s.resultAcknowledged }?.runId,
+            surveyLabel = s.latestRun?.contextSnapshot?.surveySectionLabel ?: s.selectedSection?.label,
+            lastObservedLabel = (input.lastObservedAt ?: input.status?.collectedAtEpochMillis?.let(Instant::ofEpochMilli))
+                ?.let { DateTimeFormatter.ofPattern("HH:mm:ss").withZone(input.zone).format(it) },
+            elapsedLabel = s.activeRun?.startedAt?.let(::parseInstantOrNull)?.let {
+                Formats.clock(Duration.between(it, input.now).coerceAtLeast(Duration.ZERO))
+            },
+            registeredDeviceCount = if (input.deviceName == null) 0 else 1,
+            activeRunCount = s.observedActiveRunCount
+        ),
+        basicConnection = input.basicConnection, credentialsRejected = input.credentialsRejected,
+        permissionMissing = input.permissionMissing, lastResponseLabel = input.lastResponseLabel,
+        receiptVerified = input.receiptVerified, ticketLinked = input.ticketLinked,
+        completionReported = input.completionReported
+    ))
+}
+
+internal fun workDeviceStrip(input: TasksHomeInput): GeoDeviceStripState {
+    val status = input.status
+    val now = input.now.toEpochMilli()
+    val sensors = status?.let { sensorPresentations(it, input.connected || input.basicConnection, now) }
+    val sensorException = sensors?.let {
+        listOf("카메라" to it.camera, "위치" to it.gnss, "관성 센서" to it.imu)
+            .firstOrNull { (_, sensor) -> sensor.activity in setOf(SensorActivity.STALE, SensorActivity.DISCONNECTED) }
+            ?.let { (name, sensor) -> "$name ${sensor.badge}" }
+    }
+    val attention = sensorException ?: status?.takeIf {
+        it.metricIsValid("storagePercent") && it.storageTotalBytes > 0 && it.storagePercent >= input.storageWarningPercent
+    }?.let { "저장 공간 ${Formats.percent(it.storagePercent.toDouble())}" } ?: status?.takeIf {
+        it.metricIsValid("temperatureC") && it.temperatureC >= input.temperatureWarningC
+    }?.let { "장치 온도 ${Formats.temperature(it.temperatureC.toDouble())}" }
+    val observed = status?.collectedAtEpochMillis?.let(Instant::ofEpochMilli)
+    val focus = workNextAction(input)
+    return GeoDeviceStripState(
+        deviceName = input.deviceName ?: UnnamedDeviceLabel,
+        connectionWord = when {
+            input.credentialsRejected -> "인증 필요"
+            input.permissionMissing -> "권한 필요"
+            input.checkingDevice -> "확인 중"
+            input.basicConnection -> "기본 연결"
+            else -> input.connectionWord
         },
-        otherTasksEmptyText = "등록된 다른 작업이 없습니다."
+        connectionTone = when {
+            input.credentialsRejected -> StatusTone.ERROR
+            input.permissionMissing || input.basicConnection -> StatusTone.WARNING
+            input.checkingDevice -> StatusTone.PENDING
+            else -> input.connectionTone
+        },
+        facts = if (input.checkingDevice) emptyList() else listOfNotNull(
+            status?.temperatureC?.takeIf { status.metricIsValid("temperatureC") &&
+                (it > 0f || status.metricValidity["temperatureC"]?.validity == "valid") }
+                ?.let { Formats.temperature(it.toDouble()) },
+            status?.storageAvailableBytes?.takeIf { status.storageTotalBytes > 0 && status.metricIsValid("storageTotalBytes") &&
+                status.metricIsValid("storageAvailableBytes") }?.let { "저장 ${Formats.free(it)}" }
+        ),
+        freshness = when {
+            input.permissionMissing -> "연결 권한이 필요합니다"
+            input.checkingDevice -> "장치를 찾고 있습니다"
+            !input.connected && !input.basicConnection -> input.lastResponseLabel?.let { "마지막 응답 $it" } ?: "마지막 응답 미확인"
+            else -> Formats.freshness(observed?.let { Duration.between(it, input.now) }, observed, input.now)
+        },
+        firstAttention = attention,
+        // A sensor exception remains at zero taps even when Focus already explains the connection.
+        hiddenByFocus = !input.checkingDevice && attention == null && focus.operation in setOf(OperationState.DISCONNECTED, OperationState.RUN_UNCONFIRMED)
     )
 }
 
@@ -190,8 +299,41 @@ private fun recentRunState(run: TaskRun, input: TasksHomeInput): RecentRunState 
         runId = run.id,
         title = title,
         meta = meta,
-        cells = taskRunReceiptCells(run, input.uploadJobs)
+        cells = taskRunReceiptCells(run, input.uploadJobs.filter { job ->
+            val context = job.context
+            val output = run.output
+            context != null && output != null && context.runId == run.runId &&
+                context.deviceId.equals(run.deviceId ?: run.contextSnapshot?.deviceId, true) &&
+                context.pipelineId == run.pipelineId && context.outputId == output.outputId &&
+                context.surveyProjectId == run.contextSnapshot?.surveyProjectId &&
+                context.surveySectionId == run.contextSnapshot?.surveySectionId &&
+                job.rootId == output.rootId && job.relativePath.trim('/') == output.path.trim('/')
+        }.map(::workUploadWithMatchingReceipt)),
+        report = input.reportStates[run.runId ?: run.id]
     )
+}
+
+internal fun workUploadWithMatchingReceipt(job: UploadJob): UploadJob {
+    val source = listOf(job.sourceName, job.folderName, job.relativePath.trimEnd('/').substringAfterLast('/'))
+        .firstOrNull { !it.isNullOrBlank() }
+    return job.copy(verification = job.verification?.takeIf {
+        it.jobId == job.id && it.targetId == job.targetId && !job.remoteSessionId.isNullOrBlank() &&
+            it.remoteSessionId == job.remoteSessionId && !source.isNullOrBlank() && it.sourceName == source
+    })
+}
+
+internal fun workTaskState(pipeline: ManagedPipeline, confirmed: Boolean): TaskState = when {
+    !confirmed -> TaskState.UNKNOWN
+    else -> when (pipeline.state) {
+        com.example.jetsoncontroller.model.PipelineState.RUNNING -> if (pipeline.activeRunId.isNullOrBlank()) TaskState.UNKNOWN else TaskState.COLLECTING
+        com.example.jetsoncontroller.model.PipelineState.STARTING -> TaskState.START_REQUESTED
+        com.example.jetsoncontroller.model.PipelineState.STOPPING -> TaskState.STOP_REQUESTED
+        com.example.jetsoncontroller.model.PipelineState.RETRYING -> TaskState.RETRYING
+        com.example.jetsoncontroller.model.PipelineState.WAITING_FOR_TIME_SYNC -> TaskState.ALIGNING_TIME
+        com.example.jetsoncontroller.model.PipelineState.FAILED -> TaskState.FAILED
+        com.example.jetsoncontroller.model.PipelineState.STOPPED -> TaskState.WAITING
+        com.example.jetsoncontroller.model.PipelineState.UNKNOWN -> TaskState.UNKNOWN
+    }
 }
 
 /** Shown when the phone has no device name to offer. Never the device UUID. */

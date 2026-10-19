@@ -1,55 +1,33 @@
 package com.example.jetsoncontroller.ui.tasks
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.field.RunReceiptStrip
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.model.NextActionCommand
+import com.example.jetsoncontroller.ui.model.OperationState
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import java.time.Instant
 
-/**
- * 작업 root: the place to start a 현장 수집, see the one running collection, and look back at
- * recent receipts. Everything here is state plus callbacks, so the integrator only wires routes.
- */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun TasksHomeScreen(
     state: TasksHomeUiState,
@@ -61,95 +39,89 @@ internal fun TasksHomeScreen(
     onOpenHistory: () -> Unit,
     onOpenTask: (String) -> Unit,
     onOpenTicket: (String) -> Unit = {},
-    onSelectTicketUnit: (String?) -> Unit = {}
+    onSelectTicketUnit: (String?) -> Unit = {},
+    onOpenDevice: () -> Unit = onSelectDevice,
+    onFocusAction: (NextActionCommand) -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onServerConnection: () -> Unit = {},
+    onAlerts: () -> Unit = {},
+    unreadCount: Int = 0,
+    now: Instant = Instant.now(),
+    deviceOpener: FocusRequester = remember { FocusRequester() },
+    focusReportLabel: String = "완료 보고",
+    focusReportMessage: String? = null,
+    focusReportEnabled: Boolean = true
 ) {
     val c = LocalGeoColors.current
-    Column(Modifier.fillMaxSize().background(c.canvas)) {
-        TasksHeader(state.deviceName, onSelectDevice)
-        LazyColumn(
-            Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            item { PinnedSurveyCard(state.pinned, runActive = state.activeRun != null, onStartSurvey, onChangeSection) }
-            state.ticketSection?.let { tickets ->
-                item { ServerTicketsSection(tickets, onOpenTicket, onSelectTicketUnit) }
-            }
-            state.activeRun?.let { run ->
-                item { ActiveRunCard(run, onOpenActiveRun) }
-            }
-            item { RecentSection(state.recent, state.recentEmptyText, onOpenRun, onOpenHistory) }
-            item { OtherTasksSection(state.otherTasks, state.otherTasksNote, state.otherTasksEmptyText, onOpenTask) }
-        }
-    }
-}
-
-@Composable
-private fun ServerTicketsSection(
-    state: ServerTicketUiState,
-    onOpenTicket: (String) -> Unit,
-    onSelectUnit: (String?) -> Unit
-) {
-    val c = LocalGeoColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("수집 구간", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.ink)
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = state.selectedUnit == null,
-                onClick = { onSelectUnit(null) },
-                label = { Text("전체") }
-            )
-            state.units.forEach { unit ->
-                FilterChip(
-                    selected = state.selectedUnit == unit,
-                    onClick = { onSelectUnit(unit) },
-                    label = { Text(unit) }
-                )
-            }
-        }
-        state.quietError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.muted) }
-        if (state.isLoading && state.tickets.isEmpty()) {
-            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = c.primary)
-        } else if (state.visibleTickets.isEmpty()) {
-            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Text("표시할 수집 구간이 없습니다.", style = MaterialTheme.typography.bodyMedium, color = c.muted,
-                    modifier = Modifier.padding(16.dp))
-            }
-        } else {
-            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    state.visibleTickets.forEachIndexed { index, ticket ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                        Column(
-                            Modifier.fillMaxWidth().clickable { onOpenTicket(ticket.rowId) }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Text(ticket.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold, color = c.ink, maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.size(8.dp))
-                                StatusBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket))
+    val gutter = LocalGeoWindow.current.gutterDp.dp
+    Column(Modifier.fillMaxSize().background(c.surface)) {
+        WorkRootHeader(state, onSelectDevice, onAlerts, unreadCount, deviceOpener)
+        PullToRefreshBox(isRefreshing = state.ticketSection?.isLoading == true, onRefresh = onRefresh,
+            modifier = Modifier.weight(1f)) {
+            LazyColumn(Modifier.fillMaxSize().semantics {
+                customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
+            }, contentPadding = PaddingValues(horizontal = gutter, vertical = 16.dp)) {
+                item(key = "device") { state.deviceStrip?.let { GeoDeviceStrip(it, onOpenDevice) } }
+                val focus = state.focus
+                if (focus?.title != null && focus.primary != null) {
+                    item(key = "focus") {
+                        val tone = when (focus.operation) {
+                            OperationState.START_PENDING, OperationState.RUN_UNCONFIRMED -> GeoOverlayTone.PENDING
+                            OperationState.DISCONNECTED, OperationState.MULTIPLE_RUNS, OperationState.BASIC_CONNECTION -> GeoOverlayTone.WARNING
+                            else -> GeoOverlayTone.INFO
+                        }
+                        GeoFocusBlock(GeoFocusBlockState(
+                            focus.title, listOfNotNull(
+                                if (focus.primary == NextActionCommand.REPORT) focusReportMessage ?: focus.body else focus.body?.takeIf(String::isNotBlank),
+                                focus.transportRemedy?.detail).joinToString(" · "), tone,
+                            GeoOverlayAction(if (focus.primary == NextActionCommand.REPORT) focusReportLabel else focus.primary!!.label,
+                                { onFocusAction(focus.primary!!) },
+                                enabled = focus.primary != NextActionCommand.REPORT || focusReportEnabled,
+                                disabledReason = focusReportMessage),
+                            focus.secondary?.let { command -> GeoOverlayAction(command.label, { onFocusAction(command) }) }
+                        ), Modifier.padding(top = 16.dp))
+                    }
+                }
+                item(key = "queue") {
+                    WorkTicketsSection(state, onOpenTicket, onSelectTicketUnit, onChangeSection, onRefresh, onServerConnection, now)
+                }
+                item(key = "recent") {
+                    GeoSection("최근 수집", actionLabel = if (state.recent.isEmpty()) null else "전체 기록", onAction = onOpenHistory) {
+                        if (state.recent.isEmpty()) GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                            "완료한 수집이 없습니다", "수집을 마치면 여기에 남습니다."))
+                        state.recent.forEach { row ->
+                            Column(Modifier.clickable { onOpenRun(row.runId) }.semantics(mergeDescendants = true) {}) {
+                                GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta)
+                                FlowRow(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    (row.cells + listOfNotNull(row.report?.let {
+                                        com.example.jetsoncontroller.ui.field.RunReceiptCell("GEO& Work 보고", it.word, it.tone)
+                                    })).forEach { cell ->
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(cell.title, style = LocalGeoType.current.caption, color = c.textSecondary)
+                                            Text("●", style = LocalGeoType.current.count, color = when (cell.tone) {
+                                                StatusTone.SUCCESS -> c.success
+                                                StatusTone.WARNING -> c.warning
+                                                StatusTone.ERROR -> c.danger
+                                                StatusTone.INFO -> c.primary
+                                                StatusTone.PENDING -> c.pending
+                                                else -> c.neutral
+                                            })
+                                            Text(cell.value, style = LocalGeoType.current.badge, color = c.text)
+                                        }
+                                    }
+                                }
                             }
-                            Text(
-                                "프로젝트 ${ticket.project?.takeIf(String::isNotBlank) ?: "미정"} · " +
-                                    (ticket.unit?.takeIf(String::isNotBlank)?.let { "호기 $it" } ?: ticketUnitLabel(ticket)),
-                                style = MaterialTheme.typography.bodySmall, color = c.muted
-                            )
-                            Text("담당 ${ticket.assignees.orEmpty().filter(String::isNotBlank).joinToString().ifBlank { "미지정" }}",
-                                style = MaterialTheme.typography.bodySmall, color = c.inkStrong)
-                            Text("마감 ${ticket.dueDate?.takeIf(String::isNotBlank) ?: "미정"}",
-                                style = MaterialTheme.typography.bodySmall, color = c.muted)
-                            val reportLabel = state.reportMessages[ticket.rowId] ?: ticketReportStateLabel(ticket)
-                            Text(reportLabel, style = MaterialTheme.typography.bodySmall,
-                                color = if (ticketConflictCopy(ticket) != null ||
-                                    state.reportMessages[ticket.rowId]?.contains("HUMAN_CHANGED") == true
-                                ) c.warning else c.muted)
+                        }
+                    }
+                }
+                item(key = "tasks") {
+                    GeoSection("장치 작업") {
+                        if (state.otherTasks.isEmpty()) GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                            "이 장치에 등록된 작업이 없습니다", "작업 등록은 관리자에게 요청하세요."))
+                        state.otherTasks.forEach { task ->
+                            GeoRow(task.title, { onOpenTask(task.pipelineId) }, meta = task.caption,
+                                badge = { GeoBadge(task.stateLabel, workTaskTone(task.stateLabel)) })
                         }
                     }
                 }
@@ -159,148 +131,51 @@ private fun ServerTicketsSection(
 }
 
 @Composable
-private fun TasksHeader(deviceName: String, onSelectDevice: () -> Unit) {
-    val c = LocalGeoColors.current
-    Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp).height(56.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text("작업", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.ink)
-        Surface(
-            onClick = onSelectDevice,
-            shape = RoundedCornerShape(8.dp),
-            color = c.surface,
-            border = BorderStroke(1.dp, c.controlBorder),
-            modifier = Modifier
-                .heightIn(min = 40.dp)
-                .semantics { contentDescription = "작업할 장치 바꾸기" }
-        ) {
-            Row(
-                Modifier.padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    deviceName,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = c.ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.heightIn(min = 40.dp).padding(vertical = 10.dp)
-                )
-                Icon(Icons.Default.ExpandMore, contentDescription = null, tint = c.inkSubtle, modifier = Modifier.size(16.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PinnedSurveyCard(
-    pinned: PinnedSurveyState,
-    runActive: Boolean,
-    onStartSurvey: () -> Unit,
-    onChangeSection: () -> Unit
+private fun WorkTicketsSection(
+    state: TasksHomeUiState, onOpen: (String) -> Unit, onUnit: (String?) -> Unit,
+    onManual: () -> Unit, onRefresh: () -> Unit, onServer: () -> Unit, now: Instant
 ) {
-    val c = LocalGeoColors.current
-    Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("현장 수집", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = c.ink)
-                Text(
-                    "구간을 고르고 장치를 점검한 뒤 시작합니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = c.inkStrong
-                )
-            }
-            Row(
-                Modifier.fillMaxWidth().background(c.subtle, RoundedCornerShape(8.dp)).padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Icon(Icons.Default.LocationOn, contentDescription = null, tint = c.inkSubtle, modifier = Modifier.size(20.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        pinned.scopeLabel ?: "구간을 골라 주세요",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = c.ink,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(pinned.scopeCaption, style = MaterialTheme.typography.labelSmall, color = c.muted)
-                }
-                TextButton(onClick = onChangeSection, enabled = pinned.changeEnabled) {
-                    Text(
-                        if (pinned.scopeLabel != null) "바꾸기" else "고르기",
-                        color = if (pinned.changeEnabled) c.primary else c.inkSubtle
-                    )
-                }
-            }
-            if (runActive) {
-                OutlinedButton(
-                    onClick = {},
-                    enabled = false,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                ) { Text("점검하고 시작") }
-            } else {
-                PrimaryActionButton("점검하고 시작", onStartSurvey, enabled = pinned.startEnabled)
-            }
-            pinned.startBlockedReason?.let { reason ->
-                Text(reason, style = MaterialTheme.typography.bodySmall, color = c.muted)
-            }
-        }
+    val tickets = state.ticketSection
+    var picker by rememberSaveable { mutableStateOf(false) }
+    var completed by rememberSaveable(tickets?.profileId, tickets?.deviceId, tickets?.selectedUnit) { mutableStateOf(false) }
+    val opener = remember { FocusRequester() }
+    val deviceUnit = tickets?.deviceUnit
+    if (picker) GeoSheet("수집 구간 보기", { picker = false }, openerFocusRequester = opener) {
+        GeoRadioRow(state.deviceName, tickets?.selectedUnit != null, { onUnit(deviceUnit); picker = false })
+        GeoRadioRow("전체", tickets?.selectedUnit == null, { onUnit(null); picker = false })
     }
-}
-
-@Composable
-private fun ActiveRunCard(run: ActiveRunState, onOpenActiveRun: () -> Unit) {
-    val c = LocalGeoColors.current
-    Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatusBadge("수집 중", StatusTone.PENDING)
-            Text(run.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = c.ink)
-            Text(run.caption, style = MaterialTheme.typography.bodySmall, color = c.muted)
-            Spacer(Modifier.height(4.dp))
-            PrimaryActionButton("진행 보기", onOpenActiveRun, enabled = true)
-        }
-    }
-}
-
-@Composable
-private fun RecentSection(
-    recent: List<RecentRunState>,
-    emptyText: String,
-    onOpenRun: (String) -> Unit,
-    onOpenHistory: () -> Unit
-) {
-    val c = LocalGeoColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("최근 작업", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.ink)
-            TextButton(onClick = onOpenHistory) { Text("전체 기록", color = c.primary) }
-        }
-        if (recent.isEmpty()) {
-            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    emptyText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = c.muted,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
+    GeoSection("수집 구간", actionLabel = "구간 직접 고르기", onAction = onManual) {
+        if (tickets == null) {
+            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
+                "GEO& Work 수집 구간을 보려면 서버 연결이 필요합니다.", "서버 연결"), onAction = onServer)
         } else {
-            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    recent.forEachIndexed { index, row ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                        RecentRunRow(row, onClick = { onOpenRun(row.runId) })
+            GeoSegmented("수집 구간 보기", listOf(state.deviceName, "전체"),
+                if (tickets.selectedUnit == null) 1 else 0,
+                { onUnit(if (it == 0) deviceUnit else null) }, { picker = true },
+                Modifier.focusRequester(opener))
+            ticketSyncLabel(tickets, now)?.let { sync ->
+                Text(sync, style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
+            if (ticketRefreshVisible(tickets, now)) GeoButton("다시 확인", onRefresh,
+                style = GeoButtonStyle.Tertiary, enabled = !tickets.isLoading)
+            val queue = workTicketQueue(tickets.tickets, tickets.selectedUnit)
+            when {
+                tickets.isLoading && tickets.tickets.isEmpty() -> GeoSkeleton(true, Modifier.padding(top = 12.dp))
+                queue.open.isEmpty() && queue.completed.isEmpty() -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                    "이 호기에 배정된 수집 구간이 없습니다", "GEO& Work에서 배정되면 여기에 표시됩니다."), Modifier.padding(top = 16.dp))
+                else -> {
+                    queue.open.forEach { ticket ->
+                        GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket),
+                            badge = { GeoBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket)) })
+                    }
+                    if (queue.completed.isNotEmpty()) {
+                        GeoRow("완료 ${queue.completed.size}개", { completed = !completed },
+                            modifier = Modifier.semantics { stateDescription = if (completed) "펼침" else "접힘" })
+                        if (completed) queue.completed.forEach { ticket ->
+                            GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket),
+                                badge = { GeoBadge(ticketStatusLabel(ticket), ticketStatusTone(ticket)) })
+                        }
                     }
                 }
             }
@@ -309,114 +184,53 @@ private fun RecentSection(
 }
 
 @Composable
-private fun RecentRunRow(row: RecentRunState, onClick: () -> Unit) {
+private fun WorkRootHeader(state: TasksHomeUiState, onDevice: () -> Unit, onAlerts: () -> Unit,
+    unread: Int, opener: FocusRequester) {
     val c = LocalGeoColors.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                row.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = c.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (row.meta.isNotBlank()) {
-                Text(
-                    row.meta,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                    color = c.muted
-                )
+    val type = LocalGeoType.current
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxWidth().background(c.topBar).padding(horizontal = 4.dp)) {
+        val required = measurer.measure(AnnotatedString("작업"), type.heading).size.width +
+            measurer.measure(AnnotatedString(state.deviceName), type.titleSm).size.width +
+            with(density) { 152.dp.roundToPx() }
+        val stacked = required > constraints.maxWidth
+        val device: @Composable () -> Unit = {
+            Row(Modifier.focusRequester(opener).clickable(onClick = onDevice).heightIn(min = 48.dp)
+                .padding(horizontal = 8.dp, vertical = 8.dp).semantics(mergeDescendants = true) {
+                    contentDescription = "현재 장치 ${state.deviceName}, 장치 바꾸기"
+                }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("●", color = when (state.deviceStrip?.connectionTone) {
+                    StatusTone.SUCCESS -> c.chromeSuccess
+                    StatusTone.WARNING -> c.chromeWarning
+                    StatusTone.PENDING -> c.chromePending
+                    else -> c.chromeNeutral
+                }, style = type.caption)
+                Text(state.deviceName, color = c.onTopBar, style = type.titleSm, modifier = Modifier.weight(1f, fill = false))
+                androidx.compose.material3.Icon(GeoIcons.chevronDown, null, Modifier.size(20.dp), tint = c.onTopBarIcon)
             }
         }
-        RunReceiptStrip(row.cells)
-    }
-}
-
-@Composable
-private fun OtherTasksSection(
-    tasks: List<OtherTaskState>,
-    note: String,
-    emptyText: String,
-    onOpenTask: (String) -> Unit
-) {
-    val c = LocalGeoColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("다른 작업", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.ink)
-            Text(note, style = MaterialTheme.typography.labelMedium, color = c.muted, modifier = Modifier.weight(1f).padding(start = 12.dp))
-        }
-        if (tasks.isEmpty()) {
-            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    emptyText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = c.muted,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-        } else {
-            Surface(color = c.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    tasks.forEachIndexed { index, task ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = c.border)
-                        OtherTaskRow(task, onClick = { onOpenTask(task.pipelineId) })
-                    }
+        Column {
+            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("작업", color = c.onTopBar, style = type.heading, modifier = Modifier.weight(1f))
+                if (!stacked) Box(Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * .65f)) { device() }
+                Box {
+                    GeoIconButton(GeoIcons.bell, if (unread > 0) "알림 ${unread}개" else "알림", onAlerts, chrome = true)
+                    if (unread > 0) Text(unread.toString(), color = c.onAttention, style = type.count,
+                        modifier = Modifier.align(Alignment.TopEnd).background(c.attention,
+                            androidx.compose.foundation.shape.CircleShape).padding(horizontal = 5.dp, vertical = 1.dp)
+                            .clearAndSetSemantics {})
                 }
             }
+            if (stacked) Box(Modifier.padding(start = 16.dp)) { device() }
         }
     }
 }
 
-@Composable
-private fun OtherTaskRow(task: OtherTaskState, onClick: () -> Unit) {
-    val c = LocalGeoColors.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 60.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                task.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = c.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(task.caption, style = MaterialTheme.typography.bodySmall, color = c.muted)
-        }
-        Text(task.stateLabel, style = MaterialTheme.typography.labelMedium, color = c.inkStrong)
-        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = c.inkSubtle, modifier = Modifier.size(20.dp))
-    }
-}
-
-/** The one filled action on a screen. Sized to the 52 dp primary height and the 8 dp control radius. */
-@Composable
-private fun PrimaryActionButton(label: String, onClick: () -> Unit, enabled: Boolean) {
-    val c = LocalGeoColors.current
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        shape = RoundedCornerShape(8.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = c.primary, contentColor = c.onPrimary),
-        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-    ) {
-        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-    }
+internal fun workTaskTone(word: String): StatusTone = when (word) {
+    "수집 중" -> StatusTone.INFO
+    "실패" -> StatusTone.ERROR
+    "재시도 중" -> StatusTone.WARNING
+    "시작 요청 중", "중지 요청 중", "시간 맞추는 중" -> StatusTone.PENDING
+    else -> StatusTone.UNKNOWN
 }
