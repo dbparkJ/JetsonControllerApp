@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui
 
+import androidx.compose.runtime.*
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -9,6 +10,8 @@ import androidx.compose.ui.test.performScrollTo
 import com.example.jetsoncontroller.model.DeviceNetworkAddress
 import com.example.jetsoncontroller.model.DeviceNetworkDiagnostics
 import com.example.jetsoncontroller.model.SensorTestResult
+import com.example.jetsoncontroller.ui.dev.DevNetworkScreen
+import com.example.jetsoncontroller.ui.dev.DevSensorTestScreen
 import com.example.jetsoncontroller.ui.field.DeveloperScreen
 import com.example.jetsoncontroller.ui.field.FieldState
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
@@ -23,23 +26,25 @@ class DeveloperDiagnosticsScreenTest {
     @Test fun addressesAndSensorTestsAreAvailableInsideDeveloperTools() {
         var refreshes = 0
         var requested = ""
+        var sensors by mutableStateOf(false)
         compose.setContent {
             JetsonControllerTheme {
-                DeveloperScreen(
+                if (!sensors) DevNetworkScreen(
                     state = FieldState(deviceId = "jetson", online = true,
                         network = DeviceNetworkDiagnostics(listOf(
                             DeviceNetworkAddress("wlan0", "Wi-Fi", "111.111.111.45", "IPv4", "https://111.111.111.45:8765"),
                             DeviceNetworkAddress("tailscale0", "Tailscale", "100.76.81.78", "IPv4", "https://100.76.81.78:8765")
                         ))),
-                    onBack = {}, onExecute = {}, onLogs = {}, onDiagnostics = {},
-                    onRefreshNetwork = { refreshes++ }, onTestSensor = { requested = it }
-                )
+                    onBack = {}, onRefresh = { refreshes++ }
+                ) else DevSensorTestScreen(FieldState(deviceId = "jetson", online = true),
+                    { requested = it }, {}, {}, {})
             }
         }
         compose.onNodeWithText("111.111.111.45").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("100.76.81.78").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("IP 주소 새로고침").performScrollTo().performClick()
+        compose.onNodeWithText("다시 조회").performScrollTo().performClick()
         compose.runOnIdle { assertTrue(refreshes >= 2) }
+        compose.runOnIdle { sensors = true }
         compose.onNodeWithText("카메라 테스트").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("camera", requested) }
         compose.onNodeWithText("GPS 테스트").performScrollTo().performClick()
@@ -49,10 +54,9 @@ class DeveloperDiagnosticsScreenTest {
     @Test fun offlineStateDisablesDeviceTests() {
         compose.setContent {
             JetsonControllerTheme {
-                DeveloperScreen(FieldState(), onBack = {}, onExecute = {}, onLogs = {}, onDiagnostics = {})
+                DevSensorTestScreen(FieldState(), {}, {}, {}, {})
             }
         }
-        compose.onNodeWithText("IP 주소 새로고침").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("카메라 테스트").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("GPS 테스트").performScrollTo().assertIsNotEnabled()
     }
@@ -60,14 +64,14 @@ class DeveloperDiagnosticsScreenTest {
     @Test fun gpsNoFixIsShownSeparatelyFromReceiverFailure() {
         compose.setContent {
             JetsonControllerTheme {
-                DeveloperScreen(
+                DevSensorTestScreen(
                     FieldState(deviceId = "jetson", online = true, sensorTests = mapOf(
                         "gps" to SensorTestResult("gps", "PASSED", "위성 위치는 아직 확정되지 않았습니다.")
-                    )), onBack = {}, onExecute = {}, onLogs = {}, onDiagnostics = {}
+                    )), onBack = {}, onTest = {}, onCamera = {}, onGps = {}
                 )
             }
         }
-        compose.onNodeWithText("GPS: 수신 확인").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("수신 확인").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("위성 위치는 아직 확정되지 않았습니다.").performScrollTo().assertIsDisplayed()
     }
 }

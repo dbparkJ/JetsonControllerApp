@@ -19,6 +19,8 @@ class WifiDirectViewModel(
     )
 
     fun startDiscovery() {
+        val state = repository.wifiDirectState.value
+        if (!state.supported || state.cleaningUp || state.connectingPeerAddress != null || state.connected || state.discovering) return
         repository.startWifiDirectDiscovery()
     }
 
@@ -27,11 +29,18 @@ class WifiDirectViewModel(
     }
 
     fun connect(peer: WifiDirectPeer) {
-        repository.connectWifiDirect(peer)
+        val state = repository.wifiDirectState.value
+        if (!canConnectDirectPeer(state, permissionGranted = true, address = peer.deviceAddress)) return
+        state.peers.firstOrNull { it.deviceAddress == peer.deviceAddress }?.let(repository::connectWifiDirect)
     }
 
     fun retryApi() {
+        if (directStage(repository.wifiDirectState.value, permissionGranted = true) != DirectStage.AUTHENTICATION_ERROR) return
         repository.retryWifiDirectApi()
+    }
+
+    fun cancel() {
+        repository.cancelWifiDirectConnection()
     }
 
     override fun onCleared() {

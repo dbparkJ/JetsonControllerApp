@@ -20,7 +20,9 @@ from upload_receiver.geon_work import (
 )
 from upload_receiver.outbound import Dispatcher, SendResult, enqueue
 from upload_receiver.signing import canonical_json
-from upload_receiver.tickets import PROPERTIES, TARGET, TicketSync, resolve_schema
+from upload_receiver.tickets import (
+    MAX_GEOMETRY_BYTES, PROPERTIES, TARGET, TicketSync, resolve_schema, ticket_geometry,
+)
 from tests.test_device_events import CONFIG, DEVICE_ID, NOW, SECOND_DEVICE_ID
 
 
@@ -211,6 +213,57 @@ class TicketsCoreTest(unittest.TestCase):
         self.assertEqual(self.configuration.state(), {"state": "ERROR", "detail": "BOARD_SCHEMA_MISMATCH"})
         self.assertFalse(self.dispatcher.run_once(NOW + 1))
         self.assertEqual(len(self.api.requests), 1)
+
+    def test_geometry_validation_checks_size_and_json_shape_only(self):
+        board = copy.deepcopy(self.api.board)
+        prop_id = identifier("수집 구역")
+        board["properties"].append({"id": prop_id, "name": "수집 구역", "type": "TEXT"})
+        schema = resolve_schema(board)
+        geometry = {
+            "schemaVersion": 1,
+            "features": {"type": "FeatureCollection", "features": []},
+            "range": {"bufferM": 10, "polygon": {"type": "Polygon", "coordinates": []},
+                      "bbox": [1, 2, 3, 4], "lengthM": 100, "areaM2": 200},
+            "revision": "zone-r1",
+            "unrecognizedDraftField": {"kept": True},
+        }
+        row = {"values": {prop_id: {"type": "TEXT", "value": json.dumps(geometry, ensure_ascii=False)}}}
+        self.assertEqual(json.loads(ticket_geometry(row, schema)), geometry)
+        row["values"][prop_id]["value"] = geometry
+        self.assertEqual(json.loads(ticket_geometry(row, schema)), geometry)
+
+        for value in (
+            "not json",
+            json.dumps([geometry]),
+            json.dumps({**geometry, "schemaVersion": 2}),
+            json.dumps({**geometry, "features": []}),
+            json.dumps({**geometry, "range": []}),
+            " " * (MAX_GEOMETRY_BYTES + 1),
+        ):
+            row["values"][prop_id]["value"] = value
+            self.assertIsNone(ticket_geometry(row, schema), value[:80])
+
+    def test_ticket_geometry_is_cached_for_a_synced_board_row(self):
+        prop_id = identifier("수집 구역")
+        self.api.board["properties"].append({"id": prop_id, "name": "수집 구역", "type": "TEXT"})
+        geometry = {
+            "schemaVersion": 1,
+            "features": {"type": "FeatureCollection", "features": []},
+            "range": {"bufferM": 10, "polygon": {"type": "Polygon", "coordinates": []},
+                      "bbox": [1, 2, 3, 4], "lengthM": 100, "areaM2": 200},
+            "revision": "opaque-zone-revision",
+            "extra": ["preserved"],
+        }
+        self.api.rows["row-1"]["values"][prop_id] = {
+            "type": "TEXT", "value": json.dumps(geometry, ensure_ascii=False),
+        }
+        self.initialize()
+        with closing(self.database.connect()) as connection:
+            stored = connection.execute(
+                "SELECT geometry_json FROM board_ticket_geometry WHERE row_id='row-1'"
+            ).fetchone()
+        self.assertIsNotNone(stored)
+        self.assertEqual(json.loads(stored[0]), geometry)
 
     def test_full_then_incremental_overlap_paging_done_archived_and_no_regression(self):
         self.api.add("row-2", unit=1, updated=NOW + 2)
@@ -612,6 +665,20 @@ class TicketsApiTest(unittest.TestCase):
         return self.client.post(f"/v1/server/tickets/{row}/complete", params={"projectId": "road-alpha"},
                                 headers=headers or self.headers(), json={"runId": run})
 
+    def sync_geometry(self, value, revision):
+        prop_id = identifier("수집 구역")
+        prop = next((p for p in self.api.board["properties"] if p["id"] == prop_id), None)
+        if prop is None:
+            self.api.board["properties"].append({"id": prop_id, "name": "수집 구역", "type": "TEXT"})
+        row = self.api.rows["row-1"]
+        row["revision"] = revision
+        row["updatedAt"] = timestamp(NOW + revision + 1000)
+        row["values"][prop_id] = {"type": "TEXT", "value": value}
+        self.sync._schema = None
+        now = NOW + revision + 2000
+        self.sync.run_once(now)
+        self.sync.run_once(now + 0.5)
+
     def test_list_shape_filters_units_auth_project_and_device_scope(self):
         result = self.list(deviceId=DEVICE_ID)
         self.assertEqual(result.status_code, 200, result.text)
@@ -636,6 +703,36 @@ class TicketsApiTest(unittest.TestCase):
         self.assertEqual(self.client.get("/v1/server/tickets", params={"projectId": "road-alpha"}, headers={"Authorization": "Bearer " + self.token_employee}).status_code, 400)
         viewer = self.helpers.configure_employee_access(self, employee_id="viewer", role="VIEWER")
         self.assertEqual(self.client.get("/v1/server/tickets", params={"projectId": "road-alpha"}, headers=self.headers(viewer)).status_code, 200)
+
+    def test_geometry_is_optional_and_round_trips_through_ticket_api(self):
+        original = self.list().json()
+        expected_ticket_fields = {
+            "rowId", "title", "project", "unit", "assignees", "dueDate", "status",
+            "revision", "updatedAt", "runId", "report",
+        }
+        self.assertEqual(set(original["tickets"][0]), expected_ticket_fields)
+
+        geometry = {
+            "schemaVersion": 1,
+            "features": {"type": "FeatureCollection", "features": [
+                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [151.2, -33.8]},
+                 "properties": {"label": "A"}},
+            ]},
+            "range": {"bufferM": 10, "polygon": {"type": "Polygon", "coordinates": []},
+                      "bbox": [151.1, -33.9, 151.3, -33.7], "lengthM": 42.5, "areaM2": 100},
+            "revision": "zone-r7",
+            "hash": "draft-field-passthrough",
+        }
+        self.sync_geometry(json.dumps(geometry, ensure_ascii=False), 2)
+        ticket = next(t for t in self.list().json()["tickets"] if t["rowId"] == "row-1")
+        self.assertEqual(ticket["geometry"], geometry)
+        self.assertEqual(set(ticket), expected_ticket_fields | {"geometry"})
+
+        # A later invalid draft value invalidates the cached geometry without hiding the ticket.
+        self.sync_geometry("{malformed", 3)
+        ticket = next(t for t in self.list().json()["tickets"] if t["rowId"] == "row-1")
+        self.assertEqual(set(ticket), expected_ticket_fields)
+        self.assertEqual(self.list().json()["integration"]["state"], "ACTIVE")
 
     def test_blocked_ticket_is_listed_open_but_cannot_start(self):
         self.api.add("blocked", status="막힘", updated=NOW + 200)

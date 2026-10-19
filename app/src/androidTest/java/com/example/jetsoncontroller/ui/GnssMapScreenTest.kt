@@ -31,17 +31,18 @@ class GnssMapScreenTest {
         compose.onNodeWithText("정밀 위치 50%").assertIsDisplayed()
         compose.onAllNodesWithText("FIXED", substring = true).assertCountEquals(0)
         compose.onAllNodesWithText("RTK", substring = true).assertCountEquals(0)
-        val detailAction = compose.onNodeWithText("위치 상세").assertIsDisplayed()
+        compose.onNodeWithContentDescription("패널 펼치기").performClick()
+        val detailAction = compose.onNodeWithText("위치 품질 자세히").performScrollTo().assertIsDisplayed()
         assertTrue(
             detailAction.fetchSemanticsNode().boundsInRoot.bottom <=
                 compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom
         )
         detailAction.performClick()
-        compose.onNodeWithText("위치 품질 상세").assertIsDisplayed()
+        compose.onNodeWithText("위치 품질").assertIsDisplayed()
         compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("닫기")))
             .performScrollToNode(hasText("닫기"))
         compose.onNodeWithText("닫기").performClick()
-        compose.onNodeWithText("이전 화면으로").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("뒤로").assertIsDisplayed().performClick()
         compose.runOnIdle { assertTrue(returns.get() == 1) }
         captureWindow("map-quality-normal")
     }
@@ -53,8 +54,9 @@ class GnssMapScreenTest {
         assertTrue(compose.onNodeWithTag("gnss-map-pane").fetchSemanticsNode().boundsInRoot.height > 100f)
         val backgroundHeadlineHeight = compose.onNodeWithText("정밀 위치 50%")
             .fetchSemanticsNode().boundsInRoot.height
-        compose.onNodeWithText("위치 상세").assertIsDisplayed().performClick()
-        val sheetTitleHeight = compose.onNodeWithText("위치 품질 상세")
+        compose.onNodeWithContentDescription("패널 펼치기").performClick()
+        compose.onNodeWithText("위치 품질 자세히").performScrollTo().assertIsDisplayed().performClick()
+        val sheetTitleHeight = compose.onNodeWithText("위치 품질")
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot.height
         assertTrue(sheetTitleHeight >= backgroundHeadlineHeight)
         compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("닫기")))

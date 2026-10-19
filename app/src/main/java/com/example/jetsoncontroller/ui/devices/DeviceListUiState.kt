@@ -31,5 +31,7 @@ data class DeviceListUiState(
         String? = null,
 
     val scanError:
-        String? = null
+        String? = null,
+
+    val reconnectErrorDeviceId: String? = null
 )

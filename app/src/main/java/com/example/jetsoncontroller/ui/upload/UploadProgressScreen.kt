@@ -234,7 +234,7 @@ fun UploadProgressScreen(
                             error?.let { GeoInlineNote("전송 상태를 다시 확인하고 시도하세요.", tone = StatusTone.ERROR) }
                             if (developerModeEnabled) GeoTechInfo(listOf(
                                 GeoTechnicalValue("작업", job.id), GeoTechnicalValue("원본", job.relativePath)),
-                                developerMode = true, showTechnicalInfo = true)
+                                developerMode = developerModeEnabled, showTechnicalInfo = com.example.jetsoncontroller.ui.dev.rememberTechnicalInfo().value)
                         }
                         item { inlineAction() }
                     }

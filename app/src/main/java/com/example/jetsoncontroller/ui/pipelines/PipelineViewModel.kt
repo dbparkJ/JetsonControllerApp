@@ -80,6 +80,7 @@ data class PipelineUiState(
     val pendingActions: Map<String, String> = emptyMap(),
     val observedAtMillis: Long? = null,
     val registrationComplete: Boolean = false,
+    val registeredPipelineId: String? = null,
     val detailPipelineId: String? = null,
     val logFiles: List<PipelineLogFile> = emptyList(),
     val selectedLogId: String? = null,
@@ -227,13 +228,17 @@ class PipelineViewModel(
     }
 
     fun beginCreate() {
-        if (_uiState.value.draft != PipelineDraft()) return
+        if (_uiState.value.draft != PipelineDraft()) {
+            _uiState.value = _uiState.value.copy(registrationComplete = false, registeredPipelineId = null)
+            return
+        }
         _uiState.value = _uiState.value.copy(
             draft = PipelineDraft(),
             discoveredFolder = null,
             isDiscoveringFolder = false,
             picker = PipelinePickerState(),
             registrationComplete = false,
+            registeredPipelineId = null,
             message = null,
             error = null
         )
@@ -498,6 +503,7 @@ class PipelineViewModel(
                         pipelines = (others + registered).sortedBy { it.label.lowercase() },
                         isLoading = false,
                         registrationComplete = true,
+                        registeredPipelineId = registered.id,
                         draft = PipelineDraft(), discoveredFolder = null,
                         message = "${registered.label} 작업을 등록했습니다."
                     )

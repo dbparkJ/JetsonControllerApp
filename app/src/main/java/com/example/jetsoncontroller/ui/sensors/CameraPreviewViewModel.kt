@@ -26,7 +26,11 @@ data class CameraPreviewUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val checkedAtEpochMillis: Long = 0L,
-    val updatedAtEpochMillis: Long? = null
+    val updatedAtEpochMillis: Long? = null,
+    val deviceId: String? = null,
+    val deviceName: String = "선택한 장치",
+    val targetConnected: Boolean = false,
+    val targetStillCurrent: () -> Boolean = { false }
 )
 
 class CameraPreviewViewModel(
@@ -34,6 +38,7 @@ class CameraPreviewViewModel(
 ) : ViewModel() {
     private val visible = MutableStateFlow(false)
     private val sensorActive = MutableStateFlow(false)
+    private val previewTargetId = MutableStateFlow<String?>(null)
     private val loadMutex = Mutex()
     private var streamGeneration = 0L
     private val _uiState = MutableStateFlow(CameraPreviewUiState())
@@ -41,12 +46,14 @@ class CameraPreviewViewModel(
 
     init {
         viewModelScope.launch {
-            kotlinx.coroutines.flow.combine(visible, sensorActive, repository.selectedDeviceId, repository.transportState) { isVisible, isActive, deviceId, transport ->
-                Triple(isVisible && isActive && transport is com.example.jetsoncontroller.data.transport.TransportState.Connected &&
-                    transport.deviceId.equals(deviceId, true), deviceId, transport)
-            }.collectLatest { (shouldStream, _, _) ->
+            kotlinx.coroutines.flow.combine(visible, sensorActive, repository.selectedDeviceId, repository.transportState, previewTargetId) { isVisible, isActive, deviceId, transport, targetId ->
+                Triple(cameraTargetCanStream(isVisible, isActive, targetId, deviceId,
+                    (transport as? com.example.jetsoncontroller.data.transport.TransportState.Connected)?.deviceId), targetId, transport)
+            }.collectLatest { (shouldStream, deviceId, _) ->
                 streamGeneration += 1
-                _uiState.value = CameraPreviewUiState()
+                _uiState.value = CameraPreviewUiState(deviceId = deviceId, targetConnected = shouldStream,
+                    targetStillCurrent = { currentTargetConnected(deviceId) },
+                    deviceName = repository.registeredDevices.value.firstOrNull { it.deviceId.equals(deviceId, true) }?.deviceName ?: "선택한 장치")
                 if (!shouldStream) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -67,7 +74,9 @@ class CameraPreviewViewModel(
     }
 
     fun setVisible(isVisible: Boolean) {
+        if (isVisible && !visible.value) previewTargetId.value = repository.selectedDeviceId.value
         visible.value = isVisible
+        if (!isVisible) previewTargetId.value = null
     }
 
     fun setSensorActive(isActive: Boolean) {
@@ -82,16 +91,20 @@ class CameraPreviewViewModel(
     private suspend fun loadFrame(
         forceRefresh: Boolean = false
     ): FrameLoadResult = loadMutex.withLock {
+        val transport = repository.transportState.value as? com.example.jetsoncontroller.data.transport.TransportState.Connected
+        if (!visible.value || !sensorActive.value || transport == null ||
+            !transport.deviceId.equals(_uiState.value.deviceId, true) ||
+            !_uiState.value.deviceId.equals(repository.selectedDeviceId.value, true)) return@withLock FrameLoadResult.FAILURE
         val generation = streamGeneration
         val current = _uiState.value
         _uiState.value = current.copy(
-            isLoading = current.frame == null,
+            isLoading = current.frame == null && current.error == null,
             isRefreshing = forceRefresh,
-            error = null
+            error = current.error
         )
         try {
             val preview = repository.getCameraPreviewFrame(current.frameRevision).getOrThrow()
-            if (generation != streamGeneration || !visible.value) return@withLock FrameLoadResult.FAILURE
+            if (generation != streamGeneration || !currentTargetConnected(current.deviceId)) return@withLock FrameLoadResult.FAILURE
             if (preview.revision != null && preview.revision == current.frameRevision) {
                 _uiState.value = current.copy(
                     isLoading = false,
@@ -105,8 +118,12 @@ class CameraPreviewViewModel(
                     BitmapFactory.decodeByteArray(preview.bytes, 0, preview.bytes.size)
                         ?: error("카메라 프레임 형식을 읽을 수 없습니다.")
                 }
-                if (generation != streamGeneration || !visible.value) return@withLock FrameLoadResult.FAILURE
+                if (generation != streamGeneration || !currentTargetConnected(current.deviceId)) return@withLock FrameLoadResult.FAILURE
                 _uiState.value = CameraPreviewUiState(
+                    deviceId = current.deviceId,
+                    deviceName = current.deviceName,
+                    targetConnected = current.targetConnected,
+                    targetStillCurrent = current.targetStillCurrent,
                     checkedAtEpochMillis = System.currentTimeMillis(),
                     frame = bitmap,
                     frameRevision = preview.revision,
@@ -131,6 +148,10 @@ class CameraPreviewViewModel(
             FrameLoadResult.FAILURE
         }
     }
+
+    private fun currentTargetConnected(targetId: String?): Boolean = cameraTargetCanStream(
+        visible.value, sensorActive.value, targetId, repository.selectedDeviceId.value,
+        (repository.transportState.value as? com.example.jetsoncontroller.data.transport.TransportState.Connected)?.deviceId)
 
     class Factory(
         private val repository: JetsonRepository

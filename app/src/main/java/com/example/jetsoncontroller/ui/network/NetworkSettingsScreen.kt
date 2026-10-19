@@ -1,102 +1,30 @@
 package com.example.jetsoncontroller.ui.network
 
-import com.example.jetsoncontroller.ui.theme.OutlinedButton
-import com.example.jetsoncontroller.ui.theme.Button
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Smartphone
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.network.WifiAccessPoint
-import com.example.jetsoncontroller.data.network.WifiSecurity
-import com.example.jetsoncontroller.data.transport.TransportType
-import com.example.jetsoncontroller.ui.components.EmptyState
-import com.example.jetsoncontroller.ui.components.AdaptiveContent
-import com.example.jetsoncontroller.ui.components.InlineMessage
-import com.example.jetsoncontroller.ui.components.SectionHeader
-import com.example.jetsoncontroller.ui.theme.GeoSize
-import com.example.jetsoncontroller.ui.theme.GeoSpace
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoChrome
+import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
+import com.example.jetsoncontroller.ui.devices.deviceTransportLabel
+import com.example.jetsoncontroller.ui.devices.rememberDeviceOverlayHost
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NetworkSettingsScreen(
     state: NetworkSettingsUiState,
@@ -109,670 +37,138 @@ fun NetworkSettingsScreen(
     onRequestWifiScanPermission: () -> Unit,
     onScanAccessPoints: () -> Unit,
     onSelectAccessPoint: (WifiAccessPoint) -> Unit,
-    deviceName: String = "선택한 장치"
+    deviceName: String = "선택한 장치",
+    onApply: (WifiApplyTarget) -> Unit = { onSubmit() },
+    selectedDeviceId: String? = state.deviceId,
+    ongoingStrip: GeoStatusStripState? = null
 ) {
-    val listState = rememberLazyListState()
-    var manualEntryExpanded by rememberSaveable { mutableStateOf(false) }
-    var menuOpen by rememberSaveable { mutableStateOf(false) }
-    var connectionInfoOpen by rememberSaveable { mutableStateOf(false) }
-    // B2: applying Wi-Fi to the device drops the current link, so the operator confirms the
-    // device, the new network and the consequence before anything is sent.
-    var submitConfirmOpen by rememberSaveable { mutableStateOf(false) }
-    val requestSubmit: () -> Unit = { submitConfirmOpen = true }
-    if (submitConfirmOpen) {
-        val targetNetwork = state.ssid.takeIf { it.isNotBlank() }
-            ?: state.selectedAccessPointSsid
-            ?: "선택한 네트워크"
-        AlertDialog(
-            onDismissRequest = { submitConfirmOpen = false },
-            title = { Text("장치 Wi-Fi 변경") },
-            text = {
-                Text(
-                    "$deviceName 장치를 \"$targetNetwork\" 네트워크에 연결하도록 설정합니다.\n" +
-                        "적용하면 지금 연결이 끊길 수 있습니다."
-                )
-            },
-            confirmButton = {
-                Button(onClick = { submitConfirmOpen = false; onSubmit() }) {
-                    Text("적용")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { submitConfirmOpen = false }) { Text("취소") }
-            }
-        )
-    }
-
-    if (connectionInfoOpen) {
-        AlertDialog(
-            onDismissRequest = { connectionInfoOpen = false },
-            title = { Text("연결 상태") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
-                    NetworkIdentityRow(
-                        icon = Icons.Default.Smartphone,
-                        label = "모바일",
-                        value = state.mobileWifiSsid ?: "Wi-Fi 확인 필요"
-                    )
-                    NetworkIdentityRow(
-                        icon = Icons.Default.Router,
-                        label = "장치",
-                        value = if (state.wifiConnected) state.currentWifiSsid ?: "연결된 Wi-Fi"
-                            else "Wi-Fi 연결 안 됨"
-                    )
-                    when {
-                        state.sameWifi && state.transportType == TransportType.LAN ->
-                            Text("같은 Wi-Fi에서 LAN으로 연결되었습니다.")
-                        state.sameWifi -> Text("모바일과 장치가 같은 Wi-Fi에 연결되어 있습니다.")
-                        !state.mobileWifiSsid.isNullOrBlank() && !state.currentWifiSsid.isNullOrBlank() ->
-                            Text("모바일과 장치의 Wi-Fi가 서로 다릅니다.")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { connectionInfoOpen = false }) { Text("닫기") }
-            }
-        )
-    }
-
-    Scaffold(
-        containerColor = LocalGeoColors.current.canvas,
-        topBar = {
-            TopAppBar(
-                title = { Text("네트워크", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "네트워크 메뉴")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("연결 상태 보기") },
-                            onClick = { menuOpen = false; connectionInfoOpen = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("숨겨진 네트워크 추가") },
-                            onClick = {
-                                menuOpen = false
-                                manualEntryExpanded = true
-                                onSsidChange("")
-                                onHiddenChange(true)
-                            }
-                        )
-                    }
-                },
-                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                    containerColor = LocalGeoColors.current.canvas
-                )
-            )
-        }
-    ) { paddingValues ->
-        AdaptiveContent(Modifier.fillMaxSize().padding(paddingValues)) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .imePadding()
-                        .navigationBarsPadding(),
-                    contentPadding = PaddingValues(top = GeoSpace.sm, bottom = GeoSpace.xxl),
-                    verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
-                ) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
-                    Text("장치 Wi-Fi", style = MaterialTheme.typography.headlineMedium)
-                    Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = LocalGeoColors.current.muted)
-                    CurrentWifiCard(state.currentWifiSsid, state.wifiConnected)
-                    state.accessPointError?.let { error ->
-                        InlineMessage(message = error, isError = true)
-                    }
-                }
-            }
-
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.md)) {
-                    Text("다른 네트워크", style = MaterialTheme.typography.titleLarge)
-                    Button(
-                        onClick = if (wifiScanPermissionGranted) onScanAccessPoints
-                            else onRequestWifiScanPermission,
-                        enabled = !state.scanningAccessPoints,
-                        modifier = Modifier.fillMaxWidth().height(GeoSize.primaryAction)
-                    ) {
-                        if (state.scanningAccessPoints) {
-                            CircularProgressIndicator(Modifier.size(GeoSize.iconMd), strokeWidth = 2.dp)
-                            Spacer(Modifier.size(GeoSpace.sm))
-                            Text("검색 중…")
-                        } else {
-                            Text(if (wifiScanPermissionGranted) "네트워크 다시 검색" else "검색 권한 허용")
-                            Spacer(Modifier.size(GeoSpace.md))
-                            Icon(Icons.Default.Refresh, contentDescription = null)
-                        }
-                    }
-                    Text(
-                        "목록에서 네트워크를 선택해 연결합니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalGeoColors.current.muted
-                    )
-                }
-            }
-
-            if (state.accessPoints.isEmpty() && !state.scanningAccessPoints) {
-                // The visible search action already explains how to populate the list;
-                // avoid a second oversized empty-state action below it.
-            } else {
-                items(
-                    items = state.accessPoints,
-                    key = { accessPoint -> accessPoint.ssid }
-                ) { accessPoint ->
-                    WifiAccessPointRow(
-                        accessPoint = accessPoint,
-                        selected = state.selectedAccessPointSsid == accessPoint.ssid &&
-                            !state.isCurrentJetsonWifi(accessPoint.ssid),
-                        connected = state.isCurrentJetsonWifi(accessPoint.ssid),
-                        password = state.password,
-                        sending = state.sending,
-                        controlAvailable = state.transportType != null,
-                        message = state.message,
-                        messageIsError = state.isError,
-                        onSelect = {
-                            manualEntryExpanded = false
-                            onSelectAccessPoint(accessPoint)
-                        },
-                        onPasswordChange = onPasswordChange,
-                        onSubmit = requestSubmit
-                    )
-                    HorizontalDivider()
-                }
-            }
-
-            item {
-                SectionHeader(
-                    title = "직접 입력",
-                    modifier = Modifier.padding(top = GeoSpace.sm)
-                )
-                ListItem(
-                    headlineContent = { Text("숨겨진 네트워크 추가") },
-                    leadingContent = { Icon(Icons.Default.Add, contentDescription = null) },
-                    trailingContent = {
-                        Icon(
-                            if (manualEntryExpanded) Icons.Default.KeyboardArrowUp
-                            else Icons.Default.KeyboardArrowDown,
-                            contentDescription = null
-                        )
-                    },
-                    modifier = Modifier.clickable {
-                        manualEntryExpanded = !manualEntryExpanded
-                        if (manualEntryExpanded) {
-                            onSsidChange("")
-                            onHiddenChange(true)
-                        }
-                    }
-                )
-                AnimatedVisibility(visible = manualEntryExpanded) {
-                    ManualNetworkForm(
-                        state = state,
-                        onSsidChange = onSsidChange,
-                        onPasswordChange = onPasswordChange,
-                        onHiddenChange = onHiddenChange,
-                        onSubmit = requestSubmit
-                    )
-                }
-            }
-                }
-        }
-    }
-}
-
-@Composable
-private fun NetworkConnectionStatus(
-    state: NetworkSettingsUiState,
-    wifiScanPermissionGranted: Boolean,
-    onRequestWifiScanPermission: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item { ConnectionMethodLabel(state.transportType) }
-        item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.surfaceContainerLow
-            ) {
-                Column {
-                    NetworkIdentityRow(
-                        icon = Icons.Default.Smartphone,
-                        label = "모바일",
-                        value = state.mobileWifiSsid ?: "Wi-Fi 확인 필요"
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
-                    NetworkIdentityRow(
-                        icon = Icons.Default.Router,
-                        label = "Jetson",
-                        value = if (state.wifiConnected) {
-                            state.currentWifiSsid ?: "연결된 Wi-Fi"
-                        } else {
-                            "Wi-Fi 연결 안 됨"
-                        }
-                    )
-                }
-            }
-        }
-        item {
-            when {
-                state.sameWifi && state.transportType == TransportType.LAN -> InlineMessage(
-                    "같은 Wi-Fi에서 LAN으로 자동 연결되었습니다.",
-                    isError = false
-                )
-                state.sameWifi -> InlineMessage(
-                    "모바일과 Jetson이 같은 Wi-Fi에 연결되어 있습니다.",
-                    isError = false
-                )
-                !wifiScanPermissionGranted -> InlineMessage(
-                    "모바일 Wi-Fi를 확인하려면 위치 권한이 필요합니다.",
-                    isError = false
-                )
-                !state.mobileWifiSsid.isNullOrBlank() && !state.currentWifiSsid.isNullOrBlank() ->
-                    InlineMessage(
-                        "모바일과 Jetson의 Wi-Fi가 서로 다릅니다.",
-                        isError = true
-                    )
-            }
-        }
-        if (!wifiScanPermissionGranted) {
-            item {
-                OutlinedButton(
-                    onClick = onRequestWifiScanPermission,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Wi-Fi 확인 권한 허용")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NetworkIdentityRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String
-) {
-    ListItem(
-        headlineContent = { Text(label) },
-        supportingContent = {
-            Text(value, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
-        leadingContent = { Icon(icon, contentDescription = null) }
-    )
-}
-
-@Composable
-private fun CurrentWifiCard(ssid: String?, connected: Boolean) {
     val c = LocalGeoColors.current
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = c.surface,
-        contentColor = c.ink,
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Row(
-            modifier = Modifier.padding(GeoSpace.xl),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(GeoSpace.md)
-        ) {
-            Icon(Icons.Default.Wifi, contentDescription = null, tint = if (connected) c.success else c.muted)
-            Column {
-                Text(
-                    ssid.takeIf { connected && !it.isNullOrBlank() } ?: "연결된 Wi-Fi 없음",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(if (connected) "연결됨" else "연결 안 됨", style = MaterialTheme.typography.bodySmall, color = c.muted)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConnectionMethodLabel(type: TransportType?) {
-    val text = if (type == null) {
-        "Jetson 연결 확인 중"
-    } else {
-        "Jetson에 Wi-Fi 설정 전송 가능"
-    }
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        shape = MaterialTheme.shapes.small
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
-            Text(text, style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun WifiAccessPointRow(
-    accessPoint: WifiAccessPoint,
-    selected: Boolean,
-    connected: Boolean,
-    password: String,
-    sending: Boolean,
-    controlAvailable: Boolean,
-    message: String?,
-    messageIsError: Boolean,
-    onSelect: () -> Unit,
-    onPasswordChange: (String) -> Unit,
-    onSubmit: () -> Unit
-) {
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    val focusRequester = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
+    val type = LocalGeoType.current
+    val focus = LocalFocusManager.current
     val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    var passwordVisible by rememberSaveable(accessPoint.ssid) { mutableStateOf(false) }
-
-    LaunchedEffect(selected) {
-        if (selected) {
-            delay(180)
-            bringIntoViewRequester.bringIntoView()
-            if (accessPoint.requiresPassword && accessPoint.provisionable) {
-                focusRequester.requestFocus()
+    val chrome = LocalGeoChrome.current
+    var titleHeight by remember { mutableFloatStateOf(56f) }
+    var manual by rememberSaveable(state.deviceId) { mutableStateOf(false) }
+    var menu by rememberSaveable(state.deviceId) { mutableStateOf(false) }
+    var info by rememberSaveable(state.deviceId) { mutableStateOf(false) }
+    var confirmation by remember(state.deviceId) { mutableStateOf<WifiApplyTarget?>(null) }
+    val host = rememberDeviceOverlayHost(selectedDeviceId, menu || info || confirmation != null) {
+        menu = false; info = false; confirmation = null
+    }
+    val connected = state.transportType != null && state.deviceId.equals(selectedDeviceId, true)
+    val selected = state.accessPoints.firstOrNull { it.ssid == state.selectedAccessPointSsid }
+    val editing = manual || selected != null
+    val unavailable = state.wifiApplyUnavailableReason()
+    val requestApply = {
+        focus.clearFocus()
+        confirmation = state.applyTarget()
+    }
+    Column(Modifier.fillMaxSize()) {
+        DeviceTitleBar("장치 Wi-Fi", onBack, modifier = Modifier.onSizeChanged { titleHeight = it.height / density.density }) {
+            Box {
+                GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
+                GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("연결 상태", { info = true })))
             }
         }
-    }
-
-    LaunchedEffect(selected, imeBottom) {
-        if (selected && imeBottom > 0) {
-            delay(80)
-            bringIntoViewRequester.bringIntoView()
-        }
-    }
-
-    Surface(
-        color = if (selected || connected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surface
-        }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize()
-                .bringIntoViewRequester(bringIntoViewRequester)
-        ) {
-            ListItem(
-                headlineContent = {
-                    Text(
-                        accessPoint.ssid,
-                        fontWeight = if (selected || connected) {
-                            FontWeight.SemiBold
-                        } else {
-                            FontWeight.Normal
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+        GeoActionArea(
+            visibilityKey = state.deviceId to editing,
+            modifier = Modifier.fillMaxSize(),
+            chrome = chrome.copy(topDp = chrome.topDp + titleHeight),
+            action = {
+                if (editing) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("$deviceName · ${deviceTransportLabel(state.transportType)} · ${unavailable ?: "적용할 수 있습니다."}",
+                        style = type.body, color = c.textSecondary)
+                    GeoButton("적용", { requestApply() }, Modifier.testTag("wifi-connect-button"), enabled = unavailable == null,
+                        busy = state.sending, busyLabel = "적용 중", actionArea = true)
+                }
+            }
+        ) { inlineAction ->
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                item { GeoStatusStrip(listOfNotNull(ongoingStrip)) }
+                item {
+                    Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = 16.dp)) {
+                        Text(deviceName, style = type.caption, color = c.textSecondary)
+                        GeoSection("현재 네트워크") {
+                            GeoFactRow(state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "연결된 Wi-Fi 없음",
+                                if (connected && state.wifiConnected) "연결됨" else "미확인",
+                                Modifier.testTag("wifi-access-point-${state.currentWifiSsid}").semantics { disabled() })
+                            if (connected && state.sameWifi) Text("$deviceName · 휴대폰과 같은 네트워크",
+                                style = type.caption, color = c.textSecondary)
                         }
-                    )
-                },
-                supportingContent = {
-                    Text(
-                        if (connected) {
-                            "현재 Jetson이 연결됨 · ${securityLabel(accessPoint.security)}"
-                        } else {
-                            securityLabel(accessPoint.security)
-                        }
-                    )
-                },
-                leadingContent = {
-                    Icon(
-                        Icons.Default.Wifi,
-                        contentDescription = null,
-                        tint = if (selected || connected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                trailingContent = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            signalLabel(accessPoint.rssi),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (selected || connected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.size(8.dp))
-                        Icon(
-                            when {
-                                selected || connected -> Icons.Default.CheckCircle
-                                accessPoint.secured -> Icons.Default.Lock
-                                else -> Icons.Default.LockOpen
-                            },
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = if (selected || connected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    supportingColor = if (selected || connected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                ),
-                modifier = Modifier
-                    .testTag("wifi-access-point-${accessPoint.ssid}")
-                    .clickable(enabled = !connected, onClick = onSelect)
-            )
-
-            AnimatedVisibility(visible = selected && !connected) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 68.dp, end = 20.dp, bottom = 16.dp)
-                        .testTag("wifi-selected-network-form"),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (!accessPoint.provisionable) {
-                        InlineMessage(
-                            message = when (accessPoint.security) {
-                                WifiSecurity.ENTERPRISE ->
-                                    "기업용 네트워크는 사용자 계정과 인증서 설정이 필요합니다."
-                                else -> "WEP 네트워크는 보안상 앱에서 연결하지 않습니다."
-                            },
-                            isError = false
-                        )
-                    } else if (accessPoint.requiresPassword) {
-                        OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-                            value = password,
-                            onValueChange = onPasswordChange,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester)
-                                .onFocusChanged { focus ->
-                                    if (focus.isFocused) {
-                                        scope.launch {
-                                            delay(180)
-                                            bringIntoViewRequester.bringIntoView()
+                        GeoSection("주변 네트워크", actionLabel = if (wifiScanPermissionGranted) "다시 검색" else null,
+                            onAction = if (wifiScanPermissionGranted) onScanAccessPoints else null) {
+                            if (!wifiScanPermissionGranted) {
+                                GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "위치 권한이 꺼져 있습니다",
+                                    "주변 네트워크를 찾으려면 위치 권한이 필요합니다.", "권한 허용"),
+                                    onAction = onRequestWifiScanPermission)
+                            } else {
+                                if (state.scanningAccessPoints) Text("주변 네트워크를 찾고 있습니다.", style = type.body, color = c.textSecondary)
+                                state.accessPointError?.let {
+                                    GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "네트워크를 찾지 못했습니다",
+                                        "연결을 확인하고 다시 시도하세요.", "다시 시도"), onAction = onScanAccessPoints)
+                                }
+                                if (!state.scanningAccessPoints && state.accessPointError == null && state.accessPoints.isEmpty()) {
+                                    Text("주변 네트워크가 없습니다.", style = type.body, color = c.textSecondary)
+                                }
+                                Column(Modifier.selectableGroup()) {
+                                    state.accessPoints.filterNot { state.isCurrentJetsonWifi(it.ssid) }.forEach { accessPoint ->
+                                        val expanded = !manual && accessPoint.ssid == state.selectedAccessPointSsid
+                                        GeoRadioRow(accessPoint.ssid, expanded, {
+                                            manual = false
+                                            onSelectAccessPoint(accessPoint)
+                                        }, enabled = connected && !state.sending && accessPoint.provisionable,
+                                            disabledReason = if (!accessPoint.provisionable) "이 네트워크의 인증 방식은 지원하지 않습니다."
+                                                else "연결되면 쓸 수 있습니다.")
+                                        if (expanded && accessPoint.requiresPassword) {
+                                            GeoTextField(state.password, onPasswordChange, "비밀번호",
+                                                Modifier.testTag("wifi-selected-network-form").padding(start = 36.dp, bottom = 16.dp), password = true,
+                                                helper = "대소문자를 구분합니다.", enabled = connected && !state.sending,
+                                                disabledReason = "연결되면 쓸 수 있습니다.")
                                         }
                                     }
-                                },
-                            placeholder = { Text("8자 이상 입력") },
-                            label = { Text("비밀번호") },
-                            singleLine = true,
-                            enabled = !sending,
-                            visualTransformation = if (passwordVisible) {
-                                VisualTransformation.None
-                            } else {
-                                PasswordVisualTransformation()
-                            },
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Password,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(onDone = {
-                                if (passwordByteLengthIsValid(password)) {
-                                    focusManager.clearFocus()
-                                    onSubmit()
-                                }
-                            }),
-                            trailingIcon = {
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(
-                                        if (passwordVisible) Icons.Default.VisibilityOff
-                                        else Icons.Default.Visibility,
-                                        contentDescription = if (passwordVisible) "비밀번호 숨기기" else "비밀번호 표시"
-                                    )
                                 }
                             }
-                        )
-                    }
-
-                    if (accessPoint.provisionable && !accessPoint.requiresPassword) {
-                        Text(
-                            text = "비밀번호가 필요 없는 네트워크입니다.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (selected || connected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (accessPoint.provisionable) {
-                        message?.let {
-                            InlineMessage(message = it, isError = messageIsError)
+                            GeoRow("숨겨진 네트워크 추가", {
+                                manual = !manual
+                                if (manual) { onSsidChange(""); onPasswordChange(""); onHiddenChange(true) }
+                            }, enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.")
+                            if (manual) {
+                                GeoTextField(state.ssid, onSsidChange, "네트워크 이름", enabled = connected && !state.sending,
+                                    disabledReason = "연결되면 쓸 수 있습니다.")
+                                Spacer(Modifier.height(12.dp))
+                                GeoTextField(state.password, onPasswordChange, "비밀번호", password = true,
+                                    helper = "비밀번호가 없는 네트워크는 비워 두세요.", enabled = connected && !state.sending,
+                                    disabledReason = "연결되면 쓸 수 있습니다.")
+                                GeoSwitchRow("숨겨진 네트워크", state.hidden, onHiddenChange,
+                                    enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.")
+                            }
                         }
-
-                        Button(
-                            onClick = {
-                                focusManager.clearFocus()
-                                onSubmit()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("wifi-connect-button"),
-                            enabled = controlAvailable && !sending &&
-                                (!accessPoint.requiresPassword || passwordByteLengthIsValid(password))
-                        ) {
-                            if (sending) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.size(8.dp))
-                            }
-                            Text(if (sending) "전송 중" else "이 네트워크에 연결")
+                        state.message?.let {
+                            Text(it, style = type.body, color = if (state.isError) c.danger else c.textSecondary)
                         }
                     }
                 }
+                item { inlineAction() }
             }
         }
-    }
-}
-
-@Composable
-private fun ManualNetworkForm(
-    state: NetworkSettingsUiState,
-    onSsidChange: (String) -> Unit,
-    onPasswordChange: (String) -> Unit,
-    onHiddenChange: (Boolean) -> Unit,
-    onSubmit: () -> Unit
-) {
-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
-
-    Column(
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-            value = state.ssid,
-            onValueChange = onSsidChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("네트워크 이름") },
-            singleLine = true,
-            enabled = !state.sending
-        )
-        OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-            value = state.password,
-            onValueChange = onPasswordChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("비밀번호") },
-            supportingText = { Text("개방형 네트워크는 비워 두세요") },
-            singleLine = true,
-            enabled = !state.sending,
-            visualTransformation = if (passwordVisible) VisualTransformation.None
-            else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(onDone = {
-                if (
-                    state.ssid.isNotBlank() &&
-                    (state.password.isEmpty() || passwordByteLengthIsValid(state.password))
-                ) {
-                    focusManager.clearFocus()
-                    onSubmit()
-                }
-            }),
-            trailingIcon = {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Icon(
-                        if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = if (passwordVisible) "비밀번호 숨기기" else "비밀번호 표시"
-                    )
-                }
-            }
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("숨겨진 네트워크", style = MaterialTheme.typography.bodyLarge)
-            Switch(
-                checked = state.hidden,
-                onCheckedChange = onHiddenChange,
-                enabled = !state.sending
-            )
-        }
-        state.message?.let {
-            InlineMessage(message = it, isError = state.isError)
-        }
-        Button(
-            onClick = onSubmit,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = state.transportType != null && !state.sending && state.ssid.isNotBlank() &&
-                (state.password.isEmpty() || passwordByteLengthIsValid(state.password)) &&
-                state.ssid.toByteArray(Charsets.UTF_8).size <= 32
-        ) {
-            Text(if (state.sending) "전송 중" else "네트워크 추가")
+        GeoSnackbar(host, Modifier.align(androidx.compose.ui.Alignment.BottomCenter))
         }
     }
+    confirmation?.let { target ->
+        val valid = state.matches(target)
+        GeoConfirmDialog("${deviceName}을 ${target.ssid}에 연결할까요?", "적용하면 지금 연결이 끊길 수 있습니다.",
+            "적용", onConfirm = { confirmation = null; if (valid) onApply(target) },
+            onDismissRequest = { confirmation = null }, confirmEnabled = valid,
+            disabledReason = if (!valid) "연결과 네트워크 선택을 다시 확인하세요." else null)
+    }
+    if (info) GeoInfoDialog("연결 상태", { info = false }) {
+        GeoFactRow("휴대폰 Wi-Fi", state.mobileWifiSsid ?: "미확인")
+        GeoFactRow("장치 Wi-Fi", state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "미확인")
+        Text(when {
+            !connected || state.mobileWifiSsid.isNullOrBlank() || state.currentWifiSsid.isNullOrBlank() -> "연결 상태를 확인할 수 없습니다."
+            state.sameWifi -> "같은 네트워크입니다."
+            else -> "서로 다른 네트워크입니다."
+        }, style = type.body, color = c.text)
+    }
 }
-
-private fun signalLabel(rssi: Int): String = when {
-    rssi >= -55 -> "매우 강함"
-    rssi >= -67 -> "강함"
-    rssi >= -75 -> "보통"
-    else -> "약함"
-}
-
-private fun securityLabel(security: WifiSecurity): String = when (security) {
-    WifiSecurity.OPEN -> "개방형 네트워크"
-    WifiSecurity.ENHANCED_OPEN -> "향상된 개방형 네트워크"
-    WifiSecurity.PERSONAL -> "WPA 개인용 네트워크"
-    WifiSecurity.ENTERPRISE -> "기업용 네트워크"
-    WifiSecurity.LEGACY_WEP -> "구형 WEP 네트워크"
-}
-
-private fun passwordByteLengthIsValid(password: String): Boolean =
-    password.toByteArray(Charsets.UTF_8).size in 8..63

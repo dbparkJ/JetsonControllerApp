@@ -1,54 +1,30 @@
 package com.example.jetsoncontroller.ui.wifi
 
-import com.example.jetsoncontroller.ui.theme.TextButton
-import com.example.jetsoncontroller.ui.theme.Button
-import android.net.wifi.p2p.WifiP2pDevice
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.WifiTethering
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
+import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiDirectState
-import com.example.jetsoncontroller.ui.components.EmptyState
-import com.example.jetsoncontroller.ui.components.InlineMessage
-import com.example.jetsoncontroller.ui.components.SectionHeader
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.pairing.PairingTopBar
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WifiDirectScreen(
     state: WifiDirectState,
@@ -60,285 +36,127 @@ fun WifiDirectScreen(
     onRetryApi: () -> Unit,
     onCancel: () -> Unit = {}
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Wi-Fi Direct")
-                        Text(
-                            "공유기 없이 장치 연결",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    if (permissionGranted && !state.connected) {
-                        IconButton(
-                            onClick = onDiscoveryClick,
-                            enabled = state.supported && !state.discovering && !state.cleaningUp && state.connectingPeerAddress == null
-                        ) {
-                            if (state.discovering) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "장치 다시 검색")
-                            }
-                        }
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(bottom = 28.dp)
-        ) {
-            if (state.cleaningUp || state.connectingPeerAddress != null || state.apiStatus == WifiDirectApiStatus.CHECKING) {
-                item {
-                    Column(Modifier.padding(20.dp)) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Text(if (state.cleaningUp) "이전 연결 정리 중" else "장치 연결 준비 중")
-                        TextButton(onClick = onCancel, enabled = !state.cleaningUp) { Text("연결 취소") }
-                    }
-                }
+    val colors = LocalGeoColors.current
+    val type = LocalGeoType.current
+    val gutter = LocalGeoWindow.current.gutterDp.dp
+    var pendingAddress by rememberSaveable { mutableStateOf<String?>(null) }
+    var opener by remember { mutableStateOf<FocusRequester?>(null) }
+    var cancelling by rememberSaveable { mutableStateOf(false) }
+    val stage = directStage(state, permissionGranted, cancelling)
+    LaunchedEffect(state.cleaningUp, state.connectingPeerAddress, state.connected) {
+        if (!state.cleaningUp && state.connectingPeerAddress == null && !state.connected) cancelling = false
+    }
+    LaunchedEffect(stage, state.peers, pendingAddress) {
+        if (stage !in setOf(DirectStage.PEERS, DirectStage.DISCOVERING) ||
+            state.peers.none { it.deviceAddress == pendingAddress }) pendingAddress = null
+    }
+    Column(Modifier.fillMaxSize().background(colors.surface)) {
+        PairingTopBar("직접 연결", onBack)
+        LazyColumn(contentPadding = PaddingValues(start = gutter, end = gutter, top = 24.dp, bottom = 28.dp)) {
+            if (stage != DirectStage.UNSUPPORTED) item {
+                GeoInlineNote("공유기 없이 휴대폰과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.")
+                Spacer(Modifier.height(24.dp))
             }
-            when {
-                state.cleaningUp -> Unit
-                !state.supported -> item {
-                    EmptyState(
-                        title = "Wi-Fi Direct를 지원하지 않습니다",
-                        message = "이 Android 기기에서는 직접 연결을 사용할 수 없습니다."
-                    )
+            when (stage) {
+                DirectStage.UNSUPPORTED -> item {
+                    DirectState("이 휴대폰은 직접 연결을 지원하지 않습니다", "같은 네트워크에서 다시 찾거나 블루투스로 기본 연결하세요.", GeoStateKind.UNSUPPORTED)
                 }
-
-                !permissionGranted -> item {
-                    EmptyState(
-                        title = "주변 기기 권한이 필요합니다",
-                        message = "가까운 장치를 검색하고 연결하기 위해 권한을 허용하세요.",
-                        actionLabel = "권한 허용",
-                        onAction = onPermissionClick
-                    )
+                DirectStage.PERMISSION -> item {
+                    GeoSection("주변 장치", first = true) {
+                        DirectState("근처 기기 권한이 필요합니다", "가까운 장치를 찾아 바로 연결하려면 권한을 허용하세요.", GeoStateKind.PERMISSION, "권한 허용", onPermissionClick)
+                    }
                 }
-
-                state.connected -> item {
-                    ConnectedPanel(
-                        state = state,
-                        onRetryApi = onRetryApi,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-                    )
+                DirectStage.RADIO_OFF -> item {
+                    DirectState("직접 연결이 꺼져 있습니다", "휴대폰의 Wi-Fi를 켠 뒤 다시 확인하세요.", GeoStateKind.OFFLINE, "다시 확인", onDiscoveryClick)
                 }
-
-                else -> {
+                DirectStage.CLEANING_UP, DirectStage.CONNECTING, DirectStage.CANCELLING -> item {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(when (stage) {
+                            DirectStage.CLEANING_UP -> "이전 연결 정리 중"
+                            DirectStage.CANCELLING -> "연결 취소 중"
+                            else -> "장치 연결 준비 중"
+                        }, style = type.sectionTitle, color = colors.text)
+                        val peer = state.peers.firstOrNull { it.deviceAddress == state.connectingPeerAddress }
+                        Text(when (stage) {
+                            DirectStage.CANCELLING -> "연결을 정리하고 있습니다."
+                            DirectStage.CLEANING_UP -> "이전 연결을 정리하고 있습니다."
+                            else -> "${peer?.let(::peerDisplayName) ?: "장치"}에 연결하는 중입니다."
+                        }, style = type.body, color = colors.textSecondary)
+                        GeoProgress()
+                        GeoButton("연결 취소", { cancelling = true; onCancel() }, style = GeoButtonStyle.Secondary,
+                            enabled = stage == DirectStage.CONNECTING,
+                            disabledReason = if (stage == DirectStage.CANCELLING) "연결을 정리하고 있습니다." else "이전 연결을 정리하고 있습니다.")
+                    }
+                }
+                DirectStage.VERIFYING -> item {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        DirectState("장치 확인 중", "장치 인증과 제어 연결을 확인하고 있습니다.")
+                        GeoProgress()
+                        GeoButton("연결 취소", { cancelling = true; onCancel() }, style = GeoButtonStyle.Secondary)
+                    }
+                }
+                DirectStage.AUTHENTICATION_ERROR -> item {
+                    DirectState("장치 확인 실패", directFailureText(state.apiError), GeoStateKind.ERROR, "장치 다시 확인", onRetryApi)
+                    GeoButton("연결 취소", { cancelling = true; onCancel() }, style = GeoButtonStyle.Secondary)
+                }
+                DirectStage.READY -> item {
+                    DirectState("${state.apiDeviceName?.takeIf(String::isNotBlank) ?: "장치"} · 연결됨", "장치 인증을 마쳤습니다. 전체 제어를 사용할 수 있습니다.")
+                }
+                DirectStage.DISCOVERY_ERROR -> item {
+                    DirectState("장치를 찾지 못했습니다", directFailureText(state.error), GeoStateKind.ERROR, "다시 찾기", onDiscoveryClick)
+                }
+                DirectStage.EMPTY, DirectStage.DISCOVERING, DirectStage.PEERS -> {
                     item {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                            DirectConnectionSummary(state)
-                            state.error?.let { error ->
-                                Spacer(Modifier.height(12.dp))
-                                InlineMessage(message = error, isError = true)
-                            }
-                            Spacer(Modifier.height(22.dp))
-                            SectionHeader(
-                                title = "주변 장치",
-                                trailing = {
-                                    Text(
-                                        if (state.discovering) "검색 중" else "${state.peers.size}대",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                        GeoSection("주변 장치", first = true, count = if (state.discovering) "검색 중" else null,
+                            actionLabel = if (!state.discovering && state.peers.isNotEmpty()) "다시 찾기" else null,
+                            onAction = onDiscoveryClick) {
+                            if (state.discovering) GeoProgress()
+                            if (state.peers.isEmpty()) DirectState(
+                                if (state.discovering) "장치를 찾고 있습니다" else "찾은 장치가 없습니다",
+                                if (state.discovering) "찾은 장치가 여기에 표시됩니다." else "장치 전원과 거리를 확인하세요.",
+                                actionLabel = if (state.discovering) null else "다시 찾기", onAction = onDiscoveryClick
                             )
-                            if (state.discovering) {
-                                Spacer(Modifier.height(10.dp))
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            }
                         }
                     }
-
-                    if (state.peers.isEmpty()) {
-                        item {
-                            EmptyState(
-                                title = if (state.discovering) {
-                                    "장치를 찾고 있습니다"
-                                } else {
-                                    "검색된 장치가 없습니다"
-                                },
-                                message = "장치의 Wi-Fi Direct 서비스와 Android 위치 서비스를 확인하세요.",
-                                actionLabel = if (state.discovering) null else "다시 검색",
-                                onAction = if (state.discovering) null else onDiscoveryClick
-                            )
-                        }
-                    } else {
-                        items(state.peers, key = { it.deviceAddress }) { peer ->
-                            PeerRow(
-                                peer = peer,
-                                connecting = state.connectingPeerAddress == peer.deviceAddress,
-                                connectionInProgress = state.cleaningUp || state.connectingPeerAddress != null,
-                                onConnect = { onConnectClick(peer) }
-                            )
-                            HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = 20.dp))
-                        }
+                    items(state.peers, key = { it.deviceAddress }) { peer ->
+                        val requester = remember(peer.deviceAddress) { FocusRequester() }
+                        val enabled = canConnectDirectPeer(state, permissionGranted, peer.deviceAddress)
+                        val status = peerStatusLabel(peer.status)
+                        GeoRow(peerDisplayName(peer), { opener = requester; pendingAddress = peer.deviceAddress },
+                            modifier = Modifier.focusRequester(requester),
+                            meta = status, leading = { Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp)) },
+                            enabled = enabled, disabledReason = status)
                     }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun DirectConnectionSummary(state: WifiDirectState) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(
-                Icons.Default.WifiTethering,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    if (state.enabled) "직접 연결 사용 가능" else "Wi-Fi Direct가 꺼져 있습니다",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    "장치에 직접 연결합니다. 공유기 연결과 서버 업로드가 중단될 수 있습니다.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConnectedPanel(
-    state: WifiDirectState,
-    onRetryApi: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Default.Router, contentDescription = null)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        state.apiDeviceName ?: "장치 직접 연결",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        state.groupOwnerAddress ?: "장치 주소 확인 중",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-
-            when (state.apiStatus) {
-                WifiDirectApiStatus.IDLE,
-                WifiDirectApiStatus.CHECKING -> {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(10.dp))
-                    Text("장치 인증과 제어 연결을 확인하고 있습니다.")
-                }
-
-                WifiDirectApiStatus.READY -> {
-                    Text(
-                        "장치 인증을 마쳤습니다. 전체 제어를 사용할 수 있습니다.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                WifiDirectApiStatus.ERROR -> {
-                    Text(
-                        text = state.apiError ?: "장치에 연결하지 못했습니다.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = onRetryApi, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("장치 다시 확인", modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PeerRow(
-    peer: WifiDirectPeer,
-    connecting: Boolean,
-    connectionInProgress: Boolean,
-    onConnect: () -> Unit
-) {
-    ListItem(
-        headlineContent = {
-            Text(
-                peer.name,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        supportingContent = { Text(peerStatusLabel(peer.status)) },
-        leadingContent = {
-            Icon(
-                Icons.Default.Router,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-        },
-        trailingContent = {
-            if (connecting) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.Default.ChevronRight, contentDescription = null)
-            }
-        },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-        modifier = Modifier.clickable(
-            enabled = !connectionInProgress && peer.status != WifiP2pDevice.UNAVAILABLE,
-            onClick = onConnect
+    val pendingPeer = state.peers.firstOrNull { it.deviceAddress == pendingAddress }
+    if (pendingPeer != null) {
+        val enabled = canConnectDirectPeer(state, permissionGranted, pendingPeer.deviceAddress)
+        GeoConfirmDialog(
+            title = "${peerDisplayName(pendingPeer)}에 직접 연결할까요?",
+            body = "장치의 공유기 연결과 진행 중인 전송이 끊길 수 있습니다.",
+            confirmLabel = "직접 연결",
+            openerFocusRequester = opener,
+            confirmEnabled = enabled,
+            disabledReason = "장치의 연결 상태를 다시 확인하세요.",
+            onConfirm = {
+                if (canConnectDirectPeer(state, permissionGranted, pendingPeer.deviceAddress)) onConnectClick(pendingPeer)
+                pendingAddress = null
+            },
+            onDismissRequest = { pendingAddress = null }
         )
-    )
+    }
 }
 
-private fun peerStatusLabel(status: Int): String = when (status) {
-    WifiP2pDevice.CONNECTED -> "연결됨"
-    WifiP2pDevice.INVITED -> "연결 승인 대기 중"
-    WifiP2pDevice.AVAILABLE -> "연결 가능"
-    WifiP2pDevice.FAILED -> "이전 연결 실패"
-    WifiP2pDevice.UNAVAILABLE -> "현재 연결할 수 없음"
-    else -> "상태 확인 중"
+@Composable
+private fun DirectState(
+    title: String,
+    explanation: String,
+    kind: GeoStateKind = GeoStateKind.EMPTY,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
+) {
+    GeoStateBlock(GeoStateContent(kind, title, explanation, actionLabel), onAction = onAction)
 }

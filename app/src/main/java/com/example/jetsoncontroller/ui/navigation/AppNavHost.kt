@@ -134,7 +134,7 @@ internal fun AppNavigationState.hasFocusedMediaPreview(): Boolean = when (curren
     Routes.DATA -> dataStorageState.preview?.let { mediaPreviewFocused(it.mimeType, it.name) } == true
     Routes.STORAGE_ROUTE -> routeStorageState.preview?.let { mediaPreviewFocused(it.mimeType, it.name) } == true
     Routes.SERVER_STORAGE -> directServerState.preview?.let { mediaPreviewFocused(it.mediaType, it.fileName) } == true
-    Routes.SERVER_PROXY_STORAGE -> serverStorageState.preview?.let { mediaPreviewFocused(it.mimeType, it.name) } == true
+    com.example.jetsoncontroller.ui.dev.DevDestination.PROXY_PREVIEW.route -> serverStorageState.preview?.let { mediaPreviewFocused(it.mimeType, it.name) } == true
     else -> false
 }
 
@@ -168,7 +168,10 @@ internal fun AppNavHost(state: AppNavigationState, modifier: Modifier = Modifier
                 Routes.DATA -> state.dataStorageViewModel.navigateBack()
                 Routes.STORAGE_ROUTE -> state.routeStorageViewModel.navigateBack()
                 Routes.SERVER_STORAGE -> state.directServerViewModel.navigateBack()
-                Routes.SERVER_PROXY_STORAGE -> state.serverStorageViewModel.navigateBack()
+                com.example.jetsoncontroller.ui.dev.DevDestination.PROXY_PREVIEW.route -> {
+                    state.serverStorageViewModel.navigateBack()
+                    state.navController.popBackStack()
+                }
             }
         } else navigateToWorkRoot(state.navController)
     }

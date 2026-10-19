@@ -120,7 +120,8 @@ class DeviceListViewModel(
 
     private data class ReconnectState(
         val deviceId: String? = null,
-        val error: String? = null
+        val error: String? = null,
+        val errorDeviceId: String? = null
     )
 
     private val reconnectState =
@@ -158,6 +159,7 @@ class DeviceListViewModel(
                 connectionState = connection,
                 reconnectingDeviceId = savedDevices.second.deviceId,
                 reconnectError = savedDevices.second.error,
+                reconnectErrorDeviceId = savedDevices.second.errorDeviceId,
                 scanError =
                     (scanState as? BleScanState.Failed)
                         ?.failure
@@ -224,12 +226,14 @@ class DeviceListViewModel(
 
         if (!permissionGranted.value) {
             reconnectState.value = ReconnectState(
-                error = "주변 기기 권한을 허용해 주세요."
+                error = "가까운 장치를 찾으려면 블루투스 권한이 필요합니다.",
+                errorDeviceId = device.deviceId
             )
             return
         }
 
         reconnectJob?.cancel()
+        val selectedAtRequest = repository.selectedDeviceId.value
         reconnectState.value = ReconnectState(
             deviceId = device.deviceId
         )
@@ -315,6 +319,12 @@ class DeviceListViewModel(
 
             when (decision) {
                 is ReconnectCandidateDecision.Connect -> {
+                    val selectedNow = repository.selectedDeviceId.value
+                    if (!selectedNow.equals(selectedAtRequest, true) && !selectedNow.equals(device.deviceId, true)) {
+                        repository.stopScan()
+                        reconnectState.value = ReconnectState()
+                        return@launch
+                    }
                     reconnectState.value = ReconnectState()
                     repository.reconnectRegistered(
                         decision.candidate,
@@ -325,15 +335,17 @@ class DeviceListViewModel(
                 ReconnectCandidateDecision.Ambiguous -> {
                     repository.stopScan()
                     reconnectState.value = ReconnectState(
+                        errorDeviceId = device.deviceId,
                         error =
-                            "Jetson 장치가 여러 대 검색되었습니다. " +
-                                "${device.deviceName} 장치만 켠 뒤 다시 시도해 주세요."
+                            "${device.deviceName}을 구분하지 못했습니다. " +
+                                "이 장치만 켠 뒤 다시 시도하세요."
                     )
                 }
 
                 is ReconnectCandidateDecision.ScanFailed -> {
                     repository.stopScan()
                     reconnectState.value = ReconnectState(
+                        errorDeviceId = device.deviceId,
                         error = decision.userMessage
                     )
                 }
@@ -343,6 +355,7 @@ class DeviceListViewModel(
                 ReconnectCandidateDecision.ScanStopped -> {
                     repository.stopScan()
                     reconnectState.value = ReconnectState(
+                        errorDeviceId = device.deviceId,
                         error =
                             "${device.deviceName} 장치를 찾지 못했습니다. " +
                                 "장치가 켜져 있는지 확인하세요."
@@ -354,6 +367,11 @@ class DeviceListViewModel(
 
     fun forget(device: RegisteredDevice) {
         viewModelScope.launch {
+            if (reconnectState.value.deviceId.equals(device.deviceId, true)) {
+                reconnectJob?.cancel()
+                repository.stopScan()
+            }
+            if (repository.registeredDevices.value.none { it.deviceId.equals(device.deviceId, true) }) return@launch
             repository.forgetRegisteredDevice(device.deviceId)
             reconnectState.value = ReconnectState()
         }

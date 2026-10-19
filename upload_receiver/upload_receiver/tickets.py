@@ -18,6 +18,8 @@ LOGGER = logging.getLogger(__name__)
 TARGET = "geon-work-tickets"
 # Board options can be renamed at any time (호기 'geo X-1' → 'GEO-X-1'); re-read the schema this often.
 SCHEMA_REFRESH_SECONDS = 600.0
+GEOMETRY_PROPERTY_NAMES = {"geometry", "수집 구역"}
+MAX_GEOMETRY_BYTES = 1024 * 1024
 PROPERTIES = {
     "프로젝트": "TEXT", "호기": "SELECT", "담당": "PERSON", "마감": "DATE",
     "상태": "STATUS", "수집 작업자": "TEXT", "runId": "TEXT",
@@ -33,6 +35,15 @@ def resolve_schema(board: dict) -> dict:
             if len(matches) != 1 or matches[0]["type"] != kind or not matches[0]["id"]:
                 raise ValueError()
             properties[name] = matches[0]
+        geometry_properties = [
+            prop for prop in board["properties"]
+            if isinstance(prop.get("name"), str)
+            and prop["name"].strip().casefold() in GEOMETRY_PROPERTY_NAMES
+        ]
+        if len(geometry_properties) > 1 or (
+            geometry_properties and not geometry_properties[0].get("id")
+        ):
+            raise ValueError()
         statuses = {}
         for name in ("할 일", "진행 중", "완료"):
             matches = [s for s in board["statusOptions"] if s["name"] == name]
@@ -51,7 +62,8 @@ def resolve_schema(board: dict) -> dict:
             not isinstance(u.get("name"), str) or not u.get("id") for u in units
         ):
             raise ValueError()
-        return {"properties": properties, "statuses": statuses, "units": units,
+        return {"properties": properties, "geometry": geometry_properties[0] if geometry_properties else None,
+                "statuses": statuses, "units": units,
                 "statusKeys": status_keys, "blockedStatusIds": blocked}
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         raise ValueError("BOARD_SCHEMA_MISMATCH") from error
@@ -90,13 +102,66 @@ def row_values(row: dict, schema: dict) -> dict:
             for name, prop in schema["properties"].items()}
 
 
+def _reject_json_constant(value):
+    raise ValueError(f"Invalid JSON constant: {value}")
+
+
+def ticket_geometry(row: dict, schema: dict) -> str | None:
+    """Return compact JSON for a size-limited v1 geometry object, without GIS validation."""
+    prop = schema.get("geometry")
+    if prop is None:
+        return None
+    cell = (row.get("values") or {}).get(prop["id"])
+    if not isinstance(cell, dict):
+        return None
+    value = cell.get("value")
+    if value is None or value == "":
+        return None
+    try:
+        if isinstance(value, str):
+            if len(value.encode("utf-8")) > MAX_GEOMETRY_BYTES:
+                return None
+            geometry = json.loads(value, parse_constant=_reject_json_constant)
+        elif isinstance(value, dict):
+            geometry = value
+        else:
+            return None
+        if not isinstance(geometry, dict):
+            return None
+        if (type(geometry.get("schemaVersion")) is not int or geometry["schemaVersion"] != 1
+                or not isinstance(geometry.get("features"), dict)
+                or geometry["features"].get("type") != "FeatureCollection"
+                or not isinstance(geometry["features"].get("features"), list)
+                or not isinstance(geometry.get("revision"), str)):
+            return None
+        range_value = geometry.get("range")
+        if range_value is not None:
+            range_keys = {"bufferM", "polygon", "bbox", "lengthM", "areaM2"}
+            if not isinstance(range_value, dict) or not range_keys.issubset(range_value):
+                return None
+            if (type(range_value["bufferM"]) not in (int, float)
+                    or not isinstance(range_value["polygon"], dict)
+                    or range_value["polygon"].get("type") not in ("Polygon", "MultiPolygon")
+                    or not isinstance(range_value["bbox"], list) or len(range_value["bbox"]) != 4
+                    or any(type(number) not in (int, float) for number in range_value["bbox"])
+                    or type(range_value["lengthM"]) not in (int, float)
+                    or type(range_value["areaM2"]) not in (int, float)):
+                return None
+        serialized = json.dumps(geometry, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        if len(serialized.encode("utf-8")) > MAX_GEOMETRY_BYTES:
+            return None
+        return serialized
+    except (UnicodeEncodeError, ValueError, TypeError, RecursionError):
+        return None
+
+
 def upsert_ticket(connection, row: dict, schema: dict, now: float) -> None:
     values = row_values(row, schema)
     unit = next((u["name"] for u in schema["units"] if u["id"] == values["호기"]), None)
     assignees = [a["displayName"] for a in row.get("assignees", [])]
     status = row["status"]
     updated = timestamp(parse_timestamp(row["updatedAt"]))
-    connection.execute(
+    cursor = connection.execute(
         """INSERT INTO board_tickets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(row_id) DO UPDATE SET title=excluded.title, project=excluded.project,
                unit=excluded.unit, assignees_json=excluded.assignees_json,
@@ -111,6 +176,16 @@ def upsert_ticket(connection, row: dict, schema: dict, now: float) -> None:
          status["name"], status["category"], row["revision"], updated,
          row.get("archivedAt"), values["runId"], timestamp(now), schema["destination"]),
     )
+    if cursor.rowcount:
+        geometry_json = ticket_geometry(row, schema)
+        if geometry_json is None:
+            connection.execute("DELETE FROM board_ticket_geometry WHERE row_id=?", (row["id"],))
+        else:
+            connection.execute(
+                """INSERT INTO board_ticket_geometry(row_id, geometry_json) VALUES (?, ?)
+                   ON CONFLICT(row_id) DO UPDATE SET geometry_json=excluded.geometry_json""",
+                (row["id"], geometry_json),
+            )
 
 
 def retry_delay(result: SendResult, now: float, failures: int) -> float:

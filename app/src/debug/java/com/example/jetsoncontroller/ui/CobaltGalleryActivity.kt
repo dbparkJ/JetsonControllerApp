@@ -172,26 +172,7 @@ fun CobaltGallery(initialScreen: String = "home", dark: Boolean = false) {
                         onSection = select
                     )
                     "settings" -> SettingsHubScreen(state, "demo", 0, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, select)
-                    else -> DashboardScreen(state, sample, emptyList(), 0, {}, {}, {}, {}, {}, {}, {},
-                        { screen = "data" }, {}, { screen = "data" }, { screen = "tasks" }, select, {}, {},
-                        tasksConfirmed = !offline, taskObservedAt = now,
-                        pendingTaskActions = mapOf("gnss" to "start"),
-                        stagePlan = com.example.jetsoncontroller.ui.field.fieldStagePlan(
-                            com.example.jetsoncontroller.ui.field.FieldStageInput(
-                                connected = !offline,
-                                runStateConfirmed = !offline,
-                                activeRunId = "run-demo".takeUnless { offline },
-                                unconfirmedRunId = "run-demo".takeIf { offline },
-                                surveySelected = true,
-                                preflightReady = true,
-                                surveyLabel = "서울 도로 조사 · 강남대로 1구간",
-                                lastObservedLabel = "13:24",
-                                registeredDeviceCount = 1
-                            )
-                        ),
-                        recentRuns = recentRuns,
-                        recentHistoryCurrent = !offline,
-                        onRecentRunsClick = { screen = "tasks" })
+                    else -> LaunchedEffect(screen) { screen = "device_detail" }
             }
         }
     }

@@ -33,6 +33,14 @@ enum class AlertSeverity {
     ERROR
 }
 
+data class AlertTarget(
+    val deviceId: String,
+    val deviceName: String? = null,
+    val pipelineId: String? = null,
+    val runId: String? = null,
+    val transferJob: com.example.jetsoncontroller.model.UploadJob? = null
+)
+
 data class AlertRecord(
     val id: String,
     val title: String,
@@ -40,7 +48,8 @@ data class AlertRecord(
     val destination: AlertDestination,
     val severity: AlertSeverity,
     val createdAtEpochMillis: Long,
-    val read: Boolean = false
+    val read: Boolean = false,
+    val target: AlertTarget? = null
 )
 
 class AlertHistoryStore(
@@ -65,7 +74,8 @@ class AlertHistoryStore(
         title: String,
         message: String,
         destination: AlertDestination,
-        severity: AlertSeverity
+        severity: AlertSeverity,
+        target: AlertTarget? = null
     ): AlertRecord {
         val timestamp = clock()
         val alert = AlertRecord(
@@ -74,7 +84,8 @@ class AlertHistoryStore(
             message = message,
             destination = destination,
             severity = severity,
-            createdAtEpochMillis = timestamp
+            createdAtEpochMillis = timestamp,
+            target = target
         )
         dataStore.edit { preferences ->
             preferences[ALERTS_JSON] = gson.toJson(

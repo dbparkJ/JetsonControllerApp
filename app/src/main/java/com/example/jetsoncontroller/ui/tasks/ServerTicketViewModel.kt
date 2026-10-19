@@ -163,6 +163,7 @@ internal fun ticketPreparationContextMatches(preparation: TicketPreparation, pro
 internal class ServerTicketViewModel(context: Context) : ViewModel() {
     private val cache = RecentServerJobsCache(context.noBackupFilesDir.resolve("server-job-cache"))
     private val profiles = ServerProfileStore(context, cache)
+    private val mapGeometries = com.example.jetsoncontroller.ui.map.GeoMapRunStore(context.noBackupFilesDir)
     private val ticketCache = TicketCacheStore(context.noBackupFilesDir.resolve("ticket-cache.json"))
     private val reportStore = TicketReportStore(context.filesDir.resolve("ticket-reports.json"), Gson())
     private val preparationStore = TicketPreparationStore(context.filesDir.resolve("ticket-preparation.json"))
@@ -185,6 +186,7 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
         val profileId = state.profileId ?: return
         val deviceId = state.deviceId ?: return
         runCatching {
+            state.tickets.forEach(mapGeometries::cache)
             ticketCache.save(TicketCacheSnapshot(
                 profileId = profileId,
                 deviceId = deviceId,
@@ -802,6 +804,7 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
         val current = _uiState.value
         val updated = current.copy(tickets = current.tickets.map { ticket ->
             if (ticket.rowId == rowId) ticket.copy(
+                assignees = ticket.assignees.orEmpty(),
                 status = ticket.status?.copy(name = "진행 중", category = "IN_PROGRESS")
             ) else ticket
         })

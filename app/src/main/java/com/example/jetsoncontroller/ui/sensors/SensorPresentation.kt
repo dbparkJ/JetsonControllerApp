@@ -257,3 +257,29 @@ private const val NANOS_PER_MILLISECOND = 1_000_000L
 /** Existing long-poll deadline is 2s; allow two deadlines for a received preview frame. */
 fun cameraFrameIsLive(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now: Long, hasError: Boolean): Boolean =
     active && hasFrame && !hasError && receivedAt != null && now >= receivedAt && now - receivedAt <= 4_000L
+
+internal fun cameraResolution(camera: com.example.jetsoncontroller.model.CameraSensorStatus): String? =
+    if ((camera.frameWidth ?: 0) > 0 && (camera.frameHeight ?: 0) > 0) "${camera.frameWidth} × ${camera.frameHeight}" else null
+
+internal fun deviceGnssWord(presentation: SensorPresentation, gnss: GnssSensorStatus): String =
+    if (presentation.activity != SensorActivity.ACTIVE) presentation.badge else when {
+        !gnss.hasValidLocation() -> "위치 미확인"
+        gnssReceptionState(true, gnss.fixType, gnss.rtkStatus) == GnssReceptionState.RTK_FIXED -> "정밀 위치"
+        else -> "대략 위치"
+    }
+
+internal enum class CameraStageState { WAITING, LIVE, DELAYED, ERROR }
+
+internal fun cameraStageState(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now: Long,
+    hasError: Boolean): CameraStageState = when {
+    hasError && !hasFrame -> CameraStageState.ERROR
+    cameraFrameIsLive(active, hasFrame, receivedAt, now, hasError) -> CameraStageState.LIVE
+    hasFrame -> CameraStageState.DELAYED
+    else -> CameraStageState.WAITING
+}
+
+internal fun cameraCaptureEnabled(stage: CameraStageState, busy: Boolean, device: Boolean, mobile: Boolean): Boolean =
+    stage == CameraStageState.LIVE && !busy && (device || mobile)
+
+internal fun cameraTargetCanStream(visible: Boolean, sensorActive: Boolean, targetId: String?, selectedId: String?, connectedId: String?): Boolean =
+    visible && sensorActive && !targetId.isNullOrBlank() && targetId.equals(selectedId, true) && targetId.equals(connectedId, true)

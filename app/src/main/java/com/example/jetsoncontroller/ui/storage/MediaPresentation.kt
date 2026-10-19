@@ -3,18 +3,16 @@ package com.example.jetsoncontroller.ui.storage
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -52,9 +50,19 @@ internal fun localTimeOrDateLabel(
 
 @Composable
 internal fun MediaFilters(selected: String, onSelected: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        mediaCategories.forEach { name -> FilterChip(selected == name, { onSelected(name) }, label = { Text(name) }) }
+    var open by remember { mutableStateOf(false) }
+    GeoPickerField("유형", selected, { open = true })
+    if (open) GeoSheet("유형", { open = false }) {
+        mediaCategories.forEach { name -> GeoRadioRow(name, selected == name, { onSelected(name); open = false }) }
     }
+}
+
+internal fun mediaIcon(entry: RemoteFileEntry) = when {
+    entry.type == RemoteEntryType.DIRECTORY -> GeoIcons.folder
+    mediaCategory(entry) == "이미지" -> GeoIcons.image
+    mediaCategory(entry) == "영상" -> GeoIcons.video
+    mediaCategory(entry) == "로그" -> GeoIcons.log
+    else -> GeoIcons.file
 }
 private val thumbnailPermits = Semaphore(2)
 
@@ -81,9 +89,5 @@ internal fun MediaThumbnail(entry: RemoteFileEntry, sourceKey: String,
     }
     val current = bitmap
     if (current != null) Image(current.asImageBitmap(), entry.name, Modifier.size(48.dp), contentScale = ContentScale.Crop)
-    else Icon(when { entry.type == RemoteEntryType.DIRECTORY -> Icons.Default.Folder
-        mediaCategory(entry) == "이미지" -> Icons.Default.Image
-        mediaCategory(entry) == "영상" -> Icons.Default.Videocam
-        mediaCategory(entry) == "센서" -> Icons.Default.Sensors
-        else -> Icons.Default.Description }, null, Modifier.size(36.dp))
+    else Icon(mediaIcon(entry), null, Modifier.size(24.dp), tint = LocalGeoColors.current.textSecondary)
 }

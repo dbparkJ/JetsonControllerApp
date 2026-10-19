@@ -34,7 +34,7 @@ internal fun TicketDetailScreen(
     onRemedy: () -> Unit = {},
     startOpener: FocusRequester = remember { FocusRequester() },
     ongoingRun: @Composable () -> Unit = {},
-    mapCard: @Composable () -> Unit = {}
+    mapCard: @Composable () -> Unit = { com.example.jetsoncontroller.ui.map.GeoTicketMapCard(ticket, readiness.deviceName) }
 ) {
     val c = LocalGeoColors.current
     val type = LocalGeoType.current

@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.field
 
+import com.example.jetsoncontroller.ui.zone.resultObservation
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -68,13 +70,15 @@ internal fun RunResultScreen(
     historyState: FieldState? = null,
     onUndoDelete: () -> Unit = {},
     onDismissMessage: (String) -> Unit = {},
-    mapCard: @Composable () -> Unit = {},
+    mapCard: (@Composable () -> Unit)? = null,
     zoneObservation: ResultZoneObservation? = null,
     zoneRevisionChanged: Boolean = false,
     ticketCompletionFailed: Boolean = false,
     ticketReportTargetKey: String? = null,
     statusStrip: @Composable () -> Unit = {}
 ) {
+    val storedZone = com.example.jetsoncontroller.ui.zone.rememberRunZoneOutput(run?.deviceId ?: historyEntry?.deviceId, run?.runId ?: historyEntry?.runId)
+    val observedZone = zoneObservation ?: storedZone?.resultObservation()
     val screenState = rememberSaveableStateHolder()
     val snackbar: @Composable () -> Unit = {
         OperationMessageHost(historyState?.message, onDismissMessage,
@@ -83,7 +87,8 @@ internal fun RunResultScreen(
     }
     if (run == null && historyEntry != null) {
         HistoryEntryScreen(historyEntry, deviceName, online, developerModeEnabled, onBack,
-            onOpenFiles, onOpenLog, savedLog, onDismissLog, resultMessage, onTrashRecord, snackbar, statusStrip)
+            onOpenFiles, onOpenLog, savedLog, onDismissLog, resultMessage, onTrashRecord, snackbar, statusStrip,
+            mapCard = { mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(null, historyEntry, historyState, observedZone, zoneRevisionChanged) })
         return
     }
     if (developerModeEnabled && savedLog != null) {
@@ -180,16 +185,16 @@ internal fun RunResultScreen(
                             if (LocalGeoWindow.current.compactHeight) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     GeoReceipt(chain.receipt, Modifier.weight(1f))
-                                    Column(Modifier.weight(1f)) { mapCard() }
+                                    Column(Modifier.weight(1f)) { mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(run, historyEntry, historyState, observedZone, zoneRevisionChanged) }
                                 }
                             } else GeoReceipt(chain.receipt)
                             Spacer(Modifier.height(24.dp))
-                            ResultMetrics(run, zoneObservation)
+                            ResultMetrics(run, observedZone)
                             if (!LocalGeoWindow.current.compactHeight) {
                                 Spacer(Modifier.height(24.dp))
-                                mapCard()
+                                mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(run, historyEntry, historyState, observedZone, zoneRevisionChanged)
                             }
-                            zoneObservation?.let {
+                            observedZone?.let {
                                 Text("구역 밖 기록 ${it.excursions}회 · ${qualityDurationLabel(it.outsideMillis)} · 관찰하지 못한 시간 ${qualityDurationLabel(it.unobservedMillis)}",
                                     color = c.textSecondary, style = LocalGeoType.current.caption)
                                 Text("관찰한 시간 기준", color = c.textSecondary, style = LocalGeoType.current.caption)
@@ -200,7 +205,7 @@ internal fun RunResultScreen(
                                     onOpenFiles, enabled = online && runOutputStored(run),
                                     disabledReason = if (!online) "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다." else "장치 저장 결과를 확인한 뒤 폴더를 볼 수 있습니다.")
                             }
-                            RunQualityEvidence(run.quality, zoneObservation = zoneObservation,
+                            RunQualityEvidence(run.quality, zoneObservation = observedZone,
                                 subtitle = "${run.contextSnapshot.surveySectionLabel} · ${resultDuration(run)}")
                             FieldTechnicalInfo(run.runId, buildList {
                                 add(GeoTechnicalValue("수집 ID", run.runId))

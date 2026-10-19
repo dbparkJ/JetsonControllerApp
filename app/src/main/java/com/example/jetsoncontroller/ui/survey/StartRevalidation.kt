@@ -14,7 +14,9 @@ internal fun ticketStillMatches(draft: PreparationDraft, profileId: String?, tic
     val rowId = draft.ticketRowId ?: return true
     if (draft.serverProfileId != null && profileId != draft.serverProfileId) return false
     val ticket = tickets.firstOrNull { it.rowId == rowId } ?: return false
-    return draft.ticketRevision == null || ticket.revision == null || ticket.revision == draft.ticketRevision
+    return (draft.ticketRevision == null || ticket.revision == null || ticket.revision == draft.ticketRevision) &&
+        (draft.geometryRevision == null || draft.geometryRevision == ticket.zoneRevision) &&
+        (draft.geometryHash == null || draft.geometryHash == ticket.zoneHash)
 }
 
 internal fun startRevalidationError(

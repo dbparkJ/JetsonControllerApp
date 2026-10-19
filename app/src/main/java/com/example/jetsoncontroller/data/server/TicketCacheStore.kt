@@ -37,7 +37,7 @@ class TicketCacheStore(
             "Ticket cache scope is required"
         }
         val data = readAllData()
-        val normalized = snapshot.copy(tickets = snapshot.tickets.toList(), units = snapshot.units.toList())
+        val normalized = snapshot.copy(tickets = snapshot.tickets.map { it.copy(assignees = it.assignees.orEmpty(), geometryRevision = it.zoneRevision, geometryHash = it.zoneHash) }, units = snapshot.units.toList())
         val next = data.copy(snapshots = data.snapshots.filterNot {
             it.profileId == snapshot.profileId && it.deviceId.equals(snapshot.deviceId, ignoreCase = true)
         } + normalized)

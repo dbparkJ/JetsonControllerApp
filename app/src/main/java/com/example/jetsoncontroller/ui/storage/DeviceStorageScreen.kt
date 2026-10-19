@@ -11,16 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FitScreen
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,9 +33,10 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.model.RemoteFileEntry
 import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.EmptyState
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 @Suppress("UNUSED_PARAMETER")
 fun DeviceStorageScreen(
@@ -60,14 +54,18 @@ fun DeviceStorageScreen(
     onTransferQueue: () -> Unit = {},
     thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
     onDismissMessage: (String) -> Unit = {},
-    onUndoDelete: () -> Unit = {}
+    onUndoDelete: () -> Unit = {},
+    onTrash: (() -> Unit)? = null,
+    ongoingRun: @Composable () -> Unit = {},
+    onConnectionRemedy: () -> Unit = onBack,
+    onReconnect: () -> Unit = onConnectionRemedy
 ) {
     DataHubScreen(
         state = state,
         serverUploadEnabled = serverUploadEnabled,
         unavailableReason = serverUploadDisabledReason.orEmpty(),
         unreadCount = 0,
-        onDevices = onBack,
+        onDevices = onConnectionRemedy,
         onAlerts = {},
         onRefresh = onRefresh,
         onNavigateBack = onBack,
@@ -79,7 +77,10 @@ fun DeviceStorageScreen(
         onSection = onSectionSelected,
         onServerData = onServerDataClick,
         onDismissMessage = onDismissMessage,
-        onUndoDelete = onUndoDelete
+        onUndoDelete = onUndoDelete,
+        onTrash = onTrash,
+        ongoingRun = ongoingRun,
+        onReconnect = onReconnect
     )
 }
 
@@ -93,28 +94,25 @@ internal fun FilePreview(content: RemoteFileContent) {
             decodePreviewBitmap(content.bytes)
         }
         if (bitmap != null) {
-            ZoomableImagePreview(content.name, bitmap.asImageBitmap())
+            ZoomableImagePreview(content.name, bitmap.asImageBitmap(), remember(content.bytes) { previewImageDimensions(content.bytes) })
             return
         }
     }
-    val text = remember(content.bytes) {
-        content.bytes.takeIf { bytes -> bytes.none { it == 0.toByte() } }
-            ?.toString(Charsets.UTF_8)
-    }
+    val text = remember(content.bytes, image) { if (image) null else previewText(content.bytes) }
     if (text != null) {
         SelectionContainer {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(20.dp)
+                modifier = Modifier.fillMaxSize().background(LocalGeoColors.current.surface),
+                contentPadding = PaddingValues(storageGutter, 16.dp)
             ) {
-                item { Text(text, style = MaterialTheme.typography.bodySmall) }
+                item { Text(text, style = LocalGeoType.current.mono, color = LocalGeoColors.current.text) }
             }
         }
     } else {
-        EmptyState(
-            title = "미리볼 수 없는 파일입니다",
-            message = "이미지와 UTF-8 텍스트 파일을 앱에서 열 수 있습니다."
-        )
+        Box(Modifier.fillMaxSize().background(LocalGeoColors.current.surface).padding(storageGutter)) {
+            GeoStateBlock(GeoStateContent(GeoStateKind.UNSUPPORTED, "미리 볼 수 없는 파일입니다",
+                "이미지와 텍스트 파일만 앱에서 볼 수 있습니다."), fullScreen = true)
+        }
     }
 }
 
@@ -136,9 +134,10 @@ private fun decodePreviewBitmap(bytes: ByteArray): android.graphics.Bitmap? {
 }
 
 @Composable
-private fun ZoomableImagePreview(
+internal fun ZoomableImagePreview(
     name: String,
-    image: androidx.compose.ui.graphics.ImageBitmap
+    image: androidx.compose.ui.graphics.ImageBitmap,
+    dimensions: String? = null
 ) {
     var scale by remember(image) { mutableFloatStateOf(1f) }
     var offset by remember(image) { mutableStateOf(Offset.Zero) }
@@ -165,6 +164,7 @@ private fun ZoomableImagePreview(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.Black)
             .clipToBounds()
             .onSizeChanged { viewport = it }
             .transformable(transformState),
@@ -185,30 +185,16 @@ private fun ZoomableImagePreview(
                     clip = true
                 }
         )
-        Surface(
-            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-            shape = MaterialTheme.shapes.small,
-            tonalElevation = 3.dp
-        ) {
+        dimensions?.let {
+            Text(it, Modifier.align(Alignment.BottomStart).padding(16.dp)
+                .background(Color.Black.copy(alpha = .72f)).padding(8.dp),
+                style = LocalGeoType.current.caption, color = Color.White)
+        }
+        Box(Modifier.align(Alignment.TopEnd).padding(12.dp).background(LocalGeoColors.current.surface)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = { updateTransform(scale / 1.5f) },
-                    enabled = scale > 1f
-                ) {
-                    Icon(Icons.Default.ZoomOut, contentDescription = "축소")
-                }
-                IconButton(
-                    onClick = { updateTransform(1f, Offset.Zero) },
-                    enabled = scale > 1f
-                ) {
-                    Icon(Icons.Default.FitScreen, contentDescription = "화면에 맞춤")
-                }
-                IconButton(
-                    onClick = { updateTransform(scale * 1.5f) },
-                    enabled = scale < 6f
-                ) {
-                    Icon(Icons.Default.ZoomIn, contentDescription = "확대")
-                }
+                GeoIconButton(GeoIcons.zoomOut, "축소", { updateTransform(scale / 1.5f) })
+                GeoIconButton(GeoIcons.fitZone, "화면에 맞춤", { updateTransform(1f, Offset.Zero) })
+                GeoIconButton(GeoIcons.zoomIn, "확대", { updateTransform(scale * 1.5f) })
             }
         }
     }
@@ -216,6 +202,12 @@ private fun ZoomableImagePreview(
 
 internal fun formatSize(bytes: Long): String {
     return com.example.jetsoncontroller.ui.model.Formats.size(bytes)
+}
+
+internal fun previewImageDimensions(bytes: ByteArray): String? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    return if (bounds.outWidth > 0 && bounds.outHeight > 0) "${bounds.outWidth} × ${bounds.outHeight}" else null
 }
 
 private const val MAX_PREVIEW_DIMENSION = 2048

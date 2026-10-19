@@ -11,7 +11,6 @@ import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.field.*
 import com.example.jetsoncontroller.model.*
@@ -25,22 +24,15 @@ import java.io.File
 class FieldStageScreenTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun dashboardStageActionOpensSurveyPreparation() {
+    @Test fun workSectionActionOpensSurveyPreparation() {
         var destination: FieldDestination? = null
         val plan = fieldStagePlan(FieldStageInput(connected = true, runStateConfirmed = true))
         compose.setContent { JetsonControllerTheme {
-            DashboardScreen(
-                state = DashboardUiState(isOnline = true), pipelines = emptyList(),
-                uploads = emptyList(), unreadAlertCount = 0, onAlertsClick = {},
-                onDisconnect = {}, onRefreshFan = {}, onSetFanAuto = {}, onSetFanManual = {},
-                onReboot = {}, onShutdown = {}, onStorageClick = {}, onNetworkSettingsClick = {},
-                onUploadQueueClick = {}, onPipelinesClick = {}, onSectionSelected = {},
-                onDismissOperationMessage = {}, onBack = {}, stagePlan = plan,
-                onStageAction = { destination = it }
-            )
+            ReadyWorkScreen { destination = FieldDestination.SURVEY_PREP }
+
         } }
-        compose.onNodeWithText(plan.title).assertIsDisplayed()
-        compose.onNodeWithText(plan.actionLabel).performClick()
+        compose.onNodeWithText("수집 구간").assertIsDisplayed()
+        compose.onNodeWithText("구간 직접 고르기").performClick()
         compose.runOnIdle { assertEquals(FieldDestination.SURVEY_PREP, destination) }
         capture("stage-action")
     }
@@ -52,20 +44,12 @@ class FieldStageScreenTest {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
                 JetsonControllerTheme {
-                    DashboardScreen(
-                        state = DashboardUiState(isOnline = true), pipelines = emptyList(),
-                        uploads = emptyList(), unreadAlertCount = 0, onAlertsClick = {},
-                        onDisconnect = {}, onRefreshFan = {}, onSetFanAuto = {}, onSetFanManual = {},
-                        onReboot = {}, onShutdown = {}, onStorageClick = {}, onNetworkSettingsClick = {},
-                        onUploadQueueClick = {}, onPipelinesClick = {}, onSectionSelected = {},
-                        onDismissOperationMessage = {}, onBack = {}, tasksConfirmed = true,
-                        stagePlan = plan, onStageAction = { destination = it }
-                    )
+                    ReadyWorkScreen { destination = FieldDestination.SURVEY_PREP }
                 }
             }
         }
 
-        compose.onNodeWithText(plan.actionLabel).performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("구간 직접 고르기").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(FieldDestination.SURVEY_PREP, destination) }
     }
 
@@ -253,6 +237,15 @@ class FieldStageScreenTest {
         compose.onNodeWithText("시작 결과 확인").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithText("수집 종료").assertDoesNotExist()
         capture("active-pending-2x")
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun ReadyWorkScreen(onPrepare: () -> Unit) {
+        val state = com.example.jetsoncontroller.ui.tasks.buildTasksHomeUiState(
+            com.example.jetsoncontroller.ui.tasks.TasksHomeInput("GEO-X-1", true,
+                com.example.jetsoncontroller.ui.survey.SurveyRunUiState(runStateConfirmed = true, restoringLocalState = false),
+                emptyList(), emptyList(), emptyList(), false))
+        com.example.jetsoncontroller.ui.tasks.TasksHomeScreen(state, {}, onPrepare, onPrepare, {}, {}, {}, {})
     }
 
     private fun activeRun(): PipelineRun = terminalRun().copy(

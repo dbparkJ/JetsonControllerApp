@@ -17,7 +17,8 @@ import kotlinx.coroutines.launch
 data class AlertCenterUiState(
     val alerts: List<AlertRecord> = emptyList(),
     /** Unread alerts from the last 24 hours. This is the number the bell shows. */
-    val unreadCount: Int = 0
+    val unreadCount: Int = 0,
+    val isLoaded: Boolean = true
 )
 
 class AlertCenterViewModel(
@@ -36,12 +37,13 @@ class AlertCenterViewModel(
     val uiState = combine(history.alerts, recountTicks) { alerts, _ ->
         AlertCenterUiState(
             alerts = alerts,
-            unreadCount = countRecentUnread(alerts, clock())
+            unreadCount = countRecentUnread(alerts, clock()),
+            isLoaded = true
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = AlertCenterUiState()
+        initialValue = AlertCenterUiState(isLoaded = false)
     )
 
     fun markRead(alertId: String) {

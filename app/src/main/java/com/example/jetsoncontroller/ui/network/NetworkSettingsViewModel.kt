@@ -51,7 +51,11 @@ class NetworkSettingsViewModel(
                 _uiState.update { previous ->
                     workspace.select(deviceId, previous).let { current ->
                         current.copy(
+                            deviceId = deviceId,
+                            connectionGeneration = connectionGeneration,
                             transportType = connected?.type,
+                            wifiConnected = false,
+                            currentWifiSsid = null,
                             sending = false,
                             message = if (current.sending) "전송 결과를 확인하지 못했습니다. 재연결 후 Wi-Fi 연결 상태를 확인해 주세요." else current.message
                         )
@@ -60,12 +64,14 @@ class NetworkSettingsViewModel(
             }
         }
         viewModelScope.launch {
-            repository.status.collect { status ->
+            combine(repository.status, repository.statusUpdatedAtEpochMillis) { status, observedAt ->
+                status to observedAt
+            }.collect { (status, observedAt) ->
                 _uiState.update {
-                    it.copy(
-                        wifiConnected = status.wifiConnected,
-                        currentWifiSsid = status.wifiSsid
-                    )
+                    val connected = repository.transportState.value as? TransportState.Connected
+                    val sameDevice = observedAt != null && connected != null && connected.deviceId.equals(it.deviceId, true)
+                    it.copy(wifiConnected = sameDevice && status.wifiConnected,
+                        currentWifiSsid = status.wifiSsid.takeIf { sameDevice })
                 }
             }
         }
@@ -98,7 +104,7 @@ class NetworkSettingsViewModel(
                 it.copy(
                     selectedAccessPointSsid = null,
                     password = "",
-                    message = "Jetson이 이미 이 네트워크에 연결되어 있습니다.",
+                    message = "이미 연결된 네트워크입니다.",
                     isError = false
                 )
             }
@@ -128,7 +134,13 @@ class NetworkSettingsViewModel(
     }
 
     fun submit() {
-        if (_uiState.value.transportType == null || _uiState.value.sending) return
+        _uiState.value.applyTarget()?.let(::submit)
+    }
+
+    fun submit(target: WifiApplyTarget) {
+        val transport = repository.transportState.value as? TransportState.Connected
+        if (!_uiState.value.matches(target) || !target.deviceId.equals(repository.selectedDeviceId.value, true) ||
+            transport == null || !transport.deviceId.equals(target.deviceId, true)) return
         val generation = connectionGeneration
         val current = _uiState.value
         if (current.isCurrentJetsonWifi(current.ssid)) {
@@ -137,13 +149,16 @@ class NetworkSettingsViewModel(
                     sending = false,
                     password = "",
                     selectedAccessPointSsid = null,
-                    message = "Jetson이 이미 이 네트워크에 연결되어 있습니다.",
+                    message = "이미 연결된 네트워크입니다.",
                     isError = false
                 )
             }
             return
         }
         submitJob = viewModelScope.launch {
+            val liveTransport = repository.transportState.value as? TransportState.Connected
+            if (!_uiState.value.matches(target) || !target.deviceId.equals(repository.selectedDeviceId.value, true) ||
+                liveTransport == null || !liveTransport.deviceId.equals(target.deviceId, true)) return@launch
             _uiState.update { it.copy(sending = true, message = null) }
 
             val result = repository.provisionWifi(
@@ -160,7 +175,7 @@ class NetworkSettingsViewModel(
                     it.copy(
                         sending = false,
                         password = "",
-                        message = "Wi-Fi 연결 요청을 Jetson에 전송했습니다.",
+                        message = "장치에 Wi-Fi 연결을 요청했습니다.",
                         isError = false
                     )
                 } else {

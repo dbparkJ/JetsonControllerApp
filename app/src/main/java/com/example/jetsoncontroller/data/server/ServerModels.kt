@@ -217,8 +217,12 @@ data class ServerTicket(
     val lengthM: Double? = null,
     val areaM2: Double? = null,
     val geometryRevision: String? = null,
-    val geometryHash: String? = null
-)
+    val geometryHash: String? = null,
+    val geometry: JsonElement? = null
+) {
+    val zoneRevision: String? get() = com.example.jetsoncontroller.data.zone.ZoneContract.fromTicket(this).contract?.revision ?: geometryRevision
+    val zoneHash: String? get() = com.example.jetsoncontroller.data.zone.ZoneContract.fromTicket(this).contract?.hash ?: geometryHash
+}
 
 data class ServerTicketsResponse(
     val tickets: List<ServerTicket> = emptyList(),

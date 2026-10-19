@@ -1,70 +1,26 @@
 package com.example.jetsoncontroller.ui.devices
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.devices.DeviceSnapshot
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
-import com.example.jetsoncontroller.ui.sensors.sensorPresentations
-import com.example.jetsoncontroller.ui.theme.Button
-import com.example.jetsoncontroller.ui.theme.GeoSpace
+import com.example.jetsoncontroller.ui.sensors.DeviceSensorRows
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.TextButton
+import kotlinx.coroutines.launch
 
-private val DetailSurfaceShape = RoundedCornerShape(12.dp)
-private val DetailControlShape = RoundedCornerShape(8.dp)
-
-/**
- * One device, opened from the device root. It shows the live status (or the last known
- * values when offline), the work, sensors, connection and data, device management, and
- * the advanced tools that appear only in developer mode.
- *
- * Reboot and power-off are enabled only when [devicePowerActionEnabled] allows them, and
- * each one asks for confirmation with the device name first.
- */
-@OptIn(ExperimentalMaterial3Api::class)
+@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun DeviceDetailScreen(
     deviceName: String,
@@ -91,355 +47,139 @@ internal fun DeviceDetailScreen(
     onShutdown: () -> Unit,
     onPipelines: () -> Unit,
     onFan: () -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    deviceId: String = snapshot?.deviceId.orEmpty(),
+    selectedDeviceId: String? = deviceId,
+    onForget: (() -> Unit)? = null,
+    onTrash: (() -> Unit)? = null,
+    trashCount: Int? = null,
+    onBluetooth: (() -> Unit)? = null,
+    bluetoothPermissionGranted: Boolean = false,
+    onRequestBluetoothPermission: () -> Unit = {},
+    ongoingStrip: GeoStatusStripState? = null,
+    onRefresh: () -> Unit = {},
+    bluetoothBusy: Boolean = false,
+    bluetoothError: String? = null
 ) {
     val c = LocalGeoColors.current
-    val online = dashboard.isOnline
-    val statusIsCurrent = online && dashboard.statusFreshness == StatusFreshness.CURRENT
-    val figures = deviceFigures(
-        live = dashboard.status.takeIf { statusIsCurrent },
-        snapshot = snapshot
-    )
-    val powerEnabled = devicePowerActionEnabled(
-        powerCommandsEnabled = dashboard.capabilities.powerCommandsEnabled,
-        online = online,
-        operationInProgress = dashboard.operationInProgress,
-        runActive = runActive
-    )
-    var sheetOpen by rememberSaveable { mutableStateOf(false) }
-    var menuOpen by rememberSaveable { mutableStateOf(false) }
-    var pendingPowerAction by rememberSaveable { mutableStateOf<String?>(null) }
-
-    pendingPowerAction?.let { action ->
-        val reboot = action == POWER_REBOOT
-        AlertDialog(
-            onDismissRequest = { pendingPowerAction = null },
-            title = { Text(if (reboot) "$deviceName 재부팅" else "$deviceName 전원 종료") },
-            text = {
-                Text(
-                    "대상: $deviceName\n실행 중인 수집과 전송이 중단되고 연결이 끊어질 수 있습니다." +
-                        if (reboot) "" else "\n다시 켜려면 장치의 전원 버튼을 눌러야 합니다."
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        pendingPowerAction = null
-                        if (reboot) onReboot() else onShutdown()
-                    },
-                    enabled = powerEnabled,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = c.danger,
-                        contentColor = c.onDanger
-                    )
-                ) {
-                    Text(if (reboot) "장치 재부팅" else "장치 전원 종료")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingPowerAction = null }) { Text("취소") }
-            }
-        )
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val targetSelected = sameDeviceTarget(deviceId, selectedDeviceId)
+    val online = targetSelected && dashboard.isOnline
+    val control = online && dashboard.fullControlAvailable
+    val current = online && dashboard.statusFreshness == StatusFreshness.CURRENT
+    val powerReason = powerUnavailableReason(dashboard, runActive)
+    val powerEnabled = targetSelected && control && current && powerReason.isEmpty()
+    var sheet by rememberSaveable(deviceId) { mutableStateOf(false) }
+    var menu by rememberSaveable(deviceId) { mutableStateOf(false) }
+    var confirmation by rememberSaveable(deviceId) { mutableStateOf<String?>(null) }
+    var previousSelected by remember(deviceId) { mutableStateOf(selectedDeviceId) }
+    LaunchedEffect(selectedDeviceId) {
+        if (previousSelected != selectedDeviceId) {
+            val wasOpen = sheet || menu || confirmation != null
+            sheet = false; menu = false; confirmation = null
+            previousSelected = selectedDeviceId
+            if (wasOpen) snackbar.showGeoSnackbar("장치를 바꿔서 열려 있던 확인 창을 닫았습니다.")
+        }
     }
-
-    Scaffold(
-        containerColor = c.canvas,
-        topBar = {
-            Surface(color = c.canvas, contentColor = c.ink) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = GeoSpace.xs)
-                        .height(56.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+    val disabledReason = if (!targetSelected) "이 장치를 다시 선택하면 쓸 수 있습니다." else "연결되면 쓸 수 있습니다."
+    Column(Modifier.fillMaxSize()) {
+        DeviceTitleBar("장치", onBack) {
+            Box {
+                GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
+                GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("연결 끊기", {
+                    onDisconnect()
+                    scope.launch {
+                        if (snackbar.showGeoSnackbar("$deviceName 연결을 끊었습니다.", "다시 연결") == SnackbarResult.ActionPerformed) onSameNetwork()
                     }
-                    Text(
-                        deviceName,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (online) {
-                        Box {
-                            IconButton(onClick = { menuOpen = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "장치 메뉴")
-                            }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("연결 끊기") },
-                                    onClick = { menuOpen = false; onDisconnect() }
-                                )
-                            }
-                        }
+                },
+                    enabled = online, disabledReason = disabledReason)))
+            }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item {
+                GeoStatusStrip(listOfNotNull(
+                    if (!online) GeoStatusStripState(GeoStripKind.DISCONNECTED, deviceName,
+                        listOfNotNull("연결이 끊겼습니다", lastSeenText?.let { "마지막 응답 $it" }).joinToString(" · "),
+                        listOf(GeoOverlayAction("다시 연결", onSameNetwork), GeoOverlayAction("연결 방법", { sheet = true }))) else null,
+                    ongoingStrip
+                ))
+            }
+            item {
+                Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp)) {
+                    DeviceIdentity(deviceName, connection,
+                        if (online) listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · ")
+                        else lastSeenText?.let { "마지막 응답 $it" }, detail = true)
+                    GeoSection("상태", modifier = Modifier.padding(top = 8.dp)) {
+                        GeoFigureGrid(deviceFigureItems(dashboard.status.takeIf { current }, snapshot))
+                        GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary,
+                            enabled = online, disabledReason = if (online) null else disabledReason)
+                    }
+                    GeoSection("센서") {
+                        DeviceSensorRows(dashboard.status, current, control, onCamera, onGnss)
+                    }
+                    GeoSection("연결") {
+                        GeoRow("연결 방법", { sheet = true }, value = deviceTransportLabel(dashboard.transportType))
+                        GeoRow("장치 Wi-Fi", onNetwork, value = dashboard.status.wifiSsid,
+                            enabled = online, disabledReason = disabledReason)
+                    }
+                    GeoSection("데이터") {
+                        GeoRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason)
+                        GeoRow("휴지통", { onTrash?.invoke() }, value = trashCount?.let { "${it}개" },
+                            enabled = control && onTrash != null, disabledReason = disabledReason)
+                    }
+                    GeoSection("관리", danger = true,
+                        note = "재부팅과 전원 종료는 수집 중에는 쓸 수 없습니다.") {
+                        DevicePowerButtons(powerEnabled, { confirmation = "reboot" }, { confirmation = "shutdown" })
+                        if (!powerEnabled) Text(powerReason.ifEmpty { disabledReason }, style = LocalGeoType.current.body, color = c.textSecondary)
+                    }
+                    GeoSection("이 휴대폰", danger = true, note = "이 휴대폰에 저장된 인증 정보만 지웁니다.") {
+                        GeoButton("등록 해제", { confirmation = "forget" }, style = GeoButtonStyle.DangerOutline,
+                            actionArea = true, enabled = onForget != null,
+                            disabledReason = if (onForget == null) "등록된 장치를 먼저 선택하세요." else null)
                     }
                 }
             }
         }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(
-                start = GeoSpace.gutter,
-                end = GeoSpace.gutter,
-                top = GeoSpace.xs,
-                bottom = GeoSpace.xxl
-            ),
-            verticalArrangement = Arrangement.spacedBy(GeoSpace.xl)
-        ) {
-            item {
-                IdentityCard(
-                    deviceName = deviceName,
-                    connection = connection,
-                    lastSeenText = lastSeenText,
-                    freshness = freshness.takeIf { statusIsCurrent },
-                    online = online
-                )
-            }
-            item {
-                DetailSection("상태") {
-                    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
-                            FigureCell(label = "온도", value = figures.temperature, detail = figures.sourceNote, modifier = Modifier.weight(1f))
-                            FigureCell(label = "저장 여유", value = figures.storageFree, detail = figures.storageFreeDetail ?: figures.sourceNote, modifier = Modifier.weight(1f))
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
-                            FigureCell(label = "CPU · GPU", value = figures.cpuGpu, detail = figures.sourceNote, modifier = Modifier.weight(1f))
-                            FigureCell(label = "메모리", value = figures.memory, detail = figures.memoryDetail ?: figures.sourceNote, modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-            item {
-                DetailSection("작업") {
-                    Column(
-                        Modifier.fillMaxWidth().padding(GeoSpace.lg),
-                        verticalArrangement = Arrangement.spacedBy(GeoSpace.md)
-                    ) {
-                        Text(
-                            if (runActive) "수집을 진행하고 있습니다." else "진행 중인 작업이 없습니다.",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        if (!runActive && !online) {
-                            Text(
-                                "장치가 연결되어 있어야 수집을 시작할 수 있습니다.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = c.muted
-                            )
-                        }
-                        if (runActive) {
-                            Button(
-                                onClick = onViewRun,
-                                modifier = Modifier.fillMaxWidth().height(52.dp),
-                                shape = DetailControlShape
-                            ) { Text("진행 보기", fontWeight = FontWeight.Bold) }
-                        } else {
-                            Button(
-                                onClick = onStartCollection,
-                                enabled = online,
-                                modifier = Modifier.fillMaxWidth().height(52.dp),
-                                shape = DetailControlShape
-                            ) { Text("수집 시작", fontWeight = FontWeight.Bold) }
-                        }
-                    }
-                }
-            }
-            item {
-                DetailSection("센서") {
-                    val sensors = sensorPresentations(dashboard.status, online, System.currentTimeMillis())
-                    LinkRow(
-                        title = "카메라",
-                        value = sensors.camera.badge,
-                        onClick = onCamera
-                    )
-                    DetailDivider()
-                    LinkRow(
-                        title = "위치(GNSS)",
-                        value = sensors.gnss.badge,
-                        onClick = onGnss
-                    )
-                }
-            }
-            item {
-                DetailSection("연결과 데이터") {
-                    LinkRow(title = "연결 방법", value = connection.label, onClick = { sheetOpen = true })
-                    DetailDivider()
-                    LinkRow(title = "장치 Wi-Fi", value = null, onClick = onNetwork)
-                    DetailDivider()
-                    LinkRow(title = "장치 파일", value = null, onClick = onFiles)
-                }
-            }
-            item {
-                DetailSection("장치 관리") {
-                    PowerRow(
-                        title = "$deviceName 재부팅",
-                        description = "확인 후 실행합니다. 수집 중에는 쓸 수 없습니다.",
-                        enabled = powerEnabled,
-                        onClick = { pendingPowerAction = POWER_REBOOT }
-                    )
-                    DetailDivider()
-                    PowerRow(
-                        title = "$deviceName 전원 종료",
-                        description = "다시 켜려면 장치의 전원 버튼을 눌러야 합니다.",
-                        enabled = powerEnabled,
-                        onClick = { pendingPowerAction = POWER_SHUTDOWN }
-                    )
-                    if (!powerEnabled) {
-                        Text(
-                            powerUnavailableReason(dashboard, runActive),
-                            modifier = Modifier.padding(horizontal = GeoSpace.lg, vertical = GeoSpace.sm),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = c.muted
-                        )
-                    }
-                }
-            }
-            if (developerModeEnabled) {
-                item {
-                    DetailSection("고급") {
-                        LinkRow(title = "작업 등록과 편집", value = null, onClick = onPipelines)
-                        DetailDivider()
-                        LinkRow(title = "팬 수동 제어", value = null, onClick = onFan)
-                        DetailDivider()
-                        LinkRow(title = "연결 진단 기록", value = null, onClick = onDiagnostics)
-                    }
-                }
-            }
+        GeoSnackbar(snackbar, Modifier.align(androidx.compose.ui.Alignment.BottomCenter))
         }
     }
-
-    if (sheetOpen) {
-        ConnectMethodSheet(
-            deviceName = deviceName,
-            connection = connection,
-            lastSeenText = lastSeenText,
-            developerModeEnabled = developerModeEnabled,
-            onDismiss = { sheetOpen = false },
-            onSameNetwork = { sheetOpen = false; onSameNetwork() },
-            onDirectConnect = { sheetOpen = false; onDirectConnect() },
-            onQrRegister = { sheetOpen = false; onQrRegister() },
-            onSaveDiagnostics = { sheetOpen = false; onSaveDiagnostics() }
+    confirmation?.let { action ->
+        val forget = action == "forget"
+        val reboot = action == "reboot"
+        val enabled = if (forget) onForget != null else powerEnabled
+        GeoConfirmDialog(
+            title = when { forget -> "$deviceName 등록을 해제할까요?"; reboot -> "${deviceName}을 재부팅할까요?"; else -> "${deviceName}의 전원을 끌까요?" },
+            body = when {
+                forget -> "이 휴대폰에 저장된 인증 정보만 지웁니다. 장치의 파일과 설정은 그대로입니다. 다시 쓰려면 QR 코드로 다시 등록해야 합니다."
+                reboot -> "재부팅하는 동안 연결이 끊깁니다. 진행 중인 전송은 멈춥니다."
+                else -> "다시 켜려면 장치의 전원 버튼을 눌러야 합니다. 진행 중인 전송은 멈춥니다."
+            },
+            confirmLabel = when { forget -> "등록 해제"; reboot -> "재부팅"; else -> "전원 종료" },
+            kind = GeoConfirmKind.DANGER,
+            confirmEnabled = enabled,
+            disabledReason = if (!enabled) powerReason.ifEmpty { disabledReason } else null,
+            onConfirm = {
+                confirmation = null
+                if (enabled) when { forget -> onForget?.invoke(); reboot -> onReboot(); else -> onShutdown() }
+            },
+            onDismissRequest = { confirmation = null }
         )
     }
+    if (sheet) ConnectMethodSheet(deviceName, connection, lastSeenText, developerModeEnabled,
+        { sheet = false }, { sheet = false; onSameNetwork() }, { sheet = false; onDirectConnect() },
+        { sheet = false; onQrRegister() }, onSaveDiagnostics,
+        onBluetooth = onBluetooth,
+        bluetoothPermissionGranted = bluetoothPermissionGranted, onRequestBluetoothPermission = onRequestBluetoothPermission,
+        bluetoothBusy = bluetoothBusy, bluetoothError = bluetoothError)
 }
 
-private const val POWER_REBOOT = "reboot"
-private const val POWER_SHUTDOWN = "shutdown"
-
-/** Names the one condition that keeps the power actions off. */
 internal fun powerUnavailableReason(dashboard: DashboardUiState, runActive: Boolean): String = when {
-    runActive -> "수집 중에는 재부팅이나 전원 종료를 할 수 없습니다."
-    !dashboard.isOnline -> "장치가 연결되어 있어야 재부팅하거나 전원을 끌 수 있습니다."
-    !dashboard.capabilities.powerCommandsEnabled -> "이 장치는 앱에서 전원 명령을 보낼 수 없도록 설정되어 있습니다."
-    dashboard.operationInProgress -> "진행 중인 작업이 끝난 뒤 사용할 수 있습니다."
+    runActive -> "수집 중에는 쓸 수 없습니다."
+    !dashboard.isOnline || !dashboard.fullControlAvailable -> "연결되면 쓸 수 있습니다."
+    dashboard.statusFreshness != StatusFreshness.CURRENT -> "장치 상태를 다시 확인하세요."
+    !dashboard.capabilities.powerCommandsEnabled -> "이 장치에서는 쓸 수 없습니다."
+    dashboard.operationInProgress -> "진행 중인 작업이 끝나면 쓸 수 있습니다."
     else -> ""
-}
-
-@Composable
-private fun IdentityCard(
-    deviceName: String,
-    connection: DeviceConnectionUi,
-    lastSeenText: String?,
-    freshness: String?,
-    online: Boolean
-) {
-    val c = LocalGeoColors.current
-    Surface(color = c.surface, contentColor = c.ink, shape = DetailSurfaceShape, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.padding(GeoSpace.lg),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            DevicePhoto(size = 72.dp)
-            Spacer(Modifier.width(GeoSpace.md))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GeoSpace.xs)) {
-                StatusChip(
-                    text = statusChipText(connection, lastSeenText, online, freshness),
-                    tone = connection.tone
-                )
-                Text(
-                    connection.detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = c.inkSubtle
-                )
-                Text(
-                    deviceName,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = c.muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.sm)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Surface(
-            color = LocalGeoColors.current.surface,
-            contentColor = LocalGeoColors.current.ink,
-            shape = DetailSurfaceShape,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.fillMaxWidth(), content = content)
-        }
-    }
-}
-
-@Composable
-private fun DetailDivider() {
-    Spacer(
-        Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .padding(horizontal = GeoSpace.lg)
-            .background(LocalGeoColors.current.sectionBorder)
-    )
-}
-
-@Composable
-private fun LinkRow(title: String, value: String?, onClick: () -> Unit) {
-    val c = LocalGeoColors.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = GeoSpace.lg),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        if (value != null) {
-            Text(value, style = MaterialTheme.typography.bodySmall, color = c.muted)
-            Spacer(Modifier.width(GeoSpace.xs))
-        }
-        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = c.muted)
-    }
-}
-
-@Composable
-private fun PowerRow(title: String, description: String, enabled: Boolean, onClick: () -> Unit) {
-    val c = LocalGeoColors.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = GeoSpace.lg, vertical = GeoSpace.sm),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = if (enabled) c.danger else c.onDisabled
-        )
-        Text(description, style = MaterialTheme.typography.bodySmall, color = c.muted)
-    }
 }

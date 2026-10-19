@@ -55,6 +55,10 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                 DeviceStorageScreen(
                     onDismissMessage = routeStorageViewModel::dismissMessage,
                     onTransferQueue = { navController.navigateSingle(Routes.DATA) },
+                    onTrash = { navController.navigateSingle(Routes.LOCAL_TRASH) },
+                    onConnectionRemedy = { navigateToDeviceRoot(navController) },
+                    onReconnect = { currentRegisteredDevice?.let(connectRegisteredDevice) },
+                    ongoingRun = { TransferOngoingRun(state.value) },
                     thumbnailLoader = { entry -> repository.getFile(routeStorageState.currentRoot!!.id, entry.relativePath) },
                     state = routeStorageState,
                     serverUploadEnabled = serverUploadEnabled,
@@ -111,11 +115,16 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                     onRemoveProfile = directServerViewModel::removeSelectedProfile,
                     onDismissMessage = directServerViewModel::dismissMessage,
                     developerModeEnabled = developerModeEnabled,
+                    showTechnicalInfo = com.example.jetsoncontroller.ui.dev.rememberTechnicalInfo().value,
+                    onServerConnection = { navController.navigateSingle(SETTINGS_SERVER_ROUTE) },
+                    onRelogin = { navController.navigateSingle(SETTINGS_SERVER_ROUTE) },
+                    onDeveloperTrash = if (developerModeEnabled) ({ navController.navigateSingle("dev/server-trash") }) else null,
+                    ongoingRun = { TransferOngoingRun(state.value) },
                     onDeviceData = {
                         navController.navigateSingle(Routes.DATA) { launchSingleTop = true }
                     },
                     onJetsonServerProxy = if (developerModeEnabled && serverStorageState.controlAvailable) {
-                        { navController.navigateSingle(Routes.SERVER_PROXY_STORAGE) { launchSingleTop = true } }
+                        { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.SERVER_PROXY.route) { launchSingleTop = true } }
                     } else null
                 )
             }
@@ -170,7 +179,7 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                         uploadViewModel.loadSourceSummary(rootId, path, force = true, linkedRunId = linkedRunId)
                     },
                     onManageTargets = {
-                        navController.navigateSingle(Routes.UPLOAD_SERVERS)
+                        navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.UPLOAD_TARGETS.route)
                     },
                     onConfirm = { targetId ->
                         uploadViewModel.startUpload(rootId, path, targetId, expectedDeviceId = confirmationDevice) {
@@ -311,7 +320,7 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                     message = if (sameDevice) uploadState.message else null,
                     onRefresh = { if (sameDevice) uploadViewModel.loadQueue() },
                     onManageTargets = {
-                        navController.navigateSingle(Routes.UPLOAD_SERVERS)
+                        navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.UPLOAD_TARGETS.route)
                     },
                     onJobClick = { job ->
                         openTransferDetail(logDeviceId.orEmpty(), job)
@@ -337,7 +346,7 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
 
         composable(Routes.DATA) {
             with(state.value) {
-                TransferFilesScreen(
+                com.example.jetsoncontroller.ui.storage.StorageSendBrowser(
                     state = dataStorageState,
                     targets = uploadState.targets,
                     summary = uploadState.sourceSummary,
@@ -358,6 +367,12 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                     } },
                     onRefresh = { dataStorageViewModel.refresh(); uploadViewModel.refresh() },
                     onRemedy = { navController.navigateSingle(Routes.NETWORK_SETTINGS) },
+                    onConnection = { navigateToDeviceRoot(navController) },
+                    onReconnect = { currentRegisteredDevice?.let(connectRegisteredDevice) },
+                    onDeleteClick = dataStorageViewModel::deleteEntry,
+                    onTrash = { navController.navigateSingle(Routes.LOCAL_TRASH) },
+                    onDismissMessage = dataStorageViewModel::dismissMessage,
+                    onUndoDelete = dataStorageViewModel::undoDelete,
                     error = uploadState.error,
                     ongoingRun = { TransferOngoingRun(state.value) }
                 )
@@ -372,7 +387,8 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                     onRefresh = localTrashViewModel::refresh,
                     onRestore = localTrashViewModel::restore,
                     onEmptyTrash = localTrashViewModel::emptyTrash,
-                    onDismissMessage = localTrashViewModel::dismissMessage
+                    onDismissMessage = localTrashViewModel::dismissMessage,
+                    ongoingRun = { TransferOngoingRun(state.value) }
                 )
             }
         }

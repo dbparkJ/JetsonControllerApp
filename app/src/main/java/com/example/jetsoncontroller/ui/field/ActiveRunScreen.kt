@@ -40,6 +40,7 @@ import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.sensors.SensorActivity
 import com.example.jetsoncontroller.ui.sensors.sensorPresentations
 import com.example.jetsoncontroller.ui.theme.*
+import com.example.jetsoncontroller.ui.zone.runPresentation
 import kotlinx.coroutines.delay
 
 private val SystemElapsedRealtimeMillis: () -> Long = { System.nanoTime() / 1_000_000L }
@@ -65,9 +66,11 @@ internal val RunStopFlowSaver = listSaver<RunStopFlow, String>(
 @Composable
 internal fun ActiveRunRoute(
     state: AppNavigationState,
-    mapCard: @Composable () -> Unit = {},
+    mapCard: @Composable () -> Unit = { com.example.jetsoncontroller.ui.map.GeoActiveRunMapCard(state) },
     zone: RunZonePresentation = RunZonePresentation()
 ) {
+    val zoneOutput = com.example.jetsoncontroller.ui.map.LocalGeoMapZoneOutput.current
+    val monitoredZone = if (zoneOutput.outsideCount != null) zoneOutput.runPresentation(state.selectedDeviceName) else zone
     val survey = state.surveyRunState
     val deviceId = state.selectedDeviceId ?: survey.deviceId
     val active = survey.activeRun?.takeIf { it.deviceId.equals(deviceId, true) }
@@ -130,7 +133,7 @@ internal fun ActiveRunRoute(
                 else -> CorrectionRelayState.OFF
             }
         },
-        mapCard = mapCard, zone = zone
+        mapCard = mapCard, zone = monitoredZone
     )
 }
 

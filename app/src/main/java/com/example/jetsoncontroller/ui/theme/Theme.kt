@@ -22,26 +22,28 @@ internal data class GeoSystemBarAppearance(
     val darkNavigationIcons: Boolean
 )
 
-internal fun systemBarAppearance(palette: GeoPalette, navigationBarUsesSurface: Boolean) = GeoSystemBarAppearance(
-    statusBar = palette.colors.topBar,
-    navigationBar = if (navigationBarUsesSurface) palette.colors.surface else palette.colors.nav,
-    darkStatusIcons = !palette.lightStatusBarIcons,
-    darkNavigationIcons = if (navigationBarUsesSurface) !palette.lightSurfaceBarIcons else !palette.lightNavigationBarIcons
+internal fun systemBarAppearance(palette: GeoPalette, navigationBarUsesSurface: Boolean, media: Boolean = false) = GeoSystemBarAppearance(
+    statusBar = if (media) Color.Black else palette.colors.topBar,
+    navigationBar = if (media) Color.Black else if (navigationBarUsesSurface) palette.colors.surface else palette.colors.nav,
+    darkStatusIcons = !media && !palette.lightStatusBarIcons,
+    darkNavigationIcons = !media && if (navigationBarUsesSurface) !palette.lightSurfaceBarIcons else !palette.lightNavigationBarIcons
 )
 
+private data class SystemBarRequest(val surface: Boolean, val media: Boolean)
+
 private class SystemBarRequests {
-    var navigationSurfaces by mutableStateOf<Map<Any, Boolean>>(emptyMap())
+    var navigationSurfaces by mutableStateOf<Map<Any, SystemBarRequest>>(emptyMap())
 }
 
 private val LocalSystemBarRequests = staticCompositionLocalOf<SystemBarRequests?> { null }
 
 /** Shells/overlays declare the surface below their navigation inset; the theme owns the window. */
 @Composable
-fun GeoSystemBars(navigationBarUsesSurface: Boolean) {
+fun GeoSystemBars(navigationBarUsesSurface: Boolean, media: Boolean = false) {
     val requests = LocalSystemBarRequests.current ?: return
     val token = remember { Any() }
-    DisposableEffect(requests, token, navigationBarUsesSurface) {
-        requests.navigationSurfaces = requests.navigationSurfaces + (token to navigationBarUsesSurface)
+    DisposableEffect(requests, token, navigationBarUsesSurface, media) {
+        requests.navigationSurfaces = requests.navigationSurfaces + (token to SystemBarRequest(navigationBarUsesSurface, media))
         onDispose { requests.navigationSurfaces = requests.navigationSurfaces - token }
     }
 }
@@ -107,8 +109,8 @@ fun JetsonControllerTheme(
     val view = LocalView.current
     val type = GeoType.forPalette(palette)
     val barRequests = remember { SystemBarRequests() }
-    val surfaceInset = barRequests.navigationSurfaces.values.lastOrNull() ?: navigationBarUsesSurface
-    val bars = systemBarAppearance(palette, surfaceInset)
+    val request = barRequests.navigationSurfaces.values.lastOrNull()
+    val bars = systemBarAppearance(palette, request?.surface ?: navigationBarUsesSurface, request?.media == true)
     if (!view.isInEditMode) {
         SideEffect {
             val window = view.context.appearanceActivity()?.window

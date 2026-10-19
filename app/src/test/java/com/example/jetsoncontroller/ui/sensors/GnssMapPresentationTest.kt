@@ -8,9 +8,10 @@ import org.junit.Test
 
 class GnssMapPresentationTest {
     @Test
-    fun sidePanelIsLimitedToWideLandscapeTabletsAtNormalFontScale() {
-        assertTrue(mapUsesSidePanel(600, 1280f, 720f, 1f))
-        assertFalse(mapUsesSidePanel(411, 900f, 411f, 1f))
+    fun sidePanelUsesTheCurrentCompactLandscapePane() {
+        assertFalse(mapUsesSidePanel(600, 1280f, 720f, 1f))
+        assertTrue(mapUsesSidePanel(411, 900f, 411f, 1f))
+        assertTrue(mapUsesSidePanel(411, 900f, 411f, 2f))
         assertFalse(mapUsesSidePanel(600, 1280f, 720f, 2f))
         assertFalse(mapUsesSidePanel(600, 800f, 600f, 1f))
     }

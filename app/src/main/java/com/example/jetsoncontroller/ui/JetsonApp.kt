@@ -98,7 +98,8 @@ private val developerOnlyRoutes = setOf(
 )
 
 internal fun routeAllowed(route: String?, developerModeEnabled: Boolean): Boolean =
-    developerModeEnabled || route !in developerOnlyRoutes
+    developerModeEnabled || (route !in developerOnlyRoutes && route != "dev" && route?.startsWith("dev/") != true &&
+        route != com.example.jetsoncontroller.ui.dev.DevDestination.PROXY_PREVIEW.route)
 
 internal fun developerRevocationDestination(
     route: String?,
@@ -873,17 +874,7 @@ fun JetsonApp(
             navigationVisible = primaryNavigationVisible(currentRoute, focusedMedia = navigationState.hasFocusedMediaPreview()) &&
                 deviceState.registeredDevices.isNotEmpty(),
             onSelect = onSectionSelected,
-            topBar = {
-                if (currentRoute == Routes.ONBOARDING && deviceState.registeredDevices.isEmpty()) {
-                    androidx.compose.foundation.layout.Row(
-                        Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
-                    ) {
-                        androidx.compose.material3.TextButton(onClick = { navigateToTab(navController, Routes.SETTINGS) }) {
-                            androidx.compose.material3.Text("설정")
-                        }
-                    }
-                }
-            }
+            mediaInsets = currentRoute in setOf(Routes.CAMERA_PREVIEW, Routes.QR_SCANNER) || navigationState.hasFocusedMediaPreview()
         ) {
             ConnectionRecoveryLayout(
                 deviceId = selectedDeviceId,
@@ -892,7 +883,9 @@ fun JetsonApp(
                 tone = connectionNotice?.tone ?: StatusTone.WARNING,
                 onResolveConnection = { navigateToDeviceRoot(navController) }
             ) { screenModifier ->
-                AppNavHost(navigationState, screenModifier)
+                com.example.jetsoncontroller.ui.zone.ZoneObservationHost(navigationState) {
+                    AppNavHost(navigationState, screenModifier)
+                }
             }
         }
     }
@@ -1107,6 +1100,16 @@ internal fun connectionAttemptCompleted(
 ): Boolean = expectedTransport != null &&
     transportState is TransportState.Connected &&
     transportState.type == expectedTransport
+
+internal fun alertDestinationRoute(alert: com.example.jetsoncontroller.data.alerts.AlertRecord): String {
+    val target = alert.target?.takeIf { it.deviceId.isNotBlank() } ?: return alertDestinationRoute(alert.destination)
+    return when {
+        target.transferJob != null -> Routes.UPLOAD_PROGRESS
+        !target.runId.isNullOrBlank() -> runResultRoute(target.runId, target.deviceId, target.pipelineId)
+        alert.destination in setOf(AlertDestination.DASHBOARD, AlertDestination.STORAGE, AlertDestination.SENSORS) -> Routes.DEVICE_DETAIL
+        else -> alertDestinationRoute(alert.destination)
+    }
+}
 
 internal fun alertDestinationRoute(destination: AlertDestination): String = when (destination) {
     AlertDestination.DASHBOARD -> Routes.DEVICE_BROWSE

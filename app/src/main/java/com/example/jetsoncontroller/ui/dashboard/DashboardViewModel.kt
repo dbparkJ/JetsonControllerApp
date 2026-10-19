@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import com.example.jetsoncontroller.model.FanStatus
 
 class DashboardViewModel(
     private val repository:
@@ -21,20 +20,9 @@ class DashboardViewModel(
 
     private val visible = MutableStateFlow(false)
     private val nowEpochMillis = MutableStateFlow(System.currentTimeMillis())
-    private val fanControlState = MutableStateFlow(FanControlSnapshot())
+    private val fanController = com.example.jetsoncontroller.ui.dev.DevFanController(repository, viewModelScope)
 
     init {
-        viewModelScope.launch {
-            combine(repository.transportState, visible) { transport, isVisible ->
-                transport to isVisible
-            }.collectLatest { (transport, isVisible) ->
-                if (transport is TransportState.Connected && isVisible) {
-                    if (transport.type != com.example.jetsoncontroller.data.transport.TransportType.BLE) {
-                        refreshFanStatus()
-                    }
-                }
-            }
-        }
         viewModelScope.launch {
             visible.collectLatest { isVisible ->
                 while (isVisible) {
@@ -102,7 +90,7 @@ class DashboardViewModel(
             )
         }
 
-    val uiState = combine(baseUiState, fanControlState) { state, fan ->
+    val uiState = combine(baseUiState, fanController.state) { state, fan ->
         state.copy(
             fanStatus = fan.status,
             fanLoading = fan.loading,
@@ -138,56 +126,11 @@ class DashboardViewModel(
     fun shutdown() =
         repository.shutdown()
 
-    fun refreshFan() {
-        viewModelScope.launch { refreshFanStatus() }
-    }
+    fun refreshFan() = fanController.refresh()
 
-    fun setFanAuto() {
-        updateFan("AUTO", null)
-    }
+    fun setFanAuto() = fanController.auto()
 
-    fun setFanManual(percent: Int) {
-        updateFan("MANUAL", percent.coerceIn(20, 100))
-    }
-
-    private fun updateFan(mode: String, percent: Int?) {
-        if (fanControlState.value.loading) return
-        viewModelScope.launch {
-            fanControlState.value = fanControlState.value.copy(loading = true, error = null)
-            try {
-                repository.setFan(mode, percent)
-                    .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
-                    .onFailure {
-                        fanControlState.value = fanControlState.value.copy(
-                            loading = false,
-                            error = it.message ?: "FAN을 제어하지 못했습니다."
-                        )
-                    }
-            } finally {
-                // collectLatest cancels an in-flight refresh when the screen or
-                // transport changes.  Always clear the gate so the next visible
-                // connection can request FAN status again.
-                fanControlState.value = fanControlState.value.finishedLoading()
-            }
-        }
-    }
-
-    private suspend fun refreshFanStatus() {
-        if (fanControlState.value.loading) return
-        fanControlState.value = fanControlState.value.copy(loading = true, error = null)
-        try {
-            repository.getFanStatus()
-                .onSuccess { fanControlState.value = FanControlSnapshot(status = it) }
-                .onFailure {
-                    fanControlState.value = fanControlState.value.copy(
-                        loading = false,
-                        error = it.message ?: "FAN 상태를 확인하지 못했습니다."
-                    )
-                }
-        } finally {
-            fanControlState.value = fanControlState.value.finishedLoading()
-        }
-    }
+    fun setFanManual(percent: Int) = fanController.manual(percent)
 
     fun clearOperationMessage() =
         repository.clearControlMessage()
@@ -223,11 +166,7 @@ private data class StatusSnapshot(
     val ageSeconds: Long?
 )
 
-internal data class FanControlSnapshot(
-    val status: FanStatus? = null,
-    val loading: Boolean = false,
-    val error: String? = null
-)
+internal typealias FanControlSnapshot = com.example.jetsoncontroller.ui.dev.DevFanSnapshot
 
 internal fun FanControlSnapshot.finishedLoading(): FanControlSnapshot =
     if (loading) copy(loading = false) else this

@@ -99,7 +99,8 @@ class StorageNoticeScreenTest {
             }
         }
 
-        compose.onNodeWithText("휴지통 비우기 (1개)").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("휴지통 메뉴").performClick()
+        compose.onNodeWithText("휴지통 비우기").performClick()
         assertEquals(
             2f,
             compose.onNodeWithTag("local-trash-empty-dialog-title").fetchSemanticsNode()
@@ -108,22 +109,24 @@ class StorageNoticeScreenTest {
         )
         captureDialog("storage-trash-local-confirm")
         compose.onNodeWithText("취소").performClick()
-        compose.onNodeWithText("휴지통을 완전히 비울까요?").assertDoesNotExist()
+        compose.onNodeWithTag("local-trash-empty-dialog-title").assertDoesNotExist()
 
-        compose.onNodeWithText("휴지통 비우기 (1개)").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("휴지통 메뉴").performClick()
+        compose.onNodeWithText("휴지통 비우기").performClick()
         compose.runOnIdle {
             state = state.copy(entries = state.entries + first.copy(trashId = "trash-new", name = "새 항목"))
         }
         compose.onNodeWithText("영구 삭제").performClick()
         compose.runOnIdle { assertEquals("device-a" to listOf("trash-a"), emptied) }
 
-        compose.onNodeWithText("휴지통 비우기 (2개)").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("휴지통 메뉴").performClick()
+        compose.onNodeWithText("휴지통 비우기").performClick()
         compose.runOnIdle { state = state.copy(deviceId = "device-b") }
-        compose.onNodeWithText("휴지통을 완전히 비울까요?").assertDoesNotExist()
+        compose.onNodeWithTag("local-trash-empty-dialog-title").assertDoesNotExist()
         compose.runOnIdle { assertEquals("device-a" to listOf("trash-a"), emptied) }
     }
 
-    @Test fun serverTrashExplainsVisibleOnlyPurgeAndKeepsProfileSnapshot() {
+    @Test fun serverTrashExplainsVisibleCountAndOpensDeveloperPurge() {
         val visible = ServerTrashJob(
             "session-a", "client-a", "수집 결과", 1024, 1, "TRASHED", "now",
             purgeSupported = true, restoreSupported = true
@@ -142,7 +145,8 @@ class StorageNoticeScreenTest {
                 trashNextOffset = 1
             )
         )
-        var request: Pair<String, List<String>>? = null
+        var developerOpens = 0
+        var purges = 0
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
@@ -164,29 +168,21 @@ class StorageNoticeScreenTest {
                         onRestore = {},
                         onUndoTrash = {},
                         onRefreshTrash = {},
-                        onEmptyTrash = { profile, ids -> request = profile to ids },
+                        onEmptyTrash = { _, _ -> purges++ },
                         onRemoveProfile = {}, onDismissMessage = {},
-                        developerModeEnabled = true
+                        developerModeEnabled = true,
+                        onDeveloperTrash = { developerOpens++ }
                     )
                 }
             }
         }
 
         compose.onNodeWithText("전체 3개 중 1개를 표시합니다.", substring = true).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("표시된 1개 비우기").performScrollTo().performClick()
-        assertEquals(
-            2f,
-            compose.onNodeWithTag("server-trash-empty-dialog-title").fetchSemanticsNode()
-                .config[TrashDialogFontScaleKey],
-            0f
-        )
-        captureDialog("storage-trash-server-confirm")
-        compose.onNodeWithText("영구 삭제").performClick()
-        compose.runOnIdle { assertEquals("profile-a" to listOf("session-a"), request) }
+        compose.onNodeWithText("표시된 1개 비우기").assertDoesNotExist()
+        compose.onNodeWithText("개발자 도구에서 비우기").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, developerOpens); assertEquals(0, purges) }
+        compose.onNode(isDialog()).assertDoesNotExist()
 
-        compose.onNodeWithText("표시된 1개 비우기").performScrollTo().performClick()
-        compose.runOnIdle { state = state.copy(selectedProfileId = "profile-b") }
-        compose.onNodeWithText("서버 휴지통을 비울까요?").assertDoesNotExist()
     }
 
     private fun captureDialog(name: String) {

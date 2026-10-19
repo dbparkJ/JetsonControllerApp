@@ -27,7 +27,8 @@ data class LocalTrashUiState(
     val restoringId: String? = null,
     val emptying: Boolean = false,
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val deviceName: String = "선택한 장치"
 )
 
 class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel() {
@@ -44,7 +45,11 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
             }.collectLatest { (id, online) ->
                 generation++
                 job?.cancel()
-                _state.value = LocalTrashUiState(deviceId = id, online = online,
+                val previous = _state.value.takeIf { it.deviceId == id } ?: LocalTrashUiState()
+                _state.value = previous.copy(deviceId = id, online = online, loading = false,
+                    restoringId = null, emptying = false,
+                    deviceName = repository.registeredDevices.value.firstOrNull { it.deviceId.equals(id, true) }
+                        ?.deviceName ?: "선택한 장치",
                     error = if (online) null else "장치에 연결한 뒤 휴지통을 확인하세요.")
                 if (online) refresh()
             }
@@ -96,11 +101,15 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
 
     fun restore(entry: TrashEntry) {
         if (!_state.value.online || _state.value.restoringId != null || _state.value.emptying ||
-            !entry.restoreSupported || entry.state != "TRASHED") return
+            !localTrashCanRestore(entry) || _state.value.loading ||
+            _state.value.entries.none { it == entry }) return
         val expected = generation
+        val deviceId = _state.value.deviceId
         job?.cancel()
+        _state.value = _state.value.copy(restoringId = entry.trashId)
         job = viewModelScope.launch {
             _state.value = _state.value.copy(restoringId = entry.trashId, error = null, message = null)
+            if (expected != generation || repository.selectedDeviceId.value != deviceId) return@launch
             repository.restoreTrash(entry.trashId).onSuccess { restored ->
                 if (expected == generation) {
                     _state.value = _state.value.copy(
@@ -116,7 +125,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
                     _state.value = _state.value.copy(
                         restoringId = null,
                         error = if (error is JetsonCommandResultUnknownException) {
-                            "복원 결과를 확인하지 못했습니다. 자동 재시도하지 않고 휴지통을 다시 조회합니다."
+                            "처리 결과를 확인하지 못했습니다. 같은 작업을 반복하지 말고 목록을 다시 확인하세요."
                         } else userFacingFailure(error, "항목을 복원하지 못했습니다. 다시 시도하세요.").message
                     )
                     loadTrash(expected, preserveError = true)
@@ -134,6 +143,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
             originalIds.distinct().size != originalIds.size || originalIds.any { it !in eligibleIds }) return
         val expected = generation
         job?.cancel()
+        _state.value = _state.value.copy(emptying = true)
         job = viewModelScope.launch {
             _state.value = _state.value.copy(emptying = true, error = null, message = null)
             var completed = 0

@@ -26,7 +26,6 @@ import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
 import com.example.jetsoncontroller.ui.alerts.AlertCenterUiState
-import com.example.jetsoncontroller.ui.dashboard.DashboardScreen
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.connection.ConnectionHubScreen
@@ -168,117 +167,59 @@ class CoreWorkflowScreenTest {
     }
 
     @Test
-    fun dashboardPrioritizesHealthAndCurrentWork() {
+    fun deviceRootShowsHealthAndCurrentDevice() {
         composeRule.setContent {
             JetsonControllerTheme {
-                DashboardScreen(
-                    state = DashboardUiState(
-                        statusFreshness = StatusFreshness.CURRENT,
-                        isOnline = true,
-                        fullControlAvailable = true,
-                        status = JetsonStatus(temperatureC = 45f, storagePercent = 40)
-                    ),
-                    pipelines = emptyList(),
-                    uploads = emptyList(),
-                    unreadAlertCount = 0,
-                    onAlertsClick = {},
-                    onDisconnect = {},
-                    onRefreshFan = {},
-                    onSetFanAuto = {},
-                    onSetFanManual = {},
-                    onReboot = {},
-                    onShutdown = {},
-                    onStorageClick = {},
-                    onNetworkSettingsClick = {},
-                    onUploadQueueClick = {},
-                    onPipelinesClick = {},
-                    onSectionSelected = {},
-                    onDismissOperationMessage = {},
-                    onBack = {}
-                )
+                DailyDeviceRoot(45f)
             }
         }
 
-        composeRule.onNodeWithTag("home-title").assertTextEquals("홈").assertIsDisplayed()
-        composeRule.onNodeWithText("장치 저장 공간").assertIsDisplayed()
-        composeRule.onNodeWithText("현재 수집").assertIsDisplayed()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("최근 수집"))
-        composeRule.onNodeWithText("최근 수집").assertIsDisplayed()
-        composeRule.onAllNodesWithText("정상 작동 중").assertCountEquals(0)
+        composeRule.onNodeWithText("현재 장치").assertIsDisplayed()
+        composeRule.onNodeWithText("GEO-X-1").assertIsDisplayed()
+        composeRule.onNodeWithText("확인할 일이 없습니다.").assertIsDisplayed()
+
     }
 
     @Test
-    fun healthyDashboardDoesNotShowPersistentStatusCard() {
+    fun healthyDeviceRootShowsItsEmptyAttentionState() {
         composeRule.setContent {
             JetsonControllerTheme {
-                DashboardScreen(
-                    state = DashboardUiState(
-                        statusFreshness = StatusFreshness.CURRENT,
-                        isOnline = true,
-                        fullControlAvailable = true,
-                        status = JetsonStatus(temperatureC = 45f, storagePercent = 40)
-                    ),
-                    pipelines = emptyList(),
-                    uploads = emptyList(),
-                    unreadAlertCount = 0,
-                    onAlertsClick = {},
-                    onDisconnect = {},
-                    onRefreshFan = {},
-                    onSetFanAuto = {},
-                    onSetFanManual = {},
-                    onReboot = {},
-                    onShutdown = {},
-                    onStorageClick = {},
-                    onNetworkSettingsClick = {},
-                    onUploadQueueClick = {},
-                    onPipelinesClick = {},
-                    onSectionSelected = {},
-                    onDismissOperationMessage = {},
-                    onBack = {}
-                )
+                DailyDeviceRoot(45f)
             }
         }
 
-        composeRule.onAllNodesWithTag("dashboard-health-card").assertCountEquals(0)
+        composeRule.onNodeWithText("확인할 일이 없습니다.").assertIsDisplayed()
     }
 
     @Test
-    fun dashboardAttentionCanBeDismissed() {
+    fun deviceRootAttentionCanBeHidden() {
         composeRule.setContent {
             JetsonControllerTheme {
-                DashboardScreen(
-                    state = DashboardUiState(
-                        statusFreshness = StatusFreshness.CURRENT,
-                        isOnline = true,
-                        fullControlAvailable = true,
-                        status = JetsonStatus(temperatureC = 85f)
-                    ),
-                    pipelines = emptyList(),
-                    uploads = emptyList(),
-                    unreadAlertCount = 0,
-                    onAlertsClick = {},
-                    onDisconnect = {},
-                    onRefreshFan = {},
-                    onSetFanAuto = {},
-                    onSetFanManual = {},
-                    onReboot = {},
-                    onShutdown = {},
-                    onStorageClick = {},
-                    onNetworkSettingsClick = {},
-                    onUploadQueueClick = {},
-                    onPipelinesClick = {},
-                    onSectionSelected = {},
-                    onDismissOperationMessage = {},
-                    onBack = {}
-                )
+                DailyDeviceRoot(85f)
             }
         }
 
-        composeRule.onNode(hasScrollAction())
-            .performScrollToNode(hasText("확인이 필요합니다"))
-        composeRule.onNodeWithText("확인이 필요합니다").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("상태 알림 닫기").performClick()
-        composeRule.onAllNodesWithText("확인이 필요합니다").assertCountEquals(0)
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("GEO-X-1 온도 확인"))
+        composeRule.onNodeWithText("GEO-X-1 온도 확인").assertIsDisplayed()
+        composeRule.onNodeWithText("숨기기").performClick()
+        composeRule.onAllNodesWithText("GEO-X-1 온도 확인").assertCountEquals(0)
+
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun DailyDeviceRoot(temperature: Float) {
+        com.example.jetsoncontroller.ui.devices.DevicesHomeScreen(
+            registeredDevices = listOf(RegisteredDevice("device-a", "GEO-X-1")),
+            selectedDeviceId = "device-a", currentDashboard = DashboardUiState(isOnline = true,
+                statusFreshness = StatusFreshness.CURRENT, transportType = TransportType.LAN,
+                status = JetsonStatus(temperatureC = temperature)), snapshots = emptyMap(),
+            availableDeviceIds = emptySet(), connectingDeviceId = null, connectFailedDeviceId = null,
+            runActive = false, attention = null, unreadAlertCount = 0, nowEpochMillis = 1,
+            developerModeEnabled = false, onSectionSelected = {}, onAlertsClick = {}, onAddDevice = {},
+            onServerFiles = {}, onOpenDevice = {}, onReconnect = {}, onStartCollection = {}, onViewRun = {},
+            onSelectDevice = {}, onAttentionClick = {}, onSameNetwork = {}, onDirectConnect = {},
+            onQrRegister = {}, onSaveDiagnostics = {}, healthItems = if (temperature < 80f) emptyList()
+                else listOf(com.example.jetsoncontroller.ui.devices.DeviceHealthItem("heat", "GEO-X-1 온도 확인", "온도를 확인하세요.")))
     }
 
     @Test

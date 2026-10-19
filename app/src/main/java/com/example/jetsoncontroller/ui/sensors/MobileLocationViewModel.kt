@@ -44,6 +44,7 @@ class MobileLocationViewModel(
     val uiState: StateFlow<MobileLocationUiState> = _uiState.asStateFlow()
 
     private var visible = false
+    private var trackingRequested = false
     private var freshnessJob: Job? = null
 
     private val callbacks = MobileLocationCallbacks(
@@ -75,11 +76,17 @@ class MobileLocationViewModel(
     fun setVisible(isVisible: Boolean) {
         if (visible == isVisible) return
         visible = isVisible
-        if (isVisible) startTracking() else stopTracking()
+        if (isVisible && trackingRequested) startTracking() else stopTracking()
+    }
+
+    fun setTrackingRequested(requested: Boolean) {
+        if (trackingRequested == requested) return
+        trackingRequested = requested
+        if (visible && requested) startTracking() else stopTracking()
     }
 
     fun refresh() {
-        if (!visible) return
+        if (!visible || !trackingRequested) return
         runCatching(tracker::stop)
         startTracking()
     }

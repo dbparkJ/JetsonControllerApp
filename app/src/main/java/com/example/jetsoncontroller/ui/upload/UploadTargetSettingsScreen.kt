@@ -1,408 +1,102 @@
 package com.example.jetsoncontroller.ui.upload
 
-import com.example.jetsoncontroller.ui.theme.TextButton
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadTarget
-import com.example.jetsoncontroller.ui.components.EmptyState
-import com.example.jetsoncontroller.ui.components.InlineMessage
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.dev.*
 import java.net.URI
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UploadTargetSettingsScreen(
-    targets: List<UploadTarget>,
-    isLoading: Boolean,
-    message: String?,
-    error: String?,
+    targets: List<UploadTarget>, isLoading: Boolean, message: String?, error: String?,
     onSave: (targetId: String, label: String, baseUrl: String, token: String?) -> Unit,
-    onDelete: (targetId: String) -> Unit,
-    onRefresh: () -> Unit,
-    onClearFeedback: () -> Unit,
-    onBack: () -> Unit,
-    controlAvailable: Boolean = true,
-    deviceId: String? = null
+    onDelete: (targetId: String) -> Unit, onRefresh: () -> Unit, onClearFeedback: () -> Unit,
+    onBack: () -> Unit, controlAvailable: Boolean = true, deviceId: String? = null,
+    onOpenEditor: ((UploadTarget?) -> Unit)? = null, deviceName: String = "선택한 장치"
 ) {
-    var editingTarget by remember(deviceId) { mutableStateOf<UploadTarget?>(null) }
-    var showNewTarget by rememberSaveable(deviceId) { mutableStateOf(false) }
-    var deletingTarget by remember(deviceId, controlAvailable) { mutableStateOf<UploadTarget?>(null) }
-    var editorSubmitted by rememberSaveable(deviceId) { mutableStateOf(false) }
-
-    LaunchedEffect(message, isLoading, editorSubmitted) {
-        if (editorSubmitted && message != null && !isLoading) {
-            showNewTarget = false
-            editingTarget = null
-            editorSubmitted = false
-        }
+    var editing by remember(deviceId) { mutableStateOf(false) }
+    var selected by remember(deviceId) { mutableStateOf<UploadTarget?>(null) }
+    fun open(target: UploadTarget?) {
+        onClearFeedback()
+        if (onOpenEditor != null) onOpenEditor(target) else { selected = target; editing = true }
     }
-
-    if (showNewTarget || editingTarget != null) {
-        UploadTargetEditorDialog(
-            target = editingTarget,
-            isSaving = isLoading,
-            controlAvailable = controlAvailable,
-            error = if (editorSubmitted) error else null,
-            onDismiss = {
-                showNewTarget = false
-                editingTarget = null
-                editorSubmitted = false
-            },
-            onSave = { targetId, label, baseUrl, token ->
-                editorSubmitted = true
-                onSave(targetId, label, baseUrl, token)
-            }
-        )
+    if (editing) {
+        UploadTargetEditorScreen(selected, isLoading, controlAvailable, deviceId, deviceName,
+            message, error, onSave, onDelete, { editing = false })
+        return
     }
-
-    deletingTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { if (!isLoading) deletingTarget = null },
-            icon = { Icon(Icons.Default.Delete, contentDescription = null) },
-            title = { Text("${target.label} 삭제") },
-            text = { Text("이 서버의 주소와 저장된 접근 토큰이 삭제됩니다.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete(target.id)
-                        deletingTarget = null
-                    },
-                    enabled = controlAvailable && !isLoading
-                ) {
-                    Text("삭제")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { deletingTarget = null },
-                    enabled = !isLoading
-                ) {
-                    Text("취소")
-                }
-            }
-        )
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("업로드 서버") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onRefresh, enabled = !isLoading) {
-                        Icon(Icons.Default.Refresh, contentDescription = "새로고침")
-                    }
-                    IconButton(
-                        onClick = {
-                            onClearFeedback()
-                            editorSubmitted = false
-                            showNewTarget = true
-                        },
-                        enabled = !isLoading
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "서버 추가")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                message?.let {
-                    item {
-                        InlineMessage(
-                            message = it,
-                            isError = false,
-                            modifier = Modifier.padding(20.dp)
-                        )
-                    }
-                }
-                error?.let {
-                    item {
-                        InlineMessage(
-                            message = it,
-                            isError = true,
-                            modifier = Modifier.padding(20.dp)
-                        )
-                    }
-                }
-                if (targets.isEmpty() && !isLoading) {
-                    item {
-                        EmptyState(
-                            title = "등록된 서버가 없습니다",
-                            message = "현재 선택할 수 있는 업로드 서버가 없습니다.",
-                            actionLabel = "새 서버",
-                            onAction = {
-                                onClearFeedback()
-                                editorSubmitted = false
-                                showNewTarget = true
-                            }
-                        )
-                    }
-                }
-                items(targets, key = { it.id }) { target ->
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                target.label,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        supportingContent = {
-                            Column {
-                                Text(
-                                    target.baseUrl ?: target.id,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (!target.editable) {
-                                    Text(
-                                        "관리자 설정",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        },
-                        leadingContent = {
-                            Icon(
-                                if (target.editable) Icons.Default.Dns else Icons.Default.Lock,
-                                contentDescription = null
-                            )
-                        },
-                        trailingContent = if (target.editable) {
-                            {
-                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    IconButton(
-                                        onClick = {
-                                            onClearFeedback()
-                                            editorSubmitted = false
-                                            editingTarget = target
-                                        },
-                                        enabled = !isLoading
-                                    ) {
-                                        Icon(Icons.Default.Edit, contentDescription = "서버 수정")
-                                    }
-                                    IconButton(
-                                        onClick = { deletingTarget = target },
-                                        enabled = !isLoading
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "서버 삭제")
-                                    }
-                                }
-                            }
-                        } else {
-                            null
-                        }
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
-                }
-            }
-            if (isLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
-                )
+    DevPage("업로드 서버", onBack, actions = {
+        GeoIconButton(GeoIcons.add, "서버 추가", { open(null) }, enabled = controlAvailable, chrome = true)
+    }) {
+        DevFeedback(message)
+        DevFeedback(error, true)
+        if (!controlAvailable) DevText("장치에 연결하면 서버를 설정할 수 있습니다.")
+        when {
+            isLoading -> DevText("확인 중")
+            targets.isEmpty() -> DevEmpty("등록된 업로드 서버가 없습니다", "서버를 추가하면 여기에 표시됩니다.", "서버 추가", { open(null) })
+            else -> GeoSection("서버", first = true, count = "${targets.size}개", note = "${deviceName}에 저장된 서버입니다.") {
+                targets.forEach { target -> DevAddressRow(target.label, target.baseUrl ?: "주소 미확인", { open(target) }) }
             }
         }
+        GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, enabled = controlAvailable && !isLoading)
     }
 }
 
 @Composable
-private fun UploadTargetEditorDialog(
-    target: UploadTarget?,
-    isSaving: Boolean,
-    controlAvailable: Boolean,
-    error: String?,
-    onDismiss: () -> Unit,
-    onSave: (targetId: String, label: String, baseUrl: String, token: String?) -> Unit
-) {
-    val isNew = target == null
-    var targetId by rememberSaveable(target?.id) {
-        mutableStateOf(target?.id ?: OperationsUploadServer.TARGET_ID)
+internal fun UploadTargetEditorScreen(target: UploadTarget?, isSaving: Boolean, controlAvailable: Boolean,
+    deviceId: String?, deviceName: String, message: String?, error: String?,
+    onSave: (String, String, String, String?) -> Unit, onDelete: (String) -> Unit, onBack: () -> Unit) {
+    var id by rememberSaveable(deviceId, target?.id) { mutableStateOf(target?.id ?: "") }
+    var label by rememberSaveable(deviceId, target?.id) { mutableStateOf(target?.label ?: "") }
+    var url by rememberSaveable(deviceId, target?.id) { mutableStateOf(target?.baseUrl ?: "") }
+    // Tokens are deliberately absent from saved state, logs, feedback and existing target data.
+    val secret = remember(deviceId, target?.id) { DevSecretInput() }
+    var token by secret
+    var pending by remember(deviceId, controlAvailable) { mutableStateOf<UploadTarget?>(null) }
+    var submitted by remember { mutableStateOf(false) }
+    LaunchedEffect(isSaving, message, submitted) {
+        if (submitted && !isSaving && message != null && error == null) { token = ""; onBack() }
     }
-    var label by rememberSaveable(target?.id) {
-        mutableStateOf(target?.label ?: OperationsUploadServer.LABEL)
+    val valid = id.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}")) && label.isNotBlank() &&
+        isValidHttpsUrl(url) && (target != null || token.isNotBlank()) && token.none(Char::isWhitespace)
+    pending?.let { frozen ->
+        GeoConfirmDialog("${devObject(frozen.label)} 삭제할까요?", "${deviceName}에 저장된 서버 주소와 접근 토큰을 지웁니다.", "서버 삭제",
+            { pending = null; if (controlAvailable && !isSaving && target?.id == frozen.id) { submitted = true; onDelete(frozen.id) } },
+            { pending = null }, kind = GeoConfirmKind.DANGER, confirmEnabled = controlAvailable && !isSaving,
+            disabledReason = "장치에 연결하면 삭제할 수 있습니다.")
     }
-    var baseUrl by rememberSaveable(target?.id) {
-        mutableStateOf(target?.baseUrl ?: OperationsUploadServer.BASE_URL)
-    }
-    var token by rememberSaveable(target?.id) { mutableStateOf("") }
-    var tokenVisible by rememberSaveable(target?.id) { mutableStateOf(false) }
-    val validId = targetId.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}"))
-    val canSave = validId && label.isNotBlank() && isValidHttpsUrl(baseUrl) &&
-        (!isNew || token.isNotBlank())
-
-    AlertDialog(
-        onDismissRequest = { if (!isSaving) onDismiss() },
-        icon = { Icon(Icons.Default.Dns, contentDescription = null) },
-        title = { Text(if (isNew) "업로드 서버 추가" else "업로드 서버 수정") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                error?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-                    value = targetId,
-                    onValueChange = { value ->
-                        targetId = value.lowercase().filter {
-                            it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '.'
-                        }.take(64)
-                    },
-                    label = { Text("서버 ID") },
-                    singleLine = true,
-                    enabled = isNew && !isSaving,
-                    isError = targetId.isNotEmpty() && !validId,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-                    value = label,
-                    onValueChange = { label = it.take(64) },
-                    label = { Text("표시 이름") },
-                    singleLine = true,
-                    enabled = !isSaving,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-                    value = baseUrl,
-                    onValueChange = { baseUrl = it.take(2048) },
-                    label = { Text("HTTPS 주소") },
-                    placeholder = { Text("https://upload.example.com") },
-                    singleLine = true,
-                    enabled = !isSaving,
-                    isError = baseUrl.isNotEmpty() && !isValidHttpsUrl(baseUrl),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Next
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-                    value = token,
-                    onValueChange = { token = it.replace("\n", "").take(4096) },
-                    label = { Text(if (isNew) "접근 토큰" else "새 접근 토큰") },
-                    placeholder = if (isNew) null else {
-                        { Text("변경하지 않음") }
-                    },
-                    singleLine = true,
-                    enabled = !isSaving,
-                    visualTransformation = if (tokenVisible) {
-                        VisualTransformation.None
-                    } else {
-                        PasswordVisualTransformation()
-                    },
-                    trailingIcon = {
-                        IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                            Icon(
-                                if (tokenVisible) Icons.Default.VisibilityOff
-                                else Icons.Default.Visibility,
-                                contentDescription = if (tokenVisible) "토큰 숨기기" else "토큰 보기"
-                            )
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSave(
-                        targetId.trim(),
-                        label.trim(),
-                        baseUrl.trim().trimEnd('/'),
-                        token.trim().ifEmpty { null }
-                    )
-                },
-                enabled = controlAvailable && canSave && !isSaving
-            ) {
-                if (isSaving) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp).padding(end = 4.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-                Text("저장")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isSaving) {
-                Text("취소")
-            }
+    DevPage(if (target == null) "업로드 서버 추가" else "업로드 서버 수정", { token = ""; onBack() }, footer = {
+        GeoButton("저장", {
+            val credential = secret.consume().trim().ifEmpty { null }
+            submitted = true
+            onSave(id.trim(), label.trim(), url.trim().trimEnd('/'), credential)
+        }, Modifier.fillMaxWidth(), enabled = valid && controlAvailable && !isSaving,
+            busy = isSaving, busyLabel = "저장 중", actionArea = true,
+            disabledReason = if (!controlAvailable) "장치에 연결하면 저장할 수 있습니다." else "서버 정보를 입력하세요.")
+    }) {
+        DevFeedback(if (submitted && error != null) "서버 정보를 저장하지 못했습니다. 입력과 연결을 확인하세요." else null, true)
+        GeoTextField(id, { id = it.lowercase().take(64) }, "서버 ID", readOnly = target != null,
+            helper = if (target != null) "서버 ID는 바꿀 수 없습니다." else null)
+        Spacer(Modifier.height(16.dp))
+        GeoTextField(label, { label = it.take(64) }, "표시 이름")
+        Spacer(Modifier.height(16.dp))
+        GeoTextField(url, { url = it.take(2048) }, "HTTPS 주소", error = if (url.isNotBlank() && !isValidHttpsUrl(url)) "HTTPS 주소를 확인하세요." else null)
+        Spacer(Modifier.height(16.dp))
+        GeoTextField(token, { token = it.take(4096) }, "접근 토큰", password = true,
+            helper = "저장된 토큰은 다시 표시하지 않습니다. 바꾸려면 새 토큰을 입력하세요.")
+        if (target != null) GeoSection("관리", danger = true) {
+            DevText("${deviceName}에 저장된 서버 주소와 접근 토큰을 지웁니다.")
+            GeoButton("서버 삭제", { pending = target }, Modifier.fillMaxWidth(), style = GeoButtonStyle.DangerOutline,
+                enabled = controlAvailable && !isSaving)
         }
-    )
+    }
 }
 
 internal fun isValidHttpsUrl(value: String): Boolean = runCatching {
     val uri = URI(value.trim())
-    uri.scheme.equals("https", ignoreCase = true) &&
-        !uri.host.isNullOrBlank() &&
-        uri.userInfo == null &&
-        uri.query == null &&
-        uri.fragment == null
+    uri.scheme.equals("https", true) && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.query == null && uri.fragment == null
 }.getOrDefault(false)

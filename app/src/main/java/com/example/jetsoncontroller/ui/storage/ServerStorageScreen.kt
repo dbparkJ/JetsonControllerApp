@@ -1,415 +1,78 @@
 package com.example.jetsoncontroller.ui.storage
 
-import com.example.jetsoncontroller.model.RemoteFileContent
-import com.example.jetsoncontroller.ui.theme.TextButton
-import com.example.jetsoncontroller.ui.theme.OutlinedButton
-import com.example.jetsoncontroller.ui.theme.Button
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.model.RemoteEntryType
-import com.example.jetsoncontroller.model.RemoteFileEntry
-import com.example.jetsoncontroller.model.UploadLibrarySession
-import com.example.jetsoncontroller.model.UploadTarget
-import com.example.jetsoncontroller.ui.components.ControlNavigationBar
+import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.EmptyState
-import com.example.jetsoncontroller.ui.components.InlineMessage
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ServerStorageScreen(
-    state: ServerStorageUiState,
-    onBack: () -> Unit,
-    onDeviceDataClick: () -> Unit,
-    onRefresh: () -> Unit,
-    onTargetSelected: (UploadTarget) -> Unit,
-    onSessionClick: (UploadLibrarySession) -> Unit,
-    onDeleteSession: (UploadLibrarySession) -> Unit,
-    onDirectoryClick: (RemoteFileEntry) -> Unit,
-    onFileClick: (RemoteFileEntry) -> Unit,
-    onLoadMore: () -> Unit,
-    onSectionSelected: (ControlSection) -> Unit,
-    deletionEnabled: Boolean = false,
-    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
-    onDismissMessage: (String) -> Unit = {}
-) {
-    var pendingDeletion by remember(state.deviceId, state.controlAvailable) { mutableStateOf<UploadLibrarySession?>(null) }
-    pendingDeletion?.let { session ->
-        AlertDialog(
-            onDismissRequest = { pendingDeletion = null },
-            title = { Text("서버 데이터를 삭제할까요?") },
-            text = { Text("${session.displayFolderName} 폴더와 서버의 모든 파일을 영구 삭제합니다.") },
-            confirmButton = {
-                Button(onClick = {
-                    pendingDeletion = null
-                    onDeleteSession(session)
-                }) { Text("삭제") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeletion = null }) { Text("취소") }
-            }
-        )
-    }
-    BackHandler(onBack = onBack)
-    Scaffold(
-        snackbarHost = { com.example.jetsoncontroller.ui.components.OperationMessageHost(state.message, onDismissMessage) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            state.preview?.name
-                                ?: state.selectedSession?.displayFolderName
-                                ?: "서버 데이터"
-                        )
-                        state.selectedSession?.takeIf { state.preview == null }?.let {
-                            Text(
-                                state.currentPath.ifEmpty { "/" },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    if (state.preview == null) {
-                        IconButton(onClick = onRefresh, enabled = !state.isLoading) {
-                            Icon(Icons.Default.Refresh, contentDescription = "새로고침")
-                        }
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            ControlNavigationBar(ControlSection.DATA, onSectionSelected)
-        }
-    ) { paddingValues ->
-        Column(Modifier.fillMaxSize().padding(paddingValues)) {
-            if (state.preview == null) {
-                DataLocationTabs(
-                    selected = DataLocation.SERVER,
-                    onDeviceClick = onDeviceDataClick,
-                    onServerClick = {}
-                )
-            }
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                when {
-                    state.preview != null -> FilePreview(state.preview)
-                    state.selectedSession != null -> ServerDirectoryList(
-                        thumbnailLoader = thumbnailLoader,
-                        state = state,
-                        onRefresh = onRefresh,
-                        onDirectoryClick = onDirectoryClick,
-                        onFileClick = onFileClick
-                    )
-                    else -> ServerSessionList(
-                        state = state,
-                        onRefresh = onRefresh,
-                        onTargetSelected = onTargetSelected,
-                        onSessionClick = onSessionClick,
-                        onDeleteSession = { pendingDeletion = it },
-                        onLoadMore = onLoadMore,
-                        deletionEnabled = deletionEnabled
-                    )
-                }
-                if (state.isLoading || state.isDeleting) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-                }
-            }
-        }
-    }
-}
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.dev.*
+import com.example.jetsoncontroller.ui.model.Formats
 
 @Composable
-private fun ServerSessionList(
-    state: ServerStorageUiState,
-    onRefresh: () -> Unit,
-    onTargetSelected: (UploadTarget) -> Unit,
-    onSessionClick: (UploadLibrarySession) -> Unit,
-    onDeleteSession: (UploadLibrarySession) -> Unit,
-    onLoadMore: () -> Unit,
-    deletionEnabled: Boolean
-) {
-    var collapsedDays by remember(state.deviceId, state.selectedTarget?.id) { mutableStateOf(setOf<String>()) }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        if (!state.controlAvailable) item {
-            InlineMessage("서버 보관함은 연결된 장치의 인증을 통해 조회합니다. LAN 또는 Wi-Fi Direct로 장치를 연결한 후 다시 불러오세요.", false, Modifier.padding(20.dp))
-        }
-        item {
-            ServerTargetSelector(
-                targets = state.targets,
-                selected = state.selectedTarget,
-                onSelected = onTargetSelected
-            )
-        }
-        state.error?.let { error ->
-            item {
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    InlineMessage(error, isError = true)
-                    Spacer(Modifier.height(10.dp))
-                    Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("다시 불러오기", modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-        }
-        if (state.controlAvailable && state.sessions.isEmpty() && !state.isLoading && state.error == null) {
-            item {
-                EmptyState(
-                    title = "서버 데이터가 없습니다",
-                    message = "완료된 업로드가 이 서버에 아직 없습니다."
-                )
-            }
-        }
-        state.sessions.groupBy { dateGroup(it.completedAt ?: it.createdAt) }.forEach { (day, sessions) ->
-        item(key = "session-day:$day") {
-            TextButton(onClick = { collapsedDays = if (day in collapsedDays) collapsedDays - day else collapsedDays + day }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Text("$day (${sessions.size})", Modifier.weight(1f)); Text(if (day in collapsedDays) "펼치기" else "접기")
-            }
-        }
-        if (day !in collapsedDays) items(sessions, key = { it.sessionId }) { session ->
-            ListItem(
-                headlineContent = {
-                    Text(
-                        session.displayFolderName,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                supportingContent = {
-                    Text(
-                        listOfNotNull(
-                            "${session.fileCount}개 파일",
-                            formatSize(session.totalBytes),
-                            session.completedAt?.substringBefore('T')
-                        ).joinToString(" · ")
-                    )
-                },
-                leadingContent = { Icon(Icons.Default.Cloud, contentDescription = null) },
-                trailingContent = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (deletionEnabled) {
-                            IconButton(
-                                onClick = { onDeleteSession(session) },
-                                enabled = !state.isDeleting
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "서버 데이터 삭제")
-                            }
-                        }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null)
-                    }
-                },
-                modifier = Modifier.clickable { onSessionClick(session) }
-            )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
-        }
-        }
-        if (state.nextOffset != null) {
-            item {
-                OutlinedButton(
-                    onClick = onLoadMore,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-                    enabled = !state.isLoading
-                ) {
-                    Text("더 불러오기")
-                }
-            }
+fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDeviceDataClick: () -> Unit,
+    onRefresh: () -> Unit, onTargetSelected: (UploadTarget) -> Unit, onSessionClick: (UploadLibrarySession) -> Unit,
+    onDeleteSession: (UploadLibrarySession) -> Unit, onDirectoryClick: (RemoteFileEntry) -> Unit,
+    onFileClick: (RemoteFileEntry) -> Unit, onLoadMore: () -> Unit, onSectionSelected: (ControlSection) -> Unit,
+    deletionEnabled: Boolean = false, thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null,
+    onDismissMessage: (String) -> Unit = {}, deviceName: String = "선택한 장치", onConnection: () -> Unit = {}) {
+    var picker by remember(state.deviceId) { mutableStateOf(false) }
+    var pending by remember(state.deviceId, state.controlAvailable, state.selectedTarget?.id) { mutableStateOf<UploadLibrarySession?>(null) }
+    var category by rememberSaveable(state.deviceId, state.selectedSession?.sessionId, state.currentPath) { mutableStateOf("전체") }
+    var filterPicker by remember { mutableStateOf(false) }
+    pending?.let { frozen ->
+        GeoConfirmDialog("서버 데이터를 삭제할까요?", "선택한 수신 결과를 서버에서 영구 삭제합니다. 되돌릴 수 없습니다.", "영구 삭제",
+            { pending = null
+                if (deletionEnabled && state.controlAvailable && !state.isDeleting && state.sessions.any { it.sessionId == frozen.sessionId }) onDeleteSession(frozen)
+            }, { pending = null }, kind = GeoConfirmKind.DANGER,
+            confirmEnabled = deletionEnabled && state.controlAvailable && !state.isDeleting,
+            disabledReason = "이 화면에서는 서버 데이터를 지울 수 없습니다.")
+    }
+    if (picker) GeoSheet("서버 선택", { picker = false }, subtitle = "${deviceName}에 저장된 서버입니다.") {
+        state.targets.forEach { target -> GeoRadioRow(target.label, target.id == state.selectedTarget?.id,
+            { picker = false; onTargetSelected(target) }, description = target.baseUrl) }
+    }
+    if (filterPicker) GeoSheet("파일 유형", { filterPicker = false }) {
+        listOf("전체", "이미지", "영상", "센서", "로그").forEach { label ->
+            GeoRadioRow(label, label == category, { filterPicker = false; category = label })
         }
     }
-}
-
-@Composable
-private fun ServerTargetSelector(
-    targets: List<UploadTarget>,
-    selected: UploadTarget?,
-    onSelected: (UploadTarget) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(Icons.Default.Cloud, contentDescription = null)
-            Box(Modifier.weight(1f)) {
-                OutlinedButton(
-                    onClick = { expanded = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = targets.isNotEmpty()
-                ) {
-                    Text(
-                        selected?.label ?: "서버 선택",
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                }
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    targets.forEach { target ->
-                        DropdownMenuItem(
-                            text = { Text(target.label) },
-                            onClick = {
-                                expanded = false
-                                onSelected(target)
-                            }
-                        )
-                    }
-                }
-            }
-        }
+    if (state.preview != null) {
+        DevFrame(state.preview.name, onBack) { FilePreview(state.preview) }
+        return
     }
-}
-
-@Composable
-private fun ServerDirectoryList(
-    state: ServerStorageUiState,
-    onRefresh: () -> Unit,
-    onDirectoryClick: (RemoteFileEntry) -> Unit,
-    onFileClick: (RemoteFileEntry) -> Unit,
-    thumbnailLoader: (suspend (RemoteFileEntry) -> Result<RemoteFileContent>)? = null
-) {
-    var category by androidx.compose.runtime.saveable.rememberSaveable(state.deviceId, state.currentPath) { mutableStateOf("전체") }
-    var collapsed by remember(state.deviceId, state.currentPath, category) { mutableStateOf(setOf<String>()) }
-    val groups = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
-        .sortedWith(compareBy<RemoteFileEntry> { it.type != RemoteEntryType.DIRECTORY }.thenByDescending { it.modifiedAt })
-        .groupBy { if (it.type == RemoteEntryType.DIRECTORY) "폴더" else dateGroup(it.modifiedAt) }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { MediaFilters(category) { category = it } }
-        if (groups.isEmpty() && state.entries.isNotEmpty()) item { Text("이 폴더에 해당 유형의 파일이 없습니다.", Modifier.padding(20.dp)) }
-        item {
-            Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(Icons.Default.Folder, contentDescription = null)
-                    Text(
-                        state.currentPath.ifEmpty { "/" },
-                        modifier = Modifier.weight(1f),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+    DevPage("장치 경유 서버 조회", onBack, overlay = {
+        com.example.jetsoncontroller.ui.components.OperationMessageHost(state.message, onDismissMessage)
+    }) {
+        if (!state.controlAvailable) {
+            DevEmpty("$deviceName 기본 연결입니다", "장치를 같은 네트워크나 직접 연결로 연결하면 조회할 수 있습니다.", "연결 방법", onConnection)
+        } else {
+            GeoPickerField("서버", state.selectedTarget?.label ?: "선택 안 됨", { picker = true })
+            DevText("${deviceName}을 거쳐 조회합니다. 이 화면에서는 지울 수 없습니다.")
+            DevFeedback(state.error, true)
+            if (state.isLoading || state.isDeleting) DevText("확인 중")
+            if (state.selectedSession == null) GeoSection("수신 결과", count = "${state.sessions.size}개") {
+                state.sessions.forEach { session ->
+                    GeoRow(session.displayFolderName, { onSessionClick(session) }, meta = listOfNotNull(devTimestamp(session.completedAt ?: session.createdAt), Formats.size(session.totalBytes)).joinToString(" · "))
+                    if (deletionEnabled) GeoButton("영구 삭제", { pending = session }, style = GeoButtonStyle.DangerOutline, enabled = !state.isDeleting)
+                }
+                if (state.sessions.isEmpty() && !state.isLoading) DevEmpty("수신 결과가 없습니다", "이 서버에 전송한 자료가 여기에 표시됩니다.")
+                if (state.nextOffset != null) GeoButton("이전 수신 결과 더 불러오기", onLoadMore, style = GeoButtonStyle.Tertiary, enabled = !state.isLoading)
+            } else {
+                DevIdentity(state.selectedSession.displayFolderName, state.currentPath.ifEmpty { "맨 위" })
+                GeoPickerField("파일 유형", category, { filterPicker = true })
+                GeoSection("파일") {
+                    val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
+                    visible.forEach { entry -> GeoRow(entry.name,
+                        { if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry) },
+                        meta = if (entry.type == RemoteEntryType.DIRECTORY) "폴더" else Formats.size(entry.sizeBytes),
+                        leading = { MediaThumbnail(entry, "${state.deviceId}/${state.selectedTarget?.id}/${state.selectedSession.sessionId}", thumbnailLoader) }) }
+                    if (visible.isEmpty() && !state.isLoading) DevEmpty("빈 폴더입니다", "이 위치에는 표시할 파일이 없습니다.")
+                    if (state.listingTruncated) DevText("항목이 많아 현재 폴더의 처음 500개만 표시합니다.")
                 }
             }
-        }
-        state.error?.let { error ->
-            item {
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    InlineMessage(error, isError = true)
-                    Spacer(Modifier.height(10.dp))
-                    Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("다시 불러오기", modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-        }
-        if (state.listingTruncated) {
-            item {
-                InlineMessage(
-                    "항목이 많아 현재 폴더의 처음 500개만 표시합니다.",
-                    isError = false,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                )
-            }
-        }
-        if (state.entries.isEmpty() && !state.isLoading && state.error == null) {
-            item { EmptyState("빈 폴더입니다", "이 위치에는 표시할 파일이 없습니다.") }
-        }
-        groups.forEach { (day, entries) ->
-        item(key = "day:$day") {
-            TextButton(onClick = { collapsed = if (day in collapsed) collapsed - day else collapsed + day }, modifier = Modifier.fillMaxWidth()) {
-                Text("$day (${entries.size})", Modifier.weight(1f)); Text(if (day in collapsed) "펼치기" else "접기")
-            }
-        }
-        if (day !in collapsed) items(entries, key = { it.relativePath }) { entry ->
-            val directory = entry.type == RemoteEntryType.DIRECTORY
-            ListItem(
-                headlineContent = {
-                    Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                },
-                supportingContent = {
-                    Text(
-                        if (directory) "폴더" else listOfNotNull(
-                            entry.sizeBytes?.let(::formatSize),
-                            entry.modifiedAt?.substringBefore('T')
-                        ).joinToString(" · ")
-                    )
-                },
-                leadingContent = { MediaThumbnail(entry, "${state.deviceId}/${state.selectedTarget?.id}/${state.selectedSession?.sessionId}", if (state.controlAvailable) thumbnailLoader else null) },
-                trailingContent = if (directory) {
-                    { Icon(Icons.Default.ChevronRight, contentDescription = null) }
-                } else null,
-                modifier = Modifier.clickable {
-                    if (directory) onDirectoryClick(entry) else onFileClick(entry)
-                }
-            )
-            HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
-        }
+            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, enabled = !state.isLoading)
         }
     }
 }

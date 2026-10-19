@@ -1,947 +1,242 @@
 package com.example.jetsoncontroller.ui.pipelines
 
-import com.example.jetsoncontroller.ui.theme.TextButton
-import com.example.jetsoncontroller.ui.theme.OutlinedButton
-import com.example.jetsoncontroller.ui.theme.Button
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.model.ManagedPipeline
-import com.example.jetsoncontroller.model.PipelineConfigField
-import com.example.jetsoncontroller.model.PipelineConfigValueType
-import com.example.jetsoncontroller.model.PipelineLogFile
-import com.example.jetsoncontroller.model.PipelineState
-import com.example.jetsoncontroller.model.RemoteEntryType
-import com.example.jetsoncontroller.model.RemoteFileEntry
-import com.example.jetsoncontroller.model.RemoteRoot
-import com.example.jetsoncontroller.ui.components.EmptyState
-import com.example.jetsoncontroller.ui.components.InlineMessage
-import com.example.jetsoncontroller.ui.components.SectionHeader
-import com.example.jetsoncontroller.ui.components.ControlNavigationBar
+import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.AppBanner
 import com.example.jetsoncontroller.ui.components.StatusTone
-import kotlinx.coroutines.flow.collectLatest
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.dev.*
+import com.example.jetsoncontroller.ui.model.Formats
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PipelineListScreen(
-    state: PipelineUiState,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit,
-    onAdd: () -> Unit,
-    onControl: (ManagedPipeline, String) -> Unit,
-    onRemove: (ManagedPipeline) -> Unit,
-    onLogs: (ManagedPipeline) -> Unit,
-    onConfig: (ManagedPipeline) -> Unit,
-    onOutput: (ManagedPipeline) -> Unit,
-    onSectionSelected: (ControlSection) -> Unit,
-    onClearMessage: () -> Unit,
-    deviceName: String = "선택한 장치",
-    unreadCount: Int = 0,
-    onAlerts: () -> Unit = {},
-    onDetails: (ManagedPipeline) -> Unit = onLogs,
-    detailId: String? = null,
-    startCapability: Boolean = false,
-    nowMillis: Long = System.currentTimeMillis(),
-    onHistory: () -> Unit = {},
-    onPrepareRun: (ManagedPipeline) -> Unit = {},
-    developerModeEnabled: Boolean = false
+    state: PipelineUiState, onBack: () -> Unit, onRefresh: () -> Unit, onAdd: () -> Unit,
+    onControl: (ManagedPipeline, String) -> Unit, onRemove: (ManagedPipeline) -> Unit,
+    onLogs: (ManagedPipeline) -> Unit, onConfig: (ManagedPipeline) -> Unit,
+    onOutput: (ManagedPipeline) -> Unit, onSectionSelected: (ControlSection) -> Unit,
+    onClearMessage: () -> Unit, deviceName: String = "선택한 장치", unreadCount: Int = 0,
+    onAlerts: () -> Unit = {}, onDetails: (ManagedPipeline) -> Unit = onLogs,
+    detailId: String? = null, startCapability: Boolean = false,
+    nowMillis: Long = System.currentTimeMillis(), onHistory: () -> Unit = {},
+    onPrepareRun: (ManagedPipeline) -> Unit = {}, developerModeEnabled: Boolean = false,
+    onPolicy: (ManagedPipeline) -> Unit = onConfig, onRelay: () -> Unit = {}
 ) {
-    var pendingRemoval by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
+    var removal by remember(state.deviceId, state.controlAvailable) { mutableStateOf<ManagedPipeline?>(null) }
     val fresh = tasksAreFresh(state.controlAvailable, state.observedAtMillis, nowMillis)
-    pendingRemoval?.let { pipeline ->
-        AlertDialog(onDismissRequest = { pendingRemoval = null },
-            title = { Text("${pipeline.label} 등록을 해제할까요?") },
-            text = { Text("대상: $deviceName\n실행 서비스는 중지되며 저장된 실행 스냅샷과 측정 파일은 유지됩니다.") },
-            confirmButton = { Button(shape = MaterialTheme.shapes.small, enabled = state.controlAvailable && state.busyPipelineId == null, onClick = {
-                pendingRemoval = null; onRemove(pipeline)
-            }) { Text("작업 등록 해제") } },
-            dismissButton = { TextButton(onClick = { pendingRemoval = null }) { Text("취소") } })
+    val pipeline = state.pipelines.firstOrNull { it.id == detailId }
+    val available = fresh && state.busyPipelineId == null
+    var technical by rememberTechnicalInfo()
+    removal?.let { frozen ->
+        GeoConfirmDialog("${frozen.label} 등록을 해제할까요?",
+            "${deviceName}의 실행 서비스가 멈춥니다. 저장된 실행 기록과 측정 파일은 그대로입니다.", "등록 해제",
+            { removal = null; if (available && state.pipelines.any { it.id == frozen.id }) onRemove(frozen) },
+            { removal = null }, kind = GeoConfirmKind.DANGER, confirmEnabled = available,
+            disabledReason = "장치의 현재 상태를 확인한 뒤 등록을 해제할 수 있습니다.")
     }
-    Scaffold(
-        topBar = {
-            com.example.jetsoncontroller.ui.components.DeviceContextHeader(
-                if (detailId == null) "수집 작업 선택" else "작업 상세", deviceName,
-                when {
-                    fresh -> "최신 상태"
-                    state.controlAvailable -> "확인 중"
-                    else -> "오프라인"
-                },
-                onBack, unreadCount, onAlerts,
-                connectionTone = if (fresh) StatusTone.SUCCESS else StatusTone.UNKNOWN,
-                onBack = onBack,
-                actions = {
-                    if (developerModeEnabled && detailId == null) {
-                        IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "작업 추가") }
-                    }
-                    IconButton(onClick = onRefresh, enabled = !state.isLoading && state.busyPipelineId == null) { Icon(Icons.Default.Refresh, "상태 새로고침") }
+    val footer: (@Composable () -> Unit)? = if (pipeline != null) ({
+        val running = pipeline.state in setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING, PipelineState.WAITING_FOR_TIME_SYNC)
+        val failed = pipeline.state == PipelineState.FAILED
+        GeoButton(if (running) "중지 요청" else if (failed) "다시 시작" else "수집 준비", {
+            if (running) onControl(pipeline, "stop") else onPrepareRun(pipeline)
+        }, Modifier.fillMaxWidth(), enabled = available && pipeline.id !in state.pendingActions &&
+            (running || (startCapability && pipeline.state in setOf(PipelineState.STOPPED, PipelineState.FAILED))), actionArea = true,
+            disabledReason = if (!fresh) "장치의 현재 상태를 확인한 뒤 실행할 수 있습니다." else "요청 결과를 확인하고 있습니다.")
+    }) else null
+    DevPage(if (developerModeEnabled) "작업 관리" else "수집 작업 선택", onBack,
+        actions = { if (detailId == null && developerModeEnabled) GeoIconButton(GeoIcons.add, "작업 등록", onAdd, chrome = true) }, footer = footer) {
+        DevFeedback(state.error, true)
+        DevFeedback(state.message)
+        if (state.isLoading) DevText("확인 중")
+        if (detailId == null) {
+            if (state.pipelines.isEmpty() && !state.isLoading) DevEmpty("이 장치에 등록된 작업이 없습니다.", "작업 등록은 관리자에게 요청하세요.")
+            state.pipelines.forEach { item ->
+                GeoRow(item.label, { onDetails(item) }, meta = taskStateLabel(item, fresh, state.pendingActions[item.id]))
+            }
+            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, enabled = !state.isLoading)
+            if (developerModeEnabled) GeoRow("작업 이력", onHistory)
+        } else if (pipeline == null) DevEmpty("작업을 찾을 수 없습니다", "장치의 작업 목록을 다시 확인하세요.", "다시 시도", onRefresh)
+        else {
+            DevIdentity(pipeline.label, "$deviceName · 마지막 실행 ${devTimestamp(pipeline.execution?.startedAt)}",
+                status = taskStateLabel(pipeline, fresh, state.pendingActions[pipeline.id]),
+                tone = when {
+                    !fresh -> StatusTone.UNKNOWN
+                    pipeline.id in state.pendingActions -> StatusTone.PENDING
+                    pipeline.state == PipelineState.FAILED -> StatusTone.ERROR
+                    pipeline.state == PipelineState.RUNNING -> StatusTone.INFO
+                    else -> StatusTone.UNKNOWN
                 })
-        },
-        bottomBar = { ControlNavigationBar(ControlSection.COLLECTION, onSectionSelected) }
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-        LazyColumn(Modifier.widthIn(max = 760.dp).fillMaxSize(), contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text("수집 작업 ${state.pipelines.size}개", style = MaterialTheme.typography.bodyMedium) }
-            if (developerModeEnabled) item {
-                OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text("작업 이력")
+            Spacer(Modifier.height(8.dp))
+            GeoSection("실행") {
+                GeoFactRow("종료 코드", (pipeline.execution?.exitCode ?: pipeline.lastExitCode).toString(), numeric = true)
+                GeoFactRow("시작 전 점검", when (pipeline.execution?.storagePreflight) { "PASSED", "passed" -> "통과"; "FAILED", "failed" -> "실패"; else -> "미확인" })
+                if (developerModeEnabled) GeoSwitchRow("부팅 시 실행", pipeline.enabled,
+                    { onControl(pipeline, if (it) "enable" else "disable") }, enabled = available,
+                    disabledReason = "장치의 현재 상태를 확인한 뒤 바꿀 수 있습니다.")
+            }
+            GeoSection("설정과 기록") {
+                GeoRow("실행 로그", { onLogs(pipeline) })
+                if (developerModeEnabled) {
+                    GeoRow("작업 설정", { onConfig(pipeline) })
+                    GeoRow("수집 정책", { onPolicy(pipeline) })
                 }
+                GeoRow("저장 결과", { onOutput(pipeline) }, value = pipeline.outputPath,
+                    enabled = pipeline.outputRootId != null && pipeline.outputPath != null,
+                    disabledReason = "저장 결과 위치가 없습니다.")
+                GeoRow("보정 정보 중계", onRelay, value = if (state.mobileRtkRelay.active) "중계 중" else "꺼짐")
             }
-            state.error?.let { item {
-                AppBanner(it, StatusTone.ERROR, actionLabel = "다시 시도", onAction = onRefresh)
-            } }
-            if (developerModeEnabled) state.technicalError?.let { detail ->
-                item { SelectionContainer { Text(detail, style = MaterialTheme.typography.bodySmall) } }
-            }
-            state.message?.let { item { InlineMessage(it, false) } }
-            if (state.mobileRtkRelay.active || state.mobileRtkRelay.error != null) {
-                item { InlineMessage(
-                    when {
-                        state.mobileRtkRelay.error != null && !developerModeEnabled ->
-                            "모바일 RTK 연결을 확인하지 못했습니다. 연결 상태를 확인하세요."
-                        state.mobileRtkRelay.error != null -> state.mobileRtkRelay.error
-                        developerModeEnabled -> "모바일 RTK 중계 · RTCM ${state.mobileRtkRelay.bytesFromCaster} bytes"
-                        else -> "모바일 RTK 연결됨"
-                    },
-                    state.mobileRtkRelay.error != null
-                ) }
-            }
-            if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            if (state.pipelines.isEmpty() && !state.isLoading) item {
-                EmptyState(if (fresh) "등록된 작업이 없습니다" else "작업 목록을 불러오지 못했습니다",
-                    if (fresh) "이 장치에서 사용할 수집 작업이 없습니다." else "장치에 연결하면 작업 목록을 다시 불러옵니다.",
-                    actionLabel = "작업 추가".takeIf { developerModeEnabled },
-                    onAction = onAdd.takeIf { developerModeEnabled })
-            }
-            items(state.pipelines.filter { detailId == null || it.id == detailId }, key = { it.id }) { pipeline ->
-                TaskStateCard(pipeline, fresh, state.pendingActions[pipeline.id], state.busyPipelineId == pipeline.id,
-                    controlsEnabled = fresh && state.busyPipelineId == null && pipeline.id !in state.pendingActions,
-                    expanded = detailId != null,
-                    developerModeEnabled = developerModeEnabled,
-                    startCapability = startCapability,
-                    onDetails = { onDetails(pipeline) },
-                    onControl = { action -> if (action in setOf("start", "restart")) onPrepareRun(pipeline)
-                        else onControl(pipeline, action) },
-                    onRemove = { pendingRemoval = pipeline }, onLogs = { onLogs(pipeline) },
-                    onConfig = { onConfig(pipeline) }, onOutput = { onOutput(pipeline) })
-            }
-        }
-        }
-    }
-}
-
-@Composable
-private fun TaskStateCard(
-    pipeline: ManagedPipeline, fresh: Boolean, pendingAction: String?, busy: Boolean,
-    controlsEnabled: Boolean, expanded: Boolean, developerModeEnabled: Boolean,
-    startCapability: Boolean, onDetails: () -> Unit,
-    onControl: (String) -> Unit, onRemove: () -> Unit, onLogs: () -> Unit,
-    onConfig: () -> Unit, onOutput: () -> Unit
-) {
-    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
-    val confirmedRunning = fresh && pipeline.state == PipelineState.RUNNING && !pipeline.activeRunId.isNullOrBlank()
-    val mayBeActive = pipeline.state in setOf(
-        PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING, PipelineState.STOPPING
-    )
-    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
-        color = if (confirmedRunning) c.hero else c.surface,
-        contentColor = if (confirmedRunning) c.heroText else c.ink) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(pipeline.label, style = MaterialTheme.typography.titleLarge)
-            com.example.jetsoncontroller.ui.components.StatusBadge(taskStateLabel(pipeline, fresh, pendingAction),
-                when {
-                    !fresh -> com.example.jetsoncontroller.ui.components.StatusTone.WARNING
-                    pipeline.state == PipelineState.FAILED -> com.example.jetsoncontroller.ui.components.StatusTone.ERROR
-                    confirmedRunning && pendingAction == null -> com.example.jetsoncontroller.ui.components.StatusTone.SUCCESS
-                    mayBeActive -> com.example.jetsoncontroller.ui.components.StatusTone.WARNING
-                    else -> com.example.jetsoncontroller.ui.components.StatusTone.INFO
-                })
-            if (pipeline.result != "unknown") com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
-                Text(
-                    if (developerModeEnabled) "최근 실행 결과: ${pipeline.result} · 종료 코드 ${pipeline.lastExitCode}"
-                    else if (pipeline.result == "success") "최근 수집이 완료되었습니다."
-                    else "최근 수집 결과를 확인하세요.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-            if (developerModeEnabled && !expanded) {
-                Button(shape = MaterialTheme.shapes.small, onClick = onDetails, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    colors = if (confirmedRunning) androidx.compose.material3.ButtonDefaults.buttonColors(c.accent, c.onAccent) else androidx.compose.material3.ButtonDefaults.buttonColors()) { Text("상태 보기") }
-            } else if (developerModeEnabled) {
-                Text(pipeline.description.ifBlank { "장치의 실제 실행 상태와 결과를 확인합니다." }, style = MaterialTheme.typography.bodyLarge)
-                Text("실행 파일: ${pipeline.entrypoint}", style = MaterialTheme.typography.bodyMedium)
-                pipeline.execution?.let { execution ->
-                    com.example.jetsoncontroller.ui.components.SectionSurface(c.sectionRaised) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("실행 근거", style = MaterialTheme.typography.titleSmall)
-                            Text("Run ${execution.runId.ifBlank { "미확인" }} · Log ${execution.logId.ifBlank { "미확인" }}",
-                                style = MaterialTheme.typography.bodySmall)
-                            execution.startedAt?.let { Text("시작 ${com.example.jetsoncontroller.ui.storage.localDateTimeLabel(it)}",
-                                style = MaterialTheme.typography.bodySmall) }
-                            execution.finishedAt?.let { Text("종료 ${com.example.jetsoncontroller.ui.storage.localDateTimeLabel(it)} · 코드 ${execution.exitCode ?: "미확인"}",
-                                style = MaterialTheme.typography.bodySmall) }
-                            Text(when (execution.storagePreflight) {
-                                "passed" -> "저장 사전점검 · 통과"
-                                "failed" -> "저장 사전점검 · 실패"
-                                "not_configured" -> "저장 사전점검 · 기준 미설정"
-                                else -> "저장 사전점검 · 미확인"
-                            }, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-                Button(shape = MaterialTheme.shapes.small, onClick = onLogs, modifier = Modifier.fillMaxWidth()) { Text("실행 로그") }
-                Button(shape = MaterialTheme.shapes.small, onClick = onConfig, modifier = Modifier.fillMaxWidth()) { Text("작업 설정") }
-                Button(shape = MaterialTheme.shapes.small, onClick = onOutput, enabled = pipeline.outputRootId != null && pipeline.outputPath != null, modifier = Modifier.fillMaxWidth()) { Text("저장 결과") }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("부팅 시 실행", modifier = Modifier.weight(1f))
-                    Switch(checked = pipeline.enabled, onCheckedChange = { onControl(if (it) "enable" else "disable") }, enabled = controlsEnabled)
-                }
-                OutlinedButton(shape = MaterialTheme.shapes.small, onClick = onRemove, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("작업 등록 해제") }
-            }
-            if (!developerModeEnabled) {
-                Button(
-                    shape = MaterialTheme.shapes.small,
-                    onClick = { onControl("start") },
-                    enabled = controlsEnabled && startCapability,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                ) {
-                    Text(if (mayBeActive) "현재 수집 보기" else "이 작업으로 수집 준비")
-                }
-            } else if (mayBeActive) {
-                OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { onControl("stop") }, enabled = controlsEnabled,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = if (confirmedRunning) c.heroText else c.primary)) { Text("중지 요청") }
-                if (expanded) Button(shape = MaterialTheme.shapes.small, onClick = { onControl("restart") }, enabled = controlsEnabled, modifier = Modifier.fillMaxWidth()) { Text("다시 시작") }
-            } else {
-                Button(shape = MaterialTheme.shapes.small, onClick = { onControl("start") }, enabled = controlsEnabled,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(if (pendingAction != null) "요청 확인 중…" else "작업 시작") }
-            }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (!controlsEnabled) Text("연결·최근 상태·진행 중 요청을 확인한 뒤 제어할 수 있습니다.", style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PipelineEditorScreen(
-    state: PipelineUiState,
-    onBack: () -> Unit,
-    onPick: (PipelinePickerTarget) -> Unit,
-    onLabelChange: (String) -> Unit,
-    onAutostartChange: (Boolean) -> Unit,
-    onRegister: () -> Unit
-) {
-    val draft = state.draft
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("자동 실행 작업 추가") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .imePadding(),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            state.error?.let { error ->
-                item { InlineMessage(message = error, isError = true) }
-            }
-            item {
-                SectionHeader("작업 정보")
-            }
-            item {
-                OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-                    value = draft.label,
-                    onValueChange = onLabelChange,
-                    label = { Text("표시 이름") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            item { SectionHeader("실행 소스") }
-            item {
-                SelectorRow(
-                    icon = Icons.Default.FolderOpen,
-                    title = "작업 폴더",
-                    value = selectionLabel(draft.repositoryRoot, draft.repositoryPath),
-                    enabled = !state.isLoading,
-                    onClick = { onPick(PipelinePickerTarget.REPOSITORY) }
-                )
-            }
-            if (state.isDiscoveringFolder) {
-                item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            }
-            state.discoveredFolder?.let { discovered ->
-                item {
-                    InlineMessage(
-                        message = "${discovered.pipelineId} · ${discovered.entrypoint} · " +
-                            "${discovered.config} · 결과 폴더 자동 설정",
-                        isError = false
-                    )
-                }
-            }
-            item { SectionHeader("실행 설정") }
-            item {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("부팅 시 자동 실행", fontWeight = FontWeight.SemiBold)
-                            Text("기본 꺼짐 · 장치 재부팅 후 상태를 확인하고 직접 시작",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(
-                            checked = draft.autostart,
-                            onCheckedChange = onAutostartChange,
-                            enabled = !state.isLoading
-                        )
-                    }
-                }
-            }
-            item {
-                Button(shape = MaterialTheme.shapes.small,
-                    onClick = onRegister,
-                    enabled = state.controlAvailable && draft.canSubmit && state.discoveredFolder != null &&
-                        !state.isLoading && !state.isDiscoveringFolder,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Text("작업 등록", modifier = Modifier.padding(start = 8.dp))
-                }
-            }
-            if (state.isLoading) {
-                item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            GeoTechInfo(listOf(GeoTechnicalValue("실행 ID", pipeline.execution?.runId.orEmpty()),
+                GeoTechnicalValue("로그 ID", pipeline.execution?.logId.orEmpty()), GeoTechnicalValue("실행 파일", pipeline.entrypoint),
+                GeoTechnicalValue("설정 파일", pipeline.config), GeoTechnicalValue("리비전", pipeline.sourceRevision),
+                GeoTechnicalValue("보정 수신량", state.mobileRtkRelay.bytesFromCaster.toString())), developerModeEnabled, technical)
+            if (developerModeEnabled) GeoSection("관리", danger = true) {
+                DevText("등록을 해제하면 ${deviceName}의 실행 서비스가 멈춥니다.")
+                GeoButton("등록 해제", { removal = pipeline }, Modifier.fillMaxWidth(), style = GeoButtonStyle.DangerOutline, enabled = available)
             }
         }
     }
 }
 
 @Composable
-private fun SelectorRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    value: String,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    val c = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, contentDescription = null, tint = if (enabled) c.primary else c.onDisabled)
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(title, color = if (enabled) c.ink else c.onDisabled)
-                Text(
-                    value,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (enabled) c.muted else c.onDisabled,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+fun PipelineEditorScreen(state: PipelineUiState, onBack: () -> Unit, onPick: (PipelinePickerTarget) -> Unit,
+    onLabelChange: (String) -> Unit, onAutostartChange: (Boolean) -> Unit, onRegister: () -> Unit) {
+    DevPage("작업 등록", onBack, footer = {
+        GeoButton("작업 등록", onRegister, Modifier.fillMaxWidth(), enabled = state.controlAvailable && state.draft.canSubmit &&
+            state.discoveredFolder != null && !state.isLoading && !state.isDiscoveringFolder, actionArea = true,
+            disabledReason = "장치에 연결하고 표시 이름과 작업 폴더를 확인하세요.")
+    }) {
+        DevFeedback(state.error, true)
+        GeoSection("작업 정보", first = true) { GeoTextField(state.draft.label, onLabelChange, "표시 이름") }
+        GeoSection("실행 소스") {
+            GeoPickerField("작업 폴더", selectionLabel(state.draft.repositoryRoot, state.draft.repositoryPath),
+                { onPick(PipelinePickerTarget.REPOSITORY) }, enabled = !state.isLoading, disabledReason = "등록하고 있습니다.")
+            if (state.isDiscoveringFolder) DevText("확인 중")
+            state.discoveredFolder?.let {
+                DevText("작업 폴더에서 실행 정보를 찾았습니다.")
+                DevText("${it.pipelineId} · ${it.entrypoint} · ${it.config}", mono = true)
+                DevText("결과 폴더는 자동으로 정합니다.", secondary = true)
             }
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = if (enabled) c.muted else c.onDisabled
-            )
+        }
+        GeoSection("실행 설정") {
+            GeoSwitchRow("부팅 시 자동 실행", state.draft.autostart, onAutostartChange,
+                description = "꺼 두면 장치를 다시 켠 뒤 상태를 확인하고 직접 시작합니다.",
+                enabled = !state.isLoading, disabledReason = "등록하고 있습니다.")
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PipelinePickerScreen(
-    roots: List<RemoteRoot>,
-    state: PipelinePickerState,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit,
-    onRootClick: (RemoteRoot) -> Unit,
-    onDirectoryClick: (RemoteFileEntry) -> Unit,
-    onFileClick: (RemoteFileEntry) -> Unit,
-    onSelectCurrentDirectory: () -> Unit
-) {
-    BackHandler(onBack = onBack)
-    val directoryTarget = state.target == PipelinePickerTarget.REPOSITORY ||
-        state.target == PipelinePickerTarget.VIRTUALENV
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(pickerTitle(state.target))
-                        if (state.root != null) {
-                            Text(
-                                state.currentPath.ifEmpty { "/" },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    if (state.root != null) {
-                        IconButton(onClick = onRefresh, enabled = !state.isLoading) {
-                            Icon(Icons.Default.Refresh, contentDescription = "새로고침")
-                        }
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            if (directoryTarget && state.root != null) {
-                Surface(shadowElevation = 4.dp) {
-                    Button(shape = MaterialTheme.shapes.small,
-                        onClick = onSelectCurrentDirectory,
-                        enabled = !state.isLoading,
-                        modifier = Modifier.fillMaxWidth().padding(16.dp)
-                    ) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = null)
-                        Text("이 폴더 선택", modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
+fun PipelinePickerScreen(roots: List<RemoteRoot>, state: PipelinePickerState, onBack: () -> Unit,
+    onRefresh: () -> Unit, onRootClick: (RemoteRoot) -> Unit, onDirectoryClick: (RemoteFileEntry) -> Unit,
+    onFileClick: (RemoteFileEntry) -> Unit, onSelectCurrentDirectory: () -> Unit) {
+    val directory = state.target == PipelinePickerTarget.REPOSITORY || state.target == PipelinePickerTarget.VIRTUALENV
+    val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || fileMatches(it, state.target) }
+    DevPage("폴더 선택", onBack, footer = if (directory && state.root != null) ({
+        GeoButton("이 폴더 선택", onSelectCurrentDirectory, Modifier.fillMaxWidth(), enabled = !state.isLoading, actionArea = true)
+    }) else null) {
+        DevText(selectionLabel(state.root, state.currentPath))
+        if (state.isLoading) DevText("확인 중")
+        if (state.error != null) DevEmpty("폴더를 불러오지 못했습니다", state.error, "다시 시도", onRefresh)
+        if (state.root == null) roots.forEach { root -> GeoRow(root.label, { onRootClick(root) }, enabled = !state.isLoading,
+            disabledReason = "폴더를 확인하고 있습니다.") }
+        else {
+            GeoSection("폴더", count = "${visible.size}개") {
+                visible.forEach { entry -> GeoRow(entry.name, {
+                    if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry)
+                }, enabled = !state.isLoading, disabledReason = "폴더를 확인하고 있습니다.") }
             }
         }
-    ) { paddingValues ->
-        Box(Modifier.fillMaxSize().padding(paddingValues)) {
-            LazyColumn(Modifier.fillMaxSize()) {
-                state.error?.let { error ->
-                    item {
-                        InlineMessage(
-                            message = error,
-                            isError = true,
-                            modifier = Modifier.padding(20.dp)
-                        )
-                    }
-                }
-                if (state.root == null) {
-                    items(roots, key = { it.id }) { root ->
-                        ListItem(
-                            headlineContent = { Text(root.label, fontWeight = FontWeight.SemiBold) },
-                            supportingContent = {
-                                root.pathHint?.let {
-                                    Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            },
-                            leadingContent = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
-                            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-                            modifier = Modifier.clickable { onRootClick(root) }
-                        )
-                        HorizontalDivider(Modifier.padding(start = 72.dp))
-                    }
-                } else {
-                    val visibleEntries = state.entries.filter { entry ->
-                        entry.type == RemoteEntryType.DIRECTORY || fileMatches(entry, state.target)
-                    }
-                    items(visibleEntries, key = { it.relativePath }) { entry ->
-                        val directory = entry.type == RemoteEntryType.DIRECTORY
-                        ListItem(
-                            headlineContent = {
-                                Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            },
-                            supportingContent = {
-                                Text(if (directory) "폴더" else "파일")
-                            },
-                            leadingContent = {
-                                Icon(
-                                    if (directory) Icons.Default.Folder else Icons.Default.Description,
-                                    contentDescription = null,
-                                    tint = if (directory) MaterialTheme.colorScheme.tertiary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            },
-                            trailingContent = {
-                                Icon(Icons.Default.ChevronRight, contentDescription = null)
-                            },
-                            modifier = Modifier.clickable {
-                                if (directory) onDirectoryClick(entry) else onFileClick(entry)
-                            }
-                        )
-                        HorizontalDivider(Modifier.padding(start = 72.dp))
-                    }
-                }
-            }
-            if (state.isLoading) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-            }
-        }
+        if (!state.isLoading && state.error == null && (if (state.root == null) roots.isEmpty() else visible.isEmpty()))
+            DevEmpty("선택할 폴더가 없습니다", "이 위치에는 폴더가 없습니다.")
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PipelineLogScreen(
-    state: PipelineUiState,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit,
-    onLogSelected: (String) -> Unit
-) {
-    val scrollState = rememberScrollState()
-    LaunchedEffect(state.selectedLogId, state.logFollowingLatest) {
-        snapshotFlow { scrollState.maxValue }.collectLatest { maximum ->
-            scrollState.scrollTo(maximum)
+fun PipelineLogScreen(state: PipelineUiState, onBack: () -> Unit, onRefresh: () -> Unit, onLogSelected: (String) -> Unit) {
+    var picker by remember { mutableStateOf(false) }
+    if (picker) GeoSheet("실행 로그 선택", { picker = false }) {
+        state.logFiles.forEach { file ->
+            GeoRadioRow(logKind(file, state), file.id == state.selectedLogId,
+                { picker = false; onLogSelected(file.id) }, description = "${devTimestamp(file.startedAt)} 시작 · ${Formats.size(file.sizeBytes)}")
         }
     }
-    BackHandler(onBack = onBack)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("실행 로그") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onRefresh, enabled = !state.detailLoading) {
-                        Icon(Icons.Default.Refresh, contentDescription = "로그 새로고침")
-                    }
-                }
-            )
+    DevFrame("실행 로그", onBack) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)) {
+            GeoPickerField("실행 로그", state.logFiles.firstOrNull { it.id == state.selectedLogId }?.let { "${logKind(it, state)} · ${devTimestamp(it.startedAt)} 시작" } ?: "선택 안 됨",
+                { picker = true }, enabled = state.logFiles.isNotEmpty(), disabledReason = "저장된 실행 로그가 없습니다")
+            DevFeedback(state.error, true)
+            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, enabled = !state.detailLoading)
         }
-    ) { paddingValues ->
-        Column(Modifier.fillMaxSize().padding(paddingValues)) {
-            PipelineLogToolbar(
-                files = state.logFiles,
-                selectedLogId = state.selectedLogId,
-                followingLatest = state.logFollowingLatest,
-                live = state.logLive,
-                onSelected = onLogSelected
-            )
-            if (state.error != null) {
-                InlineMessage(
-                    message = state.error,
-                    isError = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
-                )
+        when {
+            state.detailLoading && state.logFiles.isEmpty() -> DevText("확인 중")
+            state.logFiles.isEmpty() -> Column(Modifier.padding(horizontal = 24.dp)) {
+                DevEmpty("저장된 실행 로그가 없습니다", "작업을 시작하면 실행마다 로그가 따로 남습니다.")
             }
-            HorizontalDivider()
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                when {
-                    state.logFiles.isEmpty() && !state.detailLoading -> EmptyState(
-                        title = "저장된 실행 로그가 없습니다",
-                        message = "작업을 시작하면 실행마다 별도 로그 파일이 생성됩니다."
-                    )
-                    state.logContent.isEmpty() && !state.detailLoading -> EmptyState(
-                        title = "로그 내용이 없습니다",
-                        message = "선택한 실행에서는 아직 결과가 기록되지 않았습니다."
-                    )
-                    else -> SelectionContainer {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(scrollState)
-                                .padding(16.dp)
-                        ) {
-                            Text(
-                                state.logContent,
-                                modifier = Modifier.fillMaxWidth(),
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            )
-                        }
-                    }
-                }
-                if (state.detailLoading) {
-                    LinearProgressIndicator(
-                        Modifier.fillMaxWidth().align(Alignment.TopCenter)
-                    )
-                }
+            state.logContent.isEmpty() -> Column(Modifier.padding(horizontal = 24.dp)) {
+                DevEmpty("로그 내용이 없습니다", "선택한 실행에서는 아직 결과가 기록되지 않았습니다.")
+            }
+            else -> key(state.selectedLogId) {
+                GeoLogView(state.logContent.lines().mapIndexed { index, line -> GeoLogLine(index.toString(), line) },
+                    state.logLive, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp))
             }
         }
     }
 }
 
 @Composable
-private fun PipelineLogToolbar(
-    files: List<PipelineLogFile>,
-    selectedLogId: String?,
-    followingLatest: Boolean,
-    live: Boolean,
-    onSelected: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val selected = files.firstOrNull { it.id == selectedLogId }
-    Surface(color = com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.sectionSoft) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(Modifier.weight(1f)) {
-                OutlinedButton(shape = MaterialTheme.shapes.small,
-                    onClick = { expanded = true },
-                    enabled = files.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Description, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        selected?.let(::pipelineLogStartedLabel) ?: "실행 로그 선택",
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                }
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    files.forEachIndexed { index, file ->
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text(
-                                        pipelineLogFileLabel(file),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        when {
-                                            file.active -> "현재 실행"
-                                            index == 0 -> "최근 실행"
-                                            else -> "보관 로그"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Description, contentDescription = null)
-                            },
-                            onClick = {
-                                expanded = false
-                                onSelected(file.id)
-                            }
-                        )
-                    }
-                }
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Circle,
-                        contentDescription = null,
-                        modifier = Modifier.size(8.dp),
-                        tint = if (live) com.example.jetsoncontroller.ui.theme.LocalCobaltColors.current.success
-                        else MaterialTheme.colorScheme.outline
-                    )
-                    Text(
-                        when {
-                            selected?.active == true && live -> "실시간"
-                            followingLatest && live -> "자동 갱신"
-                            else -> "보관 로그"
-                        },
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-                selected?.let {
-                    Text(
-                        formatPipelineLogSize(it.sizeBytes),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+fun PipelineConfigScreen(state: PipelineUiState, onBack: () -> Unit, onValueChange: (String, String) -> Unit,
+    onSave: () -> Unit, onReload: () -> Unit = {}) {
+    var reload by remember(state.deviceId, state.controlAvailable) { mutableStateOf(false) }
+    if (reload) GeoConfirmDialog("장치 설정을 다시 불러올까요?", "작성 중인 내용을 장치의 현재 설정으로 바꿉니다.", "다시 불러오기",
+        { reload = false; if (state.controlAvailable && !state.configSaving) onReload() }, { reload = false },
+        dismissLabel = "초안 유지", confirmEnabled = state.controlAvailable && !state.configSaving,
+        disabledReason = "장치에 연결되고 저장이 끝나야 다시 불러올 수 있습니다.")
+    DevPage("작업 설정", onBack, footer = {
+        GeoButton("설정 저장", onSave, Modifier.fillMaxWidth(), enabled = state.controlAvailable && !state.configNeedsReview &&
+            !state.detailLoading && !state.configSaving && state.configHasChanges && state.configValuesValid,
+            actionArea = true, disabledReason = if (state.configNeedsReview) "장치의 설정을 다시 불러온 뒤 저장할 수 있습니다." else "변경한 설정 값을 확인하세요.")
+    }) {
+        DevFeedback(state.error, true)
+        DevFeedback(state.message)
+        DevText(state.configPath, mono = true)
+        if (state.configNeedsReview) {
+            DevText("장치에서 설정이 바뀌었습니다. 장치 설정을 다시 불러와 확인하세요.")
+            GeoButton("장치 설정 다시 불러오기", { reload = true }, style = GeoButtonStyle.Tertiary, enabled = state.controlAvailable)
+        }
+        if (state.detailLoading) DevText("확인 중")
+        else if (state.configFields.isEmpty() && state.error == null) DevEmpty("바꿀 수 있는 설정 값이 없습니다",
+            "이 작업의 설정 파일에는 앱에서 바꿀 수 있는 키와 값이 없습니다.")
+        else GeoSection("설정 값") {
+            state.configFields.forEach { field ->
+                val enabled = state.controlAvailable && !state.detailLoading && !state.configSaving
+                if (field.type == PipelineConfigValueType.BOOLEAN) GeoSwitchRow(field.label, field.value == "true",
+                    { onValueChange(field.path, it.toString()) }, enabled = enabled, disabledReason = "장치 연결과 저장 상태를 확인하세요.")
+                else {
+                    GeoTextField(field.value, { onValueChange(field.path, it.take(4096)) }, field.label,
+                        enabled = enabled, disabledReason = "장치 연결과 저장 상태를 확인하세요.",
+                        singleLine = field.type != PipelineConfigValueType.STRING,
+                        numeric = field.type in setOf(PipelineConfigValueType.INTEGER, PipelineConfigValueType.DECIMAL),
+                        error = if (configFieldValueValid(field.type, field.value)) null else "유효한 값을 입력하세요.")
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PipelineConfigScreen(
-    state: PipelineUiState,
-    onBack: () -> Unit,
-    onValueChange: (String, String) -> Unit,
-    onSave: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    var confirmReload by remember(state.deviceId, state.controlAvailable) { mutableStateOf(false) }
-    if (confirmReload) {
-        AlertDialog(
-            onDismissRequest = { confirmReload = false },
-            title = { Text("장치 설정을 다시 불러올까요?") },
-            text = { Text("작성 중인 설정 초안을 장치의 현재 설정으로 바꿉니다.") },
-            confirmButton = { Button(shape = MaterialTheme.shapes.small, onClick = { confirmReload = false; onReload() }) { Text("다시 불러오기") } },
-            dismissButton = { TextButton(onClick = { confirmReload = false }) { Text("초안 유지") } }
-        )
-    }
-    BackHandler(onBack = onBack)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("작업 설정")
-                        if (state.configPath.isNotBlank()) {
-                            Text(
-                                state.configPath,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = onSave,
-                        enabled = state.controlAvailable && !state.configNeedsReview &&
-                            !state.detailLoading && !state.configSaving &&
-                            state.configHasChanges && state.configValuesValid
-                    ) {
-                        Icon(Icons.Default.Save, contentDescription = "설정 저장")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().imePadding(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                state.error?.let { error ->
-                    item { InlineMessage(error, isError = true) }
-                }
-                state.message?.let { message ->
-                    item { InlineMessage(message, isError = false) }
-                }
-                if (state.configNeedsReview) {
-                    item {
-                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { confirmReload = true }, enabled = state.controlAvailable) {
-                            Text("장치 설정 다시 불러오기")
-                        }
-                    }
-                }
-                if (state.configFields.isEmpty() && !state.detailLoading && state.error == null) {
-                    item {
-                        EmptyState(
-                            title = "편집할 설정 값이 없습니다",
-                            message = "이 작업 설정에는 변경 가능한 키와 값이 없습니다."
-                        )
-                    }
-                }
-                items(state.configFields, key = { it.path }) { field ->
-                    PipelineConfigFieldEditor(
-                        field = field,
-                        enabled = !state.detailLoading && !state.configSaving,
-                        onValueChange = { onValueChange(field.path, it) }
-                    )
-                }
-            }
-            if (state.detailLoading || state.configSaving) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PipelineConfigFieldEditor(
-    field: PipelineConfigField,
-    enabled: Boolean,
-    onValueChange: (String) -> Unit
-) {
-    if (field.type == PipelineConfigValueType.BOOLEAN) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.small,
-            color = MaterialTheme.colorScheme.surfaceContainerLow
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    field.label,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Switch(
-                    checked = field.value == "true",
-                    onCheckedChange = { onValueChange(it.toString()) },
-                    enabled = enabled
-                )
-            }
-        }
-        return
-    }
-
-    val keyboardType = when (field.type) {
-        PipelineConfigValueType.INTEGER -> KeyboardType.Number
-        PipelineConfigValueType.DECIMAL -> KeyboardType.Decimal
-        else -> KeyboardType.Text
-    }
-    val valid = configFieldValueValid(field.type, field.value)
-    OutlinedTextField(colors = com.example.jetsoncontroller.ui.theme.slateTextFieldColors(),
-        value = field.value,
-        onValueChange = { onValueChange(it.take(4096)) },
-        modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
-        label = { Text(field.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        singleLine = field.type != PipelineConfigValueType.STRING,
-        minLines = if (field.type == PipelineConfigValueType.STRING) 1 else 1,
-        maxLines = if (field.type == PipelineConfigValueType.STRING) 4 else 1,
-        isError = !valid,
-        supportingText = if (!valid) {
-            {
-                Text(
-                    if (field.type == PipelineConfigValueType.INTEGER) "정수를 입력하세요."
-                    else "유효한 숫자를 입력하세요."
-                )
-            }
-        } else null
-    )
-}
-
-private fun selectionLabel(root: RemoteRoot?, path: String): String = when {
-    root == null -> "선택 안 됨"
-    path.isEmpty() -> root.label
-    else -> "${root.label} / $path"
-}
-
-private fun pickerTitle(target: PipelinePickerTarget?): String = when (target) {
-    PipelinePickerTarget.REPOSITORY -> "작업 폴더 선택"
-    PipelinePickerTarget.VIRTUALENV -> "가상환경 선택"
-    PipelinePickerTarget.ENTRYPOINT -> "메인 Python 선택"
-    PipelinePickerTarget.CONFIG -> "작업 설정 파일 선택"
-    null -> "경로 선택"
-}
+private fun selectionLabel(root: RemoteRoot?, path: String): String =
+    listOfNotNull(root?.label, path.takeIf { it.isNotBlank() }).joinToString(" › ").ifEmpty { "선택 안 됨" }
 
 private fun fileMatches(entry: RemoteFileEntry, target: PipelinePickerTarget?): Boolean = when (target) {
-    PipelinePickerTarget.ENTRYPOINT -> entry.name.endsWith(".py", ignoreCase = true)
-    PipelinePickerTarget.CONFIG -> entry.name.endsWith(".yaml", ignoreCase = true) ||
-        entry.name.endsWith(".yml", ignoreCase = true)
+    PipelinePickerTarget.ENTRYPOINT -> entry.name.endsWith(".py", true)
+    PipelinePickerTarget.CONFIG -> entry.name.endsWith(".yaml", true) || entry.name.endsWith(".yml", true)
     else -> false
 }
 
-
-private val pipelineLogTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
-
-private fun pipelineLogStartedLabel(file: PipelineLogFile): String = try {
-    pipelineLogTimeFormatter.format(Instant.parse(file.startedAt))
-} catch (_: Exception) {
-    file.startedAt
+private fun logKind(file: PipelineLogFile, state: PipelineUiState): String = when {
+    file.active -> "현재 실행"
+    file.id == state.logFiles.firstOrNull { !it.active }?.id -> "최근 실행"
+    else -> "보관 로그"
 }
-
-private fun pipelineLogFileLabel(file: PipelineLogFile): String =
-    "${pipelineLogStartedLabel(file)} · ${formatPipelineLogSize(file.sizeBytes)}"
-
-private fun formatPipelineLogSize(bytes: Long): String =
-    com.example.jetsoncontroller.ui.model.Formats.size(bytes)

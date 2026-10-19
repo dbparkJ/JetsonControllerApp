@@ -244,11 +244,11 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
         val snackbars = remember { androidx.compose.material3.SnackbarHostState() }
         val opener = remember { FocusRequester() }
         val target = pipelineId?.let { WorkTicketTarget(deviceId, profileId, rowId, ticket.revision, it,
-            ticket.geometryRevision, ticket.geometryHash) }
+            ticket.zoneRevision, ticket.zoneHash) }
         val survey = surveyRunState
         val liveTicket = liveList?.tickets?.firstOrNull { it.rowId == rowId }
         val changed = liveTicket != null && (liveTicket.revision != ticket.revision ||
-            liveTicket.geometryRevision != ticket.geometryRevision || liveTicket.geometryHash != ticket.geometryHash)
+            liveTicket.zoneRevision != ticket.zoneRevision || liveTicket.zoneHash != ticket.zoneHash)
         val activeScope = currentScope && survey.deviceId.equals(deviceId, true) && survey.pipelineId == pipelineId
         LaunchedEffect(deviceId, profileId, rowId, pipelineId, currentScope) {
             if (!currentScope || deviceId.isBlank() || profileId.isBlank()) return@LaunchedEffect
@@ -363,8 +363,8 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
                     val bound = target
                     val start = immutableStart
                     if (bound != null && start != null && start.draft.ticketRowId == bound.rowId &&
-                        start.draft.ticketRevision == bound.revision && start.draft.geometryHash == ticket.geometryHash &&
-                        start.draft.geometryRevision == ticket.geometryRevision) serverTicketViewModel.usePreparedTicket(profileId, deviceId, bound.pipelineId) {
+                        start.draft.ticketRevision == bound.revision && start.draft.geometryHash == ticket.zoneHash &&
+                        start.draft.geometryRevision == ticket.zoneRevision) serverTicketViewModel.usePreparedTicket(profileId, deviceId, bound.pipelineId) {
                         val latest = state.value
                         val latestTicket = latest.serverTicketState.tickets.firstOrNull { it.rowId == rowId }
                         if (latestRequested.value && bound.matches(latest.latestSelectedDeviceId, latest.latestTicketProfileId, latestTicket,
@@ -434,10 +434,9 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
         WorkTaskRoute(state, entry)
     }
 
-        listOf(Routes.PIPELINES, Routes.PIPELINE_DETAIL).forEach { taskRoute ->
+        listOf(Routes.PIPELINES).forEach { taskRoute ->
         composable(taskRoute) taskContent@ { taskEntry ->
             with(state.value) {
-                if (taskRoute == Routes.PIPELINE_DETAIL && !developerModeEnabled) return@taskContent
                 StatusPollingLifecycleEffect(dashboardViewModel)
                 PipelineListScreen(
                     onHistory = { navController.navigateSingle(Routes.TASK_HISTORY) { launchSingleTop = true } },
@@ -452,7 +451,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                     onRefresh = pipelineViewModel::refresh,
                     onAdd = {
                         pipelineViewModel.beginCreate()
-                        navController.navigateSingle(Routes.PIPELINE_EDITOR)
+                        navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.NEW_PIPELINE.route)
                     },
                     onControl = pipelineViewModel::control,
                     onPrepareRun = { pipeline ->
@@ -482,10 +481,10 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                     },
                     onRemove = pipelineViewModel::remove,
                     onLogs = { pipeline ->
-                        navController.navigateSingle("pipeline_logs/${Uri.encode(pipeline.id)}")
+                        navController.navigateSingle("dev/pipeline/${Uri.encode(pipeline.id)}/logs")
                     },
                     onConfig = { pipeline ->
-                        navController.navigateSingle("pipeline_config/${Uri.encode(pipeline.id)}")
+                        navController.navigateSingle("dev/pipeline/${Uri.encode(pipeline.id)}/config")
                     },
                     onOutput = { pipeline ->
                         val rootId = pipeline.outputRootId ?: return@PipelineListScreen
@@ -499,10 +498,10 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                     deviceName = selectedDeviceName,
                     unreadCount = alertCenterState.unreadCount,
                     onAlerts = { navController.navigateSingle(Routes.ALERTS) },
-                    onDetails = { navController.navigateSingle("pipeline_detail/${Uri.encode(it.id)}") },
+                    onDetails = { navController.navigateSingle("task_detail/${Uri.encode(it.id)}") },
                     detailId = taskEntry.arguments?.getString("pipelineId"),
                     startCapability = dashboardState.capabilities.pipelines && dashboardState.capabilities.mobileTimeSync,
-                    developerModeEnabled = developerModeEnabled
+                    developerModeEnabled = false
                 )
             }
         }
@@ -703,6 +702,14 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                         ?: "완료 보고를 전송했습니다."
                     else -> ticketLink?.rowId?.let(serverTicketViewModel::ticketMessage) ?: ticketCompletion.message
                 }
+                val boundGeometry by androidx.compose.runtime.produceState<com.example.jetsoncontroller.ui.map.GeoMapGeometry?>(null, resultDeviceId, target?.runId) {
+                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.example.jetsoncontroller.ui.map.GeoMapRunStore(fieldContext.noBackupFilesDir).read(resultDeviceId, target?.runId)
+                    }
+                }
+                val geometryChanged = boundGeometry?.let { geometry -> serverTicketState.tickets.any {
+                    it.rowId == geometry.ticketRowId && (it.zoneRevision != geometry.revision || it.zoneHash != geometry.hash)
+                } } == true
                 com.example.jetsoncontroller.ui.field.RunResultScreen(
                     deviceName = deviceState.registeredDevices.firstOrNull {
                         it.deviceId.equals(resultDeviceId, true)
@@ -712,6 +719,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                     connectionTone = com.example.jetsoncontroller.ui.connection
                         .deviceConnectionUi(resultOnline, deviceDashboardState.transportType.takeIf { resultOnline }).tone,
                     run = resultRun,
+                    zoneRevisionChanged = geometryChanged,
                     uploadEnabled = serverUploadEnabled && resultOnline,
                     uploadDisabledReason = serverUploadDisabledReason,
                     serverReceiptLabel = receiptPresentation.label,
@@ -821,7 +829,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                         navController.navigateSingle(Routes.GNSS_MAP)
                     },
                     onDismissLog = fieldToolsViewModel::dismissLog,
-                    onPipeline = { navController.navigateSingle("pipeline_detail/${Uri.encode(it.id)}") },
+                    onPipeline = { navController.navigateSingle("dev/pipeline/${Uri.encode(it.id)}") },
                     onDeleteRun = fieldToolsViewModel::deleteRun,
                     onUndoDelete = fieldToolsViewModel::undoDeleteRun,
                     onTrash = { navController.navigateSingle(Routes.LOCAL_TRASH) },

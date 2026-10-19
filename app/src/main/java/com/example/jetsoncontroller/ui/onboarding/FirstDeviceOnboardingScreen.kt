@@ -1,127 +1,103 @@
 package com.example.jetsoncontroller.ui.onboarding
 
-import com.example.jetsoncontroller.ui.theme.Button
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.components.ConnectionStepper
-import com.example.jetsoncontroller.ui.theme.AppSpacing
+import com.example.jetsoncontroller.R
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.navigateSingle
+import com.example.jetsoncontroller.ui.navigateToTab
+import com.example.jetsoncontroller.ui.navigation.AppNavigationState
+import com.example.jetsoncontroller.ui.navigation.Routes
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
-@OptIn(ExperimentalMaterial3Api::class)
+// The graph owner can adopt the complete first-run actions without changing the legacy signature.
+@Composable
+internal fun FirstDeviceOnboardingRoute(state: AppNavigationState) {
+    FirstDeviceOnboardingScreen(
+        onScanQr = {
+            state.pairingViewModel.beginQrPairing()
+            state.navController.navigateSingle(Routes.QR_SCANNER)
+        },
+        onBack = { state.navController.popBackStack() },
+        onOpenSettings = { navigateToTab(state.navController, Routes.SETTINGS) },
+        onViewServerFiles = { state.navController.navigateSingle(Routes.SERVER_STORAGE) }
+    )
+}
+
 @Composable
 fun FirstDeviceOnboardingScreen(
     onScanQr: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenSettings: (() -> Unit)? = null,
+    onViewServerFiles: (() -> Unit)? = null
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("새 장치 등록") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
-                    }
-                }
-            )
+    val colors = LocalGeoColors.current
+    val type = LocalGeoType.current
+    val gutter = LocalGeoWindow.current.gutterDp.dp
+    Column(Modifier.fillMaxSize().background(colors.surface)) {
+        // GeoAppShell owns system insets. A first-run scene has no back title bar.
+        if (onOpenSettings != null) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), horizontalArrangement = Arrangement.End) {
+                GeoIconButton(GeoIcons.tabSettings, "설정", onOpenSettings)
+            }
         }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = AppSpacing.screen),
-            verticalArrangement = Arrangement.Center
-        ) {
-            // One description of the steps: the list below. A second stepper with different
-            // names made the same flow read as two flows.
-            Text(
-                text = "장치를 등록합니다",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(AppSpacing.small))
-            Text(
-                text = "본체의 QR을 확인한 뒤 가까운 장치와 안전하게 인증합니다.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(AppSpacing.xxLarge))
-            OnboardingStep(
-                icon = Icons.Default.QrCodeScanner,
-                title = "QR 확인",
-                description = "장치 본체에 표시된 등록 QR을 준비합니다."
-            )
-            OnboardingStep(
-                icon = Icons.AutoMirrored.Filled.BluetoothSearching,
-                title = "장치 연결",
-                description = "앱이 같은 장치를 Bluetooth로 찾습니다."
-            )
-            OnboardingStep(
-                icon = Icons.Default.CheckCircle,
-                title = "인증 완료",
-                description = "인증 정보는 이 기기에 안전하게 저장됩니다. 장치 Wi-Fi는 필요할 때 장치 상세에서 설정합니다."
-            )
-            Spacer(Modifier.height(32.dp))
-            Button(
-                onClick = onScanQr,
-                modifier = Modifier.fillMaxWidth().height(52.dp)
-            ) {
-                Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                Text("QR 코드 스캔", modifier = Modifier.padding(start = AppSpacing.small))
+        GeoActionArea(
+            visibilityKey = "first-device",
+            scene = true,
+            action = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GeoButton("QR 코드 스캔", onScanQr, Modifier.fillMaxWidth(), actionArea = true)
+                    if (onViewServerFiles != null) GeoButton(
+                        "장치 없이 서버 파일 보기", onViewServerFiles, Modifier.fillMaxWidth(), style = GeoButtonStyle.Tertiary
+                    )
+                }
+            }
+        ) { inlineAction ->
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = gutter)) {
+                Image(painterResource(R.drawable.geo_device), null, Modifier.size(120.dp))
+                Spacer(Modifier.height(32.dp))
+                Text("GEO-X에 장치를 등록하세요", Modifier.semantics { heading() }, style = type.heading, color = colors.text)
+                Spacer(Modifier.height(8.dp))
+                Text("장치 본체의 QR 코드를 스캔하면 이 휴대폰에서 장치를 관리할 수 있습니다.", style = type.body, color = colors.textSecondary)
+                Spacer(Modifier.height(8.dp))
+                GeoSection("등록에 필요한 권한") {
+                    PermissionRow(GeoIcons.camera, "카메라", "QR 코드를 읽습니다.")
+                    PermissionRow(GeoIcons.bluetooth, "블루투스", "가까운 장치를 찾아 인증합니다.")
+                }
+                inlineAction()
             }
         }
     }
 }
 
 @Composable
-private fun OnboardingStep(
-    icon: ImageVector,
-    title: String,
-    description: String
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = AppSpacing.small),
-        horizontalArrangement = Arrangement.spacedBy(AppSpacing.large),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Column {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(
-                description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+private fun PermissionRow(icon: ImageVector, title: String, explanation: String) {
+    val colors = LocalGeoColors.current
+    val type = LocalGeoType.current
+    Column {
+        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Icon(icon, null, Modifier.size(24.dp), tint = colors.textSecondary)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = type.titleSm, color = colors.text)
+                Text(explanation, style = type.caption, color = colors.textSecondary)
+            }
         }
+        Spacer(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
     }
 }

@@ -209,13 +209,14 @@ internal fun ticketDraft(
 ): PreparationDraft {
     if (existing != null && existing.deviceId.equals(deviceId, true) && existing.serverProfileId == profileId &&
         existing.ticketRowId == ticket.rowId && existing.ticketRevision == ticket.revision &&
-        existing.credentialRevision == credentialRevision) return existing.copy(pipelineId = pipelineId ?: existing.pipelineId)
+        existing.credentialRevision == credentialRevision && existing.geometryRevision == ticket.zoneRevision &&
+        existing.geometryHash == ticket.zoneHash) return existing.copy(pipelineId = pipelineId ?: existing.pipelineId)
     return PreparationDraft(
         deviceId = deviceId, serverProfileId = profileId, ticketRowId = ticket.rowId,
         ticketRevision = ticket.revision, pipelineId = pipelineId,
         project = ticket.project?.takeIf(String::isNotBlank)?.let { PreparationSelection.CreateFromTicket(it) },
         section = PreparationSelection.CreateFromTicket(ticket.title),
-        geometryRevision = ticket.geometryRevision, geometryHash = ticket.geometryHash,
+        geometryRevision = ticket.zoneRevision, geometryHash = ticket.zoneHash,
         updatedAt = now, credentialRevision = credentialRevision
     )
 }
@@ -228,7 +229,7 @@ internal data class WorkTicketTarget(
 internal fun WorkTicketTarget.matches(deviceId: String?, profileId: String?, ticket: ServerTicket?, pipelineId: String?): Boolean =
     ticket != null && this.deviceId.equals(deviceId, true) && this.profileId == profileId && rowId == ticket.rowId &&
         revision == ticket.revision && this.pipelineId == pipelineId &&
-        geometryRevision == ticket.geometryRevision && geometryHash == ticket.geometryHash
+        geometryRevision == ticket.zoneRevision && geometryHash == ticket.zoneHash
 
 internal fun ticketStartSheet(
     ticket: ServerTicket, deviceName: String, survey: SurveyRunUiState, checking: Boolean,

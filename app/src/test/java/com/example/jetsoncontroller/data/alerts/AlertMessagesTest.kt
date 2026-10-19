@@ -28,4 +28,5 @@ class AlertMessagesTest {
         assertEquals("81.5°C", formatCelsius(81.5f))
         assertEquals("72.0°C", formatCelsius(72f))
     }
+
 }

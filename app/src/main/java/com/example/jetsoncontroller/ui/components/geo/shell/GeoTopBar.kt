@@ -15,9 +15,9 @@ import androidx.compose.ui.Modifier
 
 /** Owns the status inset; the existing screen supplies its unchanged title row below it. */
 @Composable
-fun GeoTopBar(modifier: Modifier = Modifier, content: @Composable () -> Unit = {}) {
+fun GeoTopBar(modifier: Modifier = Modifier, mediaInsets: Boolean = false, content: @Composable () -> Unit = {}) {
     Column(
-        modifier.fillMaxWidth().background(shellColors().topBar)
+        modifier.fillMaxWidth().background(if (mediaInsets) androidx.compose.ui.graphics.Color.Black else shellColors().topBar)
             .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top))
     ) { content() }
 }

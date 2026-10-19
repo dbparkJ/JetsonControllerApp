@@ -1,47 +1,25 @@
 package com.example.jetsoncontroller.ui.sensors
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.JetsonStatus
-import com.example.jetsoncontroller.ui.components.ControlNavigationBar
 import com.example.jetsoncontroller.ui.components.ControlSection
-import com.example.jetsoncontroller.ui.components.AdaptiveColumns
-import com.example.jetsoncontroller.ui.components.AdaptiveContent
-import com.example.jetsoncontroller.ui.components.DeviceContextHeader
-import com.example.jetsoncontroller.ui.components.SectionHeader
-import com.example.jetsoncontroller.ui.components.StatusBadge
 import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.theme.GeoSize
-import com.example.jetsoncontroller.ui.theme.GeoSpace
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Kept for external callers; the old sensor route redirects to device detail. */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun SensorScreen(
     status: JetsonStatus,
@@ -55,145 +33,47 @@ fun SensorScreen(
     onAlerts: () -> Unit = {},
     unreadCount: Int = 0
 ) {
-    Scaffold(
-        containerColor = LocalGeoColors.current.canvas,
-        topBar = { DeviceContextHeader(
-            "센서 상태", deviceName, if (deviceOnline) "장치 응답 기준" else "현재 상태 미확인",
-            onDevices, unreadCount, onAlerts,
-            connectionTone = if (deviceOnline) StatusTone.SUCCESS else StatusTone.UNKNOWN) },
-        bottomBar = {
-            ControlNavigationBar(
-                selected = ControlSection.SETTINGS,
-                onSelect = onSectionSelected,
-                enabledSections = if (fullControlAvailable) {
-                    ControlSection.entries.toSet()
-                } else {
-                    ControlSection.entries.toSet()
-                }
-            )
-        }
-    ) { paddingValues ->
-        AdaptiveContent(Modifier.fillMaxSize().padding(paddingValues)) {
-        val sensors = sensorPresentations(status, deviceOnline, System.currentTimeMillis())
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = GeoSpace.lg),
-            verticalArrangement = Arrangement.spacedBy(GeoSpace.lg)
-        ) {
-            item { SectionHeader("연결된 센서") }
-            item {
-                AdaptiveColumns(first = {
-                val camera = status.cameraSensor
-                SensorStatusRow(
-                    icon = Icons.Default.CameraAlt,
-                    name = "카메라",
-                    presentation = sensors.camera,
-                    detail = if (
-                        camera.active && camera.frameWidth != null && camera.frameHeight != null
-                    ) {
-                        "${camera.frameWidth} × ${camera.frameHeight} · 실시간 프리뷰"
-                    } else null,
-                    onClick = onCameraClick.takeIf { deviceOnline && fullControlAvailable }
-                )
-                }, second = {
-                val gnss = status.gnssSensor
-                val gnssAvailable = effectiveGnssAvailability(
-                    deviceOnline = deviceOnline,
-                    telemetryAvailable = status.sensorTelemetryAvailable,
-                    telemetryFresh = status.sensorTelemetryFresh,
-                    sensorConnected = gnss.connected,
-                    sensorActive = gnss.active,
-                    legacyRunning = status.gnssRunning
-                )
-                val presentation = sensors.gnss
-                val gnssStateKnown = deviceOnline &&
-                    (!status.sensorTelemetryAvailable || status.sensorTelemetryFresh)
-                SensorStatusRow(
-                    icon = Icons.Default.Explore,
-                    name = "GNSS",
-                    presentation = presentation,
-                    detail = if (gnssStateKnown) {
-                        listOfNotNull(
-                            gnssReceptionLabel(
-                                gnssAvailable = gnssAvailable,
-                                fixType = gnss.fixType,
-                                rtkStatus = gnss.rtkStatus
-                            )
-                        ).joinToString(" · ")
-                    } else {
-                        presentation.description
-                    },
-                    onClick = onGnssClick.takeIf { deviceOnline }
-                )
-                })
+    Column(Modifier.fillMaxSize()) {
+        DeviceTitleBar("장치", onDevices)
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(LocalGeoWindow.current.gutterDp.dp)) {
+            GeoSection("센서", first = true) {
+                DeviceSensorRows(status, deviceOnline, fullControlAvailable, onCameraClick, onGnssClick)
             }
-            item {
-                SensorStatusRow(
-                    icon = Icons.Default.Sensors,
-                    name = "IMU",
-                    presentation = sensors.imu,
-                    detail = null
-                )
-            }
-        }
         }
     }
 }
 
 @Composable
-private fun SensorStatusRow(
-    icon: ImageVector,
-    name: String,
-    presentation: SensorPresentation,
-    detail: String? = null,
-    onClick: (() -> Unit)? = null
-) {
-    val active = presentation.activity == SensorActivity.ACTIVE
-    val c = LocalGeoColors.current
-    val tone = when (presentation.activity) {
-        SensorActivity.ACTIVE -> StatusTone.SUCCESS
-        SensorActivity.CONNECTED -> StatusTone.INFO
-        SensorActivity.WAITING -> StatusTone.PENDING
-        SensorActivity.STALE -> StatusTone.WARNING
-        SensorActivity.DISCONNECTED -> StatusTone.ERROR
-        SensorActivity.UNCONFIGURED -> StatusTone.UNKNOWN
-    }
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        shape = MaterialTheme.shapes.medium,
-        color = c.surface,
-        contentColor = c.ink,
-        border = androidx.compose.foundation.BorderStroke(GeoSize.hairline, c.border)
-    ) {
-        Row(
-            modifier = Modifier.padding(GeoSpace.lg),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(28.dp),
-                tint = if (active) c.primary else c.muted
-            )
-            Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                Text(name, fontWeight = FontWeight.SemiBold)
-                Text(
-                    detail ?: presentation.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = c.muted
-                )
+internal fun DeviceSensorRows(status: JetsonStatus, current: Boolean, control: Boolean,
+    onCamera: () -> Unit, onGnss: () -> Unit) {
+    val sensors = sensorPresentations(status, current, System.currentTimeMillis())
+    val camera = sensors.camera
+    val gnss = sensors.gnss
+    GeoRow("카메라", onCamera, meta = cameraResolution(status.cameraSensor).takeIf { camera.activity == SensorActivity.ACTIVE },
+        badge = { GeoBadge(camera.badge, camera.activity.deviceSensorTone()) }, enabled = current && control,
+        disabledReason = if (!current) "미확인" else "기본 연결에서는 영상을 볼 수 없습니다.")
+    val locationWord = deviceGnssWord(gnss, status.gnssSensor)
+    GeoRow("위치(GNSS)", onGnss,
+        meta = status.gnssSensor.satellites?.takeIf { gnss.activity == SensorActivity.ACTIVE }?.let { "위성 ${it}개" },
+        badge = { GeoBadge(locationWord, if (locationWord == "정밀 위치") StatusTone.SUCCESS else gnss.activity.deviceSensorTone()) },
+        enabled = current, disabledReason = "미확인")
+    BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 16.dp)) {
+        if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("움직임(IMU)", style = LocalGeoType.current.titleSm, color = LocalGeoColors.current.text)
+                GeoBadge(sensors.imu.badge, sensors.imu.activity.deviceSensorTone())
             }
-            StatusBadge(presentation.badge, tone)
-            if (onClick != null) {
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    modifier = Modifier.padding(start = 6.dp),
-                    tint = c.muted
-                )
-            }
+        } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("움직임(IMU)", Modifier.weight(1f), style = LocalGeoType.current.titleSm, color = LocalGeoColors.current.text)
+            GeoBadge(sensors.imu.badge, sensors.imu.activity.deviceSensorTone())
         }
     }
+}
+
+internal fun SensorActivity.deviceSensorTone(): StatusTone = when (this) {
+    SensorActivity.ACTIVE -> StatusTone.SUCCESS
+    SensorActivity.STALE -> StatusTone.WARNING
+    SensorActivity.DISCONNECTED -> StatusTone.ERROR
+    SensorActivity.CONNECTED -> StatusTone.INFO
+    SensorActivity.WAITING, SensorActivity.UNCONFIGURED -> StatusTone.UNKNOWN
 }

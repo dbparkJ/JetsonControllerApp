@@ -3,7 +3,6 @@ package com.example.jetsoncontroller.ui.storage
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.jetsoncontroller.data.network.LocalControlApi
 import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.RemoteFileEntry
@@ -11,7 +10,6 @@ import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.model.RemoteRoot
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
-import com.example.jetsoncontroller.ui.connection.DeviceWorkspace
 import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +30,11 @@ data class DeviceStorageUiState(
     val isDeleting: Boolean = false,
     val undoTrashId: String? = null,
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val deviceName: String = "선택한 장치",
+    val loadedAtEpochMillis: Long? = null,
+    val undoOriginalPath: String? = null,
+    val undoRootId: String? = null
 )
 
 class DeviceStorageViewModel(
@@ -43,7 +45,8 @@ class DeviceStorageViewModel(
     val uiState = _uiState.asStateFlow()
     private var loadJob: Job? = null
     private var deleteJob: Job? = null
-    private val workspace = DeviceWorkspace { DeviceStorageUiState() }
+    private val workspace = FileBrowserLocations()
+    private var entryPoint = "browse"
     private var connectionGeneration = 0L
 
     init {
@@ -51,7 +54,11 @@ class DeviceStorageViewModel(
             combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
                 deviceId to transport
             }.collectLatest { (deviceId, transport) ->
-                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId)
+                _uiState.value = workspace.select(entryPoint, deviceId, _uiState.value).copy(
+                    deviceId = deviceId,
+                    deviceName = repository.registeredDevices.value.firstOrNull { it.deviceId.equals(deviceId, true) }
+                        ?.deviceName ?: "선택한 장치"
+                )
                 connectionGeneration += 1
                 loadJob?.cancel()
                 deleteJob?.cancel()
@@ -74,7 +81,21 @@ class DeviceStorageViewModel(
     }
 
     fun dismissMessage(shown: String) {
-        if (_uiState.value.message == shown) _uiState.value = _uiState.value.copy(message = null, undoTrashId = null)
+        if (_uiState.value.message == shown) _uiState.value = _uiState.value.copy(
+            message = null, undoTrashId = null, undoOriginalPath = null, undoRootId = null)
+    }
+
+    fun selectEntryPoint(key: String) {
+        if (key == entryPoint) return
+        loadJob?.cancel()
+        deleteJob?.cancel()
+        connectionGeneration++
+        entryPoint = key
+        val online = _uiState.value.controlAvailable
+        val name = _uiState.value.deviceName
+        _uiState.value = workspace.select(key, _uiState.value.deviceId, _uiState.value)
+            .copy(controlAvailable = online, deviceName = name)
+        refresh()
     }
 
     fun refresh() {
@@ -127,14 +148,15 @@ class DeviceStorageViewModel(
 
     fun selectRoot(root: RemoteRoot) {
         if (!_uiState.value.controlAvailable) return
-        _uiState.value = _uiState.value.copy(currentRoot = root, currentPath = "")
+        _uiState.value = _uiState.value.copy(currentRoot = root, currentPath = "", entries = emptyList(), preview = null)
         loadDirectory(root.id, "", connectionGeneration)
     }
 
     fun selectDirectory(entry: RemoteFileEntry) {
-        if (!_uiState.value.controlAvailable) return
+        if (!_uiState.value.controlAvailable || entry.type != com.example.jetsoncontroller.model.RemoteEntryType.DIRECTORY ||
+            _uiState.value.entries.none { it == entry }) return
         val root = _uiState.value.currentRoot ?: return
-        _uiState.value = _uiState.value.copy(currentPath = entry.relativePath)
+        _uiState.value = _uiState.value.copy(currentPath = entry.relativePath, entries = emptyList(), preview = null)
         loadDirectory(root.id, entry.relativePath, connectionGeneration)
     }
 
@@ -161,7 +183,8 @@ class DeviceStorageViewModel(
                 _uiState.value = _uiState.value.copy(
                     roots = listOf(root),
                     currentRoot = root,
-                    currentPath = path
+                    currentPath = path,
+                    entries = emptyList()
                 )
                 loadDirectory(root.id, path, generation)
             }
@@ -169,16 +192,18 @@ class DeviceStorageViewModel(
     }
 
     fun openFile(entry: RemoteFileEntry) {
-        if (!_uiState.value.controlAvailable) return
+        if (!_uiState.value.controlAvailable || _uiState.value.entries.none { it == entry }) return
         val root = _uiState.value.currentRoot ?: return
         if (entry.type != com.example.jetsoncontroller.model.RemoteEntryType.FILE) return
         val generation = connectionGeneration
+        val parentPath = _uiState.value.currentPath
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             repository.getFile(root.id, entry.relativePath)
                 .onSuccess { content ->
-                    if (generation == connectionGeneration) {
+                    if (generation == connectionGeneration && _uiState.value.currentRoot?.id == root.id &&
+                        _uiState.value.currentPath == parentPath) {
                         _uiState.value = _uiState.value.copy(
                             preview = content,
                             isLoading = false
@@ -186,7 +211,8 @@ class DeviceStorageViewModel(
                     }
                 }
                 .onFailure { error ->
-                    if (generation == connectionGeneration) {
+                    if (generation == connectionGeneration && _uiState.value.currentRoot?.id == root.id &&
+                        _uiState.value.currentPath == parentPath) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             error = userFacingFailure(error, "파일을 열지 못했습니다. 다시 시도하세요.").message
@@ -197,11 +223,15 @@ class DeviceStorageViewModel(
     }
 
     fun deleteEntry(entry: RemoteFileEntry) {
-        if (!_uiState.value.controlAvailable) return
+        val snapshot = dataDeletionSnapshot(_uiState.value, entry) ?: return
+        if (!snapshot.matches(_uiState.value)) return
         val root = _uiState.value.currentRoot ?: return
         val expectedDeviceId = _uiState.value.deviceId ?: return
         val generation = connectionGeneration
+        val parentPath = _uiState.value.currentPath
         deleteJob?.cancel()
+        _uiState.value = _uiState.value.copy(isDeleting = true, message = null,
+            undoTrashId = null, undoOriginalPath = null, undoRootId = null)
         deleteJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 isDeleting = true,
@@ -210,22 +240,22 @@ class DeviceStorageViewModel(
             )
             repository.deleteStorageEntry(root.id, entry.relativePath, expectedDeviceId)
                 .onSuccess { trashed ->
-                    if (
-                        generation == connectionGeneration &&
-                        _uiState.value.currentRoot?.id == root.id
-                    ) {
+                    if (generation == connectionGeneration) {
+                        val sameLocation = _uiState.value.currentRoot?.id == root.id && _uiState.value.currentPath == parentPath
                         _uiState.value = _uiState.value.copy(
-                            entries = _uiState.value.entries.filterNot {
+                            entries = if (!sameLocation) _uiState.value.entries else _uiState.value.entries.filterNot {
                                 it.relativePath == entry.relativePath
                             },
                             preview = _uiState.value.preview?.takeUnless {
-                                it.name == entry.name
+                                sameLocation && it.name == entry.name
                             },
                             isDeleting = false,
                             undoTrashId = trashed.trashId.takeIf { trashed.restoreSupported && trashed.state == "TRASHED" },
+                            undoOriginalPath = entry.relativePath.takeIf { trashed.restoreSupported && trashed.state == "TRASHED" },
+                            undoRootId = root.id.takeIf { trashed.restoreSupported && trashed.state == "TRASHED" },
                             message = if (trashed.restoreSupported && trashed.state == "TRASHED") {
-                                "${entry.name} 데이터를 휴지통으로 옮겼습니다."
-                            } else "${entry.name} 데이터가 휴지통으로 이동했지만 이 항목은 복원할 수 없습니다."
+                                "${storageObjectName(entry.name)} 휴지통으로 옮겼습니다."
+                            } else "${storageObjectName(entry.name)} 휴지통으로 옮겼지만 이 항목은 복원할 수 없습니다."
                         )
                     }
                 }
@@ -237,7 +267,9 @@ class DeviceStorageViewModel(
                                 "휴지통 이동 결과를 확인하지 못했습니다. 자동 재시도하지 않고 현재 폴더를 다시 조회합니다."
                             } else userFacingFailure(error, "장치 데이터를 휴지통으로 옮기지 못했습니다. 다시 시도하세요.").message
                         )
-                        loadDirectory(root.id, _uiState.value.currentPath, generation)
+                        if (_uiState.value.currentRoot?.id == root.id && _uiState.value.currentPath == parentPath) {
+                            loadDirectory(root.id, parentPath, generation, preserveError = true)
+                        }
                     }
                 }
         }
@@ -245,26 +277,41 @@ class DeviceStorageViewModel(
 
     fun undoDelete() {
         if (!_uiState.value.controlAvailable || _uiState.value.isDeleting) return
-        val trashId = _uiState.value.undoTrashId ?: return
-        val root = _uiState.value.currentRoot ?: return
-        val path = _uiState.value.currentPath
+        val target = deviceTrashUndoTarget(_uiState.value) ?: return
         val generation = connectionGeneration
         deleteJob?.cancel()
+        _uiState.value = _uiState.value.copy(isDeleting = true)
         deleteJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isDeleting = true, message = null, error = null)
-            repository.restoreTrash(trashId).onSuccess { restored ->
-                if (generation == connectionGeneration && _uiState.value.currentRoot?.id == root.id) {
+            val entry = repository.getTrash().getOrElse { error ->
+                if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(isDeleting = false,
+                    error = userFacingFailure(error, "휴지통 상태를 확인하지 못했습니다. 다시 확인하세요.").message)
+                return@launch
+            }.entries.firstOrNull(target::matches)
+            if (generation != connectionGeneration || repository.selectedDeviceId.value != target.deviceId) return@launch
+            if (entry == null) {
+                _uiState.value = _uiState.value.copy(isDeleting = false, undoTrashId = null, undoOriginalPath = null, undoRootId = null,
+                    error = "이 항목은 복원할 수 없습니다. 휴지통을 다시 확인하세요.")
+                return@launch
+            }
+            repository.restoreTrash(target.trashId).onSuccess { restored ->
+                if (generation == connectionGeneration) {
                     _uiState.value = _uiState.value.copy(
                         isDeleting = false,
                         undoTrashId = null,
+                        undoOriginalPath = null,
+                        undoRootId = null,
                         message = if (restored.state == "RESTORED") "${restored.name} 데이터를 복원했습니다."
                         else "복원 상태를 다시 확인해 주세요."
                     )
-                    loadDirectory(root.id, path, generation)
+                    refresh()
                 }
             }.onFailure { error ->
                 if (generation == connectionGeneration) _uiState.value = _uiState.value.copy(
                     isDeleting = false,
+                    undoTrashId = null,
+                    undoOriginalPath = null,
+                    undoRootId = null,
                     error = userFacingFailure(error, "휴지통 데이터를 복원하지 못했습니다. 목록을 새로고침해 주세요.").message
                 )
             }
@@ -281,10 +328,10 @@ class DeviceStorageViewModel(
         if (currentPath.isEmpty()) {
             return false
         }
-        
+
         val parts = currentPath.split("/").filter { it.isNotEmpty() }
         val newPath = if (parts.size <= 1) "" else parts.dropLast(1).joinToString("/")
-        _uiState.value = _uiState.value.copy(currentPath = newPath)
+        _uiState.value = _uiState.value.copy(currentPath = newPath, entries = emptyList())
         loadDirectory(root.id, newPath, connectionGeneration)
         return true
     }
@@ -299,11 +346,12 @@ class DeviceStorageViewModel(
         )
     }
 
-    private fun loadDirectory(rootId: String, path: String, generation: Long) {
+    private fun loadDirectory(rootId: String, path: String, generation: Long, preserveError: Boolean = false) {
         if (!_uiState.value.controlAvailable) return
+        val retainedError = _uiState.value.error.takeIf { preserveError }
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = retainedError)
             repository.listDirectory(rootId, path)
                 .onSuccess { response ->
                     if (
@@ -313,7 +361,9 @@ class DeviceStorageViewModel(
                     ) {
                         _uiState.value = _uiState.value.copy(
                             entries = response.entries,
-                            isLoading = false
+                            loadedAtEpochMillis = System.currentTimeMillis(),
+                            isLoading = false,
+                            error = retainedError
                         )
                     }
                 }
@@ -324,7 +374,7 @@ class DeviceStorageViewModel(
                         _uiState.value.currentPath == path
                     ) {
                         _uiState.value = _uiState.value.copy(
-                            error = userFacingFailure(error, "폴더를 불러오지 못했습니다. 다시 시도하세요.").message,
+                            error = retainedError ?: userFacingFailure(error, "폴더를 불러오지 못했습니다. 다시 시도하세요.").message,
                             isLoading = false
                         )
                     }

@@ -43,7 +43,8 @@ internal fun HistoryEntryScreen(
     resultMessage: String? = null,
     onTrash: (() -> Unit)? = null,
     snackbar: @Composable () -> Unit = {},
-    statusStrip: @Composable () -> Unit = {}
+    statusStrip: @Composable () -> Unit = {},
+    mapCard: @Composable () -> Unit = {}
 ) {
     val screenState = rememberSaveableStateHolder()
     if (developerModeEnabled && savedLog != null) {
@@ -76,6 +77,7 @@ internal fun HistoryEntryScreen(
                             enabled = online, disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                     }
                 }
+                mapCard()
                 FieldTechnicalInfo(
                     identity = entry.id,
                     values = listOf(GeoTechnicalValue("기록 ID", entry.id)),
@@ -96,7 +98,8 @@ internal fun FieldTechnicalInfo(
     online: Boolean,
     onOpenLog: (() -> Unit)?
 ) {
-    if (!developerModeEnabled) return
+    val showTechnicalInfo by com.example.jetsoncontroller.ui.dev.rememberTechnicalInfo()
+    if (!developerModeEnabled || !showTechnicalInfo) return
     var expanded by rememberSaveable(identity) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     Column(Modifier.padding(top = 28.dp)) {

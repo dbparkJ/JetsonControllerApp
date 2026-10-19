@@ -225,6 +225,10 @@ CREATE TABLE IF NOT EXISTS board_tickets (
     synced_at TEXT NOT NULL,
     destination TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS board_ticket_geometry (
+    row_id TEXT PRIMARY KEY REFERENCES board_tickets(row_id) ON DELETE CASCADE,
+    geometry_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS device_units (
     device_id TEXT PRIMARY KEY REFERENCES devices(device_id),
     unit TEXT NOT NULL

@@ -15,19 +15,12 @@ import com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingScreen
 import com.example.jetsoncontroller.ui.pairing.PairingScreen
 import com.example.jetsoncontroller.ui.pairing.QrScannerScreen
 import com.example.jetsoncontroller.ui.sensors.CameraPreviewScreen
-import com.example.jetsoncontroller.ui.sensors.GnssMapScreen
 import com.example.jetsoncontroller.ui.wifi.WifiDirectScreen
 
 internal fun NavGraphBuilder.focusedRoutes(state: State<AppNavigationState>) {
         composable(Routes.ONBOARDING) {
             with(state.value) {
-                FirstDeviceOnboardingScreen(
-                    onScanQr = {
-                        pairingViewModel.beginQrPairing()
-                        navController.navigateSingle(Routes.QR_SCANNER)
-                    },
-                    onBack = { navController.popBackStack() }
-                )
+                com.example.jetsoncontroller.ui.onboarding.FirstDeviceOnboardingRoute(state.value)
             }
         }
 
@@ -218,46 +211,28 @@ internal fun NavGraphBuilder.focusedRoutes(state: State<AppNavigationState>) {
             }
         }
 
-        composable(Routes.GNSS_MAP) {
-            with(state.value) {
-                val mapReturnLabel = when (navController.previousBackStackEntry?.destination?.route) {
-                    Routes.ACTIVE_RUN -> "수집 화면으로"
-                    Routes.TASK_HISTORY -> "수집 이력으로"
-                    Routes.DEVICES -> "홈으로"
-                    Routes.SENSORS -> "센서 화면으로"
-                    else -> "이전 화면으로"
-                }
-                val requestedMapRun = if (requestedMapActiveRunId != null) {
-                    activeCollectionHistoryRun(
-                        (surveyRunState.activeRun ?: surveyRunState.latestRun?.takeIf { it.active })
-                            ?.takeIf { it.runId == requestedMapActiveRunId },
-                        fieldState.runs
-                    )
-                } else {
-                    fieldState.runs.firstOrNull { it.id == requestedMapHistoryEntryId }
-                }
-                LaunchedEffect(
-                    selectedDeviceId,
-                    requestedMapHistoryEntryId,
-                    requestedMapActiveRunId,
-                    requestedMapRun
-                ) {
-                    fieldToolsViewModel.selectRun(requestedMapRun)
-                }
-                DisposableEffect(selectedDeviceId, requestedMapHistoryEntryId, requestedMapActiveRunId) {
-                    onDispose { fieldToolsViewModel.stopRoutePolling() }
-                }
-                StatusPollingLifecycleEffect(dashboardViewModel)
-                GnssMapScreen(
-                    route = fieldState.route,
-                    quality = fieldState.routeQuality,
-                    routeLabel = fieldState.selectedRun?.label,
-                    returnLabel = mapReturnLabel,
-                    gnss = dashboardState.status.gnssSensor,
-                    telemetryFresh = dashboardState.status.sensorTelemetryFresh,
-                    deviceOnline = transportState is TransportState.Connected,
-                    onBack = { navController.popBackStack() }
-                )
+        listOf(
+            "${Routes.GNSS_MAP}?mode={mode}&ticket={ticket}&run={run}&device={device}",
+            "map?mode={mode}&ticket={ticket}&run={run}&device={device}"
+        ).forEach { mapPattern ->
+            composable(mapPattern, arguments = listOf("mode", "ticket", "run", "device").map { name ->
+                androidx.navigation.navArgument(name) { type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null }
+            }) { entry ->
+                val current = state.value
+                val opener = androidx.compose.runtime.remember(entry) { current.navController.previousBackStackEntry?.destination?.route }
+                val targetDevice = androidx.compose.runtime.saveable.rememberSaveable(entry.id) { androidx.compose.runtime.mutableStateOf(entry.arguments?.getString("device") ?: current.selectedDeviceId) }.value
+                val targetRun = androidx.compose.runtime.saveable.rememberSaveable(entry.id) { androidx.compose.runtime.mutableStateOf(entry.arguments?.getString("run") ?: current.requestedMapActiveRunId.takeIf { opener == Routes.ACTIVE_RUN }) }.value
+                val targetHistory = androidx.compose.runtime.saveable.rememberSaveable(entry.id) { androidx.compose.runtime.mutableStateOf(current.requestedMapHistoryEntryId.takeIf { opener == Routes.TASK_HISTORY }) }.value
+                val targetTicket = entry.arguments?.getString("ticket")
+                val mode = com.example.jetsoncontroller.ui.map.GeoMapMode.fromParameter(entry.arguments?.getString("mode"))
+                    ?: when {
+                        targetTicket != null -> com.example.jetsoncontroller.ui.map.GeoMapMode.ZONE
+                        targetRun != null -> com.example.jetsoncontroller.ui.map.GeoMapMode.RUN
+                        targetHistory != null -> com.example.jetsoncontroller.ui.map.GeoMapMode.ROUTE
+                        else -> com.example.jetsoncontroller.ui.map.GeoMapMode.LOCATION
+                    }
+                com.example.jetsoncontroller.ui.map.GeoMapRouteWindow(current, mode, targetDevice, targetRun, targetTicket, targetHistory,
+                    onBack = { current.navController.popBackStack() })
             }
         }
 

@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.ui.pairing
 
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -11,7 +10,6 @@ import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.JetsonGattSpec
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.BlePairingState
-import com.example.jetsoncontroller.protocol.PairingQrParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -115,7 +113,7 @@ internal fun resolvePairingError(
     localError ?: if (
         observeRepositoryState && repositoryState is BlePairingState.Error
     ) {
-        repositoryState.userMessage
+        pairingFailureText(repositoryState.userMessage)
     } else {
         null
     }
@@ -164,13 +162,37 @@ internal fun savePairingRecreationState(handle: SavedStateHandle, state: Pairing
 internal fun shouldConnectPairingCandidate(phase: PairingPhase, userStartedAttempt: Boolean): Boolean =
     phase == PairingPhase.SEARCHING && userStartedAttempt
 
+internal fun BlePairingState.isActivePairing(): Boolean = when (this) {
+    BlePairingState.Connecting, BlePairingState.DiscoveringServices,
+    BlePairingState.VerifyingIdentity, BlePairingState.Authenticating,
+    BlePairingState.EnablingNotifications -> true
+    else -> false
+}
+
+internal fun reconcileRestoredPairingState(
+    state: PairingRecreationState,
+    repositoryState: BlePairingState
+): PairingRecreationState = if (
+    state.phase.isPairingInProgress() && repositoryState == BlePairingState.Idle
+) {
+    state.copy(
+        phase = PairingPhase.ERROR,
+        errorMessage = "장치 등록이 중단되었습니다. 다시 시도하세요.",
+        observeRepositoryState = false
+    )
+} else {
+    state
+}
+
 class PairingViewModel(
     private val repository:
         JetsonRepository,
     private val savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
 
-    private val restoredState = restorePairingRecreationState(savedStateHandle)
+    private val restoredState = reconcileRestoredPairingState(
+        restorePairingRecreationState(savedStateHandle), repository.pairingState.value
+    )
 
     private val _qrPhase =
         MutableStateFlow(
@@ -228,11 +250,28 @@ class PairingViewModel(
             scope = viewModelScope,
             started = SharingStarted
                 .WhileSubscribed(5_000),
-            initialValue =
-                PairingUiState()
+            initialValue = PairingUiState(
+                phase = resolvePairingPhase(restoredState.phase, restoredState.observeRepositoryState, repository.pairingState.value),
+                pairingInfo = restoredState.pairingInfo,
+                displayDeviceName = restoredState.pairingInfo?.expectedBleName,
+                errorMessage = resolvePairingError(restoredState.errorMessage, restoredState.observeRepositoryState, repository.pairingState.value)
+            )
         )
 
     init {
+        saveRecreationState()
+        viewModelScope.launch {
+            repository.pairingState.collect { repositoryState ->
+                if (_observeRepositoryState.value) {
+                    _qrPhase.value = resolvePairingPhase(_qrPhase.value, true, repositoryState)
+                    if (repositoryState is BlePairingState.Error) {
+                        _errorMessage.value = pairingFailureText(repositoryState.userMessage)
+                    }
+                    if (repositoryState is BlePairingState.Ready) PairingScannerFrame.image = null
+                    saveRecreationState()
+                }
+            }
+        }
         viewModelScope.launch {
             combine(
                 _qrPhase,
@@ -285,10 +324,6 @@ class PairingViewModel(
                     )
                 ) {
                     is PairingCandidateDecision.Connect -> {
-                        Log.d(
-                            "JetsonBLE",
-                            "Pairing candidate found: ${decision.candidate.name}"
-                        )
                         _qrPhase.value = PairingPhase.CONNECTING
                         saveRecreationState()
                         repository.connectForPairing(decision.candidate, info)
@@ -305,7 +340,7 @@ class PairingViewModel(
     }
 
     fun beginQrPairing() {
-        Log.d("JetsonBLE", "Starting a new QR pairing session")
+        PairingScannerFrame.image = null
         userStartedAttempt = false
         _observeRepositoryState.value = false
         _qrPhase.value = PairingPhase.IDLE
@@ -315,55 +350,27 @@ class PairingViewModel(
         repository.prepareForQrPairing()
     }
 
-    fun onQrScanned(
-        rawValue: String
-    ): Boolean {
-        val pairingInProgress = when (repository.pairingState.value) {
-            is BlePairingState.Connecting,
-            is BlePairingState.DiscoveringServices,
-            is BlePairingState.VerifyingIdentity,
-            is BlePairingState.Authenticating,
-            is BlePairingState.EnablingNotifications -> true
-            else -> false
-        }
-
-        if (pairingInProgress) {
+    fun onQrScanned(rawValue: String): Boolean {
+        if (_qrPhase.value != PairingPhase.IDLE || repository.pairingState.value.isActivePairing()) return false
+        val info = parsePairingCode(rawValue)
+        if (info == null) {
+            _pairingInfo.value = null
+            _errorMessage.value = INVALID_PAIRING_CODE
+            saveRecreationState()
             return false
         }
-
-        return try {
-            val info =
-                PairingQrParser.parse(
-                    rawValue
-                )
-            Log.d("JetsonBLE", "QR Parsed: deviceId=${info.deviceId} expectedBleName=${info.expectedBleName}")
-
-            // A valid QR always starts a fresh attempt. RegistrationRequired GATT
-            // connections are intentionally retained by the repository.
-            userStartedAttempt = false
-            _observeRepositoryState.value = false
-            repository.prepareForQrPairing()
-            _pairingInfo.value = info
-            _errorMessage.value = null
-            _qrPhase.value =
-                PairingPhase.QR_SCANNED
-            saveRecreationState()
-
-            true
-
-        } catch (e: Exception) {
-            Log.e("JetsonBLE", "QR Parse failed", e)
-            _pairingInfo.value = null
-            _errorMessage.value =
-                e.message ?: "QR 코드 형식을 확인할 수 없습니다."
-            _qrPhase.value = PairingPhase.IDLE
-            saveRecreationState()
-            false
-        }
+        userStartedAttempt = false
+        _observeRepositoryState.value = false
+        repository.prepareForQrPairing()
+        _pairingInfo.value = info
+        _errorMessage.value = null
+        _qrPhase.value = PairingPhase.QR_SCANNED
+        saveRecreationState()
+        return true
     }
 
-
     fun startPairing() {
+        if (_qrPhase.value !in setOf(PairingPhase.QR_SCANNED, PairingPhase.ERROR)) return
         val info =
             _pairingInfo.value
                 ?: return
@@ -382,7 +389,7 @@ class PairingViewModel(
 
 
     fun cancelPairing() {
-        Log.d("JetsonBLE", "Pairing cancelled by user")
+        PairingScannerFrame.image = null
         userStartedAttempt = false
         _observeRepositoryState.value = false
         repository.cancelPairing()
@@ -395,7 +402,6 @@ class PairingViewModel(
 
 
     fun retry() {
-        Log.d("JetsonBLE", "Retrying pairing")
         _errorMessage.value = null
         startPairing()
     }
@@ -403,7 +409,7 @@ class PairingViewModel(
     private fun failPairing(userMessage: String) {
         userStartedAttempt = false
         _observeRepositoryState.value = false
-        _errorMessage.value = userMessage
+        _errorMessage.value = pairingFailureText(userMessage)
         _qrPhase.value = PairingPhase.ERROR
         saveRecreationState()
     }

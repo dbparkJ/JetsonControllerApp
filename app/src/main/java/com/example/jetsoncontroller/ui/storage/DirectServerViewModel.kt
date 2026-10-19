@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -74,7 +75,10 @@ internal data class DirectServerUiState(
     val isLoading: Boolean = false,
     val message: String? = null,
     val messageIsError: Boolean = false,
-    val errorActionLabel: String? = null
+    val errorActionLabel: String? = null,
+    val requiresLogin: Boolean = false,
+    val mutationResultUnknown: Boolean = false,
+    val isMutating: Boolean = false
 )
 
 internal class DirectServerViewModel(context: Context) : ViewModel() {
@@ -103,17 +107,22 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
                 _uiState.value = _uiState.value.copy(
                     profiles = profiles,
                     selectedProfileId = selected,
-                    section = if (profiles.isEmpty()) DirectServerSection.PROFILES else _uiState.value.section
+                    section = _uiState.value.section
                 )
             }
         }
     }
 
     fun selectSection(section: DirectServerSection) {
+        if (_uiState.value.isMutating) return
         operation?.cancel()
         requestGeneration.next()
         _uiState.value = _uiState.value.copy(
             section = section,
+            selectedJob = null,
+            preview = null,
+            receipt = null,
+            currentPath = "",
             isLoading = false,
             isConnecting = false,
             isEmptyingTrash = false,
@@ -193,6 +202,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             repository = next
             _uiState.value = _uiState.value.copy(
                 capabilities = capabilities,
+                requiresLogin = false,
                 isConnecting = false,
                 message = null,
                 errorActionLabel = null
@@ -278,17 +288,13 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
     }
 
     fun loadMoreJobs() {
+        if (_uiState.value.isLoading || _uiState.value.isConnecting) return
         val offset = _uiState.value.nextOffset ?: return
         val source = repository ?: return
         launchOperation { generation ->
             source.jobs(offset = offset).onSuccess { snapshot ->
                 if (!requestGeneration.isCurrent(generation)) return@onSuccess
-                _uiState.value = _uiState.value.copy(
-                    jobs = (_uiState.value.jobs + snapshot.response.jobs).distinctBy { it.sessionId },
-                    nextOffset = snapshot.response.nextOffset,
-                    refreshedAt = snapshot.response.refreshedAt,
-                    isLoading = false
-                )
+                _uiState.value = _uiState.value.withJobsPage(snapshot)
             }.onFailure { showError(it, directServerRecoveryAction(it), generation) }
         }
     }
@@ -379,16 +385,22 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
     }
 
     fun moveToTrash(job: ServerJob) {
+        val target = serverTrashTarget(_uiState.value, job) ?: return
+        if (_uiState.value.mutationResultUnknown) return
         val source = repository ?: return
-        launchOperation { generation ->
+        launchOperation(mutation = true) { generation ->
+            if (_uiState.value.selectedProfileId != target.profileId) return@launchOperation
             source.moveToTrash(job.sessionId).onSuccess { result ->
                 if (!requestGeneration.isCurrent(generation)) return@onSuccess
                 if (result.status == ServerMutationStatus.CONFIRMED) {
                     _uiState.value = _uiState.value.copy(
                         selectedJob = null,
                         files = emptyList(),
+                        preview = null,
+                        receipt = null,
+                        currentPath = "",
                         undoSessionId = job.sessionId,
-                        mutationMessage = "서버 작업을 휴지통으로 이동했습니다.",
+                        mutationMessage = "서버 휴지통으로 옮겼습니다.",
                         isLoading = false
                     )
                     refreshJobsNow(generation)
@@ -401,12 +413,38 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
 
     fun undoTrash() {
         val sessionId = _uiState.value.undoSessionId ?: return
-        restore(sessionId)
+        val profileId = _uiState.value.selectedProfileId ?: return
+        viewModelScope.launch {
+            val ready = stateForUndo(profileId)
+            if (ready) restore(sessionId, profileId, wasUndo = true)
+        }
     }
 
-    fun restore(sessionId: String) {
+    private suspend fun stateForUndo(profileId: String): Boolean = _uiState.first {
+        it.selectedProfileId != profileId || (!it.isLoading && !it.isMutating && !it.isConnecting)
+    }.selectedProfileId == profileId
+
+    fun restore(sessionId: String) = restore(sessionId, _uiState.value.selectedProfileId, wasUndo = false)
+
+    private fun restore(sessionId: String, expectedProfileId: String?, wasUndo: Boolean) {
+        val current = _uiState.value
+        if (expectedProfileId != current.selectedProfileId ||
+            !directServerRoleCanMutate(current.capabilities?.employee?.role) || current.isLoading ||
+            current.isConnecting || current.mutationResultUnknown ||
+            (!wasUndo && current.undoSessionId != sessionId && current.trash.none { it.sessionId == sessionId && serverTrashCanRestore(it) })) return
         val source = repository ?: return
-        launchOperation { generation ->
+        val profileId = current.selectedProfileId
+        launchOperation(mutation = true) { generation ->
+            val item = source.trash().getOrElse { error ->
+                showError(error, directServerRecoveryAction(error), generation)
+                return@launchOperation
+            }.jobs.firstOrNull { it.sessionId == sessionId && serverTrashCanRestore(it) }
+            if (!requestGeneration.isCurrent(generation) || _uiState.value.selectedProfileId != profileId) return@launchOperation
+            if (item == null) {
+                _uiState.value = _uiState.value.copy(isLoading = false, undoSessionId = null,
+                    message = "이 항목은 복원할 수 없습니다. 휴지통을 다시 확인하세요.", messageIsError = true)
+                return@launchOperation
+            }
             source.restore(sessionId).onSuccess { result ->
                 if (!requestGeneration.isCurrent(generation)) return@onSuccess
                 if (result.status == ServerMutationStatus.CONFIRMED) {
@@ -432,9 +470,10 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         val requested = sessionIds.toList()
         val eligible = current.trash.filter(::isServerPurgeEligible).map(ServerTrashJob::sessionId).toSet()
         if (current.selectedProfileId != expectedProfileId || !current.trashEmptySupported ||
+            !directServerRoleCanMutate(current.capabilities?.employee?.role) || current.mutationResultUnknown ||
             current.isLoading || current.isConnecting || requested.isEmpty() || requested.size > 200 ||
             requested.distinct().size != requested.size || requested.any { it !in eligible }) return
-        launchOperation { generation ->
+        launchOperation(mutation = true) { generation ->
             if (_uiState.value.selectedProfileId != expectedProfileId) return@launchOperation
             _uiState.value = _uiState.value.copy(isEmptyingTrash = true)
             source.emptyTrash(requested).onSuccess { result ->
@@ -483,6 +522,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
                 trashEmptySupported = response.emptySupported,
                 trashTotal = response.total,
                 trashNextOffset = response.nextOffset,
+                mutationResultUnknown = false,
                 refreshedAt = response.refreshedAt,
                 isLoading = false,
                 isEmptyingTrash = false
@@ -491,6 +531,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
     }
 
     fun navigateBack(): Boolean {
+        if (_uiState.value.isMutating) return true
         if (_uiState.value.receipt != null) {
             operation?.cancel()
             requestGeneration.next()
@@ -542,10 +583,13 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
     private fun launchOperation(
         connecting: Boolean = false,
         generation: Long? = null,
+        mutation: Boolean = false,
         block: suspend (Long) -> Unit
     ) {
+        if (_uiState.value.isMutating) return
         operation?.cancel()
         val expected = generation ?: requestGeneration.next()
+        if (mutation) _uiState.value = _uiState.value.copy(isMutating = true)
         operation = viewModelScope.launch {
             try {
                 _uiState.value = _uiState.value.copy(
@@ -560,6 +604,8 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
                 throw cancelled
             } catch (error: Exception) {
                 showError(error, directServerRecoveryAction(error), expected)
+            } finally {
+                if (requestGeneration.isCurrent(expected)) _uiState.value = _uiState.value.copy(isMutating = false)
             }
         }
     }
@@ -568,7 +614,8 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         _uiState.value = _uiState.value.copy(
             isLoading = false,
             isEmptyingTrash = false,
-            message = "서버 응답을 확인하지 못해 처리 결과를 알 수 없습니다. 같은 작업을 반복하지 말고 목록과 휴지통을 새로고침하세요.",
+            message = UNKNOWN_SERVER_MUTATION,
+            mutationResultUnknown = true,
             messageIsError = true,
             errorActionLabel = "상태 새로고침"
         )
@@ -597,6 +644,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             trashTotal = if (clearSensitiveViews) 0 else _uiState.value.trashTotal,
             trashNextOffset = if (clearSensitiveViews) null else _uiState.value.trashNextOffset,
             undoSessionId = if (clearSensitiveViews) null else _uiState.value.undoSessionId,
+            requiresLogin = error is ServerRequestException && error.statusCode == 401,
             mutationMessage = if (clearSensitiveViews) null else _uiState.value.mutationMessage,
             message = directServerErrorMessage(error),
             messageIsError = true,
@@ -633,6 +681,7 @@ internal fun DirectServerUiState.withJobsSnapshot(
     cachedAtEpochMillis = snapshot.cachedAtEpochMillis,
     isConnecting = false,
     isLoading = false,
+    mutationResultUnknown = false,
     message = refreshError?.let {
         "서버에 연결하지 못해 이전에 인증된 마지막 성공 결과를 표시합니다. $it"
     },

@@ -81,23 +81,31 @@ class TicketAPI:
             units = [u["name"] for u in schema["units"]] if schema else []
             status_keys = (schema or {}).get("statusKeys", {})
             device_unit = connection.execute("SELECT unit FROM device_units WHERE device_id=?", (device_id,)).fetchone()
-            where, args = ["destination=?"], [self._destination()]
+            where, args = ["t.destination=?"], [self._destination()]
             if status == "open":
-                where.append("status_category!='DONE' AND archived_at IS NULL")
+                where.append("t.status_category!='DONE' AND t.archived_at IS NULL")
             if unit is not None:
-                where.append("unit=?")
+                where.append("t.unit=?")
                 args.append(unit)
-            rows = connection.execute("SELECT * FROM board_tickets" +
-                                      (" WHERE " + " AND ".join(where) if where else "") +
-                                      " ORDER BY row_id", args).fetchall()
-            tickets = [{
-                "rowId": r["row_id"], "title": r["title"], "project": r["project"],
-                "unit": r["unit"], "assignees": json.loads(r["assignees_json"]),
-                "dueDate": r["due_date"], "status": {"name": r["status_name"], "category": r["status_category"],
-                                                     "systemKey": status_keys.get(r["status_id"])},
-                "revision": r["revision"], "updatedAt": r["updated_at"], "runId": r["run_id"],
-                "report": report(latest_report(connection, r["row_id"])),
-            } for r in rows] if unit is None or unit in units else []
+            rows = connection.execute("SELECT t.*, g.geometry_json FROM board_tickets t "
+                                      "LEFT JOIN board_ticket_geometry g ON g.row_id=t.row_id" +
+                                      " WHERE " + " AND ".join(where) +
+                                      " ORDER BY t.row_id", args).fetchall()
+            tickets = []
+            for r in rows:
+                ticket = {
+                    "rowId": r["row_id"], "title": r["title"], "project": r["project"],
+                    "unit": r["unit"], "assignees": json.loads(r["assignees_json"]),
+                    "dueDate": r["due_date"], "status": {"name": r["status_name"], "category": r["status_category"],
+                                                         "systemKey": status_keys.get(r["status_id"])},
+                    "revision": r["revision"], "updatedAt": r["updated_at"], "runId": r["run_id"],
+                    "report": report(latest_report(connection, r["row_id"])),
+                }
+                if r["geometry_json"] is not None:
+                    ticket["geometry"] = json.loads(r["geometry_json"])
+                tickets.append(ticket)
+            if unit is not None and unit not in units:
+                tickets = []
         return {"tickets": tickets, "units": units, "deviceUnit": device_unit[0] if device_unit else None,
                 "syncedAt": sync["synced_at"] if sync and sync["destination"] == self._destination() else None,
                 "integration": self.configuration.state()}

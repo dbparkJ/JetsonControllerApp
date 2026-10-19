@@ -38,6 +38,7 @@ class NetworkSettingsScreenTest {
         composeRule.setContent {
             var state by mutableStateOf(
                 NetworkSettingsUiState(
+                    deviceId = "device-a",
                     transportType = TransportType.BLE,
                     accessPoints = listOf(accessPoint)
                 )
@@ -82,6 +83,7 @@ class NetworkSettingsScreenTest {
             JetsonControllerTheme {
                 NetworkSettingsScreen(
                     state = NetworkSettingsUiState(
+                        deviceId = "device-a",
                         currentWifiSsid = accessPoint.ssid,
                         wifiConnected = true,
                         transportType = TransportType.LAN,

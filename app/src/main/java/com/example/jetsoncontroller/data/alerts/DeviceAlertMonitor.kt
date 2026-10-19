@@ -27,6 +27,42 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+internal fun formatAlertTemperature(celsius: Float): String =
+    if (celsius.isFinite() && celsius == celsius.toInt().toFloat()) {
+        celsius.toInt().toString() + "°C"
+    } else {
+        formatCelsius(celsius)
+    }
+
+internal fun storageAlertTitle(deviceName: String?, percent: Int): String =
+    alertTitle(deviceName, "저장 공간 사용량 " + percent + "%입니다")
+
+internal fun temperatureAlertTitle(deviceName: String?, celsius: Float): String =
+    alertTitle(deviceName, "온도가 " + formatAlertTemperature(celsius) + "입니다")
+
+internal fun pipelineStartedAlertTitle(deviceName: String?, pipelineName: String): String =
+    alertTitle(deviceName, pipelineName + " 작업이 시작되었습니다")
+
+internal fun pipelineFailedAlertTitle(deviceName: String?, pipelineName: String): String =
+    alertTitle(deviceName, pipelineName + " 작업이 오류로 끝났습니다")
+
+internal fun uploadStartedAlertTitle(deviceName: String?, uploadName: String): String =
+    alertTitle(deviceName, uploadName + " 전송을 시작했습니다")
+
+internal fun uploadEndedAlertTitle(
+    deviceName: String?,
+    uploadName: String,
+    completed: Boolean,
+    cancelled: Boolean
+): String = alertTitle(
+    deviceName,
+    when {
+        completed -> uploadName + " 전송을 마쳤습니다"
+        cancelled -> uploadName + " 전송을 취소했습니다"
+        else -> uploadName + " 전송에 실패했습니다"
+    }
+)
+
 class DeviceAlertMonitor(
     private val context: Context,
     private val repository: JetsonRepository,
@@ -60,10 +96,12 @@ class DeviceAlertMonitor(
                     publishAlert(
                         notificationId = STORAGE_NOTIFICATION_ID,
                         channelId = HEALTH_CHANNEL_ID,
-                        title = alertTitle(alertDeviceName(), "저장 공간 경고"),
-                        message = "저장 공간 사용량이 ${status.storagePercent}%입니다. 수집 데이터를 확인하세요.",
+                        title = storageAlertTitle(alertDeviceName(), status.storagePercent),
+                        message = "기준 " + settings.storageThresholdPercent +
+                            "%를 넘었습니다. 수집 데이터를 확인하세요.",
                         destination = AlertDestination.STORAGE,
                         severity = AlertSeverity.WARNING,
+                        target = alertTarget(),
                         showSystemNotification = decision.notifyStorage
                     )
                 }
@@ -72,10 +110,12 @@ class DeviceAlertMonitor(
                     publishAlert(
                         notificationId = TEMPERATURE_NOTIFICATION_ID,
                         channelId = HEALTH_CHANNEL_ID,
-                        title = alertTitle(alertDeviceName(), "온도 높음"),
-                        message = "온도가 ${formatCelsius(status.temperatureC)}입니다. 냉각 상태를 확인하세요.",
+                        title = temperatureAlertTitle(alertDeviceName(), status.temperatureC),
+                        message = "기준 " + settings.temperatureThresholdC +
+                            "°C를 넘었습니다. 냉각 상태를 확인하세요.",
                         destination = AlertDestination.SENSORS,
                         severity = AlertSeverity.WARNING,
+                        target = alertTarget(),
                         showSystemNotification = decision.notifyTemperature
                     )
                 }
@@ -115,10 +155,12 @@ class DeviceAlertMonitor(
                                         pipeline.id
                                     ),
                                     channelId = PIPELINE_CHANNEL_ID,
-                                    title = alertTitle(alertDeviceName(), "작업 시작됨"),
-                                    message = "${pipeline.label} 작업이 실행을 시작했습니다.",
+                                    title = pipelineStartedAlertTitle(alertDeviceName(), pipeline.label),
+                                    message = "작업 실행을 확인하세요.",
                                     destination = AlertDestination.PIPELINES,
                                     severity = AlertSeverity.INFO,
+                                    target = transport.deviceId?.let { id -> AlertTarget(id, transport.deviceName, pipeline.id,
+                                        pipeline.activeRunId?.takeIf { it.isNotBlank() } ?: pipeline.execution?.runId?.takeIf { it.isNotBlank() }) },
                                     showSystemNotification = notificationsAllowed()
                                 )
                             }
@@ -131,10 +173,12 @@ class DeviceAlertMonitor(
                                         pipeline.id
                                     ),
                                     channelId = PIPELINE_CHANNEL_ID,
-                                    title = alertTitle(alertDeviceName(), "작업 오류 종료"),
-                                    message = "${pipeline.label} 작업이 오류로 종료되었습니다. 로그를 확인하세요.",
+                                    title = pipelineFailedAlertTitle(alertDeviceName(), pipeline.label),
+                                    message = "작업이 오류로 끝났습니다. 실행 로그를 확인하세요.",
                                     destination = AlertDestination.PIPELINES,
                                     severity = AlertSeverity.ERROR,
+                                    target = transport.deviceId?.let { id -> AlertTarget(id, transport.deviceName, pipeline.id,
+                                        pipeline.activeRunId?.takeIf { it.isNotBlank() } ?: pipeline.execution?.runId?.takeIf { it.isNotBlank() }) },
                                     showSystemNotification = notificationsAllowed()
                                 )
                             }
@@ -169,10 +213,13 @@ class DeviceAlertMonitor(
                                         job.id
                                     ),
                                     channelId = UPLOAD_CHANNEL_ID,
-                                    title = alertTitle(alertDeviceName(), "업로드 시작됨"),
+                                    title = uploadStartedAlertTitle(
+                                        alertDeviceName(), uploadDisplayName(job)
+                                    ),
                                     message = "${uploadDisplayName(job)} 데이터를 서버로 전송하기 시작했습니다.",
                                     destination = AlertDestination.UPLOAD_QUEUE,
                                     severity = AlertSeverity.INFO,
+                                    target = transport.deviceId?.let { AlertTarget(it, transport.deviceName, transferJob = job) },
                                     showSystemNotification = notificationsAllowed()
                                 )
                             }
@@ -190,6 +237,7 @@ class DeviceAlertMonitor(
                                     message = message,
                                     destination = AlertDestination.UPLOAD_QUEUE,
                                     severity = uploadEndSeverity(job),
+                                    target = transport.deviceId?.let { AlertTarget(it, transport.deviceName, transferJob = job) },
                                     showSystemNotification = notificationsAllowed()
                                 )
                             }
@@ -246,9 +294,10 @@ class DeviceAlertMonitor(
         message: String,
         destination: AlertDestination,
         severity: AlertSeverity,
-        showSystemNotification: Boolean
+        showSystemNotification: Boolean,
+        target: AlertTarget? = null
     ) {
-        history.add(title, message, destination, severity)
+        history.add(title, message, destination, severity, target)
         if (showSystemNotification) {
             notify(notificationId, channelId, title, message)
         }
@@ -285,6 +334,11 @@ class DeviceAlertMonitor(
     private fun uploadDisplayName(job: UploadJob): String =
         job.relativePath.substringAfterLast('/').ifBlank { "수집 데이터" }
 
+    private fun alertTarget(): AlertTarget? {
+        val connected = repository.transportState.value as? TransportState.Connected ?: return null
+        return connected.deviceId?.let { AlertTarget(it, connected.deviceName) }
+    }
+
     /** The device the alert is about: the connected device first, then the registered one. */
     private fun alertDeviceName(): String {
         val connected = repository.transportState.value as? TransportState.Connected
@@ -300,11 +354,14 @@ class DeviceAlertMonitor(
         val name = uploadDisplayName(job)
         return when (job.state) {
             UploadJobState.COMPLETED ->
-                alertTitle(deviceName, "업로드 완료") to "$name 데이터 전송이 완료되었습니다."
+                uploadEndedAlertTitle(deviceName, name, completed = true, cancelled = false) to
+                    "$name 데이터 전송이 완료되었습니다."
             UploadJobState.FAILED ->
-                alertTitle(deviceName, "업로드 실패") to "$name 데이터 전송이 실패했습니다."
+                uploadEndedAlertTitle(deviceName, name, completed = false, cancelled = false) to
+                    "$name 데이터 전송이 실패했습니다."
             UploadJobState.CANCELLED ->
-                alertTitle(deviceName, "업로드 취소됨") to "$name 데이터 전송이 취소되었습니다."
+                uploadEndedAlertTitle(deviceName, name, completed = false, cancelled = true) to
+                    "$name 데이터 전송이 취소되었습니다."
             else ->
                 alertTitle(deviceName, "업로드 종료") to "$name 데이터 전송이 종료되었습니다."
         }

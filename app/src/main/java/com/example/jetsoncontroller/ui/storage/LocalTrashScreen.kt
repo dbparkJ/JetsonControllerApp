@@ -3,34 +3,28 @@ package com.example.jetsoncontroller.ui.storage
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.TrashEntry
-import com.example.jetsoncontroller.ui.components.EmptyState
-import com.example.jetsoncontroller.ui.components.DismissibleNoticeBanner
-import com.example.jetsoncontroller.ui.components.InlineMessage
 import com.example.jetsoncontroller.ui.components.OperationMessageHost
 import com.example.jetsoncontroller.ui.components.StatusTone
-import com.example.jetsoncontroller.ui.theme.Button
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalTrashScreen(
     state: LocalTrashUiState,
@@ -38,126 +32,126 @@ fun LocalTrashScreen(
     onRefresh: () -> Unit,
     onRestore: (TrashEntry) -> Unit,
     onEmptyTrash: (String, List<String>) -> Unit,
-    onDismissMessage: (String) -> Unit
+    onDismissMessage: (String) -> Unit,
+    ongoingRun: @Composable () -> Unit = {}
 ) {
-    val dialogDensity = LocalDensity.current
-    var emptySnapshot by remember { mutableStateOf<LocalTrashEmptySnapshot?>(null) }
-    LaunchedEffect(state.deviceId) { emptySnapshot = null }
-    emptySnapshot?.let { snapshot ->
-        AlertDialog(
-            onDismissRequest = { if (!state.emptying) emptySnapshot = null },
-            title = { CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                val slotFontScale = LocalDensity.current.fontScale
-                Text(
-                    "휴지통을 완전히 비울까요?",
-                    Modifier.testTag("local-trash-empty-dialog-title").semantics {
-                        this[TrashDialogFontScaleKey] = slotFontScale
-                    }
-                )
-            } },
-            text = {
-                CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                    Text("표시된 ${snapshot.trashIds.size}개 항목을 영구 삭제합니다. 삭제한 항목은 복원할 수 없습니다.")
-                }
-            },
-            confirmButton = {
-                CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                    Button(
-                        onClick = {
-                            emptySnapshot = null
-                            onEmptyTrash(snapshot.deviceId, snapshot.trashIds)
-                        },
-                        enabled = !state.emptying && state.deviceId == snapshot.deviceId
-                    ) { Text("영구 삭제") }
-                }
-            },
-            dismissButton = {
-                CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                    TextButton(onClick = { emptySnapshot = null }, enabled = !state.emptying) { Text("취소") }
-                }
-            }
-        )
-    }
+    var emptySnapshot by remember(state.deviceId) { mutableStateOf<LocalTrashEmptySnapshot?>(null) }
+    var menu by remember(state.deviceId) { mutableStateOf(false) }
+    val menuOpener = remember { FocusRequester() }
     val busy = state.loading || state.restoringId != null || state.emptying
-    Scaffold(
-        snackbarHost = { OperationMessageHost(state.message, onDismissMessage) },
-        topBar = { TopAppBar(
-            title = { Text("장치 휴지통") },
-            navigationIcon = { IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
-            } },
-            actions = { IconButton(onClick = onRefresh, enabled = state.online && !busy) {
-                Icon(Icons.Default.Refresh, "휴지통 새로고침")
-            } }
-        ) }
-    ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                DismissibleNoticeBanner(
-                    noticeKey = "storage.local-trash-retention.v2",
-                    message = when {
-                        !state.online -> "장치에 연결하면 복원 가능한 항목과 영구 삭제 지원 여부를 확인할 수 있습니다."
-                        !state.hasLoaded -> "장치에서 휴지통과 영구 삭제 지원 여부를 확인하고 있습니다."
-                        state.emptySupported -> "복원 가능한 항목은 원래 위치로 되돌릴 수 있습니다. 휴지통을 비우면 표시된 항목이 영구 삭제됩니다."
-                        else -> "이 장치 소프트웨어는 휴지통 비우기를 지원하지 않습니다. 장치 소프트웨어를 업데이트하면 영구 삭제할 수 있습니다."
-                    },
-                    tone = if (state.emptySupported) StatusTone.WARNING else StatusTone.INFO
-                )
-            }
-            val purgeSnapshot = localTrashEmptySnapshot(state)
-            item {
-                Button(
-                    onClick = { emptySnapshot = purgeSnapshot },
-                    enabled = purgeSnapshot != null && !busy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.DeleteForever, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("휴지통 비우기${purgeSnapshot?.trashIds?.size?.let { " (${it}개)" }.orEmpty()}")
-                }
-            }
-            if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            state.error?.let { item { InlineMessage(it, true) } }
-            items(state.entries, key = { it.trashId }) { entry ->
-                Surface(shape = MaterialTheme.shapes.large, tonalElevation = 1.dp) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(entry.name, style = MaterialTheme.typography.titleMedium)
-                        Text("${categoryLabel(entry.category)} · ${stateLabel(entry.state)}",
-                            style = MaterialTheme.typography.bodySmall)
-                        entry.relativePath?.let { Text("${entry.rootId.orEmpty()}/$it", style = MaterialTheme.typography.bodySmall) }
-                        entry.lastError?.let { InlineMessage(it, true) }
-                        Button(
-                            onClick = { onRestore(entry) },
-                            enabled = state.online && entry.restoreSupported && entry.state == "TRASHED" && !busy,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Restore, null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (entry.restoreSupported) "원래 위치로 복원" else "복원 지원 안 함")
-                        }
+    emptySnapshot?.let { snapshot ->
+        val fontScale = LocalDensity.current.fontScale
+        GeoConfirmDialog("${state.deviceName} 휴지통을 비울까요?",
+            "표시된 ${snapshot.trashIds.size}개 항목을 영구 삭제합니다. 되돌릴 수 없습니다.",
+            "영구 삭제", {
+                if (state.deviceId == snapshot.deviceId) onEmptyTrash(snapshot.deviceId, snapshot.trashIds)
+                emptySnapshot = null
+            }, { if (!state.emptying) emptySnapshot = null },
+            modifier = Modifier.testTag("local-trash-empty-dialog-title").semantics { this[TrashDialogFontScaleKey] = fontScale },
+            kind = GeoConfirmKind.DANGER,
+            confirmEnabled = !busy && state.deviceId == snapshot.deviceId && state.online && state.emptySupported,
+            disabledReason = "장치와 휴지통 상태를 다시 확인하세요.", busy = state.emptying,
+            openerFocusRequester = menuOpener)
+    }
+    StoragePage("휴지통", onBack, actions = {
+        Box {
+            GeoIconButton(GeoIcons.more, "휴지통 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
+            GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("휴지통 비우기", {
+                emptySnapshot = localTrashEmptySnapshot(state)
+            }, destructive = true, enabled = localTrashEmptySnapshot(state) != null && !busy,
+                disabledReason = if (!state.emptySupported) "이 장치는 휴지통 비우기를 지원하지 않습니다."
+                    else "장치와 휴지통 상태를 다시 확인하세요.")), openerFocusRequester = menuOpener)
+        }
+    }) {
+        Box(Modifier.fillMaxSize()) {
+            StorageRefresh(state.loading, state.online && !busy, onRefresh) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
+                    item { ongoingRun() }
+                    item {
+                        StorageFreshness(state.refreshedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() },
+                            onRefresh, state.deviceName, server = false)
+                        GeoInlineNote(when {
+                            !state.online -> "장치에 연결하면 복원 가능한 항목과 영구 삭제 지원 여부를 확인할 수 있습니다."
+                            !state.hasLoaded -> "장치 휴지통을 확인하고 있습니다."
+                            state.emptySupported -> "복원 가능한 항목은 원래 위치로 되돌릴 수 있습니다. 휴지통을 비우면 표시된 항목이 영구 삭제됩니다."
+                            else -> "이 장치는 휴지통 비우기를 지원하지 않습니다. 장치 소프트웨어 업데이트가 필요합니다."
+                        })
+                        if (busy) GeoProgress()
+                        state.error?.let { GeoInlineNote(it, tone = StatusTone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
+                            actionLabel = "다시 확인", onAction = onRefresh) }
+                    }
+                    items(state.entries, key = { it.trashId }) { entry ->
+                        LocalTrashEntry(entry, state.online, busy) { onRestore(entry) }
+                    }
+                    if (state.entries.isEmpty() && !busy && state.online && state.hasLoaded && state.error == null) item {
+                        Spacer(Modifier.height(56.dp))
+                        GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다",
+                            "휴지통으로 옮긴 장치 파일과 수집 기록이 여기에 표시됩니다."))
                     }
                 }
             }
-            if (state.entries.isEmpty() && !state.loading && state.online && state.hasLoaded) item {
-                EmptyState("휴지통이 비어 있습니다", "휴지통으로 이동한 장치 데이터와 작업 이력이 여기에 표시됩니다.")
+            Box(Modifier.align(Alignment.BottomCenter)) { OperationMessageHost(state.message, onDismissMessage) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LocalTrashEntry(entry: TrashEntry, online: Boolean, busy: Boolean, onRestore: () -> Unit) {
+    val colors = LocalGeoColors.current
+    val type = LocalGeoType.current
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val restorable = localTrashCanRestore(entry)
+    val actionLabel = if (restorable) "원래 위치로 복원" else "복원할 수 없음"
+    val actionWidth = with(density) {
+        measurer.measure(AnnotatedString(actionLabel), if (restorable) type.button else type.caption).size.width.toDp()
+    } + if (restorable) 32.dp else 0.dp
+    BoxWithConstraints(Modifier.fillMaxWidth().drawBehind {
+        drawLine(colors.border, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+    }.padding(vertical = 12.dp)) {
+        val body: @Composable (Modifier) -> Unit = { modifier ->
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(entry.name, style = type.titleSm, color = colors.text)
+                    GeoBadge(localTrashStateLabel(entry), when (entry.state) {
+                        "PURGING", "RESTORING", "MOVING_TO_TRASH" -> StatusTone.PENDING
+                        "TRASHED" -> if (entry.restoreSupported) StatusTone.UNKNOWN else StatusTone.WARNING
+                        else -> StatusTone.WARNING
+                    })
+                }
+                Text("${categoryLabel(entry.category)} · ${if (entry.category == "RUN_HISTORY")
+                    com.example.jetsoncontroller.ui.model.Formats.time(entry.trashedAt?.let {
+                        runCatching { java.time.Instant.parse(it) }.getOrNull() }) else "수집 자료"}",
+                    style = type.caption, color = colors.textSecondary)
             }
+        }
+        val action: @Composable (Modifier) -> Unit = { modifier ->
+            if (restorable) GeoButton(actionLabel, onRestore, modifier, style = GeoButtonStyle.Secondary,
+                enabled = online && !busy,
+                disabledReason = if (!online) "장치에 연결되면 쓸 수 있습니다." else "복원 상태를 확인하고 있습니다.")
+            else Text(actionLabel, modifier, style = type.caption, color = colors.textSecondary)
+        }
+        if (actionWidth + 8.dp + 160.dp > maxWidth) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            body(Modifier.fillMaxWidth())
+            action(Modifier.fillMaxWidth())
+        } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            body(Modifier.weight(1f))
+            action(Modifier.width(actionWidth))
         }
     }
 }
 
 private fun categoryLabel(category: String): String = when (category) {
-    "STORAGE" -> "장치 데이터"
     "UPLOADED_SOURCE" -> "업로드 원본"
-    "RUN_HISTORY" -> "작업 이력"
+    "RUN_HISTORY" -> "수집 기록"
     else -> "장치 데이터"
 }
 
-private fun stateLabel(state: String): String = when (state) {
-    "TRASHED" -> "복원 가능"
+internal fun localTrashCanRestore(entry: TrashEntry): Boolean = entry.restoreSupported && entry.state == "TRASHED"
+
+internal fun localTrashStateLabel(entry: TrashEntry): String = when (entry.state) {
+    "TRASHED" -> if (entry.restoreSupported) "복원 가능" else "복원할 수 없음"
     "MOVING_TO_TRASH" -> "이동 상태 확인 중"
     "RESTORING" -> "복원 중"
     "PURGING" -> "삭제 처리 중"
@@ -166,7 +160,6 @@ private fun stateLabel(state: String): String = when (state) {
 }
 
 internal data class LocalTrashEmptySnapshot(val deviceId: String, val trashIds: List<String>)
-
 internal val TrashDialogFontScaleKey = SemanticsPropertyKey<Float>("TrashDialogFontScale")
 
 internal fun localTrashEmptySnapshot(state: LocalTrashUiState): LocalTrashEmptySnapshot? {

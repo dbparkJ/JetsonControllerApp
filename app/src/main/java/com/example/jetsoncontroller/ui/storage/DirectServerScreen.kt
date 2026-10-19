@@ -2,51 +2,35 @@ package com.example.jetsoncontroller.ui.storage
 
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.jetsoncontroller.data.server.*
-import com.example.jetsoncontroller.ui.components.*
-import com.example.jetsoncontroller.ui.theme.LocalCobaltColors
-import com.example.jetsoncontroller.ui.theme.Button
-import com.example.jetsoncontroller.ui.theme.OutlinedButton
-import com.example.jetsoncontroller.ui.theme.TextButton
-import com.example.jetsoncontroller.ui.theme.slateTextFieldColors
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
+import com.example.jetsoncontroller.model.RemoteFileContent
+import com.example.jetsoncontroller.ui.components.OperationMessageHost
+import com.example.jetsoncontroller.ui.components.StatusTone
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import kotlinx.coroutines.*
+import java.time.Instant
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("UNUSED_PARAMETER")
 internal fun DirectServerScreen(
     state: DirectServerUiState,
     onBack: () -> Unit,
@@ -69,654 +53,260 @@ internal fun DirectServerScreen(
     onDismissMessage: () -> Unit,
     developerModeEnabled: Boolean = false,
     onDeviceData: () -> Unit = {},
-    onJetsonServerProxy: (() -> Unit)? = null
+    onJetsonServerProxy: (() -> Unit)? = null,
+    onServerConnection: (() -> Unit)? = null,
+    onRelogin: (() -> Unit)? = null,
+    onDeveloperTrash: (() -> Unit)? = null,
+    showTechnicalInfo: Boolean = false,
+    ongoingRun: @Composable () -> Unit = {}
 ) {
     BackHandler(onBack = onBack)
-    val dialogDensity = LocalDensity.current
-    var trashCandidate by remember(state.selectedProfileId) { mutableStateOf<ServerJob?>(null) }
-    var emptyTrashCandidate by remember(state.selectedProfileId) { mutableStateOf<ServerTrashEmptySnapshot?>(null) }
-    var removeProfile by remember(state.selectedProfileId) { mutableStateOf(false) }
-    trashCandidate?.let { job ->
-        AlertDialog(
-            onDismissRequest = { trashCandidate = null },
-            title = { Text("서버 작업을 휴지통으로 이동할까요?") },
-            text = { Text("${job.sourceName}\n\n휴지통에서 복원할 수 있습니다. 서버가 이동을 확인한 뒤에만 목록에서 제거됩니다.") },
-            confirmButton = { Button(onClick = { trashCandidate = null; onMoveToTrash(job) }) { Text("휴지통으로 이동") } },
-            dismissButton = { TextButton(onClick = { trashCandidate = null }) { Text("취소") } }
-        )
+    val profile = state.profiles.firstOrNull { it.profile.profileId == state.selectedProfileId }?.profile
+    val settings = onServerConnection ?: onConnect
+    val refresh: () -> Unit = when {
+        state.section == DirectServerSection.TRASH -> onRefreshTrash
+        state.selectedJob != null && !state.mutationResultUnknown -> ({
+            onOpenDirectory(ServerFileEntry("", state.currentPath, "directory", null, null))
+        })
+        else -> onRefreshJobs
     }
-    emptyTrashCandidate?.let { snapshot ->
-        AlertDialog(
-            onDismissRequest = { if (!state.isEmptyingTrash) emptyTrashCandidate = null },
-            title = { CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                val slotFontScale = LocalDensity.current.fontScale
-                Text(
-                    "서버 휴지통을 비울까요?",
-                    Modifier.testTag("server-trash-empty-dialog-title").semantics {
-                        this[TrashDialogFontScaleKey] = slotFontScale
-                    }
-                )
-            } },
-            text = {
-                CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                    Text("표시된 ${snapshot.sessionIds.size}개 항목을 영구 삭제합니다. 삭제한 서버 데이터는 복원할 수 없습니다.")
-                }
-            },
-            confirmButton = {
-                CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                    Button(
-                        onClick = {
-                            emptyTrashCandidate = null
-                            onEmptyTrash(snapshot.profileId, snapshot.sessionIds)
-                        },
-                        enabled = !state.isLoading && state.selectedProfileId == snapshot.profileId
-                    ) { Text("영구 삭제") }
-                }
-            },
-            dismissButton = {
-                CompositionLocalProvider(LocalDensity provides dialogDensity) {
-                    TextButton(onClick = { emptyTrashCandidate = null }, enabled = !state.isLoading) { Text("취소") }
-                }
-            }
-        )
-    }
-    if (removeProfile) {
-        AlertDialog(
-            onDismissRequest = { removeProfile = false },
-            title = { Text("서버 프로필을 삭제할까요?") },
-            text = { Text("이 휴대전화에 저장된 서버 주소와 암호화된 직원 토큰, 해당 범위의 오프라인 캐시를 삭제합니다. 서버 데이터는 삭제하지 않습니다.") },
-            confirmButton = { Button(onClick = { removeProfile = false; onRemoveProfile() }) { Text("프로필 삭제") } },
-            dismissButton = { TextButton(onClick = { removeProfile = false }) { Text("취소") } }
-        )
-    }
-    state.receipt?.let { receipt -> ReceiptDialog(receipt, onBack, developerModeEnabled) }
-
-    val selectedProfile = state.profiles.firstOrNull { it.profile.profileId == state.selectedProfileId }?.profile
+    var candidate by remember(state.selectedProfileId, state.section) { mutableStateOf<ServerTrashTarget?>(null) }
+    var menu by remember(state.selectedProfileId, state.selectedJob?.sessionId) { mutableStateOf(false) }
+    var sectionPicker by remember { mutableStateOf(false) }
+    val menuOpener = remember { FocusRequester() }
+    val sectionOpener = remember { FocusRequester() }
+    val trash = state.section == DirectServerSection.TRASH
     val canMutate = directServerRoleCanMutate(state.capabilities?.employee?.role)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("서버 데이터")
-                        Text(
-                            selectedProfile?.let {
-                                if (developerModeEnabled) {
-                                    "${it.displayName} · ${it.environment.label()} · ${it.projectId}"
-                                } else {
-                                    it.displayName
-                                }
-                            }
-                                ?: "Jetson 연결 없이 직접 조회",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                },
-                navigationIcon = { IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
-                } },
-                actions = {
-                    if (state.section == DirectServerSection.DATA) IconButton(
-                        onClick = onRefreshJobs,
-                        enabled = !state.isLoading && !state.isConnecting
-                    ) { Icon(Icons.Default.Refresh, "서버 데이터 새로고침") }
-                }
-            )
-        }
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            DataLocationTabs(
-                selected = DataLocation.SERVER,
-                onDeviceClick = onDeviceData,
-                onServerClick = {}
-            )
-            DirectServerTabs(state.section, onSection)
-            if (state.profiles.isEmpty() && developerModeEnabled && onJetsonServerProxy != null) {
-                AppBanner(
-                    "현재 연결된 장치를 통해 기존 서버 파일을 조회할 수 있습니다.",
-                    StatusTone.INFO,
-                    actionLabel = "연결된 장치로 서버 파일 보기",
-                    onAction = onJetsonServerProxy,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-            }
-            state.mutationMessage?.let { message ->
-                AppBanner(
-                    message,
-                    StatusTone.SUCCESS,
-                    actionLabel = state.undoSessionId?.let { "실행 취소" },
-                    onAction = state.undoSessionId?.let { onUndoTrash },
-                    onDismiss = onDismissMessage,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-            }
-            state.message?.let { message ->
-                val profileSettingsActions = setOf(
-                    "프로필 추가", "프로필 편집", "프로필 인증 확인",
-                    "프로젝트 권한 확인", "서버 환경 확인", "서버 인증서 확인"
-                )
-                val profileSettingsAction = state.errorActionLabel in profileSettingsActions
-                val operatorSafeStatus = state.errorActionLabel in setOf("휴지통 다시 불러오기", "상태 새로고침")
-                AppBanner(
-                    if (developerModeEnabled || !state.messageIsError || operatorSafeStatus) message
-                    else directServerOperatorMessage(message),
-                    if (state.messageIsError) StatusTone.WARNING else StatusTone.SUCCESS,
-                    actionLabel = when {
-                        profileSettingsAction && !developerModeEnabled ->
-                            "다시 연결".takeIf { state.profiles.isNotEmpty() }
-                        state.errorActionLabel != null -> state.errorActionLabel
-                        else -> null
-                    },
-                    onAction = when {
-                        profileSettingsAction && !developerModeEnabled ->
-                            onConnect.takeIf { state.profiles.isNotEmpty() }
-                        profileSettingsAction ->
-                            ({ onSection(DirectServerSection.PROFILES) })
-                        state.errorActionLabel != null -> {
-                            if (state.section == DirectServerSection.TRASH) onRefreshTrash else onRefreshJobs
-                        }
-                        else -> null
-                    },
-                    onDismiss = onDismissMessage,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-            }
-            if (state.isLoading || state.isConnecting) LinearProgressIndicator(Modifier.fillMaxWidth())
-            when (state.section) {
-                DirectServerSection.DATA -> ServerDataPane(
-                    state, onConnect, onRefreshJobs, onOpenJob, onOpenDirectory, onOpenFile,
-                    onReceipt, { trashCandidate = it }, onLoadMoreJobs, canMutate,
-                    developerModeEnabled
-                )
-                DirectServerSection.TRASH -> TrashPane(
-                    state, onRestore, onRefreshTrash,
-                    onRequestEmpty = { emptyTrashCandidate = serverTrashEmptySnapshot(state) },
-                    canMutate, developerModeEnabled
-                )
-                DirectServerSection.PROFILES -> ProfilesPane(
-                    state, onSelectProfile, onSaveProfile, onConnect, { removeProfile = true },
-                    developerModeEnabled
-                )
-            }
-        }
+    candidate?.let { target ->
+        GeoConfirmDialog("${storageObjectName(target.job.sourceName)} 서버 휴지통으로 옮길까요?",
+            "서버 휴지통에서 복원할 수 있습니다.", "휴지통으로 이동", {
+                if (target.matches(state)) onMoveToTrash(target.job)
+                candidate = null
+            }, { candidate = null }, confirmEnabled = target.matches(state),
+            disabledReason = "서버와 수신 결과를 다시 확인하세요.", openerFocusRequester = menuOpener)
     }
-}
-
-/**
- * Section switch as underline tabs. A filled chip read as an action, so the current section was
- * easy to confuse with a button; the underline shows only where the operator is.
- */
-@Composable
-private fun DirectServerTabs(selected: DirectServerSection, onSelect: (DirectServerSection) -> Unit) {
-    val sections = listOf(
-        DirectServerSection.DATA to "수신 결과",
-        DirectServerSection.TRASH to "휴지통",
-        DirectServerSection.PROFILES to "서버 프로필"
-    )
-    val selectedIndex = sections.indexOfFirst { it.first == selected }.coerceAtLeast(0)
-    TabRow(selectedTabIndex = selectedIndex) {
-        sections.forEachIndexed { index, (section, label) ->
-            Tab(
-                selected = index == selectedIndex,
-                onClick = { onSelect(section) },
-                text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun ServerDataPane(
-    state: DirectServerUiState,
-    onConnect: () -> Unit,
-    onRefresh: () -> Unit,
-    onOpenJob: (ServerJob) -> Unit,
-    onOpenDirectory: (ServerFileEntry) -> Unit,
-    onOpenFile: (ServerFileEntry) -> Unit,
-    onReceipt: (ServerJob) -> Unit,
-    onTrash: (ServerJob) -> Unit,
-    onLoadMore: () -> Unit,
-    canMutate: Boolean,
-    developerModeEnabled: Boolean
-) {
-    if (state.profiles.isEmpty()) {
-        EmptyState(
-            "서버 연결 정보가 없습니다",
-            if (developerModeEnabled) {
-                "개발자 모드에서 서버 연결 정보를 등록하거나 관리자에게 요청해 주세요."
-            } else {
-                "관리자에게 서버 연결 정보를 요청하세요."
-            }
-        )
-        return
-    }
-    if (state.capabilities == null && state.jobsSource == null && !state.isConnecting) {
-        EmptyState(
-            "서버 연결 확인 필요",
-            "저장된 직원 인증으로 서버 환경과 프로젝트 권한을 확인합니다.",
-            actionLabel = "서버 연결",
-            onAction = onConnect
-        )
-        return
-    }
-    Column(Modifier.fillMaxSize()) {
-        ServerFreshness(state)
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val showDetail = state.selectedJob != null
-            if (maxWidth >= 720.dp) {
-                Row(Modifier.fillMaxSize()) {
-                    JobsList(state, onRefresh, onOpenJob, onLoadMore, Modifier.weight(0.9f), developerModeEnabled)
-                    VerticalDivider()
-                    JobDetail(state, onOpenDirectory, onOpenFile, onReceipt, onTrash,
-                        Modifier.weight(1.1f), canMutate, developerModeEnabled)
-                }
-            } else if (showDetail) {
-                JobDetail(state, onOpenDirectory, onOpenFile, onReceipt, onTrash,
-                    Modifier.fillMaxSize(), canMutate, developerModeEnabled)
-            } else {
-                JobsList(state, onRefresh, onOpenJob, onLoadMore, Modifier.fillMaxSize(), developerModeEnabled)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ServerFreshness(state: DirectServerUiState) {
-    val current = state.jobsSource == ServerJobsSource.NETWORK
-    Surface(
-        color = if (current) LocalCobaltColors.current.successBg else LocalCobaltColors.current.warningBg,
-        contentColor = if (current) LocalCobaltColors.current.success else LocalCobaltColors.current.warning
-    ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(if (current) Icons.Default.CloudDone else Icons.Default.CloudOff, null)
-            Column(Modifier.weight(1f)) {
-                Text(if (current) "서버에서 방금 확인" else "오프라인 보관 결과", style = MaterialTheme.typography.labelLarge)
-                Text(
-                    state.refreshedAt?.let { "서버 마지막 성공 · ${localDateTimeLabel(it)}" }
-                        ?: state.cachedAtEpochMillis?.let { "캐시 저장 · ${formatEpoch(it)}" }
-                        ?: "확인 시각 없음",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun JobsList(
-    state: DirectServerUiState,
-    onRefresh: () -> Unit,
-    onOpenJob: (ServerJob) -> Unit,
-    onLoadMore: () -> Unit,
-    modifier: Modifier,
-    developerModeEnabled: Boolean
-) {
-    LazyColumn(modifier, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (state.jobs.isEmpty() && !state.isLoading) item {
-            EmptyState(
-                "수신 결과가 없습니다",
-                "프로젝트 범위에서 확인된 업로드 작업이 없습니다.",
-                actionLabel = "다시 확인",
-                onAction = onRefresh
-            )
-        }
-        items(state.jobs, key = { it.sessionId }) { job ->
-            Surface(
-                onClick = { onOpenJob(job) },
-                color = if (state.selectedJob?.sessionId == job.sessionId) LocalCobaltColors.current.accent
-                    else LocalCobaltColors.current.sectionSoft,
-                contentColor = if (state.selectedJob?.sessionId == job.sessionId) LocalCobaltColors.current.onAccent
-                    else LocalCobaltColors.current.ink,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(job.sourceName, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                        StatusBadge(job.state.serverStateLabel(), job.state.serverStateTone())
-                    }
-                    if (developerModeEnabled) {
-                        Text("장치 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Text("${job.fileCount}개 파일 · ${formatBytes(job.totalBytes)}", style = MaterialTheme.typography.bodySmall)
-                    Text("서버 관찰 · ${localDateTimeLabel(job.updatedAt)}", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        if (state.nextOffset != null) item {
-            OutlinedButton(onClick = onLoadMore, enabled = !state.isLoading,
-                modifier = Modifier.fillMaxWidth()) { Text("이전 수신 결과 더 불러오기") }
-        }
-    }
-}
-
-@Composable
-private fun JobDetail(
-    state: DirectServerUiState,
-    onOpenDirectory: (ServerFileEntry) -> Unit,
-    onOpenFile: (ServerFileEntry) -> Unit,
-    onReceipt: (ServerJob) -> Unit,
-    onTrash: (ServerJob) -> Unit,
-    modifier: Modifier,
-    canMutate: Boolean,
-    developerModeEnabled: Boolean
-) {
-    val job = state.selectedJob
-    if (job == null) {
-        EmptyState("수신 결과를 선택하세요", "파일과 서버 수신 확인 결과를 볼 수 있습니다.", modifier)
-        return
+    state.receipt?.let { receipt -> ReceiptDialog(receipt, profile?.displayName.orEmpty(), onBack,
+        developerModeEnabled, showTechnicalInfo) }
+    if (sectionPicker) GeoSheet("서버", { sectionPicker = false }, openerFocusRequester = sectionOpener) {
+        GeoRadioRow("수신 결과", !trash, { onSection(DirectServerSection.DATA); sectionPicker = false })
+        GeoRadioRow("휴지통", trash, { onSection(DirectServerSection.TRASH); sectionPicker = false })
     }
     state.preview?.let { preview ->
-        PreviewPane(preview, modifier)
+        StoragePage(preview.fileName, onBack, media = true) { PreviewPane(preview, Modifier.fillMaxSize()) }
         return
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(job.sourceName, style = MaterialTheme.typography.titleLarge)
-                if (developerModeEnabled) {
-                    Text("세션 ${job.sessionId}", style = MaterialTheme.typography.bodySmall)
-                    Text("접근 프로젝트 ${job.accessProjectId ?: job.projectId} · 장치 ${job.deviceId}", style = MaterialTheme.typography.bodySmall)
-                }
-                job.surveyContext?.let { context ->
-                    if (developerModeEnabled) {
-                        Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}",
-                            style = MaterialTheme.typography.bodySmall)
-                        Text("Run ${context.runId}", style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        Text("조사 실행과 연결된 수신 결과", style = MaterialTheme.typography.bodySmall)
+    StoragePage("서버 수신 결과", onBack, actions = {
+        state.selectedJob?.takeIf { !trash }?.let { job ->
+            Box {
+                GeoIconButton(GeoIcons.more, "서버 작업 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
+                GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("서버 휴지통으로 이동", {
+                    candidate = serverTrashTarget(state, job)
+                }, enabled = serverTrashTarget(state, job) != null, destructive = true,
+                    disabledReason = "수신 완료 상태와 서버 권한을 확인하세요.")), openerFocusRequester = menuOpener)
+            }
+        }
+    }) {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize()) {
+                ongoingRun()
+                when {
+                    state.requiresLogin -> ServerState("다시 로그인해야 합니다",
+                        "직원 인증이 거절되었습니다. 다시 로그인하세요.", "다시 로그인", onRelogin ?: settings)
+                    state.profiles.isEmpty() -> ServerState("서버 연결 정보가 없습니다",
+                        "관리자에게 서버 연결 정보를 받아 설정하세요.", "서버 연결", settings)
+                    else -> {
+                        if (state.selectedJob == null || trash) {
+                            Column(Modifier.padding(horizontal = storageGutter)) {
+                                StorageFreshness(state.refreshedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+                                    ?: state.cachedAtEpochMillis, refresh, profile?.displayName ?: "서버")
+                                GeoSegmented("서버", listOf("수신 결과", "휴지통"), if (trash) 1 else 0,
+                                    { onSection(if (it == 0) DirectServerSection.DATA else DirectServerSection.TRASH) },
+                                    { sectionPicker = true }, Modifier.focusRequester(sectionOpener))
+                            }
+                        }
+                        if (state.isConnecting || state.isLoading) GeoProgress()
+                        state.message?.let { message ->
+                            GeoInlineNote(if (!state.messageIsError || message == UNKNOWN_SERVER_MUTATION) message
+                                else if (state.jobsSource == ServerJobsSource.CACHE) "서버에 연결하지 못해 마지막으로 본 수신 결과를 표시합니다."
+                                else if (state.errorActionLabel in setOf("프로필 인증 확인", "프로필 편집", "서버 환경 확인",
+                                    "서버 인증서 확인", "프로젝트 권한 확인")) directServerOperatorMessage(message) else message,
+                                Modifier.padding(horizontal = storageGutter, vertical = 8.dp),
+                                tone = if (state.messageIsError) StatusTone.WARNING else StatusTone.INFO,
+                                kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 확인", onAction = refresh)
+                        }
+                        if (trash) ServerTrashPane(state, onRestore, onRefreshTrash, canMutate,
+                            developerModeEnabled, onDeveloperTrash)
+                        else if (state.capabilities == null && state.jobsSource == null && !state.isConnecting) {
+                            ServerState("서버 연결 확인 필요", "서버 연결을 확인한 뒤 수신 결과를 볼 수 있습니다.", "연결 확인", onConnect)
+                        } else BoxWithConstraints(Modifier.fillMaxSize()) {
+                            val minimum = (320 + 360) * LocalDensity.current.fontScale.coerceAtLeast(1f)
+                            val twoPanes = maxWidth - storageGutter * 2 - 24.dp >= minimum.dp
+                            if (twoPanes) Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                                JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.weight(1f))
+                                JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory, onOpenFile, onReceipt,
+                                    Modifier.weight(1f), developerModeEnabled, showTechnicalInfo)
+                            } else if (state.selectedJob != null) JobDetail(state, profile?.displayName.orEmpty(),
+                                onOpenDirectory, onOpenFile, onReceipt, Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
+                            else JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.fillMaxSize())
+                        }
                     }
                 }
-                Text(if (state.currentPath.isBlank()) "서버 파일" else if (developerModeEnabled) state.currentPath else "현재 폴더 · ${state.currentPath.substringAfterLast('/')}",
-                    style = MaterialTheme.typography.titleMedium)
+            }
+            Box(Modifier.align(Alignment.BottomCenter)) {
+                OperationMessageHost(state.mutationMessage, { onDismissMessage() },
+                    "실행 취소".takeIf { state.undoSessionId != null }, onUndoTrash.takeIf { state.undoSessionId != null })
             }
         }
-        if (job.state == "COMPLETED") item {
-            OutlinedButton(onClick = { onReceipt(job) }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Verified, null); Spacer(Modifier.width(8.dp)); Text("독립 수신 영수증 확인")
+    }
+}
+
+@Composable
+private fun ServerState(title: String, explanation: String, action: String? = null, onAction: (() -> Unit)? = null) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 56.dp)) {
+        item { GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, title, explanation, action), onAction = onAction) }
+    }
+}
+
+@Composable
+private fun JobsList(state: DirectServerUiState, onRefresh: () -> Unit, onJob: (ServerJob) -> Unit,
+    onLoadMore: () -> Unit, modifier: Modifier) {
+    StorageRefresh(state.isLoading, !state.isConnecting, onRefresh, modifier) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
+            items(state.jobs, key = { it.sessionId }) { job ->
+                val status = serverJobState(job.state)
+                GeoRow(job.sourceName, { onJob(job) },
+                    meta = if (job.state == "UPLOADING") "${Formats.size(job.receivedBytes)} / ${Formats.size(job.totalBytes)}"
+                        else "${browserDay(job.completedAt ?: job.updatedAt)} 수신 · ${Formats.size(job.totalBytes)}",
+                    badge = { GeoBadge(status.word, status.tone) })
+            }
+            if (state.nextOffset != null) item {
+                GeoButton("이전 수신 결과 더 불러오기", onLoadMore, Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary,
+                    enabled = !state.isLoading && !state.isConnecting, disabledReason = "수신 결과를 불러오고 있습니다.")
+            }
+            if (state.jobs.isEmpty() && !state.isLoading && state.message == null) item {
+                Spacer(Modifier.height(56.dp))
+                GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "수신 결과가 없습니다", "서버가 파일을 받으면 여기에 표시됩니다."))
             }
         }
-        if (state.filesTruncated) item { AppBanner("파일 목록 일부만 표시됩니다. 하위 폴더에서 다시 확인하세요.", StatusTone.WARNING) }
-        items(state.files, key = { it.relativePath }) { entry ->
-            val directory = entry.type.equals("directory", true)
-            ListItem(
-                headlineContent = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                supportingContent = { Text(if (directory) "폴더" else entry.sizeBytes?.let(::formatBytes) ?: "파일") },
-                leadingContent = { Icon(if (directory) Icons.Default.Folder else Icons.Default.Description, null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, null) },
-                modifier = Modifier.clickable { if (directory) onOpenDirectory(entry) else onOpenFile(entry) }
-            )
-        }
-        if (state.files.isEmpty() && !state.isLoading) item {
-            EmptyState("표시할 파일이 없습니다", "서버가 이 경로에서 반환한 파일이 없습니다.")
-        }
+    }
+}
+
+@Composable
+private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (ServerFileEntry) -> Unit,
+    onFile: (ServerFileEntry) -> Unit, onReceipt: (ServerJob) -> Unit, modifier: Modifier,
+    developer: Boolean, technical: Boolean) {
+    val job = state.selectedJob
+    if (job == null) {
+        Box(modifier.padding(storageGutter)) { GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+            "수신 결과를 선택하세요", "파일과 서버 수신 영수증을 볼 수 있습니다.")) }
+        return
+    }
+    LazyColumn(modifier, contentPadding = PaddingValues(storageGutter, 16.dp)) {
         item {
-            OutlinedButton(onClick = { onTrash(job) }, enabled = canMutate && job.state == "COMPLETED",
-                modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text("휴지통으로 이동")
+            Text(job.sourceName, style = LocalGeoType.current.boardTitle, color = LocalGeoColors.current.text)
+            Spacer(Modifier.height(8.dp))
+            val status = serverJobState(job.state)
+            GeoBadge(status.word, status.tone)
+            Text("${job.deviceId.takeIf { it.startsWith("GEO-X-", true) } ?: "장치"} → $server",
+                style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
+            GeoSection("정보") {
+                GeoFactRow("수신", Formats.time(job.completedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }))
+                GeoFactRow("용량", Formats.size(job.totalBytes), numeric = true)
+                GeoFactRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)
+                if (job.state == "COMPLETED") GeoRow("서버 수신 영수증", { onReceipt(job) })
+            }
+            GeoSection(if (state.currentPath.isBlank()) "파일" else "파일 / ${state.currentPath.substringAfterLast('/')}") {}
+            if (state.filesTruncated) GeoInlineNote("파일 목록 일부만 표시됩니다. 하위 폴더에서 다시 확인하세요.")
+        }
+        items(state.files, key = { it.relativePath }) { file ->
+            val directory = file.type.equals("directory", true)
+            GeoRow(file.name, { if (directory) onDirectory(file) else onFile(file) },
+                meta = if (directory) "폴더" else serverFileCategory(file.name), value = file.sizeBytes?.let(Formats::size))
+        }
+        if (state.files.isEmpty() && !state.isLoading && state.message == null) item {
+            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 폴더에 파일이 없습니다", "다른 폴더를 선택하세요."))
+        }
+        item { GeoTechInfo(listOf(GeoTechnicalValue("세션", job.sessionId), GeoTechnicalValue("장치", job.deviceId),
+            GeoTechnicalValue("프로젝트", job.accessProjectId ?: job.projectId)), developer, technical) }
+    }
+}
+
+private fun serverFileCategory(name: String): String = mediaCategory(com.example.jetsoncontroller.model.RemoteFileEntry(
+    name, name, com.example.jetsoncontroller.model.RemoteEntryType.FILE, null, null))
+
+@Composable
+private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> Unit, onRefresh: () -> Unit,
+    canMutate: Boolean, developer: Boolean, onDeveloperTrash: (() -> Unit)?) {
+    var detail by remember(state.selectedProfileId) { mutableStateOf<ServerTrashJob?>(null) }
+    detail?.let { job ->
+        GeoInfoDialog(job.sourceName, { detail = null }) {
+            GeoBadge(serverTrashStatus(job), if (serverTrashCanRestore(job)) StatusTone.UNKNOWN else StatusTone.PENDING)
+            GeoFactRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)
+            GeoFactRow("용량", Formats.size(job.totalBytes), numeric = true)
+            GeoFactRow("이동", Formats.time(runCatching { Instant.parse(job.trashedAt) }.getOrNull()))
+        }
+    }
+    StorageRefresh(state.isLoading, !state.isConnecting, onRefresh) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
+            item {
+                Text(serverTrashCount(state.trash.size, state.trashTotal), style = LocalGeoType.current.body,
+                    color = LocalGeoColors.current.textSecondary)
+                if (developer && onDeveloperTrash != null) GeoRow("개발자 도구에서 비우기", onDeveloperTrash)
+            }
+            items(state.trash, key = { it.sessionId }) { job ->
+                val restorable = serverTrashCanRestore(job)
+                GeoActionRow(job.sourceName, if (restorable) "서버 작업 복원" else serverTrashStatus(job), { detail = job },
+                    { onRestore(job.sessionId) }, meta = "${Formats.itemCount(job.fileCount.toLong())} · ${Formats.size(job.totalBytes)}",
+                    actionEnabled = canMutate && restorable && !state.isLoading && !state.isConnecting,
+                    disabledReason = if (!restorable) serverTrashStatus(job) else "서버 연결과 복원 권한을 확인하세요.")
+            }
+            if (state.trash.isEmpty() && !state.isLoading && state.message == null) item {
+                Spacer(Modifier.height(56.dp))
+                GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다", "서버 휴지통으로 옮긴 수신 결과가 여기에 표시됩니다."))
             }
         }
+    }
+}
+
+@Composable
+private fun ReceiptDialog(receipt: ServerReceipt, server: String, onDismiss: () -> Unit,
+    developer: Boolean, technical: Boolean) {
+    GeoInfoDialog("서버 수신 영수증", onDismiss) {
+        GeoBadge(if (receipt.matched) "내용 일치" else "내용 불일치",
+            if (receipt.matched) StatusTone.SUCCESS else StatusTone.ERROR)
+        Text("${receipt.sourceName} · $server", style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
+        GeoFactRow("파일", Formats.itemCount(receipt.fileCount.toLong()), numeric = true)
+        GeoFactRow("용량", Formats.size(receipt.totalBytes), numeric = true)
+        GeoFactRow("완료", Formats.time(runCatching { Instant.parse(receipt.completedAt) }.getOrNull()))
+        GeoFactRow("검증 시각", Formats.time(runCatching { Instant.parse(receipt.verifiedAt) }.getOrNull()))
+        GeoTechInfo(listOf(GeoTechnicalValue("세션", receipt.sessionId), GeoTechnicalValue("SHA-256", receipt.contentSha256)), developer, technical)
     }
 }
 
 @Composable
 private fun PreviewPane(preview: DirectServerPreview, modifier: Modifier) {
-    Column(modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(preview.fileName, style = MaterialTheme.typography.titleLarge)
-        when {
-            preview.mediaType?.startsWith("image/") == true -> {
-                val bitmap = remember(preview.bytes) { decodePreviewBitmap(preview.bytes) }
-                if (bitmap != null) Image(bitmap.asImageBitmap(), preview.fileName,
-                    Modifier.fillMaxWidth().weight(1f))
-                else InlineMessage("이미지 미리보기를 해석하지 못했습니다.", true)
-            }
-            preview.mediaType?.startsWith("video/") == true -> VideoPreview(preview)
-            preview.mediaType?.startsWith("text/") == true ||
-                preview.mediaType?.contains("json") == true -> SelectionContainer {
-                Text(preview.bytes.toString(Charsets.UTF_8), Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()))
-            }
-            else -> EmptyState("앱에서 표시할 수 없는 파일", "서버에서 미리보기 ${formatBytes(preview.bytes.size.toLong())}를 받았습니다.")
+    val text = remember(preview.bytes) { previewText(preview.bytes) }
+    when {
+        preview.mediaType?.startsWith("video/") == true || serverFileCategory(preview.fileName) == "영상" -> VideoPreview(preview, modifier)
+        preview.mediaType?.startsWith("image/") == true || serverFileCategory(preview.fileName) == "이미지" -> {
+            val bitmap = remember(preview.bytes) { decodePreviewBitmap(preview.bytes) }
+            if (bitmap != null) ZoomableImagePreview(preview.fileName, bitmap.asImageBitmap(),
+                remember(preview.bytes) { previewImageDimensions(preview.bytes) }) else UnsupportedServerPreview(modifier)
         }
+        text != null -> FilePreview(RemoteFileContent(preview.fileName, preview.mediaType.orEmpty(), preview.bytes))
+        else -> UnsupportedServerPreview(modifier)
     }
 }
 
 @Composable
-private fun TrashPane(
-    state: DirectServerUiState,
-    onRestore: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onRequestEmpty: () -> Unit,
-    canMutate: Boolean,
-    developerModeEnabled: Boolean
-) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            DismissibleNoticeBanner(
-                noticeKey = "storage.server-trash-retention.v2",
-                message = if (state.trashEmptySupported) {
-                    "복원 가능한 서버 작업은 되돌릴 수 있습니다. 휴지통을 비우면 표시된 항목이 영구 삭제됩니다."
-                } else {
-                    "이 서버는 휴지통 비우기를 지원하지 않습니다. 서버를 업데이트하면 영구 삭제할 수 있습니다."
-                },
-                tone = if (state.trashEmptySupported) StatusTone.WARNING else StatusTone.INFO
-            )
-        }
-        val snapshot = serverTrashEmptySnapshot(state)
-        // Permanent server deletion is a developer-mode operation, and it is hidden when the server cannot do it.
-        if (developerModeEnabled && state.trashEmptySupported) item {
-            Button(
-                onClick = onRequestEmpty,
-                enabled = canMutate && snapshot != null && !state.isLoading && !state.isConnecting,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.DeleteForever, null)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    if (state.trashNextOffset != null || state.trashTotal > state.trash.size) {
-                        "표시된 ${snapshot?.sessionIds?.size ?: 0}개 비우기"
-                    } else "휴지통 비우기 (${snapshot?.sessionIds?.size ?: 0}개)"
-                )
-            }
-        }
-        if (state.trashTotal > state.trash.size) item {
-            InlineMessage(
-                "전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다. 이 작업은 표시된 항목만 삭제하며 ${state.trashTotal - state.trash.size}개는 남습니다.",
-                false
-            )
-        }
-        if (state.trash.isEmpty() && !state.isLoading) item {
-            EmptyState(
-                "휴지통이 비어 있습니다",
-                "복구 가능한 서버 작업이 없습니다.",
-                actionLabel = "다시 확인",
-                onAction = onRefresh
-            )
-        }
-        items(state.trash, key = { it.sessionId }) { job ->
-            SectionSurface(LocalCobaltColors.current.sectionSoft) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(job.sourceName, style = MaterialTheme.typography.titleMedium)
-                    job.surveyContext?.let { context ->
-                        Text(
-                            if (developerModeEnabled) {
-                                "조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}"
-                            } else {
-                                "조사 실행과 연결된 수신 결과"
-                            },
-                            style = MaterialTheme.typography.bodySmall)
-                    }
-                    Text("${job.fileCount}개 파일 · ${formatBytes(job.totalBytes)}", style = MaterialTheme.typography.bodySmall)
-                    Text("이동 · ${localDateTimeLabel(job.trashedAt)}", style = MaterialTheme.typography.bodySmall)
-                    if (job.state == "PURGING") {
-                        StatusBadge("삭제 처리 중", StatusTone.WARNING)
-                    }
-                    OutlinedButton(
-                        onClick = { onRestore(job.sessionId) },
-                        enabled = canMutate && job.restoreSupported != false && job.state == "TRASHED" && !state.isLoading,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (job.restoreSupported != false) "서버 작업 복원" else "복원할 수 없음") }
-                }
-            }
-        }
+private fun UnsupportedServerPreview(modifier: Modifier) {
+    Box(modifier.background(LocalGeoColors.current.surface).padding(storageGutter)) {
+        GeoStateBlock(GeoStateContent(GeoStateKind.UNSUPPORTED, "앱에서 볼 수 없는 파일입니다",
+            "이미지, 영상, 텍스트 파일만 앱에서 볼 수 있습니다."), fullScreen = true)
     }
 }
 
-internal data class ServerTrashEmptySnapshot(val profileId: String, val sessionIds: List<String>)
-
-internal fun serverTrashEmptySnapshot(state: DirectServerUiState): ServerTrashEmptySnapshot? {
-    val profileId = state.selectedProfileId ?: return null
-    if (!state.trashEmptySupported) return null
-    val ids = state.trash.filter(::isServerPurgeEligible).map(ServerTrashJob::sessionId).distinct().take(200)
-    return ids.takeIf { it.isNotEmpty() }?.let { ServerTrashEmptySnapshot(profileId, it) }
-}
-
-@Composable
-private fun ProfilesPane(
-    state: DirectServerUiState,
-    onSelect: (String) -> Unit,
-    onSave: (ServerEndpointProfile, String) -> Unit,
-    onConnect: () -> Unit,
-    onRemove: () -> Unit,
-    developerModeEnabled: Boolean
-) {
-    var profileId by rememberSaveable { mutableStateOf("") }
-    var displayName by rememberSaveable { mutableStateOf("") }
-    var environment by rememberSaveable { mutableStateOf(defaultServerEnvironmentChoice()) }
-    var baseUrl by rememberSaveable { mutableStateOf("") }
-    var employeeId by rememberSaveable { mutableStateOf("") }
-    var projectId by rememberSaveable { mutableStateOf("") }
-    var token by remember(state.selectedProfileId) { mutableStateOf("") }
-    DisposableEffect(Unit) { onDispose { token = "" } }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (developerModeEnabled) {
-            item {
-                DismissibleNoticeBanner(
-                    noticeKey = "storage.server-profile-auth.v1",
-                    message = "직원 토큰은 이 앱의 보호된 저장소에 보관합니다. 프로필 환경·직원·프로젝트가 서버 응답과 모두 일치해야 데이터를 표시합니다.",
-                    tone = StatusTone.INFO
-                )
-            }
-        }
-        if (state.profiles.isNotEmpty()) item {
-            SectionHeader("저장된 프로필")
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.profiles.forEach { stored ->
-                    FilterChip(
-                        selected = stored.profile.profileId == state.selectedProfileId,
-                        onClick = { onSelect(stored.profile.profileId) },
-                        label = { Text("${stored.profile.displayName} · ${stored.profile.environment.label()}") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Button(onClick = onConnect, enabled = state.selectedProfileId != null && !state.isConnecting,
-                    modifier = Modifier.fillMaxWidth()) { Text("선택 프로필로 연결") }
-                if (developerModeEnabled) {
-                    TextButton(onClick = onRemove, enabled = state.selectedProfileId != null,
-                        modifier = Modifier.fillMaxWidth()) { Text("선택 프로필 삭제") }
-                }
-            }
-        }
-        if (developerModeEnabled) {
-            item { SectionHeader(if (state.profiles.isEmpty()) "서버 프로필 추가" else "새 프로필 추가 또는 인증 갱신") }
-            item { OutlinedTextField(value = profileId, onValueChange = { profileId = it }, label = { Text("프로필 ID") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(value = displayName, onValueChange = { displayName = it }, label = { Text("표시 이름") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
-            item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ServerEnvironment.entries.forEach { value -> FilterChip(environment == value, { environment = value }, label = { Text(value.label()) }) }
-            } }
-            item { OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("HTTPS 서버 루트 주소") }, supportingText = { Text("예: https://uploads.example.com/") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(value = employeeId, onValueChange = { employeeId = it }, label = { Text("직원 ID") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(value = projectId, onValueChange = { projectId = it }, label = { Text("프로젝트 ID") }, singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("직원 토큰") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                singleLine = true, colors = slateTextFieldColors(), modifier = Modifier.fillMaxWidth()) }
-            item {
-                // Save only. Connecting is the separate 연결 action above, and it needs a chosen environment.
-                val chosenEnvironment = environment
-                OutlinedButton(
-                    onClick = {
-                        chosenEnvironment?.let { value ->
-                            onSave(
-                                ServerEndpointProfile(profileId, displayName, value, baseUrl, employeeId, projectId),
-                                token
-                            )
-                            token = ""
-                        }
-                    },
-                    enabled = chosenEnvironment != null &&
-                        listOf(profileId, displayName, baseUrl, employeeId, projectId, token).all { it.isNotBlank() } &&
-                        !state.isConnecting,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                ) { Text("암호화해 저장") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReceiptDialog(
-    receipt: ServerReceipt,
-    onDismiss: () -> Unit,
-    developerModeEnabled: Boolean
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("서버 수신 영수증") },
-        text = { SelectionContainer { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusBadge(if (receipt.matched) "검증 일치" else "검증 불일치",
-                if (receipt.matched) StatusTone.SUCCESS else StatusTone.ERROR)
-            if (developerModeEnabled) {
-                Text("세션 ${receipt.sessionId}")
-                Text("접근 프로젝트 ${receipt.accessProjectId ?: receipt.projectId}")
-            }
-            receipt.surveyContext?.let { context ->
-                if (developerModeEnabled) {
-                    Text("조사 ${context.surveyProjectId} · 구간 ${context.surveySectionId}")
-                    Text("Run ${context.runId} · 장치 ${context.deviceId}")
-                } else {
-                    Text("조사 실행과 연결됨")
-                }
-            }
-            Text("${receipt.fileCount}개 파일 · ${formatBytes(receipt.totalBytes)}")
-            if (developerModeEnabled) Text("SHA-256\n${receipt.contentSha256}")
-            Text("완료 · ${localDateTimeLabel(receipt.completedAt)}")
-            Text("검증 · ${localDateTimeLabel(receipt.verifiedAt)}")
-        } } },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } }
-    )
-}
-
-/**
- * The profile form starts with no environment chosen. A preselected environment would save a
- * profile against production without the operator having looked at it.
- */
 internal fun defaultServerEnvironmentChoice(): ServerEnvironment? = null
-
-private fun ServerEnvironment.label(): String = when (this) {
-    ServerEnvironment.DEVELOPMENT -> "개발"
-    ServerEnvironment.TEST -> "시험"
-    ServerEnvironment.PRODUCTION -> "운영"
-}
-
-private fun String.serverStateLabel(): String = when (uppercase(Locale.ROOT)) {
-    "COMPLETED" -> "수신 완료"
-    "FAILED" -> "실패"
-    "TRASHED" -> "휴지통"
-    "PURGING" -> "삭제 처리 중"
-    "UPLOADING" -> "전송 중"
-    else -> "상태 확인 필요"
-}
-
-private fun String.serverStateTone(): StatusTone = when (uppercase(Locale.ROOT)) {
-    "COMPLETED" -> StatusTone.SUCCESS
-    "FAILED" -> StatusTone.ERROR
-    "UPLOADING" -> StatusTone.INFO
-    else -> StatusTone.WARNING
-}
 
 internal fun directServerOperatorMessage(@Suppress("UNUSED_PARAMETER") message: String): String =
     "서버 인증을 확인하지 못했습니다. 관리자에게 서버 연결 설정 확인을 요청해 주세요."
@@ -724,18 +314,11 @@ internal fun directServerOperatorMessage(@Suppress("UNUSED_PARAMETER") message: 
 internal fun directServerRoleCanMutate(role: String?): Boolean =
     role?.uppercase(Locale.ROOT) in setOf("OPERATOR", "ADMIN")
 
-private fun formatEpoch(epochMillis: Long): String = java.text.DateFormat.getDateTimeInstance()
-    .format(java.util.Date(epochMillis))
-
-private fun formatBytes(bytes: Long): String =
-    com.example.jetsoncontroller.ui.model.Formats.size(bytes)
-
 internal fun calculatePreviewSampleSize(width: Int, height: Int, maxEdge: Int = 2048): Int {
     var sample = 1
     while (width / sample > maxEdge || height / sample > maxEdge) sample *= 2
     return sample
 }
-
 private fun decodePreviewBitmap(bytes: ByteArray): android.graphics.Bitmap? {
     val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -746,72 +329,74 @@ private fun decodePreviewBitmap(bytes: ByteArray): android.graphics.Bitmap? {
 }
 
 @Composable
-private fun VideoPreview(preview: DirectServerPreview) {
+private fun VideoPreview(preview: DirectServerPreview, modifier: Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var retry by remember(preview) { mutableIntStateOf(0) }
+    var file by remember(preview) { mutableStateOf<java.io.File?>(null) }
+    var failed by remember(preview) { mutableStateOf(false) }
+    var prepared by remember(preview, retry) { mutableStateOf(false) }
+    var playing by remember(preview, retry) { mutableStateOf(false) }
+    var video by remember(preview, retry) { mutableStateOf<android.widget.VideoView?>(null) }
     val suffix = when {
         preview.mediaType?.contains("webm") == true -> ".webm"
         preview.mediaType?.contains("quicktime") == true -> ".mov"
         else -> ".mp4"
     }
-    var retry by remember(preview) { mutableIntStateOf(0) }
-    var file by remember(preview) { mutableStateOf<java.io.File?>(null) }
-    var failure by remember(preview) { mutableStateOf<String?>(null) }
     LaunchedEffect(preview, retry) {
-        failure = null
+        failed = false
         file = null
         var candidate: java.io.File? = null
         try {
             withContext(Dispatchers.IO) {
                 val target = java.io.File.createTempFile("server-preview-", suffix, context.cacheDir)
                 candidate = target
-                try {
-                    target.writeBytes(preview.bytes)
-                } catch (error: Exception) {
-                    target.delete()
-                    throw error
-                }
+                target.writeBytes(preview.bytes)
             }
             currentCoroutineContext().ensureActive()
             file = candidate
             awaitCancellation()
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (error: Exception) {
-            failure = "영상 미리보기를 준비하지 못했습니다. 다시 시도하세요."
+        } catch (_: Exception) {
+            failed = true
         } finally {
-            candidate?.let { abandoned ->
-                withContext(NonCancellable + Dispatchers.IO) { abandoned.delete() }
-            }
+            withContext(NonCancellable + Dispatchers.IO) { candidate?.delete() }
         }
     }
-    failure?.let { error ->
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            InlineMessage(error, true)
-            OutlinedButton(onClick = { retry += 1 }, modifier = Modifier.fillMaxWidth()) {
-                Text("영상 미리보기 다시 준비")
-            }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, preview, retry) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) { video?.pause(); playing = false }
         }
-    } ?: file?.let { readyFile ->
-        var videoView by remember(preview, readyFile) { mutableStateOf<android.widget.VideoView?>(null) }
-        DisposableEffect(preview, readyFile) {
-            onDispose {
-                videoView?.stopPlayback()
-                videoView = null
-                runCatching { readyFile.delete() }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer); video?.stopPlayback(); video = null }
+    }
+    Box(modifier.background(Color.Black)) {
+        when {
+            failed -> Column(Modifier.align(Alignment.Center).padding(storageGutter), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("영상 미리 보기를 준비하지 못했습니다. 다시 시도하세요.",
+                    style = LocalGeoType.current.body, color = Color.White)
+                GeoButton("다시 시도", { retry += 1 }, Modifier.fillMaxWidth())
             }
-        }
-        key(preview, readyFile) {
-            AndroidView(
-                factory = { viewContext ->
+            file != null -> key(preview, retry, file) {
+                AndroidView(factory = { viewContext ->
                     android.widget.VideoView(viewContext).apply {
-                        videoView = this
-                        setVideoPath(readyFile.absolutePath)
+                        video = this
+                        setVideoPath(file!!.absolutePath)
                         setMediaController(android.widget.MediaController(viewContext).also { it.setAnchorView(this) })
-                        setOnPreparedListener { it.isLooping = false; seekTo(1) }
+                        setOnPreparedListener { prepared = true; it.isLooping = false; seekTo(1) }
+                        setOnCompletionListener { playing = false }
+                        setOnErrorListener { _, _, _ -> failed = true; playing = false; true }
                     }
-                },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp)
-            )
+                }, modifier = Modifier.fillMaxSize())
+                Box(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
+                    GeoButton(if (playing) "일시 정지" else "재생", {
+                        if (playing) video?.pause() else video?.start()
+                        playing = !playing
+                    }, enabled = prepared, disabledReason = "영상을 준비하고 있습니다.")
+                }
+            }
+            else -> Box(Modifier.align(Alignment.Center).padding(storageGutter)) { GeoProgress() }
         }
-    } ?: LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
 }

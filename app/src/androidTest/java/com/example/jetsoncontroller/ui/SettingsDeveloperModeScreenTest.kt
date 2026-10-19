@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -22,7 +23,7 @@ import org.junit.Test
 class SettingsDeveloperModeScreenTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun appInfoSevenTapsUnlocksDeveloperToolsAndDisablingRelocksThem() {
+    @Test fun appInfoVersionSevenTapsUnlockDeveloperTools() {
         var enabled by mutableStateOf(false)
         compose.setContent {
             JetsonControllerTheme {
@@ -33,25 +34,21 @@ class SettingsDeveloperModeScreenTest {
         compose.onNodeWithText("개발자 모드").assertDoesNotExist()
         compose.onNodeWithText("개발자 도구").assertDoesNotExist()
         compose.onNodeWithText("앱 정보").performScrollTo().performClick()
-        repeat(5) { compose.onNodeWithTag("developer-unlock").performClick() }
+        repeat(6) { compose.onNodeWithTag("developer-unlock").performClick() }
         compose.onNodeWithText("개발자 모드").assertDoesNotExist()
         compose.onNodeWithTag("developer-unlock").performClick()
         compose.onNodeWithText("개발자 도구").performScrollTo().assertIsDisplayed()
         compose.runOnIdle { assertTrue(enabled) }
-
-        compose.onNodeWithText("개발자 모드").performScrollTo().performClick()
-        compose.onNodeWithText("개발자 도구").assertDoesNotExist()
-        compose.runOnIdle { assertFalse(enabled) }
         compose.onNodeWithText("개발자 모드").assertDoesNotExist()
     }
 
-    @Test fun previouslyEnabledPreferenceStillShowsItsDisableControl() {
+    @Test fun enabledDeveloperModeAddsOnlyTheDeveloperToolsRow() {
         compose.setContent {
             JetsonControllerTheme { SettingsFixture(true) {} }
         }
 
-        compose.onNodeWithText("개발자 모드").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("개발자 도구").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("개발자 모드").assertDoesNotExist()
     }
 
     @Test fun disablingModeInsideDeveloperScreenImmediatelyRequestsExit() {
@@ -72,14 +69,14 @@ class SettingsDeveloperModeScreenTest {
             }
         }
 
-        compose.onNodeWithText("개발자 모드 켜짐").performScrollTo().performClick()
+        compose.onNodeWithText("개발자 모드").performScrollTo().performClick()
         compose.runOnIdle {
             assertFalse(enabled)
             assertTrue(exitRequested)
         }
     }
 
-    @Test fun helpSheetOpensFromItsRowAndCanBeDismissed() {
+    @Test fun helpPageOpensFromItsRowAndReturnsToSettings() {
         compose.setContent {
             JetsonControllerTheme { SettingsFixture(false) {} }
         }
@@ -87,7 +84,7 @@ class SettingsDeveloperModeScreenTest {
         compose.onNodeWithText("도움말").performScrollTo().performClick()
         compose.onNodeWithText("수집 후 파일에서 저장 결과와 서버 수신을 확인할 수 있습니다.", substring = true)
             .assertIsDisplayed()
-        compose.onNodeWithText("도움말 닫기").performClick()
+        compose.onNodeWithContentDescription("뒤로").performClick()
         compose.onNodeWithText("수집 후 파일에서 저장 결과와 서버 수신을 확인할 수 있습니다.", substring = true)
             .assertDoesNotExist()
     }
