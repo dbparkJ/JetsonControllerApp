@@ -77,10 +77,16 @@ object ZoneValidation {
             val root = json!!.obj("$")
             val version = root.get("schemaVersion").number("schemaVersion")
             checkValue(version == 1.0, ZoneValidationCode.UNSUPPORTED_VERSION, "schemaVersion")
-            val collection = root.get("features").obj("features")
-            checkValue(collection.get("type")?.asString == "FeatureCollection", ZoneValidationCode.INVALID_TYPE, "features.type")
-            val features = collection.get("features").array("features.features").mapIndexed { index, element ->
-                val path = "features.features[$index]"
+            // Contract v1 (GEO& Work, 2026-10-20) sends an array of Features; the first draft wrapped
+            // the array in a FeatureCollection, which is still read.
+            val collection = root.get("features").present()
+            checkValue(collection != null, ZoneValidationCode.INVALID_TYPE, "features")
+            val featureArray = if (collection!!.isJsonArray) collection else collection.obj("features").let {
+                checkValue(it.get("type")?.asString == "FeatureCollection", ZoneValidationCode.INVALID_TYPE, "features.type")
+                it.get("features")
+            }
+            val features = featureArray.array("features").mapIndexed { index, element ->
+                val path = "features[$index]"
                 val feature = element.obj(path)
                 checkValue(feature.get("type")?.asString == "Feature", ZoneValidationCode.INVALID_TYPE, "$path.type")
                 ZoneFeature(geometry(feature.get("geometry"), "$path.geometry"))
@@ -103,10 +109,11 @@ object ZoneValidation {
                     values[0] <= values[2] && values[1] <= values[3], ZoneValidationCode.INVALID_BBOX, "range.bbox")
                 values
             }
-            val revisionValue = root.get("revision").present()
-            checkValue(revisionValue?.isJsonPrimitive == true && revisionValue.asJsonPrimitive.isString &&
-                revisionValue.asString.isNotBlank(), ZoneValidationCode.INVALID_TYPE, "revision")
-            val revision = revisionValue!!.asString
+            // v1 revision is a number; the draft used an opaque string. Both become the same text form.
+            val revisionValue = root.get("revision").present()?.takeIf { it.isJsonPrimitive }?.asJsonPrimitive
+            checkValue(revisionValue != null && ((revisionValue.isString && revisionValue.asString.isNotBlank()) ||
+                (revisionValue.isNumber && revisionValue.asBigDecimal.signum() >= 0)), ZoneValidationCode.INVALID_TYPE, "revision")
+            val revision = if (revisionValue!!.isNumber) revisionValue.asBigDecimal.toPlainString() else revisionValue.asString
             val canonical = canonicalJson(root)
             val geometryJson = root.deepCopy().apply { remove("revision"); remove("hash") }
             val hash = suppliedHash?.takeIf { it.isNotBlank() } ?: MessageDigest.getInstance("SHA-256")

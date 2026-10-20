@@ -102,6 +102,17 @@ def row_values(row: dict, schema: dict) -> dict:
             for name, prop in schema["properties"].items()}
 
 
+def _is_feature(feature) -> bool:
+    """A v1 Feature: a Point, LineString or Polygon with an optional role; coordinates pass through."""
+    if not isinstance(feature, dict) or feature.get("type") != "Feature":
+        return False
+    shape = feature.get("geometry")
+    properties = feature.get("properties") or {}
+    return (isinstance(shape, dict) and shape.get("type") in ("Point", "LineString", "Polygon")
+            and isinstance(properties, dict)
+            and properties.get("role", "POINT") in ("POINT", "ROUTE", "AREA"))
+
+
 def _reject_json_constant(value):
     raise ValueError(f"Invalid JSON constant: {value}")
 
@@ -128,11 +139,14 @@ def ticket_geometry(row: dict, schema: dict) -> str | None:
             return None
         if not isinstance(geometry, dict):
             return None
+        # Contract v1 (GEO& Work, 2026-10-20): features is an array of Features; the first draft
+        # wrapped them in a FeatureCollection, which is still accepted. revision is a number.
+        features = geometry.get("features")
+        if isinstance(features, dict) and features.get("type") == "FeatureCollection":
+            features = features.get("features")
         if (type(geometry.get("schemaVersion")) is not int or geometry["schemaVersion"] != 1
-                or not isinstance(geometry.get("features"), dict)
-                or geometry["features"].get("type") != "FeatureCollection"
-                or not isinstance(geometry["features"].get("features"), list)
-                or not isinstance(geometry.get("revision"), str)):
+                or not isinstance(features, list) or not all(_is_feature(f) for f in features)
+                or type(geometry.get("revision")) not in (int, str)):
             return None
         range_value = geometry.get("range")
         if range_value is not None:
@@ -144,7 +158,7 @@ def ticket_geometry(row: dict, schema: dict) -> str | None:
                     or range_value["polygon"].get("type") not in ("Polygon", "MultiPolygon")
                     or not isinstance(range_value["bbox"], list) or len(range_value["bbox"]) != 4
                     or any(type(number) not in (int, float) for number in range_value["bbox"])
-                    or type(range_value["lengthM"]) not in (int, float)
+                    or (range_value["lengthM"] is not None and type(range_value["lengthM"]) not in (int, float))
                     or type(range_value["areaM2"]) not in (int, float)):
                 return None
         serialized = json.dumps(geometry, ensure_ascii=False, separators=(",", ":"), allow_nan=False)

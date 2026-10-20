@@ -16,6 +16,22 @@ class ZoneValidationTest {
     }
 
     @Test
+    fun `contract v1 sends features as an array and a numeric revision`() {
+        val json = """{"schemaVersion":1,"features":[
+            {"type":"Feature","properties":{"role":"ROUTE","label":"북측"},
+             "geometry":{"type":"LineString","coordinates":[[127.0,37.0],[127.001,37.001]]}}],
+            "range":{"bufferM":30,"polygon":$polygon,"bbox":[126,36,128,38],"lengthM":null,"areaM2":3400},
+            "revision":7}"""
+        val parsed = ZoneValidation.parse(json)
+        assertEquals(ZoneGeometryState.VALID, parsed.state)
+        val zone = requireNotNull(parsed.contract)
+        assertEquals("7", zone.revision)
+        assertEquals(60.0, zone.widthM!!, 0.0)
+        assertNull(zone.lengthM)
+        assertEquals(1, zone.features.size)
+    }
+
+    @Test
     fun `draft v1 range is parsed from nullable ticket fields and buffer is per side`() {
         val ticket = ServerTicket("row", "구간", revision = "row-r1", features = JsonParser.parseString(features),
             range = JsonParser.parseString("""{"bufferM":10,"polygon":$polygon,"bbox":[126,36,128,38],"lengthM":1200,"areaM2":350}"""),
@@ -173,11 +189,13 @@ class ZoneValidationTest {
     }
 
     @Test
-    fun `geometry revision must be present nonblank and opaque text`() {
-        for (replacement in listOf("null", "\"\"", "\" \"", "123")) {
+    fun `geometry revision must be present as a number or nonblank text`() {
+        for (replacement in listOf("null", "\"\"", "\" \"", "-1", "true")) {
             assertInvalid(draft().replace("\"geometry-r1\"", replacement), ZoneValidationCode.INVALID_TYPE)
         }
         assertInvalid(draft().replace(",\"revision\":\"geometry-r1\"", ""), ZoneValidationCode.INVALID_TYPE)
+        // Contract v1 counts revisions as numbers; the draft's opaque text is still read as is.
+        assertEquals("123", ZoneValidation.parse(draft().replace("\"geometry-r1\"", "123")).contract?.revision)
         assertEquals("opaque:revision/다음", ZoneValidation.parse(draft().replace("geometry-r1", "opaque:revision/다음")).contract?.revision)
     }
 

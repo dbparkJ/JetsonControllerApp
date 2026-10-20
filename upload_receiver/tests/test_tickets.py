@@ -221,22 +221,32 @@ class TicketsCoreTest(unittest.TestCase):
         schema = resolve_schema(board)
         geometry = {
             "schemaVersion": 1,
-            "features": {"type": "FeatureCollection", "features": []},
+            "features": [],
             "range": {"bufferM": 10, "polygon": {"type": "Polygon", "coordinates": []},
                       "bbox": [1, 2, 3, 4], "lengthM": 100, "areaM2": 200},
-            "revision": "zone-r1",
+            "revision": 1,
             "unrecognizedDraftField": {"kept": True},
         }
-        row = {"values": {prop_id: {"type": "TEXT", "value": json.dumps(geometry, ensure_ascii=False)}}}
+        row = {"values": {prop_id: {"type": "GEOMETRY", "value": json.dumps(geometry, ensure_ascii=False)}}}
         self.assertEqual(json.loads(ticket_geometry(row, schema)), geometry)
         row["values"][prop_id]["value"] = geometry
         self.assertEqual(json.loads(ticket_geometry(row, schema)), geometry)
+        # Still accepted: a route-less range (lengthM null), the first draft's wrapper and a text revision.
+        for accepted in (
+            {**geometry, "range": {**geometry["range"], "lengthM": None}},
+            {**geometry, "features": {"type": "FeatureCollection", "features": []}, "revision": "zone-r1"},
+        ):
+            row["values"][prop_id]["value"] = accepted
+            self.assertEqual(json.loads(ticket_geometry(row, schema)), accepted)
 
         for value in (
             "not json",
             json.dumps([geometry]),
             json.dumps({**geometry, "schemaVersion": 2}),
-            json.dumps({**geometry, "features": []}),
+            json.dumps({**geometry, "features": [{"type": "Feature", "geometry": {"type": "Circle"}}]}),
+            json.dumps({**geometry, "features": [{"type": "Feature", "geometry": {"type": "Point"},
+                                                  "properties": {"role": "SPOT"}}]}),
+            json.dumps({**geometry, "revision": None}),
             json.dumps({**geometry, "range": []}),
             " " * (MAX_GEOMETRY_BYTES + 1),
         ):
@@ -248,10 +258,10 @@ class TicketsCoreTest(unittest.TestCase):
         self.api.board["properties"].append({"id": prop_id, "name": "수집 구역", "type": "TEXT"})
         geometry = {
             "schemaVersion": 1,
-            "features": {"type": "FeatureCollection", "features": []},
+            "features": [],
             "range": {"bufferM": 10, "polygon": {"type": "Polygon", "coordinates": []},
                       "bbox": [1, 2, 3, 4], "lengthM": 100, "areaM2": 200},
-            "revision": "opaque-zone-revision",
+            "revision": 3,
             "extra": ["preserved"],
         }
         self.api.rows["row-1"]["values"][prop_id] = {
@@ -714,13 +724,13 @@ class TicketsApiTest(unittest.TestCase):
 
         geometry = {
             "schemaVersion": 1,
-            "features": {"type": "FeatureCollection", "features": [
-                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [151.2, -33.8]},
-                 "properties": {"label": "A"}},
-            ]},
-            "range": {"bufferM": 10, "polygon": {"type": "Polygon", "coordinates": []},
-                      "bbox": [151.1, -33.9, 151.3, -33.7], "lengthM": 42.5, "areaM2": 100},
-            "revision": "zone-r7",
+            "features": [
+                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [126.978, 37.5665]},
+                 "properties": {"role": "POINT", "label": "A"}},
+            ],
+            "range": {"bufferM": 30, "polygon": {"type": "Polygon", "coordinates": []},
+                      "bbox": [126.977, 37.5664, 126.979, 37.5666], "lengthM": None, "areaM2": 2827.4},
+            "revision": 7,
             "hash": "draft-field-passthrough",
         }
         self.sync_geometry(json.dumps(geometry, ensure_ascii=False), 2)

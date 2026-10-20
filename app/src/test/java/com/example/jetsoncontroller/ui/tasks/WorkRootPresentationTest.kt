@@ -42,6 +42,20 @@ class WorkRootPresentationTest {
         assertEquals(OperationState.IDLE, workNextAction(input()).operation)
     }
 
+    @Test fun `a fresh idle task list confirms the device before any task is opened`() {
+        val idle = com.example.jetsoncontroller.model.ManagedPipeline("pipe", "데이터 수집",
+            state = com.example.jetsoncontroller.model.PipelineState.STOPPED, entrypoint = "collect.py", config = "config.yaml",
+            virtualenv = "venv")
+        val unopened = input(SurveyRunUiState()).copy(pipelines = listOf(idle))
+        assertEquals(OperationState.RUN_UNCONFIRMED, workNextAction(unopened).operation)
+        assertEquals(OperationState.IDLE, workNextAction(unopened.copy(tasksFresh = true)).operation)
+        val running = idle.copy(state = com.example.jetsoncontroller.model.PipelineState.RUNNING)
+        assertEquals(OperationState.RUN_UNCONFIRMED,
+            workNextAction(unopened.copy(tasksFresh = true, pipelines = listOf(running))).operation)
+        assertEquals(OperationState.RUN_UNCONFIRMED,
+            workNextAction(unopened.copy(tasksFresh = true, survey = SurveyRunUiState(pipelineId = "pipe"))).operation)
+    }
+
     @Test fun `transport remedies preserve pending operation for permission and rejected credentials`() {
         val pending = PendingContextualStart("pipe", "project", 1, "section", 1, "policy", "check", "request")
         val input = input(SurveyRunUiState(pendingStart = pending)).copy(connected = false)

@@ -13,6 +13,7 @@ import java.util.Locale
 /** Deterministic, locale-independent display formats used throughout the app. */
 object Formats {
     private const val UNKNOWN = "미확인"
+    private val CLOCK_SKEW_TOLERANCE: Duration = Duration.ofMinutes(1L)
     private const val NBSP = '\u00A0'
     private val SEOUL: ZoneId = ZoneId.of("Asia/Seoul")
     private val THOUSAND = BigDecimal.valueOf(1_000L)
@@ -131,13 +132,17 @@ object Formats {
         }
     }
 
-    /** [updatedAt] is needed only for ages of an hour or more. */
+    /**
+     * [updatedAt] is needed only for ages of an hour or more. Device clocks run a little apart from the
+     * phone's (GEO-X-1 was 1.3 s ahead on 2026-10-20), so an age up to a minute in the future reads as now.
+     */
     fun freshness(
         age: Duration?,
         updatedAt: Instant? = null,
         now: Instant? = Instant.now()
     ): String {
-        if (age == null || age.isNegative) return UNKNOWN
+        if (age == null || age < CLOCK_SKEW_TOLERANCE.negated()) return UNKNOWN
+        if (age.isNegative) return "방금 갱신"
         return when {
             age <= Duration.ofSeconds(15L) -> "방금 갱신"
             age < Duration.ofMinutes(60L) -> "${age.toMinutes().coerceAtLeast(1L)}분 전 갱신"

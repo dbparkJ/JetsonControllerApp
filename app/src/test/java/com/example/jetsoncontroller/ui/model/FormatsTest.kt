@@ -95,6 +95,9 @@ class FormatsTest {
         )
         assertEquals("2025년 9월 16일 16:36", Formats.time(Instant.parse("2025-09-16T07:36:00Z"), now))
         assertEquals("방금 갱신", Formats.freshness(Duration.ofSeconds(15)))
+        // A device clock slightly ahead of the phone is still "now"; far in the future is unknown.
+        assertEquals("방금 갱신", Formats.freshness(Duration.ofMillis(-1_300)))
+        assertEquals("미확인", Formats.freshness(Duration.ofMinutes(-5)))
         assertEquals("3분 전 갱신", Formats.freshness(Duration.ofMinutes(3)))
         assertEquals(
             "16:36 갱신",

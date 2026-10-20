@@ -106,12 +106,19 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
             status = deviceDashboardState.status.takeIf { deviceDashboardState.isOnline && !survey.restoringLocalState },
             connectionWord = selectedConnection.label, connectionTone = selectedConnection.tone,
             basicConnection = deviceDashboardState.isOnline && deviceDashboardState.transportType == TransportType.BLE,
-            checkingDevice = survey.restoringLocalState || connectingLanDeviceId.equals(selectedDeviceId, true),
+            // Until this device's task list has arrived once, the run state is being checked, not unknown.
+            // A pending start or an unconfirmed run still shows its own Focus block.
+            checkingDevice = survey.restoringLocalState || connectingLanDeviceId.equals(selectedDeviceId, true) ||
+                (survey.pipelineId == null && survey.pendingStart == null && survey.unconfirmedRunId == null &&
+                    (pipelineState.observedAtMillis == null || !pipelineState.deviceId.equals(selectedDeviceId, true))),
             permissionMissing = !localNetworkPermissionGranted && !fullControlConnected,
             credentialsRejected = deviceDashboardState.connectionState is com.example.jetsoncontroller.model.ConnectionState.RegistrationRequired,
             lastResponseLabel = selectedSnapshot?.lastSeenAtEpochMillis?.let { com.example.jetsoncontroller.ui.devices.formatSeenAt(it, now.toEpochMilli()) },
             receiptVerified = receipt.tone == Tone.SUCCESS, ticketLinked = link != null,
             completionReported = reportDelivery == TicketReportDeliveryState.SENT, now = now,
+            tasksFresh = pipelineState.deviceId.equals(selectedDeviceId, true) &&
+                com.example.jetsoncontroller.ui.pipelines.tasksAreFresh(
+                    pipelineState.controlAvailable, pipelineState.observedAtMillis, System.currentTimeMillis()),
             reportStates = fieldState.runs.mapNotNull { history ->
                 val id = history.runId ?: return@mapNotNull null
                 val ticket = serverTicketState.tickets.firstOrNull { it.runId == id }

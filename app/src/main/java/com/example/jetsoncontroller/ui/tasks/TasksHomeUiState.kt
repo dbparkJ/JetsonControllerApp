@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.tasks
 
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.ui.field.RunReceiptCell
@@ -59,8 +60,23 @@ internal data class TasksHomeInput(
     val reportStates: Map<String, CompletionReportState> = emptyMap(),
     val lastObservedAt: Instant? = null,
     val storageWarningPercent: Int = 85,
-    val temperatureWarningC: Int = 80
+    val temperatureWarningC: Int = 80,
+    /** The device's task list was read within the freshness window (tasksAreFresh). */
+    val tasksFresh: Boolean = false
 )
+
+private val BusyPipelineStates = setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.STOPPING,
+    PipelineState.RETRYING, PipelineState.WAITING_FOR_TIME_SYNC)
+
+/**
+ * Before any task is opened, the survey run state has nothing to confirm. A fresh task list in which
+ * nothing runs is then the evidence that the device is idle; anything running stays unconfirmed.
+ */
+internal fun idleConfirmedFromTaskList(input: TasksHomeInput): Boolean {
+    val survey = input.survey
+    return survey.pipelineId == null && !survey.restoringLocalState && input.connected && input.tasksFresh &&
+        input.pipelines.none { it.execution?.active == true || it.state in BusyPipelineStates }
+}
 
 /** The pinned 현장 수집 card. [startBlockedReason] is one line, shown only while the start is off. */
 internal data class PinnedSurveyState(
@@ -162,7 +178,7 @@ internal fun workNextAction(input: TasksHomeInput): NextAction {
         deviceName = input.deviceName ?: UnnamedDeviceLabel,
         field = FieldStageInput(
             connected = input.connected || input.basicConnection,
-            runStateConfirmed = s.runStateConfirmed && !s.restoringLocalState,
+            runStateConfirmed = (s.runStateConfirmed && !s.restoringLocalState) || idleConfirmedFromTaskList(input),
             activeRunId = s.activeRun?.takeIf { it.active }?.runId,
             pendingStartRequestId = s.pendingStart?.clientRequestId,
             unconfirmedRunId = s.unconfirmedRunId,
