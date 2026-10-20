@@ -7,6 +7,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NavigationShellTest {
+    /**
+     * A tab root pushed outside navigateToTab breaks the saved tab stacks: the next tap on 작업
+     * pops that root and restores it again, so the screen does not move. Cross-links open the
+     * per-tab copy of a destination (settings/server, DEVICE_BROWSE) instead.
+     */
+    @Test
+    fun `screens never push another tab's root`() {
+        val ui = listOf(java.io.File("src/main/java/com/example/jetsoncontroller/ui"),
+            java.io.File("app/src/main/java/com/example/jetsoncontroller/ui")).first { it.isDirectory }
+        val rootPush = Regex("""navigateSingle\(Routes\.(TASKS|DEVICES|TRANSFERS|SETTINGS)\b""")
+        val offenders = ui.walkTopDown().filter { it.isFile && it.extension == "kt" }.flatMap { file ->
+            file.readText().replace("\r\n", "\n").lineSequence().withIndex()
+                .filter { rootPush.containsMatchIn(it.value) }
+                .map { "${file.name}:${it.index + 1}" }
+        }.toList()
+        assertEquals(emptyList<String>(), offenders)
+    }
+
     @Test
     fun `initial empty VM state cannot choose first run before the store restores`() {
         assertNull(initialWorkRoute(null))

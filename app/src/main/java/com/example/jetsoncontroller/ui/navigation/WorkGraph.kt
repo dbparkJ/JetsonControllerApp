@@ -226,7 +226,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                     NextActionCommand.WIFI_SETTINGS -> navController.navigateSingle(Routes.NETWORK_SETTINGS)
                     NextActionCommand.CONNECTION_HELP -> openConnectionMethods(navController)
                 }
-            }, onRefresh = refresh, onServerConnection = { navController.navigateSingle(Routes.SETTINGS) },
+            }, onRefresh = refresh, onServerConnection = { navController.navigateSingle(SETTINGS_SERVER_ROUTE) },
             onAlerts = { navController.navigateSingle(Routes.ALERTS) }, unreadCount = alertCenterState.unreadCount,
             now = now, deviceOpener = opener,
             focusReportLabel = when { reportFailed -> "다시 보고"; reportPending -> "보고 대기"; else -> "완료 보고" },
