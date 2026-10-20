@@ -23,6 +23,24 @@ class HistoryEntryTest {
         assertEquals("데이터 수집", historyRecordTitle(entry.copy(output = null, contextSnapshot = null)))
     }
 
+    @Test fun `run-named output folders never title a row and the other name leads the meta`() {
+        val run = resultTestRun()
+        val entry = TaskRun("capture/run.log", run.pipelineId, "데이터 수집", run.logId, run.startedAt,
+            finishedAt = run.finishedAt, runId = run.runId, contextSnapshot = run.contextSnapshot,
+            output = run.output.copy(path = "recordings/run-20260916T073608.169374Z-4190931992"))
+        assertEquals("북측 보조 구간", historyRecordTitle(entry))
+        assertTrue(historyRecordMeta(entry).startsWith("신월4거리 · "))
+        assertFalse(historyRecordMeta(entry).contains("run-2026"))
+        val folder = runFolderDisplayName(entry.output?.path, entry.startedAt, entry.runId)
+        assertTrue(folder.orEmpty().endsWith(" 수집"))
+        assertFalse(folder.orEmpty().contains("run-"))
+        assertEquals("20261019_1636", runFolderDisplayName(run.output.path, entry.startedAt, entry.runId))
+        assertNull(runFolderDisplayName("/", entry.startedAt, entry.runId))
+        val named = entry.copy(output = run.output)
+        assertEquals("20261019_1636", historyRecordTitle(named))
+        assertTrue(historyRecordMeta(named).startsWith("북측 보조 구간 · "))
+    }
+
     @Test fun `folder names ignore surrounding whitespace and trailing separators`() {
         val run = resultTestRun()
         val entry = TaskRun("capture/run.log", run.pipelineId, "데이터 수집", run.logId, run.startedAt,

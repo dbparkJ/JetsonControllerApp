@@ -179,8 +179,26 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
     }
 }
 
+/** Pipeline run folders are named after the run ("run-20260916T073608.169374Z-…"): identifiers, not names. */
+private val RunFolderName = Regex("^run-\\d{8}T\\d{6}", RegexOption.IGNORE_CASE)
+
 internal fun historyFolderLabel(path: String?, vararg identifiers: String?): String? =
     historyDisplayLabel(path?.trim()?.trimEnd('/', '\\')?.substringAfterLast('/')?.substringAfterLast('\\'), *identifiers)
+        ?.takeUnless { RunFolderName.containsMatchIn(it) }
+
+/** A folder named after its run reads as "<시각> 수집" in daily rows; the real name stays in 기술 정보. */
+internal fun runFolderDisplayName(path: String?, startedAt: String?, vararg identifiers: String?): String? {
+    if (path?.trim()?.trimEnd('/', '\\').isNullOrBlank()) return null
+    return historyFolderLabel(path, *identifiers)
+        ?: resultInstant(startedAt)?.let { "${Formats.time(it)} 수집" }
+}
+
+private fun historyOtherName(run: TaskRun): String? {
+    val ids = arrayOf(run.runId, run.output?.manifest?.runId)
+    return if (historyFolderLabel(run.output?.path, *ids) != null)
+        historyDisplayLabel(run.contextSnapshot?.surveySectionLabel, *ids)
+    else historyDisplayLabel(run.contextSnapshot?.surveyProjectLabel, *ids)
+}
 
 private fun historyDisplayLabel(label: String?, vararg identifiers: String?): String? =
     label?.trim()?.takeIf { value ->
@@ -193,7 +211,9 @@ internal fun historyRecordTitle(run: TaskRun): String =
         ?: historyDisplayLabel(run.label, run.runId, run.output?.manifest?.runId)
         ?: "수집 기록"
 
+/** The row is named by its folder or its section; the other name (or the project) leads the meta line. */
 internal fun historyRecordMeta(run: TaskRun): String = listOfNotNull(
+    historyOtherName(run)?.takeIf { it != historyRecordTitle(run) },
     resultTime(run.startedAt),
     elapsedResultDuration(run.startedAt, run.finishedAt)?.let(Formats::duration),
     run.output?.manifest?.bytesTotal?.let(Formats::size)

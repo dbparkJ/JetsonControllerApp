@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.tasks
 
+import com.example.jetsoncontroller.ui.field.runFolderDisplayName
 import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -18,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.model.ManagedPipeline
 import com.example.jetsoncontroller.model.TaskRun
-import com.example.jetsoncontroller.ui.field.historyFolderLabel
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
@@ -138,11 +138,11 @@ internal fun WorkTaskDetailScreen(
                             if (row.tone != null) WorkBadgeFact(row.label, row.value, row.tone)
                             else if (row.label == "결과 저장 폴더" && onOpenFiles != null) {
                                 GeoRow(row.label, onOpenFiles,
-                                    value = historyFolderLabel(row.value, lastRun?.runId, lastRun?.output?.manifest?.runId),
+                                    value = runFolderDisplayName(row.value, lastRun?.startedAt, lastRun?.runId, lastRun?.output?.manifest?.runId),
                                     enabled = readiness.controlAvailable,
                                     disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                             } else GeoFactRow(row.label, if (row.label == "결과 저장 폴더")
-                                historyFolderLabel(row.value, lastRun?.runId, lastRun?.output?.manifest?.runId) ?: "미확인"
+                                runFolderDisplayName(row.value, lastRun?.startedAt, lastRun?.runId, lastRun?.output?.manifest?.runId) ?: "미확인"
                                 else row.value)
                         }
                     }

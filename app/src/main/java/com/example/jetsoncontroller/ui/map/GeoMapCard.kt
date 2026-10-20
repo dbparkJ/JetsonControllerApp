@@ -155,7 +155,8 @@ internal fun GeoTicketMapCard(ticket: ServerTicket, deviceName: String) {
 }
 
 @Composable
-internal fun GeoResultMapCard(run: PipelineRun?, history: TaskRun?, field: FieldState?, observation: ResultZoneObservation?, revisionChanged: Boolean = false) {
+internal fun GeoResultMapCard(run: PipelineRun?, history: TaskRun?, field: FieldState?, observation: ResultZoneObservation?, revisionChanged: Boolean = false,
+    modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val runId = run?.runId ?: history?.runId
     val deviceId = run?.deviceId ?: history?.deviceId
@@ -187,14 +188,15 @@ internal fun GeoResultMapCard(run: PipelineRun?, history: TaskRun?, field: Field
     val data = inherited.copy(geometry = stored ?: inherited.geometry,
         trail = if (routeMatches) field!!.route else route?.points ?: inherited.trail,
         device = null, quality = route?.quality ?: run?.quality ?: history?.quality, zone = zone, geometryChanged = revisionChanged)
-    GeoMapCardWithDestination(GeoMapMode.ROUTE, data)
+    GeoMapCardWithDestination(GeoMapMode.ROUTE, data, modifier = modifier)
 }
 
 @Composable
-internal fun GeoMapCardWithDestination(mode: GeoMapMode, data: GeoMapData, gnss: GnssSensorStatus = GnssSensorStatus()) {
+internal fun GeoMapCardWithDestination(mode: GeoMapMode, data: GeoMapData, gnss: GnssSensorStatus = GnssSensorStatus(),
+    modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
-    GeoMapCard(mode, data, { open = true }, Modifier.focusRequester(focus), fullMapOpen = open)
+    GeoMapCard(mode, data, { open = true }, modifier.focusRequester(focus), fullMapOpen = open)
     if (open) {
         GeoMapWindow({ open = false }) {
             GeoMapScreen(mode, data, { open = false }, gnss = gnss)

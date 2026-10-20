@@ -48,7 +48,8 @@ internal fun Modifier.contentTarget(enabled: Boolean = true, onClick: () -> Unit
     val pressed by source.collectIsPressedAsState()
     val focused by source.collectIsFocusedAsState()
     this
-        .background(if (!enabled) colors.disabledFill else if (pressed) colors.fieldPressed else Color.Transparent)
+        // KIT §3.7: a disabled row keeps the row look (disabledText title, reason line); only buttons take disabledFill.
+        .background(if (enabled && pressed) colors.fieldPressed else Color.Transparent)
         .drawBehind {
             if (focused) {
                 val offset = 3.dp.toPx()

@@ -87,8 +87,8 @@ internal fun TasksHomeScreen(
                 }
                 item(key = "recent") {
                     GeoSection("최근 수집", actionLabel = if (state.recent.isEmpty()) null else "전체 기록", onAction = onOpenHistory) {
-                        if (state.recent.isEmpty()) GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
-                            "완료한 수집이 없습니다", "수집을 마치면 여기에 남습니다."))
+                        if (state.recent.isEmpty()) state.deviceListsNote?.let { DeviceListsNote(it) }
+                            ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "완료한 수집이 없습니다", "수집을 마치면 여기에 남습니다."))
                         state.recent.forEach { row ->
                             Column(Modifier.clickable { onOpenRun(row.runId) }.semantics(mergeDescendants = true) {}) {
                                 GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta)
@@ -117,8 +117,8 @@ internal fun TasksHomeScreen(
                 }
                 item(key = "tasks") {
                     GeoSection("장치 작업") {
-                        if (state.otherTasks.isEmpty()) GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
-                            "이 장치에 등록된 작업이 없습니다", "작업 등록은 관리자에게 요청하세요."))
+                        if (state.otherTasks.isEmpty()) state.deviceListsNote?.let { DeviceListsNote(it) }
+                            ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 장치에 등록된 작업이 없습니다", "작업 등록은 관리자에게 요청하세요."))
                         state.otherTasks.forEach { task ->
                             GeoRow(task.title, { onOpenTask(task.pipelineId) }, meta = task.caption,
                                 badge = { GeoBadge(task.stateLabel, workTaskTone(task.stateLabel)) })
@@ -222,4 +222,9 @@ internal fun workTaskTone(word: String): Tone = when (word) {
     "재시도 중" -> Tone.WARNING
     "시작 요청 중", "중지 요청 중", "시간 맞추는 중" -> Tone.PENDING
     else -> Tone.UNKNOWN
+}
+
+@Composable
+private fun DeviceListsNote(text: String) {
+    Text(text, style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
 }

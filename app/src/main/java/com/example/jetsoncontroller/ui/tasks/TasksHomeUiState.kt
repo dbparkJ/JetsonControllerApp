@@ -123,7 +123,9 @@ internal data class TasksHomeUiState(
     val ticketSection: ServerTicketUiState? = null,
     val focus: NextAction? = null,
     val deviceStrip: GeoDeviceStripState? = null,
-    val connectionTone: Tone = Tone.UNKNOWN
+    val connectionTone: Tone = Tone.UNKNOWN,
+    /** Replaces the empty states of 최근 수집 and 장치 작업 while the device has not answered yet. */
+    val deviceListsNote: String? = null
 )
 
 internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
@@ -173,8 +175,16 @@ internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
             survey.pendingStart == null && survey.unconfirmedRunId == null },
         deviceStrip = workDeviceStrip(input),
         connectionTone = workRootConnectionTone(input.connectionTone, input.deviceReachable, input.checkingDevice,
-            input.basicConnection, input.permissionMissing, input.credentialsRejected)
+            input.basicConnection, input.permissionMissing, input.credentialsRejected),
+        deviceListsNote = deviceListsNote(input)
     )
+}
+
+/** Recent runs and device tasks come from the device: before it answers they are unknown, not empty. */
+internal fun deviceListsNote(input: TasksHomeInput): String? = when {
+    input.checkingDevice -> "장치를 확인한 뒤 표시합니다."
+    !input.connected && !input.tasksFresh -> "장치에 연결되면 표시합니다."
+    else -> null
 }
 
 internal fun workNextAction(input: TasksHomeInput): NextAction {

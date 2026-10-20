@@ -168,6 +168,15 @@ class TasksHomeUiStateTest {
         assertEquals("10월 12일 06:40", formatTaskTime("2026-10-12T06:40:00Z", ZoneOffset.UTC))
     }
 
+    @Test
+    fun `device lists read as unknown until the device has answered`() {
+        assertEquals("장치를 확인한 뒤 표시합니다.", deviceListsNote(input().copy(checkingDevice = true)))
+        assertEquals("장치에 연결되면 표시합니다.", deviceListsNote(input(connected = false)))
+        assertNull(deviceListsNote(input(connected = false).copy(tasksFresh = true)))
+        assertNull(deviceListsNote(input()))
+        assertEquals("장치를 확인한 뒤 표시합니다.", buildTasksHomeUiState(input().copy(checkingDevice = true)).deviceListsNote)
+    }
+
     private fun input(
         survey: SurveyRunUiState = survey(),
         connected: Boolean = true,

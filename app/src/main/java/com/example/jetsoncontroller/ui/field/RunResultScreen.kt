@@ -198,8 +198,10 @@ internal fun RunResultScreen(
                             Spacer(Modifier.height(24.dp))
                             ResultMetrics(run, observedZone)
                             if (!LocalGeoWindow.current.compactHeight) {
-                                Spacer(Modifier.height(24.dp))
-                                mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(run, historyEntry, historyState, observedZone, zoneRevisionChanged)
+                                // Without a zone or trail the card draws nothing, so it carries its own 24 dp gap.
+                                mapCard?.let { Spacer(Modifier.height(24.dp)); it() }
+                                    ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(run, historyEntry, historyState, observedZone,
+                                        zoneRevisionChanged, Modifier.padding(top = 24.dp))
                             }
                             observedZone?.let {
                                 Text("구역 밖 기록 ${it.excursions}회 · ${qualityDurationLabel(it.outsideMillis)} · 관찰하지 못한 시간 ${qualityDurationLabel(it.unobservedMillis)}",
@@ -208,7 +210,7 @@ internal fun RunResultScreen(
                             }
                             if (zoneRevisionChanged) GeoInlineNote("수집 구역이 바뀌었습니다. 이 수집은 시작할 때의 구역으로 표시합니다.")
                             Column(Modifier.padding(top = 24.dp)) {
-                                ResultFolderRow(historyFolderLabel(run.output.path, run.runId, run.output.manifest?.runId), onOpenFiles,
+                                ResultFolderRow(runFolderDisplayName(run.output.path, run.startedAt, run.runId, run.output.manifest?.runId), onOpenFiles,
                                     enabled = online && runOutputStored(run),
                                     disabledReason = if (!online) "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다." else "장치 저장 결과를 확인한 뒤 폴더를 볼 수 있습니다.")
                             }

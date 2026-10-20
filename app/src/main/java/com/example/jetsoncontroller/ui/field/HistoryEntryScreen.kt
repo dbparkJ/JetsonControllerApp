@@ -74,7 +74,7 @@ internal fun HistoryEntryScreen(
                 entry.output?.takeIf { it.manifest != null }?.let { output ->
                     Column(Modifier.padding(top = 24.dp)) {
                         GeoRow("저장 폴더", onOpenFiles,
-                            value = historyFolderLabel(output.path, entry.runId, output.manifest?.runId),
+                            value = runFolderDisplayName(output.path, entry.startedAt, entry.runId, output.manifest?.runId),
                             enabled = online, disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                     }
                 }
