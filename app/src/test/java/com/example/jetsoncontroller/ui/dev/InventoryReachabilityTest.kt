@@ -31,7 +31,7 @@ class InventoryReachabilityTest {
     @Test fun retiredAdminAndDashboardFunctionsHaveOperatorAndDeveloperHomes() {
         val ui = listOf(File("src/main/java/com/example/jetsoncontroller/ui"),
             File("app/src/main/java/com/example/jetsoncontroller/ui")).first { it.isDirectory }
-        fun source(path: String) = File(ui, path).readText()
+        fun source(path: String) = File(ui, path).readText().replace("\r\n", "\n")
         val detail = source("devices/DeviceDetailScreen.kt")
         assertTrue(detail.contains("DevicePowerButtons("))
         assertTrue(detail.contains("DeviceSensorRows("))

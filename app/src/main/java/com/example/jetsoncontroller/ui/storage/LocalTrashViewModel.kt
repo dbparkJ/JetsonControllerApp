@@ -115,7 +115,7 @@ class LocalTrashViewModel(private val repository: JetsonRepository) : ViewModel(
                     _state.value = _state.value.copy(
                         entries = _state.value.entries.filterNot { it.trashId == restored.trashId && restored.state == "RESTORED" },
                         restoringId = null,
-                        message = if (restored.state == "RESTORED") "${restored.name} 항목을 원래 위치로 복원했습니다."
+                        message = if (restored.state == "RESTORED") "${localTrashTitle(restored)} 항목을 원래 위치로 복원했습니다."
                         else "복원 상태를 다시 확인해 주세요."
                     )
                     loadTrash(expected, preserveError = false)

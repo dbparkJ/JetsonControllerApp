@@ -126,6 +126,28 @@ class StorageNoticeScreenTest {
         compose.runOnIdle { assertEquals("device-a" to listOf("trash-a"), emptied) }
     }
 
+    @Test fun offlineLocalTrashOffersOneRecheckAndNamesRunLogsByTime() {
+        val log = TrashEntry(
+            "trash-log", "RUN_HISTORY", "TRASHED", name = "run-20260916T073608.169374Z-4190931992.log",
+            trashedAt = "2026-10-20T05:02:00Z", restoreSupported = true
+        )
+        compose.setContent {
+            JetsonControllerTheme {
+                LocalTrashScreen(
+                    LocalTrashUiState(
+                        deviceId = "device-a", online = false, entries = listOf(log), hasLoaded = true,
+                        error = "장치에 연결한 뒤 휴지통을 확인하세요.", deviceName = "GEO-X-1"
+                    ),
+                    {}, {}, {}, { _, _ -> }, {}
+                )
+            }
+        }
+
+        compose.onAllNodesWithText("다시 확인").assertCountEquals(1)
+        compose.onNodeWithText(localTrashTitle(log)).assertIsDisplayed()
+        compose.onAllNodesWithText("run-", substring = true).assertCountEquals(0)
+    }
+
     @Test fun serverTrashExplainsVisibleCountAndOpensDeveloperPurge() {
         val visible = ServerTrashJob(
             "session-a", "client-a", "수집 결과", 1024, 1, "TRASHED", "now",

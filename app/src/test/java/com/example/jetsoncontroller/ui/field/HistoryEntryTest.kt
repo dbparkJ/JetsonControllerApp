@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.field
 
 import com.example.jetsoncontroller.model.TaskRun
+import com.example.jetsoncontroller.ui.model.Formats
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
@@ -39,6 +40,21 @@ class HistoryEntryTest {
         val named = entry.copy(output = run.output)
         assertEquals("20261019_1636", historyRecordTitle(named))
         assertTrue(historyRecordMeta(named).startsWith("북측 보조 구간 · "))
+    }
+
+    @Test fun `run names carry their UTC start, which names the folder when the run start is unknown`() {
+        val name = "run-20260916T073608.169374Z-4190931992"
+        val started = runNameInstant(" recordings/$name/ ")!!
+        assertEquals(Instant.parse("2026-09-16T07:36:08Z"), started)
+        assertEquals("9월 16일 16:36", Formats.time(started, Instant.parse("2026-10-20T03:00:00Z")))
+        assertEquals(started, runNameInstant("capture/$name.log"))
+        assertNull(runNameInstant("run-20260916T073608-4190931992.log"))
+        assertNull(runNameInstant("run-20261399T073608.1Z-1"))
+        assertNull(runNameInstant("20261019_1636"))
+        assertEquals("${Formats.time(started)} 수집", runFolderDisplayName("recordings/$name", null))
+        val runStart = Instant.parse("2026-09-16T07:40:00Z")
+        assertEquals("${Formats.time(runStart)} 수집", runFolderDisplayName("recordings/$name", runStart.toString()))
+        assertEquals("20261019_1636", runFolderDisplayName("recordings/20261019_1636", null))
     }
 
     @Test fun `folder names ignore surrounding whitespace and trailing separators`() {

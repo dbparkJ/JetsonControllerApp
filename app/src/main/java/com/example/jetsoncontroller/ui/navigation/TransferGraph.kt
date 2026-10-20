@@ -402,7 +402,9 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                     onRestore = localTrashViewModel::restore,
                     onEmptyTrash = localTrashViewModel::emptyTrash,
                     onDismissMessage = localTrashViewModel::dismissMessage,
-                    ongoingRun = { TransferOngoingRun(state.value) }
+                    ongoingRun = { TransferOngoingRun(state.value) },
+                    developerModeEnabled = developerModeEnabled,
+                    showTechnicalInfo = com.example.jetsoncontroller.ui.dev.rememberTechnicalInfo().value
                 )
             }
         }

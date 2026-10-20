@@ -9,7 +9,7 @@ import org.junit.Test
 class InventoryReachabilityTest {
     private val sourceRoot = listOf(File("src/main/java/com/example/jetsoncontroller/ui"),
         File("app/src/main/java/com/example/jetsoncontroller/ui")).first { it.isDirectory }
-    private fun source(path: String) = File(sourceRoot, path).readText()
+    private fun source(path: String) = File(sourceRoot, path).readText().replace("\r\n", "\n")
 
     @Test fun `device root reaches detail with merged sensors Wi-Fi data and phone-local removal`() {
         val graph = source("navigation/DeviceGraph.kt")

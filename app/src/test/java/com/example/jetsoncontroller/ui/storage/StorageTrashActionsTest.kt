@@ -1,8 +1,11 @@
 package com.example.jetsoncontroller.ui.storage
 
 import com.example.jetsoncontroller.model.*
+import com.example.jetsoncontroller.ui.components.geo.GeoTechnicalValue
+import com.example.jetsoncontroller.ui.model.Formats
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.Instant
 
 class StorageTrashActionsTest {
     @Test fun `move confirmation cannot cross device root directory or replaced entry`() {
@@ -53,6 +56,30 @@ class StorageTrashActionsTest {
         assertEquals(listOf("first", "new"), localTrashEmptySnapshot(state.copy(entries = state.entries + entry.copy(trashId = "new")))!!.trashIds)
         assertEquals(listOf("first"), target.trashIds)
         assertNull(localTrashEmptySnapshot(state.copy(online = false)))
+    }
+
+    @Test fun `run logs and run folders read by the run's time and keep their names in technical info`() {
+        val log = TrashEntry("log", "RUN_HISTORY", "TRASHED", name = "run-20260916T073608.169374Z-4190931992.log",
+            trashedAt = "2026-10-20T05:02:00Z", restoreSupported = true)
+        val started = Instant.parse("2026-09-16T07:36:08Z")
+        assertEquals("${Formats.time(started)} 수집 기록", localTrashTitle(log))
+        assertEquals("수집 기록 · ${Formats.time(Instant.parse("2026-10-20T05:02:00Z"))} 이동", localTrashMeta(log))
+        val folder = log.copy(trashId = "folder", category = "UPLOADED_SOURCE", name = "run-20260916T073608.169374Z-4190931992")
+        assertEquals("${Formats.time(started)} 수집", localTrashTitle(folder))
+        assertEquals("업로드 원본 · 수집 자료", localTrashMeta(folder))
+        val named = log.copy(trashId = "named", category = "STORAGE", name = "20260915_data")
+        assertEquals("20260915_data", localTrashTitle(named))
+        listOf(log, folder).forEach { assertFalse(localTrashTitle(it).contains("run-")) }
+        assertEquals(listOf(GeoTechnicalValue(localTrashTitle(log), log.name), GeoTechnicalValue(localTrashTitle(folder), folder.name)),
+            localTrashTechnicalNames(listOf(log, folder, named)))
+    }
+
+    @Test fun `run names without a readable start fall back to the category, never the run id`() {
+        val log = TrashEntry("log", "RUN_HISTORY", "TRASHED", name = "run-20260916T073608-4190931992.log")
+        assertEquals("수집 기록", localTrashTitle(log))
+        assertEquals("수집 기록", localTrashMeta(log))
+        assertEquals("장치 데이터", localTrashTitle(log.copy(category = "STORAGE", name = "run-20261399T073608.1Z-1")))
+        assertEquals(listOf(GeoTechnicalValue("수집 기록", log.name)), localTrashTechnicalNames(listOf(log)))
     }
 
     @Test fun `object particles follow Korean final consonants and collection digits`() {

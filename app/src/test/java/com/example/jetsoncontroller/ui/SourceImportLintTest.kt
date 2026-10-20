@@ -12,6 +12,8 @@ class SourceImportLintTest {
         File(app, "src/$set/java/com/example/jetsoncontroller/ui").walkTopDown()
             .filter { it.isFile && it.extension == "kt" }.toList()
     }
+    /** Sources compare as LF text whatever line endings the checkout uses (core.autocrlf on Windows). */
+    private fun File.lfText() = readText().replace("\r\n", "\n")
     private val controls = "Button|OutlinedButton|TextButton|FilledTonalButton|TopAppBar|Card|FilterChip|AlertDialog|ListItem"
     private val rawImport = Regex("(?m)^\\s*import\\s+androidx\\.compose\\.material(?:3)?\\.(?:$controls|\\*)(?:\\s|$|\\.)")
     private val rawCall = Regex("androidx\\.compose\\.material(?:3)?\\.(?:$controls)\\s*\\(")
@@ -20,7 +22,7 @@ class SourceImportLintTest {
         val files = sources()
         assertTrue("Source scan must include main, debug and instrumented fixtures", files.size > 100)
         val violations = files.flatMap { file ->
-            val source = file.readText()
+            val source = file.lfText()
             val kit = file.invariantSeparatorsPath.contains("/ui/components/geo/")
             buildList {
                 if (!kit && (rawImport.containsMatchIn(source) || rawCall.containsMatchIn(source))) add("${file.path}: raw Material control or wildcard import")
@@ -28,7 +30,7 @@ class SourceImportLintTest {
             }
         }
         assertEquals(violations.joinToString("\n"), emptyList<String>(), violations)
-        assertFalse(File(app, "build.gradle.kts").readText().contains("material.icons.extended"))
+        assertFalse(File(app, "build.gradle.kts").lfText().contains("material.icons.extended"))
     }
 
     @Test fun importGuardCatchesAliasesWildcardsAndQualifiedCalls() {
@@ -51,13 +53,13 @@ class SourceImportLintTest {
             "components/GeoFormat.kt", "components/OperationMessageHost.kt", "components/OperationalUi.kt", "tasks/TaskDetailScreen.kt")
         removed.forEach { assertFalse("Retired file returned: $it", File(ui, it).exists()) }
         val oldApi = Regex("\\b(?:ConnectionHubScreen|DeviceListScreen|StatusTone|ControlSection|ControlNavigationBar|LocalControlNavigationRailVisible|OverlayAdapter|OverlayTokens|ContentColors|GeoControlColors|ShellColors|OperationMessageHost|formatGeoDateTime|DataLocationTabs|GeoOverlayTone|GeoLight|GeoDark)\\b")
-        sources().forEach { assertFalse(it.path, oldApi.containsMatchIn(it.readText())) }
+        sources().forEach { assertFalse(it.path, oldApi.containsMatchIn(it.lfText())) }
         ui.resolve("theme").walkTopDown().filter { it.extension == "kt" }.forEach {
-            assertFalse("Deprecated theme alias: ${it.path}", it.readText().contains("@Deprecated"))
+            assertFalse("Deprecated theme alias: ${it.path}", it.lfText().contains("@Deprecated"))
         }
         val oldColor = Regex("\\bval\\s+(?:ink|inkStrong|muted|inkSubtle|controlBorder|accent|onAccent|brandSoft|onBrandSoft|hero\\w*|section(?:Base|Soft|Raised|Danger|Border)|unknown(?:Bg|Border)?|overlay)\\b")
-        assertFalse("Retired colour roles", oldColor.containsMatchIn(ui.resolve("theme/Color.kt").readText()))
-        val routes = ui.resolve("navigation/Routes.kt").readText()
+        assertFalse("Retired colour roles", oldColor.containsMatchIn(ui.resolve("theme/Color.kt").lfText()))
+        val routes = ui.resolve("navigation/Routes.kt").lfText()
         listOf("connection_hub", "devices_ble", "admin_tools", "dashboard").forEach { assertFalse(it, routes.contains("\"$it\"")) }
     }
 }

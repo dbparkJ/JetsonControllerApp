@@ -33,6 +33,10 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @Suppress("UNUSED_PARAMETER")
@@ -179,18 +183,31 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
     }
 }
 
-/** Pipeline run folders are named after the run ("run-20260916T073608.169374Z-…"): identifiers, not names. */
-private val RunFolderName = Regex("^run-\\d{8}T\\d{6}", RegexOption.IGNORE_CASE)
+/** Pipeline run folders and logs are named after the run ("run-20260916T073608.169374Z-…"): identifiers, not names. */
+private val RunFolderName = Regex("^run-(\\d{8}T\\d{6})(?:\\.\\d+)?(Z)?", RegexOption.IGNORE_CASE)
+private val RunFolderStamp = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss", Locale.ROOT)
+
+private fun pathName(path: String?): String? =
+    path?.trim()?.trimEnd('/', '\\')?.substringAfterLast('/')?.substringAfterLast('\\')
 
 internal fun historyFolderLabel(path: String?, vararg identifiers: String?): String? =
-    historyDisplayLabel(path?.trim()?.trimEnd('/', '\\')?.substringAfterLast('/')?.substringAfterLast('\\'), *identifiers)
+    historyDisplayLabel(pathName(path), *identifiers)
         ?.takeUnless { RunFolderName.containsMatchIn(it) }
+
+/** The UTC start a run-named folder or log carries: "run-20260916T073608.169374Z-…" began 9월 16일 16:36 in Seoul. */
+internal fun runNameInstant(path: String?): Instant? {
+    val stamp = pathName(path)?.trim()?.let(RunFolderName::find)?.takeIf { it.groupValues[2].isNotEmpty() }
+        ?: return null
+    return runCatching {
+        LocalDateTime.parse(stamp.groupValues[1].uppercase(), RunFolderStamp).toInstant(ZoneOffset.UTC)
+    }.getOrNull()
+}
 
 /** A folder named after its run reads as "<시각> 수집" in daily rows; the real name stays in 기술 정보. */
 internal fun runFolderDisplayName(path: String?, startedAt: String?, vararg identifiers: String?): String? {
     if (path?.trim()?.trimEnd('/', '\\').isNullOrBlank()) return null
     return historyFolderLabel(path, *identifiers)
-        ?: resultInstant(startedAt)?.let { "${Formats.time(it)} 수집" }
+        ?: (resultInstant(startedAt) ?: runNameInstant(path))?.let { "${Formats.time(it)} 수집" }
 }
 
 private fun historyOtherName(run: TaskRun): String? {

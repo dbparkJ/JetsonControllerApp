@@ -20,10 +20,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.TrashEntry
 import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
+import com.example.jetsoncontroller.ui.field.historyFolderLabel
+import com.example.jetsoncontroller.ui.field.runFolderDisplayName
+import com.example.jetsoncontroller.ui.field.runNameInstant
+import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import java.time.Instant
 
 @Composable
 fun LocalTrashScreen(
@@ -33,7 +38,9 @@ fun LocalTrashScreen(
     onRestore: (TrashEntry) -> Unit,
     onEmptyTrash: (String, List<String>) -> Unit,
     onDismissMessage: (String) -> Unit,
-    ongoingRun: @Composable () -> Unit = {}
+    ongoingRun: @Composable () -> Unit = {},
+    developerModeEnabled: Boolean = false,
+    showTechnicalInfo: Boolean = false
 ) {
     var emptySnapshot by remember(state.deviceId) { mutableStateOf<LocalTrashEmptySnapshot?>(null) }
     var menu by remember(state.deviceId) { mutableStateOf(false) }
@@ -68,6 +75,7 @@ fun LocalTrashScreen(
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
                     item { ongoingRun() }
                     item {
+                        // The freshness line holds the screen's one "다시 확인"; the notes below never repeat it.
                         StorageFreshness(state.refreshedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() },
                             onRefresh, state.deviceName, server = false)
                         GeoInlineNote(when {
@@ -77,8 +85,7 @@ fun LocalTrashScreen(
                             else -> "이 장치는 휴지통 비우기를 지원하지 않습니다. 장치 소프트웨어 업데이트가 필요합니다."
                         })
                         if (busy) GeoProgress()
-                        state.error?.let { GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
-                            actionLabel = "다시 확인", onAction = onRefresh) }
+                        state.error?.let { GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR) }
                     }
                     items(state.entries, key = { it.trashId }) { entry ->
                         LocalTrashEntry(entry, state.online, busy) { onRestore(entry) }
@@ -87,6 +94,10 @@ fun LocalTrashScreen(
                         Spacer(Modifier.height(56.dp))
                         GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다",
                             "휴지통으로 옮긴 장치 파일과 수집 기록이 여기에 표시됩니다."))
+                    }
+                    val renamed = localTrashTechnicalNames(state.entries)
+                    if (developerModeEnabled && showTechnicalInfo && renamed.isNotEmpty()) item {
+                        GeoTechInfo(renamed, developerModeEnabled, showTechnicalInfo)
                     }
                 }
             }
@@ -113,17 +124,14 @@ private fun LocalTrashEntry(entry: TrashEntry, online: Boolean, busy: Boolean, o
         val body: @Composable (Modifier) -> Unit = { modifier ->
             Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(entry.name, style = type.titleSm, color = colors.text)
+                    Text(localTrashTitle(entry), style = type.titleSm, color = colors.text)
                     GeoBadge(localTrashStateLabel(entry), when (entry.state) {
                         "PURGING", "RESTORING", "MOVING_TO_TRASH" -> Tone.PENDING
                         "TRASHED" -> if (entry.restoreSupported) Tone.UNKNOWN else Tone.WARNING
                         else -> Tone.WARNING
                     })
                 }
-                Text("${categoryLabel(entry.category)} · ${if (entry.category == "RUN_HISTORY")
-                    com.example.jetsoncontroller.ui.model.Formats.time(entry.trashedAt?.let {
-                        runCatching { java.time.Instant.parse(it) }.getOrNull() }) else "수집 자료"}",
-                    style = type.caption, color = colors.textSecondary)
+                Text(localTrashMeta(entry), style = type.caption, color = colors.textSecondary)
             }
         }
         val action: @Composable (Modifier) -> Unit = { modifier ->
@@ -146,6 +154,27 @@ private fun categoryLabel(category: String): String = when (category) {
     "UPLOADED_SOURCE" -> "업로드 원본"
     "RUN_HISTORY" -> "수집 기록"
     else -> "장치 데이터"
+}
+
+/**
+ * Run logs and run folders are named after the run ("run-20260916T073608.169374Z-….log"), and R3 keeps run IDs in
+ * 기술 정보: such rows read by the run's time, "9월 16일 16:36 수집 기록" (a folder: "… 수집").
+ */
+internal fun localTrashTitle(entry: TrashEntry): String {
+    if (historyFolderLabel(entry.name) != null) return entry.name
+    if (entry.category != "RUN_HISTORY") return runFolderDisplayName(entry.name, null) ?: categoryLabel(entry.category)
+    return runNameInstant(entry.name)?.let { "${Formats.time(it)} 수집 기록" } ?: categoryLabel(entry.category)
+}
+
+/** A 수집 기록 title carries the collection time, so the meta says the other time is when it moved to the trash. */
+internal fun localTrashMeta(entry: TrashEntry): String = listOfNotNull(categoryLabel(entry.category),
+    if (entry.category != "RUN_HISTORY") "수집 자료"
+    else entry.trashedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }?.let { "${Formats.time(it)} 이동" }
+).joinToString(" · ")
+
+/** 기술 정보 keeps the real name of each row whose title stands in for it. */
+internal fun localTrashTechnicalNames(entries: List<TrashEntry>): List<GeoTechnicalValue> = entries.mapNotNull { entry ->
+    localTrashTitle(entry).takeIf { it != entry.name }?.let { GeoTechnicalValue(it, entry.name) }
 }
 
 internal fun localTrashCanRestore(entry: TrashEntry): Boolean = entry.restoreSupported && entry.state == "TRASHED"
