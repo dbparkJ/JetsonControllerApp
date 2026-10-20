@@ -150,7 +150,7 @@ fun PipelinePickerScreen(roots: List<RemoteRoot>, state: PipelinePickerState, on
             disabledReason = "폴더를 확인하고 있습니다.") }
         else {
             GeoSection("폴더", first = true, modifier = Modifier.padding(top = 24.dp), count = "${visible.size}개") {
-                visible.forEach { entry -> GeoRow(entry.name, {
+                visible.forEach { entry -> GeoRow(com.example.jetsoncontroller.ui.storage.breakableFileName(entry.name), {
                     if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry)
                 }, enabled = !state.isLoading, disabledReason = "폴더를 확인하고 있습니다.",
                     leading = { androidx.compose.material3.Icon(if (entry.type == RemoteEntryType.DIRECTORY) GeoIcons.folder else GeoIcons.file,

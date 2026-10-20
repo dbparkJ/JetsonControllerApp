@@ -12,6 +12,7 @@ import com.example.jetsoncontroller.model.RemoteFileEntry
 import com.example.jetsoncontroller.model.UploadSourceSummary
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.ui.storage.DeviceStorageUiState
+import com.example.jetsoncontroller.ui.storage.breakableFileName
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.model.Formats
@@ -95,7 +96,7 @@ internal fun TransferFilesScreen(
                 item(key = "day:$day") { GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {} }
                 items(group, key = { it.relativePath }) { entry ->
                     Column {
-                        GeoRadioRow(entry.name, selectedPath == entry.relativePath, {
+                        GeoRadioRow(breakableFileName(entry.name), selectedPath == entry.relativePath, {
                             selectedPath = entry.relativePath
                             if (root != null) onSelect(root, entry.relativePath)
                         }, description = entry.sizeBytes?.let(Formats::size), enabled = state.controlAvailable,
@@ -107,7 +108,7 @@ internal fun TransferFilesScreen(
                 }
                 }
                 if (entries.isEmpty() && !state.isLoading && state.controlAvailable) item {
-                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "파일이 없습니다", "다른 위치나 유형을 선택하세요."))
+                    GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY, "파일이 없습니다", "다른 위치나 유형을 선택하세요."))
                 }
                 item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
                 item { inlineAction() }

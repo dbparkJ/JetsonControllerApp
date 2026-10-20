@@ -123,7 +123,7 @@ private fun LocalTrashEntry(entry: TrashEntry, online: Boolean, busy: Boolean, o
         val body: @Composable (Modifier) -> Unit = { modifier ->
             Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(localTrashTitle(entry), style = type.titleSm, color = colors.text)
+                    Text(breakableFileName(localTrashTitle(entry)), style = type.titleSm, color = colors.text)
                     GeoBadge(localTrashStateLabel(entry), when (entry.state) {
                         "PURGING", "RESTORING", "MOVING_TO_TRASH" -> Tone.PENDING
                         "TRASHED" -> if (entry.restoreSupported) Tone.UNKNOWN else Tone.WARNING

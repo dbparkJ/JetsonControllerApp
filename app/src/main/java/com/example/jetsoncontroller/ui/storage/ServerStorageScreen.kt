@@ -74,7 +74,7 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
                 GeoPickerField("파일 유형", category, { filterPicker = true })
                 GeoSection("파일", first = true, modifier = Modifier.padding(top = 24.dp)) {
                     val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
-                    visible.forEach { entry -> GeoRow(entry.name,
+                    visible.forEach { entry -> GeoRow(breakableFileName(entry.name),
                         { if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry) },
                         meta = if (entry.type == RemoteEntryType.DIRECTORY) "폴더" else Formats.size(entry.sizeBytes),
                         leading = { MediaThumbnail(entry, "${state.deviceId}/${state.selectedTarget?.id}/${state.selectedSession.sessionId}", thumbnailLoader) }) }

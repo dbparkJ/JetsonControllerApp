@@ -219,7 +219,7 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
         }
         items(state.files, key = { it.relativePath }) { file ->
             val directory = file.type.equals("directory", true)
-            GeoRow(file.name, { if (directory) onDirectory(file) else onFile(file) },
+            GeoRow(breakableFileName(file.name), { if (directory) onDirectory(file) else onFile(file) },
                 meta = if (directory) "폴더" else serverFileCategory(file.name), value = file.sizeBytes?.let(Formats::size))
         }
         if (state.files.isEmpty() && !state.isLoading && state.message == null) item {

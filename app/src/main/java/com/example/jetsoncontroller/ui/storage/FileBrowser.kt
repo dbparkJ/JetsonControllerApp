@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -171,10 +172,12 @@ internal fun FileBrowser(
                             GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "파일 목록을 불러오지 못했습니다",
                                 failure, "다시 시도"), onAction = onRefresh)
                         }
-                        entries.groupBy { browserDay(it.modifiedAt) }.entries.forEachIndexed { groupIndex, (day, group) ->
+                        val days = entries.groupBy { browserDay(it.modifiedAt) }
+                        days.entries.forEachIndexed { groupIndex, (day, group) ->
                             item(key = "day:$day") { GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {} }
-                            items(group, key = { it.relativePath }) { entry ->
+                            itemsIndexed(group, key = { _, it -> it.relativePath }) { index, entry ->
                                 val directory = entry.type == RemoteEntryType.DIRECTORY
+                                val divider = index < group.lastIndex || groupIndex == days.size - 1
                                 val select = { selectedPath = if (selectedPath == entry.relativePath) null else entry.relativePath }
                                 if (selecting) GeoRadioRow(breakableFileName(entry.name), selectedPath == entry.relativePath, select,
                                     description = entry.sizeBytes?.let(Formats::size), enabled = state.controlAvailable,
@@ -182,12 +185,12 @@ internal fun FileBrowser(
                                 else if (send != null && !directory) GeoActionRow(breakableFileName(entry.name), "선택",
                                     { if (state.controlAvailable) onFile(entry) else onConnection() }, select,
                                     meta = mediaCategory(entry), actionEnabled = state.controlAvailable,
-                                    disabledReason = "장치에 연결되면 쓸 수 있습니다.")
+                                    disabledReason = "장치에 연결되면 쓸 수 있습니다.", divider = divider)
                                 else GeoRow(breakableFileName(entry.name), {
                                     if (!state.controlAvailable) onConnection()
                                     else if (directory) onDirectory(entry) else onFile(entry)
                                 },
-                                    meta = if (directory) "폴더" else mediaCategory(entry),
+                                    meta = if (directory) "폴더" else mediaCategory(entry), divider = divider,
                                     badge = if (entry.sizeBytes != null) ({ BrowserSizeValue(entry.sizeBytes, sizeColumns) }) else null,
                                     leading = { Icon(if (directory) GeoIcons.folder else mediaIcon(entry), null,
                                         Modifier.size(24.dp), tint = LocalGeoColors.current.textSecondary) })
