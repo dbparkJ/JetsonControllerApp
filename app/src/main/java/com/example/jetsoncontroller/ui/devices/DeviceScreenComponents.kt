@@ -65,7 +65,7 @@ internal fun DeviceFigureGrid(figures: List<GeoFigure>) {
             figures.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     row.forEach { figure ->
-                        DeviceFigureCell(figure, Modifier.weight(1f))
+                        DeviceFigureCell(figure, Modifier.weight(1f), alignDetail = columns > 1)
                     }
                     if (columns == 2 && row.size == 1) Spacer(Modifier.weight(1f))
                 }
@@ -75,7 +75,7 @@ internal fun DeviceFigureGrid(figures: List<GeoFigure>) {
 }
 
 @Composable
-private fun DeviceFigureCell(figure: GeoFigure, modifier: Modifier) {
+private fun DeviceFigureCell(figure: GeoFigure, modifier: Modifier, alignDetail: Boolean) {
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
     val shown = deviceFigurePresentation(figure)
@@ -87,7 +87,8 @@ private fun DeviceFigureCell(figure: GeoFigure, modifier: Modifier) {
         Spacer(Modifier.height(14.dp))
         Text(shown.value, Modifier.heightIn(min = 32.dp), color = if (shown.unknown) c.neutral else c.text,
             style = if (shown.unknown) type.title else type.figure)
-        Text(shown.detail.orEmpty(), Modifier.heightIn(min = 20.dp),
+        // Side-by-side cells keep an empty detail line so their values stay level; one column leaves it out.
+        if (alignDetail || !shown.detail.isNullOrEmpty()) Text(shown.detail.orEmpty(), Modifier.heightIn(min = 20.dp),
             color = if (shown.warning) c.warning else c.textSecondary, style = type.caption)
         shown.staleDetail?.let { Text(it, color = c.textSecondary, style = type.caption) }
     }

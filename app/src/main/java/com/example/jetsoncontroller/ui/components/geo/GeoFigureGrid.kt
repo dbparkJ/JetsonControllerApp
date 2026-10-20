@@ -58,7 +58,7 @@ fun GeoFigureGrid(figures: List<GeoFigure>, modifier: Modifier = Modifier, conta
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             figures.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    row.forEach { figure -> FigureCell(figure, Modifier.weight(1f)) }
+                    row.forEach { figure -> FigureCell(figure, Modifier.weight(1f), alignDetail = columns > 1) }
                     if (columns == 2 && row.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
@@ -67,7 +67,7 @@ fun GeoFigureGrid(figures: List<GeoFigure>, modifier: Modifier = Modifier, conta
 }
 
 @Composable
-private fun FigureCell(figure: GeoFigure, modifier: Modifier) {
+private fun FigureCell(figure: GeoFigure, modifier: Modifier, alignDetail: Boolean) {
     val colors = LocalGeoColors.current
     val shown = figurePresentation(figure)
     Column(modifier.semantics(mergeDescendants = true) {}) {
@@ -79,7 +79,8 @@ private fun FigureCell(figure: GeoFigure, modifier: Modifier) {
         Text(shown.value, Modifier.heightIn(min = 32.dp),
             color = if (shown.unknown) colors.tone(Tone.UNKNOWN) else colors.text,
             style = if (shown.unknown) LocalGeoType.current.title else LocalGeoType.current.figure)
-        Text(shown.detail.orEmpty(), Modifier.heightIn(min = 20.dp),
+        // Side-by-side cells keep an empty detail line so their values stay level; one column leaves it out.
+        if (alignDetail || !shown.detail.isNullOrEmpty()) Text(shown.detail.orEmpty(), Modifier.heightIn(min = 20.dp),
             color = if (shown.warning) colors.tone(Tone.WARNING) else colors.textSecondary,
             style = LocalGeoType.current.caption)
         shown.staleDetail?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption) }

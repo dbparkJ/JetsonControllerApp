@@ -144,7 +144,8 @@ fun GeoMapScreen(
                     runElapsed = runElapsed, onStopRequest = onStopRequest, stopEnabled = stopEnabled, stopBusy = stopBusy,
                     stopError = stopError, stopOpener = stopOpener,
                     phoneMessage = phoneMessage, phoneRemedy = phoneRemedy, developerMode = developerMode,
-                    onPeekHeight = { peekDp = it.coerceAtLeast(128) })
+                    // The peek is the summary itself; a taller floor showed the top of the next section.
+                    onPeekHeight = { peekDp = it })
             }
             val map: @Composable (Int, Int) -> Unit = { bottom, end ->
                 Box(Modifier.fillMaxSize().testTag("gnss-map-pane")) {

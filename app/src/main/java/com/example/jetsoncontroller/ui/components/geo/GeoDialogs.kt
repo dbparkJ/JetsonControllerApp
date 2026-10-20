@@ -89,6 +89,7 @@ private fun OverlayDialog(
         OverlayFullScreenDialog(title, null, onDismissRequest, modifier, footer, content)
     } else {
         Dialog(onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+            GeoDialogCoversDisplay()
             BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))) {
                 val gutter = overlayGutter(maxWidth.value).dp
                 Box(Modifier.fillMaxSize().padding(gutter), contentAlignment = Alignment.Center) {

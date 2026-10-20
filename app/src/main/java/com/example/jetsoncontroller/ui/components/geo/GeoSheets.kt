@@ -244,6 +244,7 @@ internal fun OverlayFullScreenDialog(
 ) {
     val t = LocalGeoColors.current
     Dialog(onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        GeoDialogCoversDisplay()
         Surface(modifier.fillMaxSize().semantics { paneTitle = title }, color = t.surface, contentColor = t.text) {
             Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))) {
                 OverlayViewport(

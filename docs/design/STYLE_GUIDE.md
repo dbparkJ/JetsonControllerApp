@@ -201,6 +201,7 @@ GEO-X Android 화면의 설계·구현·검수에 적용하는 R3 규칙이다. 
 | IME | 폼 본문/행동 영역 공통 부모가 `imePadding`과 `consumeWindowInsets` 한 번. 하단 막대를 숨기고 navigation 중복 금지 |
 | Rail의 다른 변 | rail과 별개로 본문 하단·반대편 navigation inset 적용 |
 | 시스템 아이콘 | `JetsonControllerTheme`이 상단·하단의 실제 배경으로 각각 결정. 시트·`scrim`·미디어 전환 때 갱신 |
+| 전체 화면 창 | `decorFitsSystemWindows = false` 대화상자(전체 지도·전체 화면 시트·중앙 대화상자)는 첫 줄에 `GeoDialogCoversDisplay()`를 둔다. 창이 화면 전체를 덮어야 inset이 들어오고, 3버튼 막대 밑으로 내용이 밀리지 않는다 |
 
 - 네이비 밝게의 status 아이콘은 밝게 한다. 집중 흐름 하단은 해당 `surface`·미디어 배경을 따른다.
 - 같은 inset을 `Scaffold`·화면·자식에서 거듭 적용하지 않는다.
@@ -728,7 +729,7 @@ R3 목표 책임은 `GeoMapRenderer`, `GeoMapCard`, `GeoMapScreen`, `GeoRunPanel
 | 카드 밖 설명 | 경로 1.2 km · 폭 20 m · 영역 1곳 · 지점 4곳 + 위치 문장. 결과는 밖 기록·관찰 공백 |
 | 전체 지도 | mode zone/run/route/location과 ticket/run/device 식별. 제목 수집 구역/수집 중/수집 경로/장치 위치, 탭 막대 없음 |
 | 조작부 | 끝쪽 inset 12/간격 8, `mapPlate`·작은 그림자. 일반/위성·장치 위치로·구역 전체 보기·패널 위 확대/축소 48 |
-| 패널 | `BottomSheetScaffold`, peek 128+별도 navigation inset. handle과 48 dp 펼치기/접기 버튼 |
+| 패널 | `BottomSheetScaffold`. peek은 요약 머리글(handle 행과 위치 문장) 높이이고, navigation inset은 그 아래에 따로 둔다. handle과 48 dp 펼치기/접기 버튼 |
 | 확장 | 선 패턴 포함 범례, 좌표·위성·고도·마지막 위치, 휴대폰 위치 표시, 품질 요약·위치 품질 자세히 |
 | 수집 패널 | 수집 중·시계·52 dp `danger`-outline 수집 종료. 같은 S1b 확인 후 결과 |
 | 낮은 가로 창 | 끝쪽 패널 320, 56 strip으로 접기. 조작부는 패널을 피함 |

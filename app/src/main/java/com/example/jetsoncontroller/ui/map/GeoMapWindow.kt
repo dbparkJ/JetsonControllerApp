@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import com.example.jetsoncontroller.ui.components.geo.GeoDialogCoversDisplay
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoPalette
 import com.example.jetsoncontroller.ui.theme.systemBarAppearance
@@ -19,6 +21,7 @@ import com.example.jetsoncontroller.ui.theme.systemBarAppearance
 @Composable
 internal fun GeoMapWindow(onBack: () -> Unit, content: @Composable () -> Unit) {
     Dialog(onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        GeoDialogCoversDisplay()
         val view = LocalView.current
         val window = (view.parent as? DialogWindowProvider)?.window
         val colors = LocalGeoColors.current
@@ -46,6 +49,8 @@ internal fun GeoMapWindow(onBack: () -> Unit, content: @Composable () -> Unit) {
             Box(Modifier.weight(1f).fillMaxWidth()
                 .padding(safe.only(WindowInsetsSides.Horizontal).asPaddingValues())
                 .padding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom).asPaddingValues())
+                // The panel's hidden rows sit below the peek; the navigation bar is transparent, so they are clipped here.
+                .clipToBounds()
                 .consumeWindowInsets(safe)) { content() }
         }
     }
