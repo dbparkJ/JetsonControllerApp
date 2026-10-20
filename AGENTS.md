@@ -2,6 +2,12 @@
 
 Android Kotlin/Jetpack Compose lives in `app/`; Python Jetson services in `backend/`; the upload server in `upload_receiver/`.
 
+## Language
+
+- Every session and worker writes user-facing text in Korean: replies, questions, task lists, recaps, buttons, cards, progress notes, final reports and cross-session messages.
+- Briefs for sub-agents and Codex workers ask for the final report in Korean.
+- Code, identifiers, paths, commands, code comments and commit messages follow this repository's conventions.
+
 ## Task scope and context
 
 - Start with the affected code and tests. Read documentation only when it resolves a question for the current task; reuse unchanged material already read in this session.
