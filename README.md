@@ -65,15 +65,17 @@ Windows에서는 `gradlew.bat`를 사용합니다. APK는 `app/build/outputs/apk
 
 원본 위치는 `ANDROID_SDK_SOURCE`, `GRADLE_HOME_SOURCE`, `QEMU_X86_64_SOURCE`, `AAPT2_SYSROOT_SOURCE`로 지정할 수 있습니다. `scripts/aapt2`는 이 환경의 QEMU를 사용하는 실행 도구입니다. Unix `gradlew`는 기본 Gradle 캐시를 `.mobile-build/gradle-home`에 보관하며, `GRADLE_USER_HOME`을 지정하면 해당 경로를 사용합니다.
 
-### VWorld 지도 키
+### 네이버 지도 키
 
 ```bash
-./scripts/configure-vworld-key.sh
+./scripts/configure-naver-map-key.sh
 ```
 
-도우미가 입력값을 화면에 표시하지 않고 Git에서 제외된 `local.properties`의 `vworld.apiKey`에 저장합니다. 읽기 우선순위는 Gradle 속성 `VWORLD_API_KEY` → 같은 이름의 환경변수 → `local.properties`입니다. 키는 APK에 포함되는 클라이언트 키이므로 배포 범위에 맞게 관리합니다.
+도우미가 입력값을 화면에 표시하지 않고 Git에서 제외된 `local.properties`의 `naver.mapClientId`에 저장합니다. 값은 NCP 콘솔 Maps Application의 Client ID(`ncpKeyId`)입니다. Client Secret은 앱에 넣지 않습니다. 읽기 우선순위는 Gradle 속성 `NAVER_MAP_CLIENT_ID` → 같은 이름의 환경변수 → `local.properties`입니다.
 
-기기에 배포하는 APK는 `./gradlew :app:assembleDebug -PrequireVworldKey=true`로 빌드합니다. 이 옵션은 지도 키가 누락되면 빌드를 중단합니다. 연결된 기기에서 `VWorldMapConnectivityTest`를 실행하면 설치된 앱의 설정으로 일반·위성 타일 응답과 이미지 디코딩을 함께 확인합니다.
+Client ID는 APK에 포함됩니다. 네이버는 그 Application의 서비스 환경 등록에 올라간 Android 패키지에서만 지도를 허용합니다. 정식 `com.example.jetsoncontroller`와 시험판 `com.example.jetsoncontroller.redesign`을 모두 등록합니다. 인증 결과는 지도를 열 때 `GeoMap` 로그에 코드로 남습니다(401: 패키지 미등록 또는 잘못된 키, 429: Maps 미선택 또는 한도 초과).
+
+기기에 배포하는 APK는 `./gradlew :app:assembleDebug -PrequireMapKey=true`로 빌드합니다. 이 옵션은 지도 키가 누락되면 빌드를 중단합니다. 연결된 기기에서 `NaverMapConfigurationTest`를 실행하면 설치된 앱에 지도 키가 들어 있는지 확인합니다.
 
 ## Jetson 설치와 첫 연결
 

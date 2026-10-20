@@ -56,7 +56,7 @@ fun GeoMapCard(
     mode: GeoMapMode, data: GeoMapData, onOpen: () -> Unit,
     modifier: Modifier = Modifier, fullMapOpen: Boolean = false,
     compactHeight: Boolean = LocalGeoWindow.current.compactHeight,
-    apiKey: String = BuildConfig.VWORLD_API_KEY
+    mapClientId: String = BuildConfig.NAVER_MAP_CLIENT_ID
 ) {
     if ((data.geometry == null || data.geometry.state == GeoGeometryState.ABSENT) &&
         (mode != GeoMapMode.ROUTE || data.trail.isEmpty())) return
@@ -68,7 +68,7 @@ fun GeoMapCard(
     var visible by remember { mutableStateOf(false) }
     var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var loading by remember { mutableStateOf(true) }
-    var tileFailure by remember { mutableStateOf(false) }
+    var baseFailure by remember { mutableStateOf(false) }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, _ -> resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
         lifecycle.addObserver(observer)
@@ -92,12 +92,11 @@ fun GeoMapCard(
                     bounds.top < rootView.height && bounds.left < rootView.width
             }) {
             GeoMapRenderer(rendered, Modifier.fillMaxSize(), interactive = false,
-                active = mapCardActive(visible, resumed, fullMapOpen || GeoMapSessions.fullMaps > 0), apiKey = apiKey,
-                onLoading = { loading = it }, onTilesFailureChanged = { tileFailure = it })
+                active = mapCardActive(visible, resumed, fullMapOpen || GeoMapSessions.fullMaps > 0), clientId = mapClientId,
+                onLoading = { loading = it }, onBaseMapFailureChanged = { baseFailure = it })
             if (loading) Text("지도를 불러오는 중입니다", Modifier.align(Alignment.Center).background(c.mapPlate).padding(8.dp),
                 style = type.body, color = c.textSecondary)
             badge?.let { GeoBadge(it.first, it.second, Modifier.align(Alignment.TopStart).padding(12.dp), GeoBadgeVariant.ON_MAP) }
-            if (apiKey.isNotBlank()) MapAttribution(Modifier.align(Alignment.BottomStart).padding(8.dp))
             Box(Modifier.matchParentSize().border(1.dp, if (palette.highContrast) c.borderStrong else c.border, shape)
                 .clickable(onClick = onOpen))
         }
@@ -106,8 +105,8 @@ fun GeoMapCard(
             if (caption.isNotEmpty()) Text(caption, color = c.textSecondary, style = type.caption)
             if (qualifier.isNotEmpty()) Text(qualifier, color = c.textSecondary, style = type.caption)
             val notice = when {
-                tileFailure -> "배경 지도를 불러오지 못했습니다. 구역은 그대로 표시합니다."
-                apiKey.isBlank() -> "배경 지도를 쓸 수 없습니다. 구역은 그대로 표시합니다."
+                baseFailure -> "배경 지도를 불러오지 못했습니다. 구역은 그대로 표시합니다."
+                mapClientId.isBlank() -> "배경 지도를 쓸 수 없습니다. 구역은 그대로 표시합니다."
                 else -> null
             }
             notice?.let { Text(it, color = c.textSecondary, style = type.caption) }

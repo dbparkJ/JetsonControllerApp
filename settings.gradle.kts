@@ -19,6 +19,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // NAVER Map SDK is published only to NAVER's own repository.
+        maven("https://repository.map.naver.com/archive/maven") {
+            content { includeGroup("com.naver.maps") }
+        }
     }
 }
 

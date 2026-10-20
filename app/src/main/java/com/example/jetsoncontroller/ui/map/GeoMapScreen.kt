@@ -61,7 +61,7 @@ fun GeoMapScreen(
     stopError: String? = null, stopOpener: androidx.compose.ui.focus.FocusRequester? = null,
     developerMode: Boolean = false,
     deviceName: String = "장치",
-    apiKey: String = BuildConfig.VWORLD_API_KEY
+    mapClientId: String = BuildConfig.NAVER_MAP_CLIENT_ID
 ) {
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
@@ -107,7 +107,7 @@ fun GeoMapScreen(
     var base by rememberSaveable { mutableStateOf(GeoMapBase.GENERAL) }
     var sideExpanded by rememberSaveable { mutableStateOf(true) }
     var loading by remember { mutableStateOf(true) }
-    var tilesFailed by remember(base) { mutableStateOf(false) }
+    var baseFailed by remember { mutableStateOf(false) }
     val camera = remember { GeoMapCamera() }
     val scope = rememberCoroutineScope()
     val sheetState = rememberStandardBottomSheetState(initialValue = SheetValue.PartiallyExpanded, skipHiddenState = true)
@@ -149,8 +149,8 @@ fun GeoMapScreen(
             val map: @Composable (Int, Int) -> Unit = { bottom, end ->
                 Box(Modifier.fillMaxSize().testTag("gnss-map-pane")) {
                     GeoMapRenderer(renderedData, Modifier.fillMaxSize(), base, followDevice = mode == GeoMapMode.RUN,
-                        panelBottomDp = bottom, panelEndDp = end, camera = camera, apiKey = apiKey,
-                        onLoading = { loading = it }, onTilesFailureChanged = { tilesFailed = it })
+                        panelBottomDp = bottom, panelEndDp = end, camera = camera, clientId = mapClientId,
+                        onLoading = { loading = it }, onBaseMapFailureChanged = { baseFailed = it })
                     val controlsEnd = end.dp + 12.dp
                     Column(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = controlsEnd),
                         horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -164,11 +164,10 @@ fun GeoMapScreen(
                         MapControl(GeoIcons.zoomIn, "확대", camera::zoomIn)
                         MapControl(GeoIcons.zoomOut, "축소", camera::zoomOut)
                     }
-                    if (apiKey.isNotBlank()) MapAttribution(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = bottom.dp + 12.dp))
                     val message = when {
                         loading -> "지도를 불러오는 중입니다"
-                        tilesFailed -> "배경 지도를 불러오지 못했습니다. 구역은 그대로 표시합니다."
-                        apiKey.isBlank() -> "배경 지도를 쓸 수 없습니다. 구역은 그대로 표시합니다."
+                        baseFailed -> "배경 지도를 불러오지 못했습니다. 구역은 그대로 표시합니다."
+                        mapClientId.isBlank() -> "배경 지도를 쓸 수 없습니다. 구역은 그대로 표시합니다."
                         renderedData.deviceStale -> "마지막 위치 ${mapSampleTime(gnss.lastSampleAtEpochMillis)}"
                         renderedData.device == null && mode != GeoMapMode.ROUTE -> "장치 위치를 확인할 수 없습니다."
                         else -> null
@@ -228,10 +227,4 @@ private fun MapControl(icon: androidx.compose.ui.graphics.vector.ImageVector, la
     GeoIconButton(icon, label, action,
         Modifier.shadow(1.dp, CircleShape).background(if (selected) c.primaryTint else c.mapPlate, CircleShape)
             .semantics { this.selected = selected }, enabled = enabled)
-}
-
-@Composable
-internal fun MapAttribution(modifier: Modifier = Modifier) {
-    Text("© VWorld", modifier.background(LocalGeoColors.current.mapPlate, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp),
-        style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
 }

@@ -11,18 +11,19 @@ val localProperties = Properties().apply {
         propertiesFile.inputStream().use(::load)
     }
 }
-val vworldApiKey = providers.gradleProperty("VWORLD_API_KEY")
-    .orElse(providers.environmentVariable("VWORLD_API_KEY"))
+// NAVER Maps client ID (ncpKeyId). It ships inside the APK; NAVER accepts it only for registered package names.
+val naverMapClientId = providers.gradleProperty("NAVER_MAP_CLIENT_ID")
+    .orElse(providers.environmentVariable("NAVER_MAP_CLIENT_ID"))
     .orNull
-    ?: localProperties.getProperty("vworld.apiKey", "")
-val escapedVworldApiKey = vworldApiKey
+    ?: localProperties.getProperty("naver.mapClientId", "")
+val escapedNaverMapClientId = naverMapClientId
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
 
 // Device deployments opt in so a missing local setting cannot silently ship a blank map.
-if (providers.gradleProperty("requireVworldKey").orNull == "true") {
-    require(vworldApiKey.isNotBlank()) {
-        "VWorld map configuration is required for this APK. Configure vworld.apiKey or VWORLD_API_KEY."
+if (providers.gradleProperty("requireMapKey").orNull == "true") {
+    require(naverMapClientId.isNotBlank()) {
+        "NAVER map configuration is required for this APK. Configure naver.mapClientId or NAVER_MAP_CLIENT_ID."
     }
 }
 
@@ -53,7 +54,7 @@ android {
         versionName = "1.18.0"
         manifestPlaceholders["appLabel"] = "@string/app_name"
 
-        buildConfigField("String", "VWORLD_API_KEY", "\"$escapedVworldApiKey\"")
+        buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"$escapedNaverMapClientId\"")
         buildConfigField("String", "DIAGNOSTICS_BUILD_ID", "\"$diagnosticsBuildId\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -122,7 +123,7 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.okhttp.core)
-    implementation(libs.maplibre.android)
+    implementation(libs.naver.map.sdk)
     testImplementation(libs.junit)
     testImplementation("org.mockito:mockito-core:5.20.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

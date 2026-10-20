@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.ui.map
 import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.model.RoutePoint
 import com.example.jetsoncontroller.model.GnssSensorStatus
+import com.example.jetsoncontroller.ui.theme.GeoPalette
 import com.google.gson.JsonParser
 import org.junit.Assert.*
 import org.junit.Test
@@ -16,35 +17,66 @@ class MapStateTest {
         ]}"""), range = if (range) JsonParser.parseString("""{"type":"Polygon","coordinates":[[[127,37],[128,37],[128,38],[127,37]]]}""") else null,
         bufferM = 10.0, lengthM = 1200.0, geometryRevision = "revision-1", geometryHash = "hash-1"))
 
-    @Test fun noKeyStillBuildsAllOverlaySourcesAndLocalBackground() {
-        val style = JsonParser.parseString(mapStyleJson(GeoMapBase.GENERAL, "", "#F1F3F7", 1f)).asJsonObject
-        assertEquals(setOf("zone", "trail", "device", "phone"), style.getAsJsonObject("sources").keySet())
-        val layers = style.getAsJsonArray("layers").map { it.asJsonObject.get("id").asString }
-        assertEquals(listOf("background", "range-fill", "range-casing", "range-edge", "route-casing", "route", "area-casing", "area-edge", "points",
-            "trail-casing", "trail-precise", "trail-approximate", "trail-unknown", "gap-casing", "gap-rings", "device-uncertainty",
-            "device-outer", "device-marker", "device-stale", "phone-halo", "phone-marker"), layers)
-        assertFalse(style.toString().contains("https://"))
+    @Test fun lineStylesKeepTheEarlierCasingsDashesAndColors() {
+        listOf(GeoMapLineStyle.RANGE, GeoMapLineStyle.AREA, GeoMapLineStyle.ROUTE).forEach {
+            assertEquals(MapBlue, it.color)
+            assertEquals(2f, it.widthDp, 0f)
+            assertEquals(5f, it.casingDp, 0f)
+        }
+        assertEquals(listOf(6f, 4f), GeoMapLineStyle.RANGE.dashDp)
+        assertNull(GeoMapLineStyle.AREA.dashDp)
+        assertNull(GeoMapLineStyle.ROUTE.dashDp)
+        val trail = listOf(GeoMapLineStyle.PRECISE, GeoMapLineStyle.APPROXIMATE, GeoMapLineStyle.UNKNOWN)
+        assertEquals(listOf(MapPrecise, MapApproximate, MapUnknown), trail.map { it.color })
+        trail.forEach {
+            assertEquals(4f, it.widthDp, 0f)
+            assertEquals(7f, it.casingDp, 0f)
+        }
+        assertEquals(listOf(null, listOf(8f, 4f), listOf(2f, 4f)), trail.map { it.dashDp })
     }
 
-    @Test fun stylesKeepCasingsPatternsAndFixedColorsInDarkAndSatelliteModes() {
-        fun layers(base: GeoMapBase, dim: Float) = JsonParser.parseString(mapStyleJson(base, "fixture", "#000000", dim))
-            .asJsonObject.getAsJsonArray("layers").associate { it.asJsonObject.get("id").asString to it.asJsonObject.getAsJsonObject("paint") }
-        val general = layers(GeoMapBase.GENERAL, .75f)
-        val satellite = layers(GeoMapBase.SATELLITE, .75f)
-        assertEquals(.75f, general.getValue("raster").get("raster-brightness-max").asFloat, .0001f)
-        assertEquals(-.2f, general.getValue("raster").get("raster-saturation").asFloat, .0001f)
-        assertEquals(1f, satellite.getValue("raster").get("raster-brightness-max").asFloat, .0001f)
-        assertEquals(.22f, general.getValue("range-fill").get("fill-opacity").asFloat, .0001f)
-        assertEquals(.16f, satellite.getValue("range-fill").get("fill-opacity").asFloat, .0001f)
-        listOf("range-casing", "route-casing", "area-casing").forEach { assertEquals(5f, general.getValue(it).get("line-width").asFloat, .0001f) }
-        assertEquals(7f, general.getValue("trail-casing").get("line-width").asFloat, .0001f)
-        assertEquals("[3.0,2.0]", general.getValue("range-edge").get("line-dasharray").toString())
-        assertEquals("[2.0,1.0]", general.getValue("trail-approximate").get("line-dasharray").toString())
-        assertEquals("[0.5,1.0]", general.getValue("trail-unknown").get("line-dasharray").toString())
-        listOf("range-edge", "route", "area-edge", "trail-precise", "trail-approximate", "trail-unknown", "device-marker").forEach {
-            assertEquals(general.getValue(it), satellite.getValue(it))
-        }
+    @Test fun darkPalettesUseNightModeOnTheGeneralMapOnly() {
+        val night = mapAppearance(GeoMapBase.GENERAL, GeoPalette.GRAPHITE, baseMap = true)
+        assertTrue(night.night)
+        assertFalse(night.satellite)
+        assertEquals(.22f, night.rangeFillOpacity, .0001f)
+        val satellite = mapAppearance(GeoMapBase.SATELLITE, GeoPalette.GRAPHITE, baseMap = true)
+        assertFalse(satellite.night)
+        assertTrue(satellite.satellite)
+        assertEquals(.16f, satellite.rangeFillOpacity, .0001f)
+        assertFalse(mapAppearance(GeoMapBase.GENERAL, GeoPalette.STANDARD, baseMap = true).night)
+        assertTrue(GeoPalette.entries.filter { it.isDark }.all { mapAppearance(GeoMapBase.GENERAL, it, baseMap = true).night })
+        assertEquals(.16f, mapAppearance(GeoMapBase.GENERAL, GeoPalette.NAVY_DARK, baseMap = false).rangeFillOpacity, .0001f)
     }
+
+    @Test fun zoneShapesUseNaverWindingWithoutTheClosingPoint() {
+        val shapes = mapZoneShapes(geometry().sourceJson)
+        assertEquals(1, shapes.routes.size)
+        assertEquals(listOf(GeoMapPosition(37.0, 127.0)), shapes.points)
+        // Features come first (one area), then the range.
+        assertEquals(listOf(false, true), shapes.polygons.map { it.range })
+        shapes.polygons.forEach {
+            assertEquals(3, it.exterior.size)
+            assertTrue("NAVER exteriors run clockwise", clockwise(it.exterior))
+        }
+        val holed = mapZoneShapes(mapGeometry(ServerTicket("ticket", "구간", range = JsonParser.parseString("""{"type":"MultiPolygon","coordinates":[
+          [[[127,37],[128,37],[128,38],[127,38],[127,37]],[[127.1,37.1],[127.1,37.2],[127.2,37.2],[127.2,37.1],[127.1,37.1]]],
+          [[[129,37],[130,37],[130,38],[129,37]]]
+        ]}"""))).sourceJson)
+        assertEquals(2, holed.polygons.size)
+        assertTrue(holed.polygons.all { it.range && clockwise(it.exterior) })
+        val hole = holed.polygons.first().holes.single()
+        assertEquals(4, hole.size)
+        assertFalse("NAVER holes run counter-clockwise", clockwise(hole))
+        assertNull(naverRing(listOf(GeoMapPosition(37.0, 127.0), GeoMapPosition(37.1, 127.1), GeoMapPosition(37.0, 127.0)), clockwise = true))
+        assertEquals(GeoMapZoneShapes(), mapZoneShapes("not json"))
+    }
+
+    private fun clockwise(ring: List<GeoMapPosition>) = ring.indices.sumOf { i ->
+        val a = ring[i]
+        val b = ring[(i + 1) % ring.size]
+        a.longitude * b.latitude - b.longitude * a.latitude
+    } < 0
 
     @Test fun cardSizesAndLandscapeUseCurrentPane() {
         assertEquals(200, mapCardHeight(GeoMapMode.ZONE, false))
@@ -126,23 +158,29 @@ class MapStateTest {
             RoutePoint(37.01, 127.01, 2_000, fixState = "FIXED"),
             RoutePoint(37.02, 127.02, 3_000, fixState = "FLOAT"),
             RoutePoint(37.03, 127.03, 4_000, fixState = "UNKNOWN"))
-        fun kinds(data: GeoMapData) = JsonParser.parseString(mapTrailJson(data)).asJsonObject.getAsJsonArray("features")
-            .map { it.asJsonObject.getAsJsonObject("properties").get("kind").asString }
-        assertEquals(listOf("precise", "approximate", "unknown"), kinds(GeoMapData(trail = route)))
-        assertEquals(listOf("precise", "gap", "gap", "unknown"), kinds(GeoMapData(trail = route,
-            zone = GeoMapZoneSnapshot(gaps = listOf(GeoMapGap(2_000, 3_000))))))
-        assertTrue(kinds(GeoMapData(trail = route.take(2).map { it.copy(fixState = "NO_FIX") })).isEmpty())
-        assertTrue(kinds(GeoMapData(trail = listOf(route.first(), route[1].copy(latitude = Double.NaN)))).isEmpty())
+        fun styles(data: GeoMapData) = mapTrail(data).runs.map { it.style }
+        assertEquals(listOf(GeoMapLineStyle.PRECISE, GeoMapLineStyle.APPROXIMATE, GeoMapLineStyle.UNKNOWN), styles(GeoMapData(trail = route)))
+        val gapped = mapTrail(GeoMapData(trail = route, zone = GeoMapZoneSnapshot(gaps = listOf(GeoMapGap(2_000, 3_000)))))
+        assertEquals(listOf(GeoMapLineStyle.PRECISE, GeoMapLineStyle.UNKNOWN), gapped.runs.map { it.style })
+        assertEquals(listOf(GeoMapPosition(37.01, 127.01), GeoMapPosition(37.02, 127.02)), gapped.gaps)
+        assertTrue(styles(GeoMapData(trail = route.take(2).map { it.copy(fixState = "NO_FIX") })).isEmpty())
+        assertTrue(styles(GeoMapData(trail = listOf(route.first(), route[1].copy(latitude = Double.NaN)))).isEmpty())
     }
 
-    @Test fun staleAndFreshDeviceSourcesDifferAndUncertaintyStartsAtThreeMeters() {
+    @Test fun segmentsOfOneQualityShareALine() {
+        val fixed = (0 until 5).map { RoutePoint(37.0 + it * .001, 127.0, 1_000L * (it + 1), fixState = "FIXED") }
+        val run = mapTrail(GeoMapData(trail = fixed)).runs.single()
+        assertEquals(GeoMapLineStyle.PRECISE, run.style)
+        assertEquals(fixed.map { GeoMapPosition(it.latitude, it.longitude) }, run.points)
+    }
+
+    @Test fun staleAndFreshDeviceMarksDifferAndUncertaintyStartsAtThreeMeters() {
         val fresh = GeoMapData(device = GeoMapPosition(37.0, 127.0), uncertaintyM = 2.99)
-        val json = mapDeviceJson(fresh)
-        assertTrue(json.contains("\"device\""))
-        assertFalse(json.contains("uncertainty"))
-        assertTrue(mapDeviceJson(fresh.copy(deviceStale = true)).contains("device-stale"))
-        assertTrue(mapDeviceJson(fresh.copy(uncertaintyM = 3.0)).contains("uncertainty"))
-        assertEquals(emptyMapCollection(), mapDeviceJson(GeoMapData(device = GeoMapPosition(91.0, 127.0))))
+        assertEquals(GeoMapDeviceMark(GeoMapPosition(37.0, 127.0), stale = false, uncertaintyM = null), mapDeviceMark(fresh))
+        assertTrue(mapDeviceMark(fresh.copy(deviceStale = true))!!.stale)
+        assertEquals(3.0, mapDeviceMark(fresh.copy(uncertaintyM = 3.0))!!.uncertaintyM!!, 0.0)
+        assertNull(mapDeviceMark(fresh.copy(uncertaintyM = Double.NaN))!!.uncertaintyM)
+        assertNull(mapDeviceMark(GeoMapData(device = GeoMapPosition(91.0, 127.0))))
         assertNull(mapDevice(GnssSensorStatus(fixType = "NO_FIX", latitude = 37.0, longitude = 127.0)))
     }
 

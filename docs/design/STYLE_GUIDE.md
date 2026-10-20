@@ -693,11 +693,11 @@ R3 목표 책임은 `GeoMapRenderer`, `GeoMapCard`, `GeoMapScreen`, `GeoRunPanel
 
 ### 15.2 렌더링·카메라
 
-- 기존 MapLibre Android 13.4.1·VWorld raster를 사용한다. `GeoJSON` source와 `FillLayer`/`LineLayer`/`CircleLayer`를 쓴다. deprecated `Marker`/`Polyline`은 새로 쓰지 않는다.
-- 키가 없어도 `sunken` background와 overlay source의 로컬 style을 만든다. raster만 키가 있을 때 추가한다.
-- source는 zone/trail/device/phone으로 분리한다. geometry는 `revision`별, trail은 append, device는 표본별 갱신이다.
-- 일반/위성 전환에서 오래된 style callback은 generation으로 무효화한다.
-- layer 순서: background → raster → `range` fill/edge casing/edge → route casing/route → area casing/edge → points → trail casing/정밀/대략/미확인 → gap ring → 장치 불확실성/marker → 휴대폰 halo/marker.
+- 네이버 지도 Android SDK(NCP Maps, `ncpKeyId`)를 쓴다. 일반은 `Basic`, 위성은 라벨이 있는 `Hybrid`다. 키가 없으면 `None`으로 `sunken` 배경과 overlay만 그린다. 아직 받지 못한 곳도 네이버 격자 대신 `sunken`으로 채운다.
+- overlay: 구역은 `PolygonOverlay` 두 겹(채움과 흰 casing 외곽선, 그 위 파란 경계선), 경로·궤적은 흰 casing 위 `PolylineOverlay`, 지점·공백·장치·휴대폰은 비트맵 `Marker`, 불확실성은 미터 반경 `CircleOverlay`다.
+- 네이버는 바깥 고리를 시계 방향, 구멍을 반시계 방향으로, 닫는 점 없이 받는다. GeoJSON(RFC 7946)은 반대로 감기므로 고리를 뒤집는다.
+- zone/trail/device/phone은 따로 갱신한다. overlay는 바뀐 것만 고친다. 같은 품질의 궤적 구간은 한 선으로 합친다.
+- 그리는 순서(전역 z): `range`·영역 채움/casing → 경계 → route casing/route → points → trail casing → 정밀/대략/미확인 → gap ring → 장치 불확실성. 여기까지는 네이버 라벨 아래다. 장치·휴대폰 marker는 라벨 위다.
 
 | 대상·`GeoFixedColors` | 형태·치수 |
 |---|---|
@@ -710,7 +710,8 @@ R3 목표 책임은 `GeoMapRenderer`, `GeoMapCard`, `GeoMapScreen`, `GeoRunPanel
 | 불확실성 `mapDevice` | u ≥ 3 m일 때 반경 u, fill 8%·경계 1/40% |
 | 휴대폰 `mapPhone` | 원 14·흰 ring 3·정확도 halo 12%. 켠 동안만 |
 
-- 일반 raster는 그래파이트·어두운 네이비 brightness max 0.75/saturation −0.2, 흐림 0.85/−0.2다. 위성은 어둡게 하지 않는다.
+- 어두운 팔레트(그래파이트·네이비 어둡게·흐림)는 일반 지도에 네이버 야간 모드를 켠다. 위성은 그대로다. 구역 채움은 야간 일반 지도에서 22 %, 그 밖에는 16 %다.
+- 로딩·실패: 네이버가 첫 로드를 알리면 끝난다. 보이는 지도가 15초 안에 로드되지 않거나 인증이 거부되면(401·429) "배경 지도를 불러오지 못했습니다. 구역은 그대로 표시합니다."를 띄운다.
 - 진입 때 한 번 `range` `bbox`에 맞춘다. 장치가 2 km 이내면 포함한다. 패딩 24+패널 높이다.
 - 사용자 pan/zoom을 유지한다. 장치 위치로·구역 전체 보기만 명시적으로 재정렬한다.
 - 진행 mode는 장치를 따르되 사용자 pan으로 해제한다. 장치 위치로를 누르면 선택 상태와 따라가기를 복원한다.
@@ -723,7 +724,7 @@ R3 목표 책임은 `GeoMapRenderer`, `GeoMapCard`, `GeoMapScreen`, `GeoRunPanel
 | 카드 | 본문 너비, 구간·결과 200/진행 240/낮은 창 160, 반경 12, `border` 1·고대비 `borderStrong` |
 | 조작 | north-up·제스처 없음, 하나의 탐색 target, 같은 mode 전체 지도 진입 |
 | 배지 | 위 시작 12. 구간은 구역 안/경계 근처만, 진행은 모든 구역 상태, 결과 없음 |
-| 저작권 | 아래 시작의 불투명 `mapPlate`, © VWorld `caption`/`textSecondary` |
+| 저작권 | SDK가 그리는 NAVER 로고를 아래 시작에 둔다(카드 8, 전체 지도 12+패널 높이). 가리거나 숨기지 않는다. 전체 지도에서는 로고를 눌러 법적 고지를 연다 |
 | 카드 밖 설명 | 경로 1.2 km · 폭 20 m · 영역 1곳 · 지점 4곳 + 위치 문장. 결과는 밖 기록·관찰 공백 |
 | 전체 지도 | mode zone/run/route/location과 ticket/run/device 식별. 제목 수집 구역/수집 중/수집 경로/장치 위치, 탭 막대 없음 |
 | 조작부 | 끝쪽 inset 12/간격 8, `mapPlate`·작은 그림자. 일반/위성·장치 위치로·구역 전체 보기·패널 위 확대/축소 48 |

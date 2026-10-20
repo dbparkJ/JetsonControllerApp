@@ -136,7 +136,13 @@ Split every use that borrowed `sectionTitle` (device name, empty state, Focus ti
 - **설정:** the section rule applies to 화면, 알림, 서버, 정보 and 고급. Values stay on the right and move to the next line at large font scale. 권한 허용 keeps its size.
 - **Details:** top bar title, then the H1 block, then 24, then the first property list, then sections.
 
-## 13. Acceptance
+## 13. Map engine (2026-10-20)
+
+- The owner chose NAVER Maps for GEO& Work and for this app. The NAVER Maps Android SDK replaces MapLibre and the VWorld raster that R3 §5.1 describes.
+- `docs/design/STYLE_GUIDE.md` §15.2 holds the current rendering rules: overlays, ring winding, z order, night mode, loading and failure.
+- Sizes, colours and states in R3 §5.1 still hold. The R3 "© VWorld" plate is replaced by the NAVER logo that the SDK draws; it must stay visible.
+
+## 14. Acceptance
 
 - Font scale 1.0, 1.1, 1.3, 1.5 and 2.0: nothing is ellipsised away; titles and actions stack when they do not fit.
 - All six palettes: 표준, 네이비, 고대비, 그래파이트, 네이비 (어둡게) and 흐림.
