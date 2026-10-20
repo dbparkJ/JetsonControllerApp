@@ -16,6 +16,7 @@ import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import com.example.jetsoncontroller.ui.sensors.DeviceSensorRows
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -64,6 +65,7 @@ internal fun DeviceDetailScreen(
     bluetoothError: String? = null
 ) {
     val c = LocalGeoColors.current
+    val deviceWord = localDeviceWord()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val targetSelected = sameDeviceTarget(deviceId, selectedDeviceId)
@@ -139,7 +141,7 @@ internal fun DeviceDetailScreen(
                         DevicePowerButtons(powerEnabled, { confirmation = "reboot" }, { confirmation = "shutdown" })
                         if (!powerEnabled) Text(powerReason.ifEmpty { disabledReason }, style = LocalGeoType.current.body, color = c.textSecondary)
                     }
-                    GeoSection("이 휴대폰", danger = true, note = "이 휴대폰에 저장된 인증 정보만 지웁니다.") {
+                    GeoSection("이 $deviceWord", danger = true, note = "이 ${deviceWord}에 저장된 인증 정보만 지웁니다.") {
                         GeoButton("등록 해제", { confirmation = "forget" }, style = GeoButtonStyle.DangerOutline,
                             actionArea = true, enabled = onForget != null,
                             disabledReason = if (onForget == null) "등록된 장치를 먼저 선택하세요." else null)
@@ -157,7 +159,7 @@ internal fun DeviceDetailScreen(
         GeoConfirmDialog(
             title = when { forget -> "$deviceName 등록을 해제할까요?"; reboot -> "${deviceName}을 재부팅할까요?"; else -> "${deviceName}의 전원을 끌까요?" },
             body = when {
-                forget -> "이 휴대폰에 저장된 인증 정보만 지웁니다. 장치의 파일과 설정은 그대로입니다. 다시 쓰려면 QR 코드로 다시 등록해야 합니다."
+                forget -> "이 ${deviceWord}에 저장된 인증 정보만 지웁니다. 장치의 파일과 설정은 그대로입니다. 다시 쓰려면 QR 코드로 다시 등록해야 합니다."
                 reboot -> "재부팅하는 동안 연결이 끊깁니다. 진행 중인 전송은 멈춥니다."
                 else -> "다시 켜려면 장치의 전원 버튼을 눌러야 합니다. 진행 중인 전송은 멈춥니다."
             },

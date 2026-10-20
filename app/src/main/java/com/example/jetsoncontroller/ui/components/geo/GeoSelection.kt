@@ -231,7 +231,8 @@ fun GeoSegmented(
     onOpenPicker: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    showLabel: Boolean = true
 ) {
     require(options.size in 2..4 && selectedIndex in options.indices)
     require(enabled || !disabledReason.isNullOrBlank())
@@ -251,7 +252,7 @@ fun GeoSegmented(
             GeoPickerField(label, options[selectedIndex], onOpenPicker, enabled = enabled, disabledReason = disabledReason)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(label, style = style, color = c.text)
+                if (showLabel) Text(label, style = style, color = c.text)
                 val segmentWidth = innerWidth / options.size
                 val position by animateDpAsState(segmentWidth * selectedIndex,
                     tween(180, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)), label = "geoSegment")

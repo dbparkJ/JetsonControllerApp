@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.ui.devices
 import androidx.compose.runtime.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -22,6 +23,7 @@ internal fun ConnectMethodSheet(
     bluetoothBusy: Boolean = false,
     bluetoothError: String? = null
 ) {
+    val deviceWord = localDeviceWord()
     var confirmDirect by remember { mutableStateOf(false) }
     GeoSheet(
         title = "$deviceName 연결 방법",
@@ -29,9 +31,9 @@ internal fun ConnectMethodSheet(
         onDismissRequest = onDismiss
     ) {
         DeviceConnectionChoice("같은 네트워크에서 다시 찾기", GeoIcons.wifi, onClick = onSameNetwork,
-            meta = "휴대폰과 장치가 같은 Wi-Fi에 있을 때 씁니다. 모든 기능을 쓸 수 있습니다.")
+            meta = "${deviceWord}과 장치가 같은 Wi-Fi에 있을 때 씁니다. 모든 기능을 쓸 수 있습니다.")
         DeviceConnectionChoice("장치에 직접 연결", GeoIcons.link, onClick = { confirmDirect = true },
-            meta = "공유기 없이 휴대폰과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.")
+            meta = "공유기 없이 ${deviceWord}과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.")
         DeviceConnectionChoice("블루투스로 기본 연결", GeoIcons.bluetooth, onClick = {
             if (bluetoothPermissionGranted) onBluetooth?.invoke() else onRequestBluetoothPermission()
         }, meta = if (bluetoothBusy) "기본 연결을 확인하고 있습니다." else if (bluetoothPermissionGranted) "가까운 장치를 찾아 기본 연결합니다."

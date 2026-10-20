@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -83,8 +84,8 @@ internal fun SurveyRunScreen(
     val projectFocus = remember { FocusRequester() }
     var topHeight by remember { mutableFloatStateOf(56f) }
     val density = LocalDensity.current
-    val editable = !state.contextLocked && !state.restoringLocalState && state.operation == null
-    val lockedReason = "진행 중인 수집과 시작 요청을 먼저 확인하세요."
+    val lockedReason = preparationEditDisabledReason(state)
+    val editable = lockedReason == null
     val now by produceState(System.currentTimeMillis(), state.deviceId) {
         while (true) { value = System.currentTimeMillis(); delay(1_000) }
     }
@@ -111,15 +112,12 @@ internal fun SurveyRunScreen(
         GeoFactRow("상태", preparationReadiness(state, now).firstOrNull { it.label == "보정 정보 중계" }?.value ?: "미확인")
     }
     if (projectPicker) {
-        GeoSheet("프로젝트 선택", { projectPicker = false }, openerFocusRequester = projectFocus,
-            footer = {
-                GeoButton("새 프로젝트", { projectPicker = false; newProject = true },
-                    style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, icon = GeoIcons.add)
-            }) {
+        GeoSheet("프로젝트 선택", { projectPicker = false }, openerFocusRequester = projectFocus) {
             state.projects.forEach { project ->
                 GeoRadioRow(project.label, state.selectedProject?.surveyProjectId == project.surveyProjectId,
                     { projectPicker = false; newProject = false; onSelectProject(project) })
             }
+            PreparationAddRow("새 프로젝트", { projectPicker = false; newProject = true })
         }
     }
 
@@ -151,7 +149,7 @@ internal fun SurveyRunScreen(
                         else -> GeoButton("수집 시작", beginCheck,
                             Modifier.fillMaxWidth().focusRequester(startFocus).testTag("prepare-start"),
                             enabled = state.canPreflight && ticketPreparationReady,
-                            disabledReason = preparationActionReason(state), actionArea = true)
+                            actionArea = true)
                     }
                     if (!state.online && onConnectionMethod != null) {
                         GeoButton("연결 방법", onConnectionMethod, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
@@ -170,10 +168,12 @@ internal fun SurveyRunScreen(
                         state.pendingStart != null || state.unconfirmedRunId != null -> TaskState.START_REQUESTED
                         else -> taskChoiceState(state.preparationTaskState)
                     }
-                    GeoBadge(taskState.word, taskState.tone)
                     val lastExecution = state.lastExecutionStartedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                    Text(listOfNotNull(displayName, lastExecution?.let { "마지막 실행 ${Formats.time(it)}" }).joinToString(" · "),
-                        style = type.caption, color = c.textSecondary)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                        GeoBadge(taskState.word, taskState.tone)
+                        Text(listOfNotNull(displayName, lastExecution?.let { "마지막 실행 ${Formats.time(it)}" }).joinToString(" · "),
+                            Modifier.weight(1f), style = type.caption, color = c.textSecondary)
+                    }
                     Spacer(Modifier.height(24.dp))
                     mapCard()
                 }
@@ -208,11 +208,10 @@ internal fun SurveyRunScreen(
                                 GeoRadioRow(state.preparationDraft?.section.preparationLabel(null), true, {},
                                     enabled = editable, disabledReason = lockedReason)
                             }
+                            val newSectionReason = preparationNewSectionDisabledReason(state)
+                            PreparationAddRow("새 구간", { newSection = true },
+                                enabled = newSectionReason == null, disabledReason = newSectionReason)
                         }
-                        GeoButton("새 구간", { newSection = true }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
-                            icon = GeoIcons.add, enabled = editable &&
-                                (state.selectedProject != null || state.preparationDraft?.project != null),
-                            disabledReason = "프로젝트를 먼저 선택하세요.")
                         if (newSection) {
                             GeoTextField(sectionLabel, { sectionLabel = it }, "새 구간", enabled = editable,
                                 disabledReason = lockedReason)
@@ -233,6 +232,35 @@ internal fun SurveyRunScreen(
         }
     }
 }
+
+@Composable
+private fun PreparationAddRow(title: String, onClick: () -> Unit,
+    enabled: Boolean = true, disabledReason: String? = null) {
+    require(enabled || !disabledReason.isNullOrBlank())
+    val c = LocalGeoColors.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).contentTarget(enabled, onClick).contentDivider()
+        .semantics(mergeDescendants = true) {}.padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(GeoIcons.add, null, Modifier.size(24.dp), tint = if (enabled) c.textSecondary else c.disabledText)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = LocalGeoType.current.titleSm, color = if (enabled) c.text else c.disabledText)
+            if (!enabled && disabledReason != null) Text(disabledReason,
+                style = LocalGeoType.current.caption, color = c.textSecondary)
+        }
+    }
+}
+
+internal fun preparationEditDisabledReason(state: SurveyRunUiState): String? = when {
+    state.contextLocked -> "진행 중인 수집과 시작 요청을 먼저 확인하세요."
+    state.restoringLocalState -> "저장된 선택을 확인하고 있습니다."
+    state.operation != null -> "진행 중인 작업이 끝난 뒤 선택할 수 있습니다."
+    else -> null
+}
+
+internal fun preparationNewSectionDisabledReason(state: SurveyRunUiState): String? =
+    preparationEditDisabledReason(state) ?: "프로젝트를 먼저 선택하세요.".takeIf {
+        state.selectedProject == null && state.preparationDraft?.project == null
+    }
 
 /** Adapts the shared S8 gate so optional warnings remain visible without becoming required checks. */
 @Composable

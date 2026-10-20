@@ -1,22 +1,28 @@
 package com.example.jetsoncontroller.ui.field
 
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import com.example.jetsoncontroller.ui.zone.resultObservation
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
@@ -99,7 +105,8 @@ internal fun RunResultScreen(
         val chain = run?.let {
             resultChain(it, uploadJobs, uploadEnabled, uploadDisabledReason, connectionLabel, online,
                 !ticketTitle.isNullOrBlank(), ticketCompletionEnabled, ticketCompletionPending,
-                ticketCompletionReported, ticketCompletionMessage, ticketCompletionFailed)
+                ticketCompletionReported, ticketCompletionMessage, ticketCompletionFailed,
+                localDeviceWord = localDeviceWord())
         }
         var reportTarget by rememberSaveable(run?.deviceId, run?.runId) { mutableStateOf<String?>(null) }
         val reportFocus = remember { FocusRequester() }
@@ -201,8 +208,7 @@ internal fun RunResultScreen(
                             }
                             if (zoneRevisionChanged) GeoInlineNote("수집 구역이 바뀌었습니다. 이 수집은 시작할 때의 구역으로 표시합니다.")
                             Column(Modifier.padding(top = 24.dp)) {
-                                GeoRow("저장 폴더", onOpenFiles,
-                                    value = historyFolderLabel(run.output.path, run.runId, run.output.manifest?.runId),
+                                ResultFolderRow(historyFolderLabel(run.output.path, run.runId, run.output.manifest?.runId), onOpenFiles,
                                     enabled = online && runOutputStored(run),
                                     disabledReason = if (!online) "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다." else "장치 저장 결과를 확인한 뒤 폴더를 볼 수 있습니다.")
                             }
@@ -227,6 +233,40 @@ internal fun RunResultScreen(
                     item { inlineAction() }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResultFolderRow(folder: String?, onOpen: () -> Unit, enabled: Boolean, disabledReason: String) {
+    val c = LocalGeoColors.current
+    val type = LocalGeoType.current
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val name = folder ?: "미확인"
+    BoxWithConstraints(Modifier.fillMaxWidth().contentTarget(enabled, onOpen).contentDivider()
+        .semantics(mergeDescendants = true) {}) {
+        val labelWidth = measurer.measure(AnnotatedString("저장 폴더"), type.titleSm).size.width
+        val nameWidth = measurer.measure(AnnotatedString(name), type.body, softWrap = false).size.width
+        val stacked = density.fontScale >= 1.5f ||
+            labelWidth + nameWidth + with(density) { 60.dp.roundToPx() } > constraints.maxWidth
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (stacked) {
+                    Text("저장 폴더", style = type.titleSm, color = if (enabled) c.text else c.disabledText)
+                    Text(name, style = type.body, color = c.textSecondary)
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("저장 폴더", Modifier.weight(1f), style = type.titleSm,
+                            color = if (enabled) c.text else c.disabledText)
+                        Text(name, style = type.body, color = c.textSecondary)
+                    }
+                }
+                if (!enabled) Text(disabledReason, style = type.caption, color = c.textSecondary)
+            }
+            if (enabled) Icon(GeoIcons.chevronRight, null, Modifier.size(20.dp), tint = c.textSubtle)
         }
     }
 }

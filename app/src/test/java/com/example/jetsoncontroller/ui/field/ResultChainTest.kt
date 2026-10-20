@@ -17,6 +17,10 @@ class ResultChainTest {
         assertEquals("이 휴대폰에서 보낸 기록이 없습니다.", chain.receipt.server.meta)
     }
 
+    @Test fun `receipt uses the supplied local device word`() {
+        assertEquals("이 태블릿에서 보낸 기록이 없습니다.", chain(localDeviceWord = "태블릿").receipt.server.meta)
+    }
+
     @Test fun `unconfirmed storage blocks send even with a transfer or receipt`() {
         val run = resultTestRun()
         val pending = run.copy(output = run.output.copy(manifestState = "PENDING"))
@@ -128,8 +132,10 @@ class ResultChainTest {
     private fun chain(run: PipelineRun = resultTestRun(), jobs: List<UploadJob> = emptyList(),
         upload: Boolean = true, online: Boolean = true, connection: String = "같은 네트워크",
         linked: Boolean = true, pending: Boolean = false, reported: Boolean = false,
-        reportEnabled: Boolean = true) = resultChain(run, jobs, upload, "서버 연결을 확인하세요.", connection,
-        online, linked, reportEnabled, pending, reported)
+        reportEnabled: Boolean = true, localDeviceWord: String = "휴대폰") = resultChain(
+        run, jobs, upload, "서버 연결을 확인하세요.", connection, online, linked, reportEnabled, pending, reported,
+        localDeviceWord = localDeviceWord
+    )
 }
 
 internal fun resultTestRun(): PipelineRun {

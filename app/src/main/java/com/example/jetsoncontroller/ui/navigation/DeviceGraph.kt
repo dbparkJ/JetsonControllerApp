@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.navigation
 
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -119,7 +120,8 @@ internal fun NavGraphBuilder.deviceGraph(state: State<AppNavigationState>, inclu
                     snapshot = snapshot,
                     connection = deviceConnectionUi(dashboard.isOnline && dashboard.statusFreshness != StatusFreshness.UNKNOWN, dashboard.transportType,
                         checking = sameDeviceTarget(targetId, connectingLanDeviceId) ||
-                            (dashboard.isOnline && dashboard.statusFreshness == StatusFreshness.UNKNOWN), lastSeenText = seen),
+                            (dashboard.isOnline && dashboard.statusFreshness == StatusFreshness.UNKNOWN), lastSeenText = seen,
+                        localDeviceWord = localDeviceWord()),
                     lastSeenText = seen,
                     freshness = dashboard.statusAgeSeconds?.let { Formats.freshness(Duration.ofSeconds(it.coerceAtLeast(0))) },
                     runActive = selected && devicePowerBlockedByCollection(this),

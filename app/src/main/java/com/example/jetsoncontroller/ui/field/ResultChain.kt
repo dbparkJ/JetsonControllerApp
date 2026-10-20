@@ -66,7 +66,8 @@ internal fun resultChain(
     reportPending: Boolean,
     reported: Boolean,
     reportMessage: String? = null,
-    reportFailed: Boolean = false
+    reportFailed: Boolean = false,
+    localDeviceWord: String = "휴대폰"
 ): ResultChain {
     val cells = pipelineRunReceiptCells(run, Tone.UNKNOWN)
     val stored = runOutputStored(run)
@@ -88,7 +89,7 @@ internal fun resultChain(
         failed != null && resultVerification(failed)?.matched == false ->
             GeoReceiptItem("내용 불일치", Tone.WARNING, "서버 수신 내용이 일치하지 않습니다. 다시 보내세요.")
         failed != null -> GeoReceiptItem("확인 필요", Tone.WARNING, "전송 상태를 다시 확인하세요.")
-        else -> GeoReceiptItem(meta = "이 휴대폰에서 보낸 기록이 없습니다.")
+        else -> GeoReceiptItem(meta = "이 ${localDeviceWord}에서 보낸 기록이 없습니다.")
     }
     val report = when {
         !ticketLinked -> GeoReceiptItem("해당 없음", Tone.UNKNOWN, "연결된 수집 구간이 없습니다.", true)

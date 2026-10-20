@@ -6,6 +6,7 @@ import com.example.jetsoncontroller.model.RunQuality
 import com.example.jetsoncontroller.model.TaskRun
 import com.example.jetsoncontroller.model.PipelineOutputManifest
 import com.example.jetsoncontroller.model.PipelineRunOutput
+import com.example.jetsoncontroller.model.LocationPrecisionDuration
 import com.example.jetsoncontroller.model.SurveyContextSnapshot
 import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.assertEquals
@@ -117,6 +118,42 @@ class QualityPresentationTest {
 
         assertEquals(listOf("정밀 위치", "대략 위치"), presentation.slices.map { it.label })
         assertEquals(8_000L, presentation.slices.last().durationMillis)
+    }
+
+    @Test
+    fun `quality detail omits displayed zero seconds after grouping without losing precision evidence`() {
+        val presentation = runQualityPresentation(RunQuality(
+            rtkObservedDurationMillis = 1_999,
+            rtkUnknownDurationMillis = 1_000,
+            locationPrecision = listOf(
+                LocationPrecisionDuration("FIXED", 500, .25),
+                LocationPrecisionDuration("RTK_FIXED", 500, .25),
+                LocationPrecisionDuration("FLOAT", 999, .5),
+                LocationPrecisionDuration("NO_FIX", 0, 0.0)
+            )
+        ))
+
+        val entries = qualityDetailSlices(presentation)
+
+        assertEquals(listOf("정밀 위치", "위치 미확인"), entries.map { it.label })
+        assertEquals(listOf(1_000L, 1_000L), entries.map { it.durationMillis })
+        assertTrue(presentation.slices.any { it.band == LocationQualityBand.APPROXIMATE })
+        assertTrue(entries.none { qualityDurationLabel(it.durationMillis) == "0초" })
+    }
+
+    @Test
+    fun `quality detail omits zero length problems and preserves unknown duration problems`() {
+        val zero = problem("CLOCK_GAP", "UNSPECIFIED").copy(durationMillis = 0)
+        val subsecond = zero.copy(durationMillis = 999)
+        val known = zero.copy(durationMillis = 1_000)
+        val timedZero = zero.copy(durationMillis = null, endedAtEpochMillis = 1)
+        val timed = zero.copy(durationMillis = null, endedAtEpochMillis = 1_001)
+        val ongoing = zero.copy(durationMillis = null)
+        val quality = RunQuality(problemIntervals = listOf(zero, subsecond, known, timedZero, timed, ongoing))
+
+        assertEquals(listOf(known, timed, ongoing), qualityDetailProblems(quality))
+        assertTrue(qualityDetailProblems(null).isEmpty())
+        assertTrue(qualityDetailSlices(runQualityPresentation(null)).isEmpty())
     }
 
     @Test

@@ -22,6 +22,7 @@ import com.example.jetsoncontroller.data.network.WifiDirectState
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.pairing.PairingTopBar
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
@@ -38,6 +39,7 @@ fun WifiDirectScreen(
 ) {
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
+    val deviceWord = localDeviceWord()
     val gutter = LocalGeoWindow.current.gutterDp.dp
     var pendingAddress by rememberSaveable { mutableStateOf<String?>(null) }
     var opener by remember { mutableStateOf<FocusRequester?>(null) }
@@ -54,12 +56,12 @@ fun WifiDirectScreen(
         PairingTopBar("직접 연결", onBack)
         LazyColumn(contentPadding = PaddingValues(start = gutter, end = gutter, top = 24.dp, bottom = 28.dp)) {
             if (stage != DirectStage.UNSUPPORTED) item {
-                GeoInlineNote("공유기 없이 휴대폰과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.")
+                GeoInlineNote("공유기 없이 ${deviceWord}과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.")
                 Spacer(Modifier.height(24.dp))
             }
             when (stage) {
                 DirectStage.UNSUPPORTED -> item {
-                    DirectState("이 휴대폰은 직접 연결을 지원하지 않습니다", "같은 네트워크에서 다시 찾거나 블루투스로 기본 연결하세요.", GeoStateKind.UNSUPPORTED)
+                    DirectState("이 ${deviceWord}은 직접 연결을 지원하지 않습니다", "같은 네트워크에서 다시 찾거나 블루투스로 기본 연결하세요.", GeoStateKind.UNSUPPORTED)
                 }
                 DirectStage.PERMISSION -> item {
                     GeoSection("주변 장치", first = true) {
@@ -67,7 +69,7 @@ fun WifiDirectScreen(
                     }
                 }
                 DirectStage.RADIO_OFF -> item {
-                    DirectState("직접 연결이 꺼져 있습니다", "휴대폰의 Wi-Fi를 켠 뒤 다시 확인하세요.", GeoStateKind.OFFLINE, "다시 확인", onDiscoveryClick)
+                    DirectState("직접 연결이 꺼져 있습니다", "${deviceWord}의 Wi-Fi를 켠 뒤 다시 확인하세요.", GeoStateKind.OFFLINE, "다시 확인", onDiscoveryClick)
                 }
                 DirectStage.CLEANING_UP, DirectStage.CONNECTING, DirectStage.CANCELLING -> item {
                     Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(12.dp)) {

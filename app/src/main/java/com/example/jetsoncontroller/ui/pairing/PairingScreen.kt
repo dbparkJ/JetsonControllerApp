@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
@@ -23,6 +24,7 @@ fun PairingScreen(
     onCancel: () -> Unit,
     onRetry: () -> Unit
 ) {
+    val deviceWord = localDeviceWord()
     FrozenPairingScanner(onBack = onCancel)
     GeoSheet(
         title = "장치 등록",
@@ -58,7 +60,7 @@ fun PairingScreen(
         Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (state.phase) {
                 PairingPhase.QR_SCANNED -> {
-                    Text("블루투스로 장치를 찾아 이 휴대폰에 등록합니다.", style = type.body, color = colors.text)
+                    Text("블루투스로 장치를 찾아 이 ${deviceWord}에 등록합니다.", style = type.body, color = colors.text)
                     Text("가까운 장치를 찾으려면 블루투스 권한이 필요합니다.", style = type.body, color = colors.textSecondary)
                 }
                 PairingPhase.ERROR -> {

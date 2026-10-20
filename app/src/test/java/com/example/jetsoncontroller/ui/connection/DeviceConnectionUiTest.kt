@@ -50,6 +50,14 @@ class DeviceConnectionUiTest {
     }
 
     @Test
+    fun `offline history uses the supplied local device word`() {
+        assertEquals(
+            "이 태블릿과 연결한 기록이 없습니다.",
+            deviceConnectionUi(isOnline = false, transportType = null, localDeviceWord = "태블릿").detail
+        )
+    }
+
+    @Test
     fun `a running attempt outranks discovery, and a failed attempt reads as no response`() {
         assertEquals(
             DeviceConnectionState.CHECKING,

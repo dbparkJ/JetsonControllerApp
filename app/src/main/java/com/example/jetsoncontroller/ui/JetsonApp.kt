@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui
 
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import android.net.Uri
 import com.example.jetsoncontroller.ui.navigation.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoAppShell
@@ -557,6 +558,7 @@ fun JetsonApp(
     }
     val selectedSnapshot = selectedDeviceId?.let { deviceSnapshots[deviceSnapshotKey(it)] }
     val selectedConnection = deviceConnectionUi(
+        localDeviceWord = localDeviceWord(),
         isOnline = deviceDashboardState.isOnline,
         transportType = deviceDashboardState.transportType,
         checking = selectedDeviceId != null &&

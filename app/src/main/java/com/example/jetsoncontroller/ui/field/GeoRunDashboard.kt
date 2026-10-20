@@ -86,7 +86,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                 vertical = 16.dp)) {
                 item {
                     GeoSegmented("보기", options, tab, { tab = it }, { showFilter = true },
-                        modifier = Modifier.focusRequester(filterFocus))
+                        modifier = Modifier.focusRequester(filterFocus), showLabel = false)
                     state.error?.let { GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR,
                         actionLabel = "다시 시도", onAction = onRefresh) }
                     if (!state.online && state.runs.isNotEmpty()) GeoInlineNote(
@@ -171,7 +171,7 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
             GeoReceiptLine(receipt)
         }
         Box {
-            GeoIconButton(GeoIcons.more, "${run.label} 메뉴", { menu = true },
+            GeoIconButton(GeoIcons.more, "${historyRecordTitle(run)} 메뉴", { menu = true },
                 modifier = Modifier.focusRequester(menuFocus))
             GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("휴지통으로 이동", onTrash,
                 destructive = true, enabled = canDelete, disabledReason = disabledReason)), openerFocusRequester = menuFocus)
@@ -180,14 +180,18 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
 }
 
 internal fun historyFolderLabel(path: String?, vararg identifiers: String?): String? =
-    path?.trimEnd('/')?.substringAfterLast('/')?.takeIf { folder ->
-        folder.isNotBlank() && identifiers.none { !it.isNullOrBlank() && folder == it }
+    historyDisplayLabel(path?.trim()?.trimEnd('/', '\\')?.substringAfterLast('/')?.substringAfterLast('\\'), *identifiers)
+
+private fun historyDisplayLabel(label: String?, vararg identifiers: String?): String? =
+    label?.trim()?.takeIf { value ->
+        value.isNotBlank() && identifiers.none { !it.isNullOrBlank() && value == it.trim() }
     }
 
 internal fun historyRecordTitle(run: TaskRun): String =
     historyFolderLabel(run.output?.path, run.runId, run.output?.manifest?.runId)
-        ?: run.contextSnapshot?.surveySectionLabel?.takeIf(String::isNotBlank)
-        ?: run.label
+        ?: historyDisplayLabel(run.contextSnapshot?.surveySectionLabel, run.runId, run.output?.manifest?.runId)
+        ?: historyDisplayLabel(run.label, run.runId, run.output?.manifest?.runId)
+        ?: "수집 기록"
 
 internal fun historyRecordMeta(run: TaskRun): String = listOfNotNull(
     resultTime(run.startedAt),

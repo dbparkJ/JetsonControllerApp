@@ -23,6 +23,27 @@ class HistoryEntryTest {
         assertEquals("데이터 수집", historyRecordTitle(entry.copy(output = null, contextSnapshot = null)))
     }
 
+    @Test fun `folder names ignore surrounding whitespace and trailing separators`() {
+        val run = resultTestRun()
+        val entry = TaskRun("capture/run.log", run.pipelineId, "데이터 수집", run.logId, run.startedAt,
+            runId = run.runId, contextSnapshot = run.contextSnapshot, output = run.output)
+        listOf(" recordings/20261019_1636/// ", "recordings\\20261019_1636\\").forEach { path ->
+            assertEquals("20261019_1636", historyRecordTitle(entry.copy(output = run.output.copy(path = path))))
+        }
+        assertNull(historyFolderLabel("recordings/ ${run.runId} /", run.runId))
+    }
+
+    @Test fun `daily titles never fall back to a run id in a section or task label`() {
+        val run = resultTestRun()
+        val entry = TaskRun("capture/run.log", run.pipelineId, run.runId, run.logId, run.startedAt,
+            runId = run.runId, contextSnapshot = run.contextSnapshot.copy(surveySectionLabel = " ${run.runId} "),
+            output = run.output.copy(path = "recordings/${run.runId}"))
+        assertEquals("수집 기록", historyRecordTitle(entry))
+        assertFalse(historyRecordMeta(entry).contains(run.runId))
+        assertEquals("데이터 수집", historyRecordTitle(entry.copy(label = "데이터 수집")))
+        assertEquals("20261019_1636", historyRecordTitle(entry.copy(output = run.output)))
+    }
+
     @Test fun `legacy entry cannot acquire canonical storage or server confirmation`() {
         val legacy = TaskRun("capture/legacy.log", "capture", "데이터 수집", "legacy.log", "2026-09-16T07:36:00Z")
         assertNull(canonicalHistoryRunId(legacy))

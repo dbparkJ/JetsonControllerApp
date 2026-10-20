@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import com.example.jetsoncontroller.ui.storage.*
 
 internal fun validProfileToken(value: String): Boolean = value.startsWith("emp_") && value.length > 4 && value.none(Char::isWhitespace)
@@ -35,6 +36,7 @@ internal fun DevServerProfilesScreen(state: DirectServerUiState, onBack: () -> U
 @Composable
 internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: String?, onBack: () -> Unit,
     onSave: (ServerEndpointProfile, String) -> Unit, onConnect: (String) -> Unit, onRemove: (String) -> Unit) {
+    val deviceWord = localDeviceWord()
     val profile = state.profiles.firstOrNull { it.profile.profileId == profileId }?.profile
     if (profileId != null && profile == null) {
         DevPage("서버 프로필 수정", onBack) { DevEmpty("프로필을 찾을 수 없습니다", "서버 프로필 목록을 다시 확인하세요.") }
@@ -53,7 +55,7 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
     val busy = state.isLoading || state.isConnecting
     pending?.let { frozen ->
         GeoConfirmDialog("${devObject(frozen.displayName)} 삭제할까요?",
-            "이 휴대폰에 저장된 서버 주소와 직원 인증 정보, 저장된 목록을 지웁니다. 서버의 데이터는 그대로입니다.", "프로필 삭제",
+            "이 ${deviceWord}에 저장된 서버 주소와 직원 인증 정보, 저장된 목록을 지웁니다. 서버의 데이터는 그대로입니다.", "프로필 삭제",
             { pending = null; if (!busy && state.profiles.any { it.profile == frozen }) { token = ""; onRemove(frozen.profileId); onBack() } },
             { pending = null }, kind = GeoConfirmKind.DANGER, confirmEnabled = !busy,
             disabledReason = "서버 요청이 끝난 뒤 삭제할 수 있습니다.")
@@ -87,7 +89,7 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
         // Do not render arbitrary exception messages, even if a service echoes a submitted token.
         DevFeedback(state.message?.let { if (state.messageIsError) "서버 연결 정보를 저장하지 못했습니다. 입력과 연결을 확인하세요." else "서버 연결 정보를 저장했습니다." }, state.messageIsError)
         if (profile != null) GeoSection("관리", danger = true) {
-            DevText("이 휴대폰에 저장된 서버 주소와 직원 인증 정보를 지웁니다.")
+            DevText("이 ${deviceWord}에 저장된 서버 주소와 직원 인증 정보를 지웁니다.")
             GeoButton("프로필 삭제", { pending = profile }, Modifier.fillMaxWidth(), style = GeoButtonStyle.DangerOutline, enabled = !busy)
         }
     }

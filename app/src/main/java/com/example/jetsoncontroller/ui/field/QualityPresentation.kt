@@ -13,6 +13,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.model.Formats
 import java.time.Instant
 import java.time.ZoneId
@@ -195,6 +196,15 @@ internal fun precisionMetricLabel(quality: RunQuality?): String = quality?.rtkFi
     }?.ratio?.let(::formatPercent)
     ?: "미확인"
 
+internal fun qualityDetailSlices(presentation: RunQualityPresentation): List<PrecisionSlice> =
+    presentation.slices.filter { it.durationMillis >= 1_000L }
+
+internal fun qualityDetailProblems(quality: RunQuality?): List<QualityProblemInterval> =
+    quality?.problemIntervals.orEmpty().filter { problem ->
+        val duration = problem.durationMillis ?: problem.endedAtEpochMillis?.let { it - problem.startedAtEpochMillis }
+        duration == null || duration >= 1_000L
+    }
+
 @Composable
 internal fun RunQualityEvidence(
     quality: RunQuality?,
@@ -205,23 +215,27 @@ internal fun RunQualityEvidence(
     subtitle: String? = null
 ) {
     val presentation = runQualityPresentation(quality)
+    val detailSlices = qualityDetailSlices(presentation)
+    val detailProblems = qualityDetailProblems(quality)
     val colors = LocalGeoColors.current
+    val window = LocalGeoWindow.current
     var showDetails by remember(quality) { mutableStateOf(false) }
     val openerFocus = remember { FocusRequester() }
     if (showDetails) {
-        GeoSheet(title, { showDetails = false }, kind = GeoSheetKind.INFO, subtitle = subtitle,
+        GeoSheet(title, { showDetails = false },
+            modifier = if (window.compactHeight) Modifier else Modifier.heightIn(max = window.heightDp.dp * .9f),
+            kind = GeoSheetKind.INFO, subtitle = subtitle,
             openerFocusRequester = openerFocus) {
-            if (presentation.slices.isEmpty()) {
+            if (detailSlices.isEmpty()) {
                 GeoInlineNote(presentation.detail)
             } else {
-                PrecisionBar(presentation.slices)
-                presentation.slices.forEach { slice ->
+                detailSlices.forEach { slice ->
                     GeoFactRow(slice.label, qualityDurationLabel(slice.durationMillis), numeric = true)
                 }
                 Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary)
             }
-            if (presentation.problems.isNotEmpty()) GeoSection("문제 구간") {
-                quality?.problemIntervals.orEmpty().forEach { problem ->
+            if (detailProblems.isNotEmpty()) GeoSection("문제 구간") {
+                detailProblems.forEach { problem ->
                     Column(Modifier.fillMaxWidth().contentDivider().padding(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(qualityProblemLabel(problem), style = LocalGeoType.current.titleSm, color = colors.text)
@@ -246,10 +260,8 @@ internal fun RunQualityEvidence(
             Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary)
         }
     } else {
-        GeoSection(title, modifier) {
-            GeoRow("위치 품질 자세히", { showDetails = true }, meta = presentation.headline,
-                modifier = Modifier.focusRequester(openerFocus))
-        }
+        GeoRow("위치 품질 자세히", { showDetails = true },
+            modifier = modifier.focusRequester(openerFocus))
     }
 }
 @Composable

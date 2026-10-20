@@ -1,13 +1,22 @@
 package com.example.jetsoncontroller.ui.upload
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import java.net.URI
 
 @Composable
@@ -79,8 +88,8 @@ internal fun UploadTargetEditorScreen(target: UploadTarget?, isSaving: Boolean, 
             disabledReason = if (!controlAvailable) "장치에 연결하면 저장할 수 있습니다." else "서버 정보를 입력하세요.")
     }) {
         DevFeedback(if (submitted && error != null) "서버 정보를 저장하지 못했습니다. 입력과 연결을 확인하세요." else null, true)
-        GeoTextField(id, { id = it.lowercase().take(64) }, "서버 ID", readOnly = target != null,
-            helper = if (target != null) "서버 ID는 바꿀 수 없습니다." else null)
+        if (target != null) UploadTargetIdFactRow(id)
+        else GeoTextField(id, { id = it.lowercase().take(64) }, "서버 ID")
         Spacer(Modifier.height(16.dp))
         GeoTextField(label, { label = it.take(64) }, "표시 이름")
         Spacer(Modifier.height(16.dp))
@@ -100,3 +109,32 @@ internal fun isValidHttpsUrl(value: String): Boolean = runCatching {
     val uri = URI(value.trim())
     uri.scheme.equals("https", true) && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.query == null && uri.fragment == null
 }.getOrDefault(false)
+
+@Composable
+private fun UploadTargetIdFactRow(value: String) {
+    val colors = LocalGeoColors.current
+    val type = LocalGeoType.current
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(Modifier.fillMaxWidth().contentDivider().semantics(mergeDescendants = true) {}) {
+        val available = (constraints.maxWidth - with(LocalDensity.current) { 16.dp.roundToPx() }).coerceAtLeast(0)
+        val labelLayout = measurer.measure(AnnotatedString("서버 ID"), type.body,
+            constraints = Constraints(maxWidth = (available * 0.4f).toInt()))
+        val valueLayout = measurer.measure(AnnotatedString(value), type.mono,
+            constraints = Constraints(maxWidth = (available * 0.6f).toInt()))
+        val stacked = LocalDensity.current.fontScale >= 1.5f || maxWidth < 320.dp ||
+            labelLayout.lineCount > 2 || valueLayout.lineCount > 2
+        if (stacked) {
+            Column(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("서버 ID", color = colors.textSecondary, style = type.body)
+                Text(value, color = colors.text, style = type.mono)
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = androidx.compose.ui.Alignment.Top) {
+                Text("서버 ID", Modifier.weight(0.4f), color = colors.textSecondary, style = type.body)
+                Text(value, Modifier.weight(0.6f), color = colors.text, style = type.mono, textAlign = TextAlign.End)
+            }
+        }
+    }
+}

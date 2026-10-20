@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.devices
 
+import com.example.jetsoncontroller.ui.model.localDeviceWord
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -74,7 +75,8 @@ internal fun DevicesHomeScreen(
         checking = (online && currentDashboard.statusFreshness == StatusFreshness.UNKNOWN) ||
             (current != null && sameDeviceTarget(current.deviceId, connectingDeviceId)),
         available = current?.deviceId?.lowercase()?.let { it in availableDeviceIds } == true,
-        connectFailed = current != null && sameDeviceTarget(current.deviceId, connectFailedDeviceId), lastSeenText = lastSeen)
+        connectFailed = current != null && sameDeviceTarget(current.deviceId, connectFailedDeviceId), lastSeenText = lastSeen,
+        localDeviceWord = localDeviceWord())
     var sheet by rememberSaveable { mutableStateOf(false) }
     val host = rememberDeviceOverlayHost(selectedDeviceId, sheet) { sheet = false }
     var hiddenKeys by rememberSaveable(selectedDeviceId) { mutableStateOf(arrayListOf<String>()) }
@@ -129,7 +131,8 @@ internal fun DevicesHomeScreen(
                                 val other = deviceConnectionUi(false, null,
                                     checking = sameDeviceTarget(device.deviceId, connectingDeviceId),
                                     available = device.deviceId.lowercase() in availableDeviceIds,
-                                    connectFailed = sameDeviceTarget(device.deviceId, connectFailedDeviceId), lastSeenText = seen)
+                                    connectFailed = sameDeviceTarget(device.deviceId, connectFailedDeviceId), lastSeenText = seen,
+                                    localDeviceWord = localDeviceWord())
                                 GeoRow(device.deviceName, { onSelectDevice(device) },
                                     leading = { DevicePhoto(40.dp) }, badge = { GeoBadge(other.label, other.tone) },
                                     meta = seen?.let { "마지막 응답 $it" } ?: other.detail)

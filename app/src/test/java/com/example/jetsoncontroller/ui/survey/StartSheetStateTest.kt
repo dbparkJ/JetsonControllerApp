@@ -164,6 +164,29 @@ class StartSheetStateTest {
         }
     }
 
+    @Test fun `new section reason belongs to the project choice unless editing is locked`() {
+        val state = ready()
+        assertNull(preparationEditDisabledReason(state))
+        assertNull(preparationNewSectionDisabledReason(state))
+        assertNull(preparationNewSectionDisabledReason(state.copy(selectedProject = null)))
+        assertNull(preparationNewSectionDisabledReason(state.copy(preparationDraft = null)))
+        val noProject = state.copy(selectedProject = null, preparationDraft = null)
+        assertEquals("프로젝트를 먼저 선택하세요.", preparationNewSectionDisabledReason(noProject))
+        val pending = PendingContextualStart("pipe", "project", 1, "section", 1, "policy", "preflight", "request")
+        val locked = noProject.copy(pendingStart = pending, restoringLocalState = true, operation = "preflight")
+        assertEquals("진행 중인 수집과 시작 요청을 먼저 확인하세요.", preparationNewSectionDisabledReason(locked))
+        assertEquals(preparationEditDisabledReason(locked), preparationNewSectionDisabledReason(locked))
+    }
+
+    @Test fun `restoring and busy preparation retain the edit gate and explain the disabled choice`() {
+        val restoring = ready().copy(restoringLocalState = true, operation = "preflight")
+        assertEquals("저장된 선택을 확인하고 있습니다.", preparationEditDisabledReason(restoring))
+        assertEquals(preparationEditDisabledReason(restoring), preparationNewSectionDisabledReason(restoring))
+        val busy = ready().copy(operation = "preflight")
+        assertEquals("진행 중인 작업이 끝난 뒤 선택할 수 있습니다.", preparationEditDisabledReason(busy))
+        assertEquals(preparationEditDisabledReason(busy), preparationNewSectionDisabledReason(busy))
+    }
+
     private fun ready(): SurveyRunUiState {
         val source = StartTestSource()
         return SurveyRunUiState(deviceId = "device", online = true, runStateConfirmed = true,

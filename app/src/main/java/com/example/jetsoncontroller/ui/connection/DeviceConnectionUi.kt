@@ -50,7 +50,8 @@ internal fun deviceConnectionUi(
     checking: Boolean = false,
     available: Boolean = false,
     connectFailed: Boolean = false,
-    lastSeenText: String? = null
+    lastSeenText: String? = null,
+    localDeviceWord: String = "휴대폰"
 ): DeviceConnectionUi = when {
     isOnline && transportType != null -> when (transportType) {
         TransportType.BLE -> connected(
@@ -87,7 +88,7 @@ internal fun deviceConnectionUi(
     else -> DeviceConnectionUi(
         state = DeviceConnectionState.OFFLINE,
         label = DeviceConnectionState.OFFLINE.label,
-        detail = lastSeenText?.let { "마지막 응답 $it" } ?: "이 휴대폰과 연결한 기록이 없습니다.",
+        detail = lastSeenText?.let { "마지막 응답 $it" } ?: "이 ${localDeviceWord}과 연결한 기록이 없습니다.",
         tone = Tone.UNKNOWN
     )
 }
