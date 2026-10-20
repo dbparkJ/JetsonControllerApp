@@ -27,7 +27,7 @@ internal fun DevNetworkScreen(state: FieldState, onRefresh: () -> Unit, onBack: 
 
 @Composable
 internal fun DevNetworkContent(state: FieldState) {
-    GeoSection("주소") {
+    GeoSection("주소", first = true, modifier = Modifier.padding(top = 24.dp)) {
         if (state.networkBusy) DevText("확인 중")
         if (!state.online) DevText("장치를 같은 네트워크나 직접 연결로 연결하면 조회할 수 있습니다.")
         state.network?.interfaces?.distinctBy { it.interfaceName to it.address }?.groupBy(::networkAddressLabel)?.forEach { (label, addresses) ->
@@ -74,7 +74,7 @@ internal fun DevSensorTestScreen(state: FieldState, onTest: (String) -> Unit,
 
 @Composable
 internal fun DevSensorContent(state: FieldState) {
-    GeoSection("결과", note = state.sensorTests.values.maxByOrNull { it.checkedAtEpochMillis }?.let {
+    GeoSection("결과", first = true, modifier = Modifier.padding(top = 24.dp), note = state.sensorTests.values.maxByOrNull { it.checkedAtEpochMillis }?.let {
         "${devTime(it.checkedAtEpochMillis)} 테스트 · ${it.durationSeconds.toBigDecimal().stripTrailingZeros().toPlainString()}초"
     }) {
         for ((sensor, label) in listOf("camera" to "카메라", "gps" to "GPS")) {

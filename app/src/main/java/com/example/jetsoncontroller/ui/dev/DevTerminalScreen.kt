@@ -41,7 +41,7 @@ internal fun DevTerminalScreen(state: FieldState, onExecute: (String) -> Unit, o
         GeoTextField(command, { if (it.length <= 4096) command = it }, "명령어", placeholder = "pwd",
             singleLine = true, enabled = !state.terminalBusy, disabledReason = "명령을 실행하고 있습니다.")
         DevFeedback(state.error, true)
-        GeoSection("출력") {
+        GeoSection("출력", first = true, modifier = Modifier.padding(top = 24.dp)) {
             if (state.terminalOutput.isNotBlank()) SelectionContainer { DevText(state.terminalOutput, mono = true) }
             else DevText("명령을 실행하면 결과가 여기에 표시됩니다.", secondary = true)
         }

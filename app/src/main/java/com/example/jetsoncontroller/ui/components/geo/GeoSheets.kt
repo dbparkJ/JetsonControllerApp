@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -84,7 +85,8 @@ internal fun overlayActionsFit(labelWidths: List<Int>, availableWidth: Int, gap:
 internal fun GeoOverlayButton(action: GeoOverlayAction, modifier: Modifier = Modifier,
     style: GeoButtonStyle = GeoButtonStyle.Tertiary, color: Color? = null, edge: GeoButtonEdge = GeoButtonEdge.None) {
     GeoButton(action.label, action.onClick, modifier.width(IntrinsicSize.Max), style, action.enabled, action.busy,
-        busyLabel = action.label.takeIf { action.busy }, contentColor = color, edge = edge)
+        busyLabel = action.label.takeIf { action.busy }, contentColor = color, edge = edge,
+        actionArea = style == GeoButtonStyle.Primary || style == GeoButtonStyle.DangerFilled)
 }
 
 @Composable
@@ -154,7 +156,7 @@ fun GeoSheet(
             onDismissRequest = onDismissRequest,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             modifier = modifier.semantics { paneTitle = title },
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            shape = GeoShape.sheetTop,
             containerColor = t.surface, contentColor = t.text, scrimColor = t.scrim,
             dragHandle = null,
             // Material owns the IME; the viewport owns safe drawing once, including its footer.

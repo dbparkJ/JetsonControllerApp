@@ -172,7 +172,7 @@ private fun CameraPermissionContent(onRequestPermission: () -> Unit) {
     var requested by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 56.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("카메라 권한이 꺼져 있습니다", style = LocalGeoType.current.sectionTitle, color = Color.White)
+        Text("카메라 권한이 꺼져 있습니다", style = LocalGeoType.current.stateTitle, color = Color.White)
         Text("QR 코드를 읽으려면 카메라 권한이 필요합니다.", style = LocalGeoType.current.body, color = Color.White)
         if (requested) {
             GeoButton("설정에서 허용", {
@@ -252,7 +252,7 @@ private fun CameraScannerContent(
         // The overlay is transparent while the live preview is running.
         ScannerFrameOverlay(errorMessage?.let { INVALID_PAIRING_CODE } ?: cameraError)
         if (camera?.cameraInfo?.hasFlashUnit() == true) {
-            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(12.dp))) {
+            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(10.dp))) {
                 val colors = LocalGeoColors.current
                 CompositionLocalProvider(LocalGeoColors provides colors.copy(
                     textSecondary = Color.White, primary = Color.White, fieldPressed = Color.White.copy(alpha = 0.12f)
@@ -286,7 +286,7 @@ private fun ScannerFrameOverlay(error: String?) {
             }
             Spacer(Modifier.height(16.dp))
             Text(error ?: "장치 본체의 QR 코드를 사각형 안에 맞추세요.",
-                Modifier.background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                Modifier.background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                 color = Color.White, style = LocalGeoType.current.body, textAlign = TextAlign.Center)
         }
     }

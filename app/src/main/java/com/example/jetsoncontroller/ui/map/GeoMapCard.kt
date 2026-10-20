@@ -84,7 +84,7 @@ fun GeoMapCard(
         trail = if (mode == GeoMapMode.ZONE) emptyList() else data.trail)
     Column(modifier.fillMaxWidth().clickable(onClickLabel = "지도 크게 보기", onClick = onOpen)
         .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick("지도 크게 보기") { onOpen(); true } }) {
-        val shape = RoundedCornerShape(12.dp)
+        val shape = RoundedCornerShape(10.dp)
         Box(Modifier.fillMaxWidth().height(mapCardHeight(mode, compactHeight).dp).clip(shape).background(c.sunken)
             .onGloballyPositioned {
                 val bounds = it.boundsInWindow()

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.settings
 
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import androidx.compose.foundation.background
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import androidx.compose.foundation.layout.*
@@ -59,13 +60,14 @@ fun SettingsHubScreen(
             DeviceTitleBar("설정", root = true)
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 24.dp)
+                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp)
             ) {
                 item {
                     GeoSection("화면", first = true) {
                         GeoRow(
                             title = "테마",
                             value = appearance.summary,
+                            divider = false,
                             onClick = { onTheme?.invoke() }
                         )
                     }
@@ -75,6 +77,7 @@ fun SettingsHubScreen(
                         GeoRow(
                             title = "알림 기준",
                             value = alertSettingsSummary(alertSettings),
+                            divider = !notificationPermissionGranted,
                             onClick = onAlertSettings
                         )
                         if (!notificationPermissionGranted) {
@@ -83,6 +86,7 @@ fun SettingsHubScreen(
                                 actionLabel = "권한 허용",
                                 onOpen = onAlertSettings,
                                 onAction = onRequestNotificationPermission,
+                                divider = false,
                                 meta = "알림 권한이 꺼져 있습니다"
                             )
                         }
@@ -93,6 +97,7 @@ fun SettingsHubScreen(
                         GeoRow(
                             title = "서버 연결",
                             value = serverProfileName ?: "연결 정보 없음",
+                            divider = false,
                             onClick = { onServerConnection?.invoke() ?: onServerStorage() }
                         )
                     }
@@ -106,6 +111,7 @@ fun SettingsHubScreen(
                         GeoRow(
                             title = "앱 정보",
                             value = com.example.jetsoncontroller.BuildConfig.VERSION_NAME,
+                            divider = !developerModeEnabled,
                             onClick = { onAbout?.invoke() ?: run { embeddedPage = "about" } }
                         )
                     }

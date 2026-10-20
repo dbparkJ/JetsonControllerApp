@@ -71,7 +71,7 @@ fun PipelineListScreen(
                     else -> Tone.UNKNOWN
                 }, statusInDetail = true)
             Spacer(Modifier.height(8.dp))
-            GeoSection("실행") {
+            GeoSection("실행", first = true, modifier = Modifier.padding(top = 24.dp)) {
                 GeoFactRow("종료 코드", (pipeline.execution?.exitCode ?: pipeline.lastExitCode).toString(), numeric = true)
                 GeoFactRow("시작 전 점검", when (pipeline.execution?.storagePreflight) { "PASSED", "passed" -> "통과"; "FAILED", "failed" -> "실패"; else -> "미확인" })
                 if (developerModeEnabled) GeoSwitchRow("부팅 시 실행", pipeline.enabled,
@@ -149,7 +149,7 @@ fun PipelinePickerScreen(roots: List<RemoteRoot>, state: PipelinePickerState, on
         if (state.root == null) roots.forEach { root -> GeoRow(root.label, { onRootClick(root) }, enabled = !state.isLoading,
             disabledReason = "폴더를 확인하고 있습니다.") }
         else {
-            GeoSection("폴더", count = "${visible.size}개") {
+            GeoSection("폴더", first = true, modifier = Modifier.padding(top = 24.dp), count = "${visible.size}개") {
                 visible.forEach { entry -> GeoRow(entry.name, {
                     if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry)
                 }, enabled = !state.isLoading, disabledReason = "폴더를 확인하고 있습니다.",
@@ -249,7 +249,7 @@ fun PipelineConfigScreen(state: PipelineUiState, onBack: () -> Unit, onValueChan
         else if (content == PipelineDetailContent.LOADING) DevText("확인 중")
         else if (content == PipelineDetailContent.EMPTY) DevEmpty("바꿀 수 있는 설정 값이 없습니다",
             "이 작업의 설정 파일에는 앱에서 바꿀 수 있는 키와 값이 없습니다.")
-        else GeoSection("설정 값") {
+        else GeoSection("설정 값", first = true, modifier = Modifier.padding(top = 24.dp)) {
             state.configFields.forEach { field ->
                 val caption = configFieldCaption(field.path, field.label)
                 val enabled = state.controlAvailable && !state.detailLoading && !state.configSaving

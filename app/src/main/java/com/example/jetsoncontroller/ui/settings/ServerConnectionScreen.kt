@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.settings
 
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +40,7 @@ import com.example.jetsoncontroller.data.server.StoredServerProfile
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoBadge
 import com.example.jetsoncontroller.ui.components.geo.GeoButton
+import com.example.jetsoncontroller.ui.components.geo.GeoPropertyList
 import com.example.jetsoncontroller.ui.components.geo.GeoFactRow
 import com.example.jetsoncontroller.ui.components.geo.GeoOverlayAction
 import com.example.jetsoncontroller.ui.components.geo.GeoSheet
@@ -103,7 +105,7 @@ internal fun ServerConnectionScreen(
     Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         SettingsPageHeader("서버 연결", onBack)
         if (profile == null) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 56.dp)) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = LocalGeoWindow.current.gutterDp.dp, vertical = 56.dp)) {
                 GeoStateBlock(
                     GeoStateContent(
                         kind = GeoStateKind.MISSING,
@@ -115,14 +117,16 @@ internal fun ServerConnectionScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 16.dp)
+                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp)
             ) {
                 item {
                     ServerConnectionStatusRow(state)
+                    GeoPropertyList(listOf("서버", "환경", "직원", "프로젝트")) {
                     GeoFactRow("서버", profile.profile.displayName)
                     GeoFactRow("환경", serverEnvironmentLabel(profile.profile.environment))
                     GeoFactRow("직원", profile.profile.employeeId)
                     GeoFactRow("프로젝트", profile.profile.projectId)
+                    }
                 }
                 if (state.errorMessage != null) {
                     item {
@@ -137,7 +141,7 @@ internal fun ServerConnectionScreen(
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = LocalGeoWindow.current.gutterDp.dp, vertical = 12.dp)) {
                 GeoButton(
                     label = if (state.status == ServerConnectionStatus.LOGIN_REQUIRED) "다시 로그인" else "연결 확인",
                     onClick = {

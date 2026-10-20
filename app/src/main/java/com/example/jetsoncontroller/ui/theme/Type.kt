@@ -35,7 +35,7 @@ private fun type(size: Int, line: Int, weight: Int, trackingEm: Float = 0f) = Te
     letterSpacing = (size * trackingEm).sp
 )
 
-/** The eleven R3 §3.6 roles, plus the specified badge, section and tab variants. */
+/** R3 reading roles with the R4 document hierarchy. */
 @Immutable
 data class GeoTypeRoles(
     val count: TextStyle,
@@ -51,8 +51,16 @@ data class GeoTypeRoles(
     val mono: TextStyle
 ) {
     val badge: TextStyle get() = caption.copy(fontWeight = FontWeight.SemiBold)
-    val sectionTitle: TextStyle get() = titleSm.copy(fontWeight = FontWeight.SemiBold)
-    val tab: TextStyle get() = caption.copy(fontWeight = FontWeight.Medium)
+    val sectionTitle: TextStyle get() = type(18, 26, 700, -0.015f)
+    val deviceName: TextStyle get() = type(18, 26, 700, -0.015f)
+    val focusTitle: TextStyle get() = titleSm.copy(fontWeight = FontWeight.SemiBold)
+    val stateTitle: TextStyle get() = titleSm.copy(fontWeight = FontWeight.SemiBold)
+    val emptyTitle: TextStyle get() = body
+    val propertyLabel: TextStyle get() = type(15, 22, if (body.fontWeight == FontWeight.Medium) 600 else 500)
+    val propertyValue: TextStyle get() = input.copy(fontWeight = body.fontWeight)
+    val inlineStatus: TextStyle get() = type(14, 20, 600)
+    val tag: TextStyle get() = label
+    val tab: TextStyle get() = caption.copy(fontWeight = FontWeight.SemiBold)
     val tabSelected: TextStyle get() = caption.copy(fontWeight = FontWeight.Bold)
     val figure: TextStyle get() = heading.copy(fontFeatureSettings = "tnum")
 }
@@ -65,7 +73,7 @@ object GeoType {
         body = type(15, 24, 400, -0.003f),
         titleSm = type(16, 24, 500, -0.003f),
         title = type(18, 26, 600, -0.015f),
-        boardTitle = type(22, 30, 700, -0.025f),
+        boardTitle = type(24, 32, 700, -0.015f),
         heading = type(24, 32, 700, -0.025f),
         button = type(16, 20, 600),
         input = type(16, 24, 400),
@@ -100,7 +108,7 @@ val LocalGeoType = staticCompositionLocalOf { GeoType.standard }
 internal fun geoMaterialTypography(t: GeoTypeRoles): Typography = Typography(
     displayLarge = t.heading, displayMedium = t.heading, displaySmall = t.heading,
     headlineLarge = t.heading, headlineMedium = t.heading, headlineSmall = t.boardTitle,
-    titleLarge = t.title, titleMedium = t.titleSm, titleSmall = t.sectionTitle,
+    titleLarge = t.title, titleMedium = t.titleSm, titleSmall = t.stateTitle,
     bodyLarge = t.body, bodyMedium = t.body, bodySmall = t.caption,
     labelLarge = t.button, labelMedium = t.label, labelSmall = t.count
 )

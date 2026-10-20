@@ -337,8 +337,13 @@ private fun startBlockedReason(input: TasksHomeInput, runActive: Boolean, hasSco
 }
 
 private fun recentRunState(run: TaskRun, input: TasksHomeInput): RecentRunState {
-    val title = run.contextSnapshot?.let { "${it.surveyProjectLabel} · ${it.surveySectionLabel}" } ?: run.label
+    val title = run.contextSnapshot?.surveySectionLabel?.takeIf(String::isNotBlank)
+        ?: com.example.jetsoncontroller.ui.field.historyRecordTitle(run)
+    // A run-named output folder ("run-2026…") is an identifier: the project names the record instead.
+    val sourceName = com.example.jetsoncontroller.ui.field.historyFolderLabel(run.output?.path, run.runId, run.output?.manifest?.runId)
+        ?: run.contextSnapshot?.surveyProjectLabel?.takeIf(String::isNotBlank) ?: run.label
     val meta = listOfNotNull(
+        sourceName.takeIf { it.isNotBlank() && it != title },
         formatTaskTime(run.startedAt, input.zone),
         durationLabel(run.startedAt, run.finishedAt),
         run.output?.manifest?.bytesTotal?.let { runBytesLabel(it) }

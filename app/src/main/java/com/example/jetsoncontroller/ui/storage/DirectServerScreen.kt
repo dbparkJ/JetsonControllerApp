@@ -209,7 +209,7 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
             GeoBadge(status.word, status.tone)
             Text("${job.deviceId.takeIf { it.startsWith("GEO-X-", true) } ?: "장치"} → $server",
                 style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
-            GeoSection("정보") {
+            GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp)) {
                 GeoFactRow("수신", Formats.time(job.completedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }))
                 GeoFactRow("용량", Formats.size(job.totalBytes), numeric = true)
                 GeoFactRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)

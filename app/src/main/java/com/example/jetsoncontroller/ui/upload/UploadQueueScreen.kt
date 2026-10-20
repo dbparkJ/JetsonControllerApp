@@ -75,9 +75,9 @@ fun UploadQueueScreen(
                     GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "전송 기록이 없습니다",
                         "파일을 보내면 여기에 남습니다."), fullScreen = true)
                 }
-                visible.groupBy { transferLogDay(jobDates[it.id] ?: it.verifiedAt) }.forEach { (day, jobs) ->
+                visible.groupBy { transferLogDay(jobDates[it.id] ?: it.verifiedAt) }.entries.forEachIndexed { groupIndex, (day, jobs) ->
                     item(key = day) {
-                        GeoSection(day) { jobs.forEach { job ->
+                        GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) { jobs.forEach { job ->
                             val actions = transferDetailActions(job)
                             var menu by remember(deviceId, job.id) { mutableStateOf(false) }
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

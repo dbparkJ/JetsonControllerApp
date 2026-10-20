@@ -81,6 +81,10 @@ internal fun DevicesHomeScreen(
     val host = rememberDeviceOverlayHost(selectedDeviceId, sheet) { sheet = false }
     var hiddenKeys by rememberSaveable(selectedDeviceId) { mutableStateOf(arrayListOf<String>()) }
     val visibleHealth = healthItems.filterNot { it.key in hiddenKeys }
+    val nearby = discoveredDevices.filter { endpoint ->
+        registeredDevices.none { sameDeviceTarget(endpoint.deviceId, it.deviceId) }
+    }.distinctBy { it.deviceId.lowercase() }
+    val otherDevicesFollow = registeredDevices.any { !sameDeviceTarget(it.deviceId, current?.deviceId) } || nearby.isNotEmpty()
     val fallbackAttention = attention.takeIf { healthItems.isEmpty() && "unsent" !in hiddenKeys }
     Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         DeviceTitleBar("장치", root = true) {
@@ -88,7 +92,7 @@ internal fun DevicesHomeScreen(
             DeviceAlertButton(unreadAlertCount, onAlertsClick)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
             item { GeoStatusStrip(listOfNotNull(ongoingStrip)) }
             item {
                 Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = 16.dp)) {
@@ -112,20 +116,20 @@ internal fun DevicesHomeScreen(
                                 GeoButtonAction("연결 방법", { sheet = true }, GeoButtonStyle.Tertiary)))
                         }
                         GeoSection("확인할 일", count = Formats.caseCount((visibleHealth.size + if (fallbackAttention == null) 0 else 1).toLong())) {
-                            visibleHealth.forEach { item ->
+                            visibleHealth.forEachIndexed { index, item ->
                                 DeviceAttentionRow(item.title, item.detail, { onHealthItem(item) },
-                                    { hiddenKeys = ArrayList(hiddenKeys + item.key) })
+                                    { hiddenKeys = ArrayList(hiddenKeys + item.key) }, divider = index < visibleHealth.lastIndex || fallbackAttention != null || !otherDevicesFollow)
                             }
                             fallbackAttention?.let {
                                 DeviceAttentionRow("${current.deviceName} ${it.title}", it.detail, onAttentionClick,
-                                    { hiddenKeys = ArrayList(hiddenKeys + "unsent") })
+                                    { hiddenKeys = ArrayList(hiddenKeys + "unsent") }, divider = !otherDevicesFollow)
                             }
                             if (visibleHealth.isEmpty() && fallbackAttention == null) Text("확인할 일이 없습니다.",
                                 style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
                         }
                         val others = registeredDevices.filterNot { sameDeviceTarget(it.deviceId, current.deviceId) }
                         if (others.isNotEmpty()) GeoSection("다른 장치") {
-                            others.forEach { device ->
+                            others.forEachIndexed { index, device ->
                                 val seen = snapshots[deviceSnapshotKey(device.deviceId)]?.lastSeenAtEpochMillis
                                     ?.let { formatSeenAt(it, nowEpochMillis) }
                                 val other = deviceConnectionUi(false, null,
@@ -135,14 +139,11 @@ internal fun DevicesHomeScreen(
                                     localDeviceWord = localDeviceWord())
                                 GeoRow(device.deviceName, { onSelectDevice(device) },
                                     leading = { DevicePhoto(40.dp) }, badge = { GeoBadge(other.label, other.tone) },
-                                    meta = seen?.let { "마지막 응답 $it" } ?: other.detail)
+                                    meta = seen?.let { "마지막 응답 $it" } ?: other.detail, divider = index < others.lastIndex || nearby.isEmpty())
                             }
                         }
                     }
-                    val nearby = discoveredDevices.filter { endpoint ->
-                        registeredDevices.none { sameDeviceTarget(endpoint.deviceId, it.deviceId) }
-                    }.distinctBy { it.deviceId.lowercase() }
-                    if (nearby.isNotEmpty()) GeoSection("주변에서 찾은 장치") {
+                    if (nearby.isNotEmpty()) GeoSection("주변에서 찾은 장치", first = current == null) {
                         nearby.forEach { endpoint ->
                             GeoActionRow(endpoint.displayName, "등록", onAddDevice, onAddDevice,
                                 leading = { DevicePhoto(40.dp) }, meta = "같은 네트워크에서 찾았습니다.")

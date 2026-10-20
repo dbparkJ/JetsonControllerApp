@@ -39,8 +39,8 @@ object GeoSpace {
     val section = space10
     val dialogPadding = space10
     val sheetPadding = space10
-    val dangerSection = space11
-    val detailSection = space12
+    val dangerSection = space10
+    val detailSection = space10
     val sceneGap = space12
     val scrollEnd = space13
     val sceneTop = space14

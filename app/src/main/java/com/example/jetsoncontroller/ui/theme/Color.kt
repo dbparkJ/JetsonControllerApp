@@ -73,9 +73,12 @@ data class GeoColors(
     val infoSoft: Color get() = primaryTint
     val focus: Color get() = primary
     val switchTrackOn: Color get() = primary
+    val iconSubtle: Color get() = textSubtle
+    val borderControl: Color get() = borderStrong
+    val sectionDivider: Color get() = if (this == GeoHighContrast) borderStrong else border
 
 
-    /** Canonical roles, including the four explicit aliases in the specification. */
+    /** Canonical roles, including the R3 and R4 role aliases. */
     fun asRoleMap(): Map<String, Color> = mapOf(
         "canvas" to canvas,
         "surface" to surface,
@@ -87,6 +90,9 @@ data class GeoColors(
         "textSubtle" to textSubtle,
         "border" to border,
         "borderStrong" to borderStrong,
+        "iconSubtle" to iconSubtle,
+        "borderControl" to borderControl,
+        "sectionDivider" to sectionDivider,
         "primary" to primary,
         "primaryPressed" to primaryPressed,
         "onPrimary" to onPrimary,

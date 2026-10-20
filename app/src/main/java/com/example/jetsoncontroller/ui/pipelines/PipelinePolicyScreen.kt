@@ -123,7 +123,7 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
         DevFeedback(state.message, state.needsReview)
         if (state.busy) DevText("확인 중")
         GeoButton("장치 설정 다시 불러오기", { confirmReload = true }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = enabled)
-        GeoSection("센서") {
+        GeoSection("센서", first = true, modifier = Modifier.padding(top = 24.dp)) {
             for ((key, name) in listOf("camera" to "카메라", "gnss" to "위치(GNSS)", "imu" to "움직임(IMU)")) {
                 DevChoice(name, listOf("필수", "선택", "사용 안 함"), (state.draft.sensors[key] ?: SensorRequirementChoice.NOT_USED).ordinal,
                     { choice -> onEdit { copy(sensors = sensors + (key to SensorRequirementChoice.entries[choice])) } }, enabled)

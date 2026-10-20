@@ -56,7 +56,7 @@ fun ConnectionDiagnosticsScreen(onBack: () -> Unit) {
     }) {
         DevText(if (health.initialized) "실시간" else "기록 기능을 시작하지 못했습니다.")
         DevText("연결이 끊기면 이 화면에서 시점을 표시하고 기록을 저장하세요.")
-        GeoSection("기록 상태") {
+        GeoSection("기록 상태", first = true, modifier = Modifier.padding(top = 24.dp)) {
             GeoFactRow("마지막 저장", diagnosticTime(health.lastWrittenUtcMs))
             GeoFactRow("장애 기록 보존", diagnosticTime(health.lastIncidentUtcMs))
             GeoFactRow("직접 표시한 시각", diagnosticTime(health.lastMarkerUtcMs))

@@ -91,7 +91,7 @@ fun NetworkSettingsScreen(
                 item {
                     Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = 16.dp)) {
                         Text(deviceName, style = type.caption, color = c.textSecondary)
-                        GeoSection("현재 네트워크") {
+                        GeoSection("현재 네트워크", first = true, modifier = Modifier.padding(top = 24.dp)) {
                             GeoFactRow(state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "연결된 Wi-Fi 없음",
                                 if (connected && state.wifiConnected) "연결됨" else "미확인",
                                 Modifier.testTag("wifi-access-point-${state.currentWifiSsid}").semantics { disabled() })

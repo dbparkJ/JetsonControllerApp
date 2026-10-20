@@ -44,6 +44,21 @@ class SourceImportLintTest {
         assertFalse(rawImport.containsMatchIn("import androidx.compose.material3.Text"))
     }
 
+    @Test fun documentFactsAndBorrowedTitlesUseTheirSharedRoles() {
+        val ui = File(app, "src/main/java/com/example/jetsoncontroller/ui")
+        val rows = ui.resolve("components/geo/GeoRows.kt").lfText()
+        val facts = rows.substringAfter("fun GeoFactRow(").substringBefore("private fun GeoNumericFactRow(")
+        assertTrue(facts.contains("GeoPropertyRow("))
+        assertFalse(facts.contains("contentDivider()"))
+        listOf("components/geo/GeoDeviceStrip.kt", "components/geo/GeoStateBlock.kt", "components/geo/GeoFocusBlock.kt",
+            "pairing/PairingScreen.kt", "pairing/QrScannerScreen.kt", "wifi/WifiDirectScreen.kt").forEach { path ->
+            assertFalse("Borrowed section type in $path", ui.resolve(path).lfText().contains(".sectionTitle"))
+        }
+        val work = ui.resolve("tasks/TasksHomeScreen.kt").lfText()
+        assertTrue(work.contains("extra = {"))
+        assertFalse(work.contains("Column(Modifier.clickable"))
+    }
+
     @Test fun retiredScreensWrappersAndTokenSeamsAreAbsent() {
         val ui = File(app, "src/main/java/com/example/jetsoncontroller/ui")
         val removed = listOf("connection/ConnectionHubScreen.kt", "devices/DeviceListScreen.kt", "dashboard/DashboardScreen.kt",

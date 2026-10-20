@@ -19,7 +19,7 @@ class AdaptiveThemeTest {
             GeoSpace.space7, GeoSpace.space8, GeoSpace.space9, GeoSpace.space10, GeoSpace.space11, GeoSpace.space12,
             GeoSpace.space13, GeoSpace.space14
         ).map { it.value })
-        assertEquals(listOf(6f, 10f, 12f, 14f, 20f, 999f), listOf(
+        assertEquals(listOf(6f, 8f, 10f, 14f, 14f, 999f), listOf(
             GeoShape.sm, GeoShape.md, GeoShape.lg, GeoShape.xl, GeoShape.xxl, GeoShape.pillRadius
         ).map { it.value })
         assertEquals(48f, GeoSize.minTouchTarget.value, 0f)

@@ -4,6 +4,7 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -11,8 +12,17 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+
+internal data class GeoSectionRule(val divider: Boolean, val beforeLineDp: Int, val afterLineDp: Int)
+
+internal fun geoSectionRule(first: Boolean, danger: Boolean): GeoSectionRule =
+    if (first) GeoSectionRule(false, 0, 0) else GeoSectionRule(true, if (danger) 24 else 16, 16)
 
 /** Parents place sections consecutively; only this component owns the section gap. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GeoSection(
     title: String,
@@ -25,28 +35,44 @@ fun GeoSection(
     onAction: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    require(count == null || actionLabel == null) { "A section has a count or an action" }
     val colors = LocalGeoColors.current
-    Column(modifier.fillMaxWidth().padding(top = if (first) 0.dp else if (danger) 28.dp else 24.dp)) {
-        val titleContent: @Composable () -> Unit = {
-            Text(title, color = colors.text, style = LocalGeoType.current.sectionTitle, modifier = Modifier.semantics { heading() })
+    val type = LocalGeoType.current
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val rule = geoSectionRule(first, danger)
+    Column(modifier.fillMaxWidth()) {
+        if (rule.divider) {
+            Spacer(Modifier.height(rule.beforeLineDp.dp))
+            HorizontalDivider(thickness = 1.dp, color = colors.sectionDivider)
+            Spacer(Modifier.height(rule.afterLineDp.dp))
         }
-        val trailing: @Composable () -> Unit = {
-            if (actionLabel != null && onAction != null) GeoButton(actionLabel, onAction, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.End)
-            count?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption.copy(fontFeatureSettings = "tnum")) }
+        val titleContent: @Composable () -> Unit = {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = colors.text, style = type.sectionTitle, modifier = Modifier.semantics { heading() })
+                count?.let { Text(it, color = colors.textSubtle,
+                    style = type.caption.copy(fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"),
+                    modifier = Modifier.align(Alignment.CenterVertically)) }
+            }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
+            val titleWidth = measurer.measure(AnnotatedString(title), type.sectionTitle, softWrap = false).size.width
+            val countWidth = count?.let { measurer.measure(AnnotatedString(it), type.badge, softWrap = false).size.width +
+                with(density) { 6.dp.roundToPx() } } ?: 0
+            val actionWidth = actionLabel?.takeIf { onAction != null }?.let {
+                measurer.measure(AnnotatedString(it), type.button, softWrap = false).size.width + with(density) { 24.dp.roundToPx() }
+            } ?: 0
+            val hasAction = actionWidth > 0
+            if (hasAction && (density.fontScale >= 1.5f ||
+                    titleWidth + countWidth + actionWidth + with(density) { 8.dp.roundToPx() } > constraints.maxWidth)) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     titleContent()
-                    Box(Modifier.align(Alignment.End), contentAlignment = Alignment.CenterEnd) { trailing() }
+                    GeoButton(actionLabel!!, onAction!!, Modifier.align(Alignment.End), style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.End)
                 }
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) { titleContent() }
-                    Box(Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * 0.5f),
-                        contentAlignment = Alignment.CenterEnd) { trailing() }
+                    if (hasAction) GeoButton(actionLabel!!, onAction!!, Modifier.width(with(density) { actionWidth.toDp() }), style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.End)
                 }
             }
         }

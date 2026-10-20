@@ -127,15 +127,15 @@ internal fun rememberDeviceOverlayHost(selectedId: String?, open: Boolean, close
 @OptIn(ExperimentalLayoutApi::class)
 internal fun DeviceIdentity(name: String, connection: DeviceConnectionUi, meta: String?, detail: Boolean = false,
     onClick: (() -> Unit)? = null) {
-    val target = if (onClick == null) Modifier else Modifier.contentTarget(onClick = onClick).contentDivider()
+    val target = if (onClick == null) Modifier else Modifier.contentTarget(onClick = onClick)
     Row(Modifier.fillMaxWidth().then(target).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically) {
         DevicePhoto(56.dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(name, style = if (detail) LocalGeoType.current.boardTitle else LocalGeoType.current.titleSm,
+                Text(name, style = if (detail) LocalGeoType.current.boardTitle else LocalGeoType.current.deviceName,
                     color = LocalGeoColors.current.text)
-                GeoBadge(connection.label, connection.tone)
+                GeoBadge(connection.label, connection.tone, Modifier.align(Alignment.CenterVertically))
             }
             meta?.let { Text(it, style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary) }
         }
@@ -144,14 +144,14 @@ internal fun DeviceIdentity(name: String, connection: DeviceConnectionUi, meta: 
 }
 
 @Composable
-internal fun DeviceAttentionRow(title: String, meta: String, onOpen: () -> Unit, onHide: () -> Unit) {
+internal fun DeviceAttentionRow(title: String, meta: String, onOpen: () -> Unit, onHide: () -> Unit, divider: Boolean = true) {
     val c = LocalGeoColors.current
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val style = LocalGeoType.current.button
     val actionWidth = maxOf(48.dp,
         with(density) { measurer.measure("숨기기", style, softWrap = false).size.width.toDp() } + 24.dp)
-    BoxWithConstraints(Modifier.fillMaxWidth().contentDivider()) {
+    BoxWithConstraints(Modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider() else Modifier)) {
         val body: @Composable (Modifier) -> Unit = { modifier ->
             Row(modifier.contentTarget(onClick = onOpen).heightIn(min = 72.dp).padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -184,15 +184,16 @@ internal fun DeviceNavigationRow(
     value: String? = null,
     badge: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    divider: Boolean = true
 ) {
     if (enabled) {
-        GeoRow(title, onClick, meta = meta, value = value, badge = badge)
+        GeoRow(title, onClick, meta = meta, value = value, badge = badge, divider = divider)
         return
     }
     require(!disabledReason.isNullOrBlank())
     val c = LocalGeoColors.current
-    BoxWithConstraints(Modifier.fillMaxWidth().contentDivider().semantics(mergeDescendants = true) { disabled() }) {
+    BoxWithConstraints(Modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider() else Modifier).semantics(mergeDescendants = true) { disabled() }) {
         val stacked = LocalDensity.current.fontScale >= 1.5f || maxWidth < 320.dp
         Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {

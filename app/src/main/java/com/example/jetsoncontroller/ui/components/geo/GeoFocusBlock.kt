@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.model.Tone
@@ -27,12 +28,12 @@ data class GeoFocusBlockState(
 @Composable
 fun GeoFocusBlock(state: GeoFocusBlockState, modifier: Modifier = Modifier) {
     val t = LocalGeoColors.current
-    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = t.soft(state.tone), contentColor = t.text) {
+    Surface(modifier.fillMaxWidth(), shape = GeoShape.card, color = t.soft(state.tone), contentColor = t.text) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GeoToneIcon(state.tone, Modifier.padding(top = 2.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(state.title, style = LocalGeoType.current.titleSm, modifier = Modifier.semantics { heading() })
+                    Text(state.title, style = LocalGeoType.current.focusTitle, modifier = Modifier.semantics { heading() })
                     Text(state.body, style = LocalGeoType.current.body)
                 }
             }

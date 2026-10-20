@@ -10,7 +10,7 @@ class GeoPaletteTest {
     @Test
     fun `every palette has every role and the exact R3 table values`() {
         val rows = expected.trimIndent().lines().map { it.split(" ") }
-        val roleNames = rows.map { it.first() }.toSet() + setOf("info", "infoSoft", "focus", "switchTrackOn")
+        val roleNames = rows.map { it.first() }.toSet() + setOf("info", "infoSoft", "focus", "switchTrackOn", "iconSubtle", "borderControl", "sectionDivider")
         GeoPalette.entries.forEachIndexed { index, palette ->
             val roles = palette.colors.asRoleMap()
             assertEquals(palette.name, roleNames, roles.keys)
@@ -23,6 +23,9 @@ class GeoPaletteTest {
             assertEquals(roles["primaryTint"], roles["infoSoft"])
             assertEquals(roles["primary"], roles["focus"])
             assertEquals(roles["primary"], roles["switchTrackOn"])
+            assertEquals(roles["textSubtle"], roles["iconSubtle"])
+            assertEquals(roles["borderStrong"], roles["borderControl"])
+            assertEquals(roles[if (palette.highContrast) "borderStrong" else "border"], roles["sectionDivider"])
         }
     }
 

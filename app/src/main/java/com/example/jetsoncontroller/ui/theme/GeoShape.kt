@@ -7,15 +7,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** R3 §3.7 radii, strokes and focus geometry. */
+/** R4 radii with the existing R3 strokes and focus geometry. */
 object GeoShape {
     val sm = 6.dp
-    val md = 10.dp
-    val lg = 12.dp
+    val md = 8.dp
+    val lg = 10.dp
     val xl = 14.dp
-    val xxl = 20.dp
+    val xxl = 14.dp
     val pillRadius = 999.dp
 
+    val tag = RoundedCornerShape(4.dp)
+    val segmentedTrack = RoundedCornerShape(8.dp)
+    val segmentedThumb = RoundedCornerShape(4.dp)
     val checkbox = RoundedCornerShape(sm)
     val control = RoundedCornerShape(md)
     val card = RoundedCornerShape(lg)

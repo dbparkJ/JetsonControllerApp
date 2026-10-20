@@ -1,5 +1,14 @@
 package com.example.jetsoncontroller.ui.settings
 
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import com.example.jetsoncontroller.ui.components.geo.GeoPropertyList
+import com.example.jetsoncontroller.ui.components.geo.GeoPropertyRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -52,9 +61,14 @@ fun SettingsAboutScreen(
     Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         SettingsPageHeader("앱 정보", onBack)
         Box(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = 16.dp, bottom = 40.dp)) {
+              Text("앱 정보", style = LocalGeoType.current.boardTitle, color = LocalGeoColors.current.text,
+                  modifier = Modifier.semantics { heading() })
+              Spacer(Modifier.height(24.dp))
+              GeoPropertyList(listOf("앱 이름", "버전", "글꼴")) {
                 GeoFactRow("앱 이름", "GEO-X")
-                Row(
+                GeoPropertyRow("버전", BuildConfig.VERSION_NAME,
                     modifier = Modifier.fillMaxWidth()
                         .testTag("developer-unlock")
                         .clickable(
@@ -72,15 +86,9 @@ fun SettingsAboutScreen(
                             }
                             if (tapsRemaining == 0) onDeveloperUnlocked()
                         }
-                        .padding(vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("버전", Modifier.weight(1f), color = LocalGeoColors.current.textSecondary,
-                        style = LocalGeoType.current.body)
-                    Text(BuildConfig.VERSION_NAME, color = LocalGeoColors.current.text,
-                    style = LocalGeoType.current.body)
-                }
+                )
                 GeoFactRow("글꼴", "Pretendard (SIL OFL)")
+              }
             }
             GeoSnackbar(
                 snackbarHostState,
@@ -97,7 +105,7 @@ fun SettingsHelpScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 24.dp, end = 24.dp, top = 12.dp, bottom = 24.dp
+                start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp
             )
         ) {
             settingsHelpSections.forEachIndexed { index, section ->

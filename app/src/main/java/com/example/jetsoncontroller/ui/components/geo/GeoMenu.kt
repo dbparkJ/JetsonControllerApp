@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.foundation.background
@@ -42,7 +43,7 @@ fun GeoMenu(
     DropdownMenu(
         expanded, onDismissRequest,
         modifier = modifier.widthIn(min = 200.dp, max = 280.dp),
-        shape = RoundedCornerShape(12.dp), containerColor = t.surface,
+        shape = GeoShape.card, containerColor = t.surface,
         tonalElevation = 0.dp, shadowElevation = 16.dp
     ) {
         val normal = items.filterNot { it.destructive }

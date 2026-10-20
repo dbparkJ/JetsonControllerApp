@@ -1,7 +1,6 @@
 package com.example.jetsoncontroller.ui.tasks
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
@@ -60,7 +59,7 @@ internal fun TasksHomeScreen(
             modifier = Modifier.weight(1f)) {
             LazyColumn(Modifier.fillMaxSize().semantics {
                 customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
-            }, contentPadding = PaddingValues(horizontal = gutter, vertical = 16.dp)) {
+            }, contentPadding = PaddingValues(start = gutter, end = gutter, top = 16.dp, bottom = 40.dp)) {
                 item(key = "device") { state.deviceStrip?.let { GeoDeviceStrip(it, onOpenDevice) } }
                 val focus = state.focus
                 if (focus?.title != null && focus.primary != null) {
@@ -89,29 +88,21 @@ internal fun TasksHomeScreen(
                     GeoSection("최근 수집", actionLabel = if (state.recent.isEmpty()) null else "전체 기록", onAction = onOpenHistory) {
                         if (state.recent.isEmpty()) state.deviceListsNote?.let { DeviceListsNote(it) }
                             ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "완료한 수집이 없습니다", "수집을 마치면 여기에 남습니다."))
-                        state.recent.forEach { row ->
-                            Column(Modifier.clickable { onOpenRun(row.runId) }.semantics(mergeDescendants = true) {}) {
-                                GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta)
-                                FlowRow(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        state.recent.forEachIndexed { index, row ->
+                            GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta,
+                                divider = index < state.recent.lastIndex, extra = {
+                                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     (row.cells + listOfNotNull(row.report?.let {
                                         com.example.jetsoncontroller.ui.field.RunReceiptCell("GEO& Work 보고", it.word, it.tone)
                                     })).forEach { cell ->
                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Text(cell.title, style = LocalGeoType.current.caption, color = c.textSecondary)
-                                            Text("●", style = LocalGeoType.current.count, color = when (cell.tone) {
-                                                Tone.SUCCESS -> c.success
-                                                Tone.WARNING -> c.warning
-                                                Tone.ERROR -> c.danger
-                                                Tone.INFO -> c.primary
-                                                Tone.PENDING -> c.pending
-                                                else -> c.neutral
-                                            })
-                                            Text(cell.value, style = LocalGeoType.current.badge, color = c.text)
+                                            GeoBadge(cell.value, cell.tone)
                                         }
                                     }
                                 }
-                            }
+                            })
                         }
                     }
                 }
@@ -144,7 +135,8 @@ private fun WorkTicketsSection(
         GeoRadioRow(state.deviceName, tickets?.selectedUnit != null, { onUnit(deviceUnit); picker = false })
         GeoRadioRow("전체", tickets?.selectedUnit == null, { onUnit(null); picker = false })
     }
-    GeoSection("수집 구간", first = state.deviceStrip == null && state.focus == null,
+    GeoSection("수집 구간", first = true,
+        modifier = Modifier.padding(top = if (state.deviceStrip != null || state.focus != null) 24.dp else 0.dp),
         actionLabel = "구간 직접 고르기".takeIf { tickets != null }, onAction = onManual) {
         if (tickets == null) {
             GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
@@ -166,15 +158,15 @@ private fun WorkTicketsSection(
                 queue.open.isEmpty() && queue.completed.isEmpty() -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
                     "이 호기에 배정된 수집 구간이 없습니다", "GEO& Work에서 배정되면 여기에 표시됩니다."), Modifier.padding(top = 16.dp))
                 else -> {
-                    queue.open.forEach { ticket ->
-                        GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket),
+                    queue.open.forEachIndexed { index, ticket ->
+                        GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < queue.open.lastIndex || queue.completed.isNotEmpty(),
                             badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
                     }
                     if (queue.completed.isNotEmpty()) {
                         GeoRow("완료 ${queue.completed.size}개", { completed = !completed },
-                            modifier = Modifier.semantics { stateDescription = if (completed) "펼침" else "접힘" })
-                        if (completed) queue.completed.forEach { ticket ->
-                            GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket),
+                            modifier = Modifier.semantics { stateDescription = if (completed) "펼침" else "접힘" }, divider = completed)
+                        if (completed) queue.completed.forEachIndexed { index, ticket ->
+                            GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < queue.completed.lastIndex,
                                 badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
                         }
                     }

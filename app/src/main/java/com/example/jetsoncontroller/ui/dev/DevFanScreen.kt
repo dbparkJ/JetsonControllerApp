@@ -89,7 +89,7 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
         FanPageState.READY -> {
             val status = requireNotNull(fan)
             Spacer(Modifier.height(8.dp))
-            GeoSection("현재 상태") {
+            GeoSection("현재 상태", first = true, modifier = Modifier.padding(top = 24.dp)) {
                 GeoFactRow("제어 방식", if (status.mode == "AUTO") "자동 온도 제어" else "수동 ${status.percent?.let { "$it%" } ?: "미확인"}")
                 GeoFactRow("회전 속도", status.rpm?.let { "${NumberFormat.getIntegerInstance(Locale.KOREA).format(it)} RPM" } ?: "미확인", numeric = true)
             }

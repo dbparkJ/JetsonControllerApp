@@ -115,8 +115,11 @@ class TasksHomeUiStateTest {
 
         val row = buildTasksHomeUiState(input(runs = listOf(run))).recent.single()
 
-        assertEquals("한빛시 도로대장 · 4구간", row.title)
-        assertEquals("10월 15일 00:12 · 42분 · 19.3\u00a0GB", row.meta)
+        assertEquals("4구간", row.title)
+        // The output folder is named after the run, so the project names the record (no run ID in daily meta).
+        assertEquals("한빛시 도로대장 · 10월 15일 00:12 · 42분 · 19.3\u00a0GB", row.meta)
+        val runNamed = run.copy(output = run.output!!.copy(path = "runs/run-20260916T073608.169374Z-4190931992"))
+        assertFalse(buildTasksHomeUiState(input(runs = listOf(runNamed))).recent.single().meta.contains("run-2026"))
     }
 
     @Test

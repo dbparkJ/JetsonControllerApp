@@ -125,7 +125,7 @@ internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit
         }
         DevText(listOfNotNull(profile?.displayName, state.refreshedAt?.let { "마지막 동기화 ${devTimestamp(it)}" }).joinToString(" · "))
         if (state.capabilities == null) GeoButton("연결 확인", onConnect, style = GeoButtonStyle.Secondary, enabled = !busy)
-        GeoSection("휴지통") {
+        GeoSection("휴지통", first = true, modifier = Modifier.padding(top = 24.dp)) {
             if (content == ServerTrashContent.CONTENT || content == ServerTrashContent.EMPTY)
                 DevText("전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다.")
             state.trash.forEach { job ->

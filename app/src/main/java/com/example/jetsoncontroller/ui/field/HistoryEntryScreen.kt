@@ -66,16 +66,17 @@ internal fun HistoryEntryScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(listOfNotNull(entry.contextSnapshot?.surveyProjectLabel, deviceName).joinToString(" · "),
                     color = c.textSecondary, style = LocalGeoType.current.caption)
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height(24.dp))
                 resultMessage?.let { GeoInlineNote(it) }
-                GeoFactRow("시작", resultTime(entry.startedAt))
-                GeoFactRow("작업", entry.label)
-                GeoFactRow("결과", historyRunPresentation(entry, online, false).first.removePrefix("결과 "))
-                entry.output?.takeIf { it.manifest != null }?.let { output ->
-                    Column(Modifier.padding(top = 24.dp)) {
-                        GeoRow("저장 폴더", onOpenFiles,
-                            value = runFolderDisplayName(output.path, entry.startedAt, entry.runId, output.manifest?.runId),
-                            enabled = online, disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
+                GeoPropertyList(listOf("시작", "작업", "결과", "저장 폴더")) {
+                    GeoFactRow("시작", resultTime(entry.startedAt))
+                    GeoFactRow("작업", entry.label)
+                    GeoFactRow("결과", historyRunPresentation(entry, online, false).first.removePrefix("결과 "))
+                    entry.output?.takeIf { it.manifest != null }?.let { output ->
+                        GeoPropertyRow("저장 폴더",
+                            value = runFolderDisplayName(output.path, entry.startedAt, entry.runId, output.manifest?.runId) ?: "미확인",
+                            onClick = onOpenFiles, enabled = online,
+                            disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                     }
                 }
                 mapCard()

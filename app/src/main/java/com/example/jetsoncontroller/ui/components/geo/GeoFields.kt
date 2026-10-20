@@ -54,10 +54,10 @@ fun GeoTextField(
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     val textColor = if (enabled) c.text else c.disabledText
     val outline = when {
-        !enabled -> c.borderStrong
+        !enabled -> c.borderControl
         error != null -> c.danger
         focused -> c.primary
-        else -> c.borderStrong
+        else -> c.borderControl
     }
     Column(modifier.fillMaxWidth()) {
         Text(label, style = geoLabelTextStyle(), color = c.text)
@@ -143,7 +143,7 @@ fun GeoPickerField(
                     pressed -> c.fieldPressed
                     else -> c.field
                 })
-                .border(1.dp, c.borderStrong, GeoControlShape)
+                .border(1.dp, c.borderControl, GeoControlShape)
                 .clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,

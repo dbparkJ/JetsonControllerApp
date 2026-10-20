@@ -40,16 +40,16 @@ fun GeoDeviceStrip(state: GeoDeviceStripState, onClick: () -> Unit, modifier: Mo
         Image(painterResource(R.drawable.geo_device), contentDescription = null, modifier = Modifier.size(40.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(state.deviceName, color = colors.text, style = LocalGeoType.current.sectionTitle)
-                GeoBadge(state.connectionWord, state.connectionTone)
+                Text(state.deviceName, color = colors.text, style = LocalGeoType.current.deviceName)
+                GeoBadge(state.connectionWord, state.connectionTone, Modifier.align(Alignment.CenterVertically))
             }
             if (state.firstAttention == null) {
-                Text((state.facts + state.freshness).joinToString(" · "), color = colors.textSecondary, style = LocalGeoType.current.caption)
+                Text((state.facts + state.freshness).joinToString(" · "), color = colors.textSecondary, style = LocalGeoType.current.body)
             } else {
-                if (state.facts.isNotEmpty()) Text(state.facts.joinToString(" · "), color = colors.textSecondary, style = LocalGeoType.current.caption)
+                if (state.facts.isNotEmpty()) Text(state.facts.joinToString(" · "), color = colors.textSecondary, style = LocalGeoType.current.body)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     DeviceStripIcon(warning = true)
-                    Text(state.firstAttention, color = colors.tone(Tone.WARNING), style = LocalGeoType.current.caption)
+                    Text(state.firstAttention, color = colors.tone(Tone.WARNING), style = LocalGeoType.current.body)
                 }
             }
         }

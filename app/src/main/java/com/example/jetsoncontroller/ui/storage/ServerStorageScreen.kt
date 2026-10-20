@@ -60,7 +60,7 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
             DevText("${deviceName}을 거쳐 조회합니다. 이 화면에서는 지울 수 없습니다.", secondary = true)
             DevFeedback(state.error, true)
             if (state.isLoading || state.isDeleting) DevText("확인 중")
-            if (state.selectedSession == null) GeoSection("수신 결과", count = "${state.sessions.size}개") {
+            if (state.selectedSession == null) GeoSection("수신 결과", first = true, modifier = Modifier.padding(top = 24.dp), count = "${state.sessions.size}개") {
                 state.sessions.forEach { session ->
                     GeoRow(proxySessionTitle(session.displayFolderName, session.completedAt ?: session.createdAt), { onSessionClick(session) },
                         meta = listOfNotNull(devTimestamp(session.completedAt ?: session.createdAt), Formats.size(session.totalBytes)).joinToString(" · "))
@@ -72,7 +72,7 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
                 DevIdentity(proxySessionTitle(state.selectedSession.displayFolderName, state.selectedSession.completedAt ?: state.selectedSession.createdAt),
                     state.currentPath.ifEmpty { "맨 위" })
                 GeoPickerField("파일 유형", category, { filterPicker = true })
-                GeoSection("파일") {
+                GeoSection("파일", first = true, modifier = Modifier.padding(top = 24.dp)) {
                     val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
                     visible.forEach { entry -> GeoRow(entry.name,
                         { if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry) },

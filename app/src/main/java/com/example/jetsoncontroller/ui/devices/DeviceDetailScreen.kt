@@ -101,7 +101,7 @@ internal fun DeviceDetailScreen(
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
                 GeoStatusStrip(listOfNotNull(
                     if (!online) GeoStatusStripState(GeoStripKind.DISCONNECTED, deviceName,
@@ -115,7 +115,7 @@ internal fun DeviceDetailScreen(
                     if (online) {
                         DeviceIdentity(deviceName, connection,
                             listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · "), detail = true)
-                        GeoSection("상태", first = true, modifier = Modifier.padding(top = 32.dp)) {
+                        GeoSection("상태", first = true, modifier = Modifier.padding(top = 24.dp)) {
                             DeviceFigureGrid(deviceFigureItems(dashboard.status.takeIf { current }, snapshot))
                         }
                     } else {
@@ -127,14 +127,16 @@ internal fun DeviceDetailScreen(
                         DeviceSensorRows(dashboard.status, current, control, onCamera, onGnss)
                     }
                     GeoSection("연결") {
-                        GeoRow("연결 방법", { sheet = true }, value = deviceTransportLabel(dashboard.transportType))
-                        DeviceNavigationRow("장치 Wi-Fi", onNetwork, value = dashboard.status.wifiSsid,
-                            enabled = online, disabledReason = disabledReason)
+                        GeoPropertyList(listOf("연결 방법", "장치 Wi-Fi")) {
+                            GeoPropertyRow("연결 방법", deviceTransportLabel(dashboard.transportType), onClick = { sheet = true })
+                            GeoPropertyRow("장치 Wi-Fi", dashboard.status.wifiSsid?.takeIf(String::isNotBlank) ?: "미확인", onClick = onNetwork,
+                                enabled = online, disabledReason = disabledReason)
+                        }
                     }
                     GeoSection("데이터") {
                         DeviceNavigationRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason)
                         DeviceNavigationRow("휴지통", { onTrash?.invoke() }, value = trashCount?.let { "${it}개" },
-                            enabled = control && onTrash != null, disabledReason = disabledReason)
+                            enabled = control && onTrash != null, disabledReason = disabledReason, divider = false)
                     }
                     GeoSection("관리", danger = true,
                         note = "재부팅과 전원 종료는 수집 중에는 쓸 수 없습니다.") {

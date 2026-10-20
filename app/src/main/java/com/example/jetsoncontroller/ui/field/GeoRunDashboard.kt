@@ -101,10 +101,10 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                     }
                 }
                 val groups = runs.groupBy { historyDayLabel(it.startedAt) }
-                groups.forEach { (day, dayRuns) ->
+                groups.entries.forEachIndexed { groupIndex, (day, dayRuns) ->
                     item(key = "day-$day") {
-                        GeoSection(day) {
-                            dayRuns.forEach { run ->
+                        GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {
+                            dayRuns.forEachIndexed { index, run ->
                                 key(state.deviceId, run.id) {
                                     val canDelete = state.online && state.deletingRunId == null && !run.isActiveRun()
                                     val trash = { if (canDelete) { revealedRunId = null; onDeleteRun(run) } }
@@ -112,6 +112,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                                         { reveal -> revealedRunId = run.id.takeIf { reveal } }, trash) {
                                         HistoryRecordRow(run, historyReceipt(run, uploadJobs),
                                             onOpen = { onOpenResult(run) }, onTrash = trash, canDelete = canDelete,
+                                            divider = index < dayRuns.lastIndex || groupIndex == groups.size - 1,
                                             disabledReason = if (!state.online) "장치에 연결한 뒤 기록을 휴지통으로 옮길 수 있습니다."
                                                 else "수집 중이거나 다른 기록을 처리하고 있습니다.")
                                     }
@@ -157,12 +158,12 @@ private fun HistoryFreshness(state: FieldState, onRefresh: () -> Unit) {
 
 @Composable
 private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () -> Unit,
-    onTrash: () -> Unit, canDelete: Boolean, disabledReason: String) {
+    onTrash: () -> Unit, canDelete: Boolean, disabledReason: String, divider: Boolean = true) {
     var menu by rememberSaveable(run.id) { mutableStateOf(false) }
     val menuFocus = remember { FocusRequester() }
     LaunchedEffect(canDelete) { if (!canDelete) menu = false }
     val colors = LocalGeoColors.current
-    Row(Modifier.fillMaxWidth().background(colors.surface).contentDivider(),
+    Row(Modifier.fillMaxWidth().background(colors.surface).then(if (divider) Modifier.contentDivider() else Modifier),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(Modifier.weight(1f).contentTarget(onClick = onOpen).semantics(mergeDescendants = true) {
             contentDescription = "${historyRecordTitle(run)}, 상세 보기"

@@ -80,34 +80,40 @@ fun GeoRow(
     badge: (@Composable () -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    divider: Boolean = true,
+    extra: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled rows need a visible reason" }
     val colors = LocalGeoColors.current
     val shownMeta = if (enabled) meta else disabledReason
     val shownValue = if (enabled) value else null
     val shownBadge = if (enabled) badge else null
-    BoxWithConstraints(modifier.fillMaxWidth().contentTarget(enabled, onClick).contentDivider()
-        .semantics(mergeDescendants = true) {}) {
+    BoxWithConstraints(modifier.fillMaxWidth().contentTarget(enabled, onClick)
+        .then(if (divider) Modifier.contentDivider() else Modifier).semantics(mergeDescendants = true) {}) {
         val stacked = LocalDensity.current.fontScale >= 1.5f || maxWidth < 320.dp
-        Row(Modifier.fillMaxWidth().heightIn(min = if (shownMeta == null) 56.dp else 72.dp)
-            .padding(vertical = if (shownMeta == null) 16.dp else 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-            leading?.invoke()
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = if (enabled) colors.text else colors.disabledText, style = LocalGeoType.current.titleSm)
-                shownMeta?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption) }
-                if (stacked) {
-                    shownValue?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.body) }
-                    shownBadge?.invoke()
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().heightIn(min = if (shownMeta == null) 56.dp else 72.dp)
+                .padding(vertical = if (shownMeta == null) 16.dp else 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+                leading?.invoke()
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, color = if (enabled) colors.text else colors.disabledText, style = LocalGeoType.current.titleSm)
+                    shownMeta?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption) }
+                    if (stacked) {
+                        shownValue?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.body) }
+                        shownBadge?.invoke()
+                    }
                 }
+                if (!stacked) {
+                    shownValue?.let { Text(it, Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * 0.4f),
+                        color = colors.textSecondary, style = LocalGeoType.current.body, textAlign = TextAlign.End) }
+                    shownBadge?.let { Box(Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * 0.45f)) { it() } }
+                }
+                if (enabled) RowChevron()
             }
-            if (!stacked) {
-                shownValue?.let { Text(it, Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * 0.4f),
-                    color = colors.textSecondary, style = LocalGeoType.current.body, textAlign = TextAlign.End) }
-                shownBadge?.let { Box(Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * 0.45f)) { it() } }
-            }
-            if (enabled) RowChevron()
+            if (extra != null) Column(Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp), content = extra)
         }
     }
 }
@@ -122,13 +128,14 @@ fun GeoActionRow(
     meta: String? = null,
     leading: (@Composable () -> Unit)? = null,
     actionEnabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    divider: Boolean = true
 ) {
     require(actionEnabled || !disabledReason.isNullOrBlank()) { "Disabled actions need a visible reason" }
     val colors = LocalGeoColors.current
     val measurer = rememberTextMeasurer()
     val style = LocalGeoType.current.button
-    BoxWithConstraints(modifier.fillMaxWidth().contentDivider()) {
+    BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider() else Modifier)) {
         val density = LocalDensity.current
         val actionWidth = with(density) { measurer.measure(AnnotatedString(actionLabel), style).size.width.toDp() } + 32.dp
         val stacked = density.fontScale >= 1.5f || actionWidth > maxWidth * 0.45f
@@ -168,6 +175,11 @@ fun GeoActionRow(
 
 @Composable
 fun GeoFactRow(label: String, value: String, modifier: Modifier = Modifier, numeric: Boolean = false) {
+    GeoPropertyRow(label, value, modifier, numeric = numeric)
+}
+
+@Composable
+private fun GeoNumericFactRow(label: String, value: String, modifier: Modifier = Modifier, numeric: Boolean = false) {
     val colors = LocalGeoColors.current
     val measurer = rememberTextMeasurer()
     val style = LocalGeoType.current.body
@@ -220,7 +232,7 @@ fun GeoNumericRows(rows: List<GeoNumericRow>, modifier: Modifier = Modifier) {
             Column {
                 rows.forEach { row ->
                     if (stack) {
-                        GeoFactRow(row.label, row.value?.let { if (row.unit.isEmpty()) it else "$it\u00a0${row.unit}" }
+                        GeoNumericFactRow(row.label, row.value?.let { if (row.unit.isEmpty()) it else "$it\u00a0${row.unit}" }
                             ?: "미확인", numeric = true)
                     } else {
                         Row(Modifier.fillMaxWidth().contentDivider().heightIn(min = 56.dp)

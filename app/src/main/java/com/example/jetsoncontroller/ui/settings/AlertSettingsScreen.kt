@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.settings
 
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -48,7 +49,7 @@ fun AlertSettingsScreen(
         SettingsPageHeader("알림 기준", onBack)
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             if (!notificationPermissionGranted) {

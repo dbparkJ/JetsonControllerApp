@@ -91,8 +91,8 @@ internal fun TransferFilesScreen(
                 }
                 val entries = state.entries.filter { it.name.contains(search, true) && transferFileTypeMatches(it, type) }
                     .sortedWith(compareByDescending<RemoteFileEntry> { it.modifiedAt.orEmpty() }.thenBy { it.name.lowercase() })
-                entries.groupBy { com.example.jetsoncontroller.ui.upload.transferLogDay(it.modifiedAt) }.forEach { (day, group) ->
-                item(key = "day:$day") { GeoSection(day) {} }
+                entries.groupBy { com.example.jetsoncontroller.ui.upload.transferLogDay(it.modifiedAt) }.entries.forEachIndexed { groupIndex, (day, group) ->
+                item(key = "day:$day") { GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {} }
                 items(group, key = { it.relativePath }) { entry ->
                     Column {
                         GeoRadioRow(entry.name, selectedPath == entry.relativePath, {

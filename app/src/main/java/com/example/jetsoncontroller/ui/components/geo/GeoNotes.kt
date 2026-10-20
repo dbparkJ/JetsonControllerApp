@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.Canvas
@@ -32,7 +33,7 @@ fun GeoInlineNote(
     onDismiss: (() -> Unit)? = null
 ) {
     val colors = LocalGeoColors.current
-    Row(modifier.fillMaxWidth().background(colors.soft(tone), RoundedCornerShape(12.dp))
+    Row(modifier.fillMaxWidth().background(colors.soft(tone), GeoShape.card)
         .then(if (kind == GeoNoteKind.LIVE_ERROR) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier)
         .padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         GeoToneIcon(tone)

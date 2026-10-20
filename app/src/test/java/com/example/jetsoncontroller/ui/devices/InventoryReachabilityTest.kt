@@ -23,6 +23,8 @@ class InventoryReachabilityTest {
         assertTrue(detail.contains("GeoSection(\"이 \$deviceWord\""))
         assertTrue(detail.contains("note = \"이 \${deviceWord}에 저장된 인증 정보만 지웁니다.\""))
         assertTrue(detail.contains("forget -> \"이 \${deviceWord}에 저장된 인증 정보만 지웁니다."))
+        assertTrue(detail.contains("GeoPropertyList(listOf(\"연결 방법\", \"장치 Wi-Fi\"))"))
+        assertTrue(detail.contains("onClick = onNetwork"))
         val homes = mapOf(
             "4/5/79" to "DeviceSensorRows(", "6/117/118" to "ConnectMethodSheet(",
             "7/96" to "GeoConfirmDialog(", "120" to "onForget?.invoke()"

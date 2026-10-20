@@ -82,7 +82,7 @@ fun FirstDeviceOnboardingScreen(
                 Spacer(Modifier.height(8.dp))
                 Text("장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다.", style = type.body, color = colors.textSecondary)
                 Spacer(Modifier.height(8.dp))
-                GeoSection("등록에 필요한 권한") {
+                GeoSection("등록에 필요한 권한", first = true, modifier = Modifier.padding(top = 24.dp)) {
                     PermissionRow(GeoIcons.camera, "카메라", "QR 코드를 읽습니다.")
                     PermissionRow(GeoIcons.bluetooth, "블루투스", "가까운 장치를 찾아 인증합니다.")
                 }

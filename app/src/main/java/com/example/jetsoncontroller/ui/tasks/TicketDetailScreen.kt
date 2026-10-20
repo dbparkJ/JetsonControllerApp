@@ -57,31 +57,36 @@ internal fun TicketDetailScreen(
                 readiness.remedyLabel?.let { GeoButton(it, onRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
             }
         }) { inlineAction ->
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = gutter, vertical = 16.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = gutter, end = gutter, top = 16.dp, bottom = 40.dp)) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(ticket.title, style = type.boardTitle, color = c.text, modifier = Modifier.semantics { heading() })
                         GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket))
-                        Text(listOfNotNull(ticket.project?.takeIf(String::isNotBlank), readiness.deviceName,
+                        GeoBadge(readiness.deviceName, Tone.INFO, variant = GeoBadgeVariant.TAG)
+                        Text(listOfNotNull(ticket.project?.takeIf(String::isNotBlank),
                             "마감 ${ticketDueLabel(ticket.dueDate)}").joinToString(" · "), style = type.caption, color = c.textSecondary)
                     }
                 }
-                item { Box(Modifier.padding(top = 16.dp)) { mapCard() } }
                 item {
-                    GeoSection("정보") {
+                    GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp)) {
+                      GeoPropertyList(listOf("담당", "마감", "GEO& Work 보고", "수집 작업")) {
                         GeoFactRow("담당", ticket.assignees.orEmpty().filter(String::isNotBlank).joinToString().ifBlank { "미지정" })
                         GeoFactRow("마감", ticketDueLabel(ticket.dueDate))
-                        GeoFactRow("GEO& Work 보고", ticketReportWord(ticket).word)
-                        GeoRow("수집 작업", onSelectTask, value = taskLabel)
+                        GeoPropertyRow("GEO& Work 보고", ticketReportWord(ticket).word, tone = ticketReportWord(ticket).tone)
+                        GeoPropertyRow("수집 작업", taskLabel, onClick = onSelectTask)
+                      }
                     }
                 }
+                item { Box(Modifier.padding(top = 24.dp)) { mapCard() } }
                 item {
                     GeoSection("준비 상태") {
+                      GeoPropertyList(listOf("연결", "저장 공간", "위치 품질", "카메라", "보정 정보 중계")) {
                         GeoFactRow("연결", readiness.connection)
                         GeoFactRow("저장 공간", readiness.storage)
                         GeoFactRow("위치 품질", readiness.position)
                         GeoFactRow("카메라", readiness.camera)
                         readiness.relay?.let { GeoFactRow("보정 정보 중계", it) }
+                      }
                     }
                 }
                 item {
@@ -127,24 +132,28 @@ internal fun WorkTaskDetailScreen(
                     enabled = readiness.controlAvailable && readiness.blockedReason == null, actionArea = true)
             }
         }) { inlineAction ->
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = gutter, vertical = 16.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = gutter, end = gutter, top = 16.dp, bottom = 40.dp)) {
                 item {
                     Text(pipeline.label, style = type.boardTitle, color = c.text, modifier = Modifier.semantics { heading() })
-                    Text(readiness.deviceName, style = type.caption, color = c.textSecondary)
+                    GeoBadge(readiness.deviceName, Tone.INFO, variant = GeoBadgeVariant.TAG)
                 }
                 item {
-                    GeoSection("정보") {
-                        taskDetailRows(pipeline, readiness.controlAvailable, lastRun = lastRun).forEach { row ->
+                    GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp)) {
+                      val rows = taskDetailRows(pipeline, readiness.controlAvailable, lastRun = lastRun)
+                      GeoPropertyList(rows.map { it.label }) {
+                        rows.forEach { row ->
                             if (row.tone != null) WorkBadgeFact(row.label, row.value, row.tone)
                             else if (row.label == "결과 저장 폴더" && onOpenFiles != null) {
-                                GeoRow(row.label, onOpenFiles,
-                                    value = runFolderDisplayName(row.value, lastRun?.startedAt, lastRun?.runId, lastRun?.output?.manifest?.runId),
+                                GeoPropertyRow(row.label,
+                                    value = runFolderDisplayName(row.value, lastRun?.startedAt, lastRun?.runId, lastRun?.output?.manifest?.runId) ?: "미확인",
+                                    onClick = onOpenFiles,
                                     enabled = readiness.controlAvailable,
                                     disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                             } else GeoFactRow(row.label, if (row.label == "결과 저장 폴더")
                                 runFolderDisplayName(row.value, lastRun?.startedAt, lastRun?.runId, lastRun?.output?.manifest?.runId) ?: "미확인"
                                 else row.value)
                         }
+                      }
                     }
                 }
                 item { inlineAction() }
@@ -155,18 +164,7 @@ internal fun WorkTaskDetailScreen(
 
 @Composable
 private fun WorkBadgeFact(label: String, value: String, tone: Tone) {
-    BoxWithConstraints(Modifier.fillMaxWidth().contentDivider()) {
-        if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
-            Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(label, style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
-                GeoBadge(value, tone)
-            }
-        } else Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, Modifier.weight(.4f), style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
-            Box(Modifier.weight(.6f), contentAlignment = Alignment.CenterEnd) { GeoBadge(value, tone) }
-        }
-    }
+    GeoPropertyRow(label, value, tone = tone)
 }
 
 @Composable

@@ -42,25 +42,10 @@ data class GeoReceiptState(
 
 @Composable
 fun GeoReceipt(state: GeoReceiptState, modifier: Modifier = Modifier) {
-    val colors = LocalGeoColors.current
-    val largeText = LocalDensity.current.fontScale >= 1.5f
-    Column(modifier.fillMaxWidth()) {
-        state.rows().forEach { (step, item) ->
-            Column(Modifier.fillMaxWidth().contentDivider().heightIn(min = 72.dp)
-                .padding(vertical = 12.dp).semantics(mergeDescendants = true) {},
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (largeText) {
-                    Text(step.title, color = colors.text, style = LocalGeoType.current.titleSm)
-                    GeoBadge(item.word, item.tone)
-                } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.Top) {
-                        Text(step.title, Modifier.weight(1f), color = colors.text, style = LocalGeoType.current.titleSm)
-                        Box(Modifier.widthIn(max = 160.dp)) { GeoBadge(item.word, item.tone) }
-                    }
-                }
-                item.meta?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption) }
-            }
+    val rows = state.rows()
+    GeoPropertyList(rows.map { it.first.title }, modifier) {
+        rows.forEach { (step, item) ->
+            GeoPropertyRow(step.title, item.word, tone = item.tone, supportingText = item.meta)
         }
     }
 }
@@ -84,9 +69,6 @@ private fun ReceiptPair(label: String, item: GeoReceiptItem, modifier: Modifier)
     FlowRow(modifier.semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = colors.textSecondary, style = LocalGeoType.current.caption)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(6.dp).background(colors.tone(item.tone), CircleShape))
-            Text(item.word, color = colors.text, style = LocalGeoType.current.caption.copy(fontWeight = FontWeight.SemiBold))
-        }
+        GeoBadge(item.word, item.tone)
     }
 }

@@ -53,6 +53,7 @@ import com.example.jetsoncontroller.ui.components.geo.GeoSheet
 import com.example.jetsoncontroller.ui.components.geo.GeoSnackbar
 import com.example.jetsoncontroller.ui.components.geo.showGeoSnackbar
 import com.example.jetsoncontroller.ui.components.geo.contentDivider
+import com.example.jetsoncontroller.ui.components.geo.shell.geoTabSelectedShapeColor
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.theme.*
 import kotlinx.coroutines.launch
@@ -130,17 +131,18 @@ fun ThemeScreen(onBack: () -> Unit) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)
                 .padding(horizontal = gutter).padding(top = 16.dp, bottom = GeoSpace.scrollEnd)) {
                 GeoSection("미리 보기", first = true) { GeoThemePreview(state.previewPalette) }
-                Column(Modifier.padding(top = 24.dp)) {
+                GeoSection("모드") {
                     GeoSegmented(
                         label = "모드",
                         options = ThemeMode.entries.map { it.label },
                         selectedIndex = appearance.mode.ordinal,
                         onSelect = { saveMode(ThemeMode.entries[it]) },
-                        onOpenPicker = { modePickerOpen = true }
+                        onOpenPicker = { modePickerOpen = true },
+                        showLabel = false
                     )
                     state.modeCaption?.let { Text(it, Modifier.padding(top = 8.dp), color = colors.textSecondary, style = type.caption) }
                 }
-                GeoThemePaletteGroup("밝은 테마", lightThemeOptions, appearance.lightPalette, state.lightGroupCaption, ::save)
+                GeoThemePaletteGroup("밝은 테마", lightThemeOptions, appearance.lightPalette, state.lightGroupCaption, ::save, last = false)
                 GeoThemePaletteGroup("어두운 테마", darkThemeOptions, appearance.darkPalette, state.darkGroupCaption, ::save)
             }
         }
@@ -183,23 +185,25 @@ private fun GeoThemePaletteGroup(
     options: List<ThemePaletteOption>,
     selected: GeoPalette,
     caption: String?,
-    onSelect: (GeoPalette) -> Unit
+    onSelect: (GeoPalette) -> Unit,
+    last: Boolean = true
 ) {
     GeoSection(label, note = caption) {
         Column(Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = label }) {
-            options.forEach { option -> GeoThemePaletteRow(option, option.palette == selected) { onSelect(option.palette) } }
+            options.forEachIndexed { index, option -> GeoThemePaletteRow(option, option.palette == selected,
+                divider = index < options.lastIndex || last) { onSelect(option.palette) } }
         }
     }
 }
 
 @Composable
-private fun GeoThemePaletteRow(option: ThemePaletteOption, selected: Boolean, onClick: () -> Unit) {
+private fun GeoThemePaletteRow(option: ThemePaletteOption, selected: Boolean, divider: Boolean = true, onClick: () -> Unit) {
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val focused by source.collectIsFocusedAsState()
-    Row(Modifier.fillMaxWidth().contentDivider().heightIn(min = 72.dp)
+    Row(Modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider() else Modifier).heightIn(min = 72.dp)
         .background(if (pressed) c.fieldPressed else Color.Transparent)
         .selectable(selected, source, indication = null, role = Role.RadioButton, onClick = onClick)
         .padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
@@ -242,7 +246,7 @@ private fun GeoThemePreview(palette: GeoPalette) {
         val measurer = rememberTextMeasurer()
         val type = GeoType.forPalette(palette)
         val tabs = listOf(
-            rememberVectorPainter(GeoIcons.tabWorkFilled(c.navSelected, c.nav)),
+            rememberVectorPainter(GeoIcons.tabWorkFilled(c.navSelected, geoTabSelectedShapeColor(palette, c))),
             rememberVectorPainter(GeoIcons.tabDevice),
             rememberVectorPainter(GeoIcons.tabTransfer),
             rememberVectorPainter(GeoIcons.tabSettings)
@@ -279,23 +283,28 @@ private fun GeoThemePreview(palette: GeoPalette) {
             val metaHeight = text("마감 10월 21일", 12f, 38f + titleHeight, c.textSecondary, type.caption,
                 width = columnWidth - 42f)
             val badgeX = 12f + columnWidth - 36f
-            rect(c.neutralSoft, badgeX, 36f, 36f, 16f, radius = 8f)
             drawCircle(c.neutral, radius = 2.dp.toPx(), center = Offset((badgeX + 7f).dp.toPx(), 44.dp.toPx()))
-            text("할 일", badgeX + 12f, 38f, c.neutral, type.badge)
+            text("할 일", badgeX + 12f, 38f, c.neutral, type.inlineStatus)
             val dividerY = 44f + titleHeight + metaHeight
             rect(c.border, 12f, dividerY, columnWidth, 1f)
             text("저장 공간", 12f, dividerY + 8f, c.textSecondary)
             text("512 GB 남음", 12f + columnWidth - 62f, dividerY + 8f, c.text)
             text("예시 입력", fieldX, 38f, c.text, type.label)
-            rect(c.field, fieldX, 56f, columnWidth, 22f, radius = 6f)
+            rect(c.field, fieldX, 56f, columnWidth, 22f, radius = 4.8f)
             drawRoundRect(c.borderStrong, Offset(fieldX.dp.toPx(), 56.dp.toPx()),
-                Size(columnWidth.dp.toPx(), 22.dp.toPx()), cornerRadius = CornerRadius(6.dp.toPx()), style = Stroke(1.dp.toPx()))
-            rect(c.primary, fieldX, 86f, columnWidth, 24f, radius = 6f)
+                Size(columnWidth.dp.toPx(), 22.dp.toPx()), cornerRadius = CornerRadius(4.8.dp.toPx()), style = Stroke(1.dp.toPx()))
+            rect(c.primary, fieldX, 86f, columnWidth, 24f, radius = 4.8f)
             text("수집 시작", fieldX + columnWidth / 2 - 24f, 91f, c.onPrimary, type.button)
             rect(c.nav, 0f, 128f, width, 32f)
             rect(c.navBorder, 0f, 128f, width, 1f)
             listOf("작업", "장치", "전송", "설정").forEachIndexed { index, label ->
                 val centerX = width * (index + .5f) / 4f
+                if (index == 0) {
+                    rect(geoTabSelectedShapeColor(palette, c), centerX - 14.4f, 130f, 28.8f, 16.8f, radius = 4.8f)
+                    if (palette.highContrast) drawRoundRect(c.navSelected,
+                        Offset((centerX - 14.4f).dp.toPx(), 130.dp.toPx()), Size(28.8.dp.toPx(), 16.8.dp.toPx()),
+                        cornerRadius = CornerRadius(4.8.dp.toPx()), style = Stroke(1.dp.toPx()))
+                }
                 translate((centerX - 6f).dp.toPx(), 132.dp.toPx()) {
                     with(tabs[index]) { draw(Size(12.dp.toPx(), 12.dp.toPx()),
                         colorFilter = if (index == 0) null else ColorFilter.tint(c.navUnselected)) }

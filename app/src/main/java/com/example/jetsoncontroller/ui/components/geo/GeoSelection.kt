@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -256,12 +257,13 @@ fun GeoSegmented(
                 val segmentWidth = innerWidth / options.size
                 val position by animateDpAsState(segmentWidth * selectedIndex,
                     tween(180, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)), label = "geoSegment")
-                val pill = RoundedCornerShape(50)
-                Box(Modifier.fillMaxWidth().background(c.field, pill).border(1.dp, c.borderStrong, pill)
+                val track = GeoShape.segmentedTrack
+                val thumb = GeoShape.segmentedThumb
+                Box(Modifier.fillMaxWidth().background(c.field, track).border(1.dp, c.borderControl, track)
                     .selectableGroup().semantics { contentDescription = label }) {
                     Box(Modifier.matchParentSize().padding(4.dp)) {
                         Box(Modifier.offset(x = position).width(segmentWidth).fillMaxHeight()
-                            .background(c.surface, pill).border(1.dp, c.borderStrong, pill))
+                            .background(c.surface, thumb).border(1.dp, c.borderControl, thumb))
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                         options.forEachIndexed { index, option ->
@@ -273,8 +275,8 @@ fun GeoSegmented(
                                 .selectable(index == selectedIndex, source, indication = null, enabled = enabled,
                                     role = Role.Tab, onClick = { onSelect(index) })
                                 .padding(vertical = 4.dp)
-                                .geoFocusRing(pill, focused)
-                                .background(if (pressed) c.fieldPressed else Color.Transparent, pill)
+                                .geoFocusRing(thumb, focused)
+                                .background(if (pressed) c.fieldPressed else Color.Transparent, thumb)
                                 .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center
                             ) {
                                 Text(option, style = style.copy(fontWeight = if (index == selectedIndex) FontWeight.SemiBold else FontWeight.Medium),

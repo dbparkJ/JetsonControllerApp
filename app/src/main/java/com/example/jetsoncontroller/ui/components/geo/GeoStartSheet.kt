@@ -127,15 +127,7 @@ fun GeoStartSheet(
 
 @Composable
 private fun StartZoneBadge(label: String) {
-    val t = LocalGeoColors.current
-    Surface(shape = RoundedCornerShape(50), color = t.soft(Tone.SUCCESS),
-        modifier = Modifier.semantics { stateDescription = label }) {
-        Row(Modifier.heightIn(min = 24.dp).padding(horizontal = 8.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(6.dp).background(t.tone(Tone.SUCCESS), CircleShape))
-            Text(label, color = t.tone(Tone.SUCCESS), style = LocalGeoType.current.caption)
-        }
-    }
+    GeoBadge(label, Tone.SUCCESS)
 }
 
 @Composable

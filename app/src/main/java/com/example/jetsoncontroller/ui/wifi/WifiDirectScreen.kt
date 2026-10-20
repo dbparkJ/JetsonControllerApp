@@ -77,7 +77,7 @@ fun WifiDirectScreen(
                             DirectStage.CLEANING_UP -> "이전 연결 정리 중"
                             DirectStage.CANCELLING -> "연결 취소 중"
                             else -> "장치 연결 준비 중"
-                        }, style = type.sectionTitle, color = colors.text)
+                        }, style = type.stateTitle, color = colors.text)
                         val peer = state.peers.firstOrNull { it.deviceAddress == state.connectingPeerAddress }
                         Text(when (stage) {
                             DirectStage.CANCELLING -> "연결을 정리하고 있습니다."

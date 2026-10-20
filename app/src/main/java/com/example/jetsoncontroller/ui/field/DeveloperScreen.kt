@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.field
 
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
@@ -33,9 +36,9 @@ fun DeveloperScreen(
         }, description = "끄면 설정으로 돌아갑니다.")
         DevDivider()
         GeoSwitchRow("화면에 기술 정보 표시", technical, { technical = it }, description = "상세 화면 끝에 기술 정보를 보여 줍니다.")
-        devHubSections.forEach { (section, doors) ->
-            GeoSection(section) {
-                doors.forEach { door ->
+        devHubSections.forEachIndexed { index, (section, doors) ->
+            GeoSection(section, first = index == 0, modifier = Modifier.padding(top = if (index == 0) 24.dp else 0.dp)) {
+                doors.forEachIndexed { doorIndex, door ->
                     GeoRow(door.label, {
                         if (onOpenTool != null) open(door.destination.route)
                         else when (door.destination) {
@@ -44,7 +47,7 @@ fun DeveloperScreen(
                             DevDestination.TERMINAL, DevDestination.NETWORK, DevDestination.SENSOR_TEST -> open(door.destination.route)
                             else -> onAdminTools()
                         }
-                    })
+                    }, divider = doorIndex < doors.lastIndex || index == devHubSections.lastIndex)
                 }
             }
         }

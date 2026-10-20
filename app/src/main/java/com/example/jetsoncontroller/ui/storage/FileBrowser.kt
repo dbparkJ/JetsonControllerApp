@@ -171,8 +171,8 @@ internal fun FileBrowser(
                             GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "파일 목록을 불러오지 못했습니다",
                                 failure, "다시 시도"), onAction = onRefresh)
                         }
-                        entries.groupBy { browserDay(it.modifiedAt) }.forEach { (day, group) ->
-                            item(key = "day:$day") { GeoSection(day) {} }
+                        entries.groupBy { browserDay(it.modifiedAt) }.entries.forEachIndexed { groupIndex, (day, group) ->
+                            item(key = "day:$day") { GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {} }
                             items(group, key = { it.relativePath }) { entry ->
                                 val directory = entry.type == RemoteEntryType.DIRECTORY
                                 val select = { selectedPath = if (selectedPath == entry.relativePath) null else entry.relativePath }

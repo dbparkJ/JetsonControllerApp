@@ -27,9 +27,12 @@ fun GeoStateBlock(
     onAction: (() -> Unit)? = null
 ) {
     val colors = LocalGeoColors.current
+    val inlineEmpty = state.kind == GeoStateKind.EMPTY && !fullScreen
     Column(modifier.fillMaxWidth().padding(top = if (fullScreen) 56.dp else 0.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(state.title, color = colors.text, style = LocalGeoType.current.sectionTitle, modifier = Modifier.semantics { heading() })
+        Text(state.title, color = if (inlineEmpty) colors.textSecondary else colors.text,
+            style = if (inlineEmpty) LocalGeoType.current.emptyTitle else LocalGeoType.current.stateTitle,
+            modifier = Modifier.semantics { heading() })
         Text(state.explanation, color = colors.textSecondary, style = LocalGeoType.current.body)
         if (state.actionLabel != null && onAction != null) {
             Spacer(Modifier.height(4.dp))

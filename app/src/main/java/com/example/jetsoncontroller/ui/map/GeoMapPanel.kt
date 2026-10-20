@@ -68,7 +68,7 @@ fun GeoMapPanel(
             presentation.slices.forEach { GeoFactRow(it.label, mapObservationDuration(it.durationMillis)) }
             presentation.problems.forEach { GeoInlineNote(it) }
             if (data.geometry?.hasRange == true) {
-                GeoSection("수집 구역") {
+                GeoSection("수집 구역", first = true, modifier = Modifier.padding(top = 24.dp)) {
                     val caption = mapResultCaption(data.zone)
                     if (caption.isNotEmpty()) Text(caption, style = type.body, color = c.text)
                     if (data.zone.phoneObserved) Text("구역 밖 기록은 관찰한 시간 기준입니다.", style = type.caption, color = c.textSecondary)
@@ -110,7 +110,7 @@ fun GeoMapPanel(
             data.geometry?.let {
                 if (it.state == GeoGeometryState.RANGE_PENDING || it.state == GeoGeometryState.INVALID) GeoInlineNote(mapPositionSentence(data))
             }
-            GeoSection("범례") { GeoMapLegend() }
+            GeoSection("범례", first = true, modifier = Modifier.padding(top = 24.dp)) { GeoMapLegend() }
             GeoSection("장치 위치") {
                 GeoFactRow("좌표", Formats.coordinate(data.device?.latitude, data.device?.longitude))
                 GeoFactRow("위성", gnss.satellites?.let { "${it}개" } ?: "미확인")

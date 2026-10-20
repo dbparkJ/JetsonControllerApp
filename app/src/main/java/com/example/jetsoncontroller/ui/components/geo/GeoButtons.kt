@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
-internal val GeoControlShape = RoundedCornerShape(10.dp)
+internal val GeoControlShape = GeoShape.control
 
 @Composable
 internal fun geoButtonTextStyle(): TextStyle = MaterialTheme.typography.labelLarge.copy(
@@ -121,6 +122,7 @@ fun GeoButton(
         style == GeoButtonStyle.DangerFilled -> if (pressed) c.dangerPressed else c.danger
         pressed && contentColor != null -> contentColor.copy(alpha = .12f)
         pressed -> c.fieldPressed
+        style == GeoButtonStyle.Secondary -> c.surface
         else -> Color.Transparent
     }
     val content = when {
@@ -132,7 +134,7 @@ fun GeoButton(
         else -> c.text
     }
     val border = when (style) {
-        GeoButtonStyle.Secondary -> BorderStroke(1.dp, if (enabled) c.borderStrong else c.disabledText)
+        GeoButtonStyle.Secondary -> BorderStroke(1.dp, if (enabled) c.borderControl else c.disabledText)
         GeoButtonStyle.DangerOutline -> BorderStroke(1.dp, if (enabled) c.danger else c.disabledText)
         else -> null
     }
@@ -142,7 +144,7 @@ fun GeoButton(
             Modifier
                 .then(tertiaryEdgeOffset(style, edge))
                 .then(if (style == GeoButtonStyle.Tertiary && !actionArea) Modifier.width(IntrinsicSize.Max) else Modifier)
-                .heightIn(min = if (filled || actionArea) 52.dp else 48.dp)
+                .heightIn(min = if (filled && actionArea) 52.dp else 48.dp)
                 .defaultMinSize(minWidth = 48.dp)
                 .onFocusChanged { focused = it.isFocused }
                 .geoFocusRing(GeoControlShape, focused, tint = contentColor)
@@ -164,8 +166,7 @@ fun GeoButton(
             Text(
                 if (busy) busyLabel.orEmpty() else label,
                 modifier = Modifier.weight(1f, fill = false),
-                style = geoButtonTextStyle(), color = content, textAlign = TextAlign.Center,
-                maxLines = 2
+                style = geoButtonTextStyle(), color = content, textAlign = TextAlign.Center
             )
         }
         if (!enabled && disabledReason != null) {
