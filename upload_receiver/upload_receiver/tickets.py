@@ -317,8 +317,10 @@ class TicketSync:
             if config is None or state["state"] != "ACTIVE" or self._stop.is_set():
                 return False
             fingerprint = state["config_fingerprint"]
+            # A schema read leaves _full set: its full pass follows at once instead of waiting
+            # for the incremental cadence.
             if (self._fingerprint == fingerprint and self._schema is not None
-                    and self._query is None and now < self._next_sync):
+                    and self._query is None and not self._full and now < self._next_sync):
                 return False
             if not self.rate.reserve(now):
                 return False
