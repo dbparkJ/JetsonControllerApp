@@ -1,5 +1,6 @@
 ﻿package com.example.jetsoncontroller.ui.upload
 
+import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
@@ -57,9 +58,9 @@ fun UploadConfirmScreen(
     TransferPage("전송 확인", onBack) {
         GeoActionArea(visibilityKey = "$deviceId:$rootId:$path", action = {
             if (targets.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (serverUploadEnabled) "$deviceName · 같은 네트워크 · 지금 보낼 수 있습니다." else reason,
-                    style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
-                if (!serverUploadEnabled) GeoButton("장치 Wi-Fi 설정", onConnectionRemedy, style = GeoButtonStyle.Tertiary)
+                GeoReadinessLine(if (serverUploadEnabled) "$deviceName · 같은 네트워크 · 지금 보낼 수 있습니다." else reason,
+                    if (serverUploadEnabled) Tone.SUCCESS else Tone.WARNING)
+                if (!serverUploadEnabled) GeoButton("장치 Wi-Fi 설정", onConnectionRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 GeoButton("전송 시작", { selectedTarget?.let { onConfirm(it.id) } }, Modifier.fillMaxWidth(),
                     enabled = ready, busy = isLoading || isCalculatingSource, busyLabel = "확인 중",
                     disabledReason = reason, actionArea = true)
@@ -94,7 +95,7 @@ fun UploadConfirmScreen(
                         GeoInlineNote("전송 준비 정보를 확인하지 못했습니다. 다시 시도하세요.",
                             actionLabel = "다시 확인", onAction = onRefresh)
                     }
-                    GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary)
+                    GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 item { inlineAction() }
             }

@@ -26,6 +26,8 @@ import com.example.jetsoncontroller.ui.storage.DeviceStorageScreen
 import com.example.jetsoncontroller.ui.upload.UploadConfirmScreen
 import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
 import com.example.jetsoncontroller.ui.upload.UploadQueueScreen
+import com.example.jetsoncontroller.ui.tasks.WorkDeviceChoiceRow
+import com.example.jetsoncontroller.ui.model.Tone
 import kotlinx.coroutines.delay
 
 internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, includeRoot: Boolean = false) {
@@ -245,11 +247,21 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                 var devicePicker by remember(selectedDeviceId) { mutableStateOf(false) }
                 if (devicePicker) GeoSheet("장치 선택", { devicePicker = false }) {
                     deviceState.registeredDevices.forEach { device ->
-                        GeoRadioRow(device.deviceName, device.deviceId.equals(selectedDeviceId, true), {
+                        val current = device.deviceId.equals(selectedDeviceId, true)
+                        val snapshot = deviceSnapshots[device.deviceId.lowercase()]
+                        WorkDeviceChoiceRow(device.deviceName, current, {
                             devicePicker = false
-                            connectRegisteredDevice(device)
-                        })
+                            if (!current) connectRegisteredDevice(device)
+                        }, word = if (current) {
+                            if (deviceDashboardState.isOnline && deviceDashboardState.transportType ==
+                                com.example.jetsoncontroller.data.transport.TransportType.BLE) "기본 연결" else selectedConnection.label
+                        } else "오프라인",
+                            tone = if (current) selectedConnection.tone else Tone.UNKNOWN,
+                            detail = if (current) null else snapshot?.lastSeenAtEpochMillis?.let {
+                                "마지막 응답 ${com.example.jetsoncontroller.ui.devices.formatSeenAt(it, System.currentTimeMillis())}"
+                            } ?: "마지막 응답 미확인")
                     }
+                    GeoButton("장치 관리", { devicePicker = false; navigateToDeviceRoot(navController) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 val attention = uploadState.otherDeviceQueues.mapNotNull { (deviceId, jobs) ->
                     val count = jobs.count { transferDetailActions(it).word in setOf("실패", "내용 불일치") }
@@ -276,8 +288,10 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
                     onSelectDevice = { id -> deviceState.registeredDevices.firstOrNull { it.deviceId.equals(id, true) }
                         ?.let(connectRegisteredDevice) },
                     onDevicePicker = { devicePicker = true },
+                    connectionTone = workRootDeviceTone(),
                     onAlerts = { navController.navigateSingle(Routes.ALERTS) },
                     onRefresh = { uploadViewModel.refresh(); fieldToolsViewModel.refresh(retainLoaded = true) },
+                    refreshVisible = uploadState.error != null,
                     onConnectionRemedy = { navController.navigateSingle(Routes.NETWORK_SETTINGS) },
                     ongoingRun = { TransferOngoingRun(state.value) },
                     onPickFiles = { navController.navigateSingle(requireNotNull(transferSendDestination(TransferSendEvent.PICK_FILES))) },

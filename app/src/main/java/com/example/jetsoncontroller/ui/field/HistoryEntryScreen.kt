@@ -60,7 +60,7 @@ internal fun HistoryEntryScreen(
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(horizontal = LocalGeoWindow.current.gutterDp.dp)
                 .padding(top = 16.dp, bottom = 40.dp)) {
-                Text(entry.output?.path?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: entry.label,
+                Text(historyRecordTitle(entry),
                     color = c.text, style = LocalGeoType.current.boardTitle,
                     modifier = Modifier.semantics { heading() })
                 Spacer(Modifier.height(8.dp))
@@ -72,15 +72,20 @@ internal fun HistoryEntryScreen(
                 GeoFactRow("작업", entry.label)
                 GeoFactRow("결과", historyRunPresentation(entry, online, false).first.removePrefix("결과 "))
                 entry.output?.takeIf { it.manifest != null }?.let { output ->
-                    GeoSection("저장 폴더") {
-                        GeoRow(output.path.trimEnd('/').substringAfterLast('/'), onOpenFiles,
+                    Column(Modifier.padding(top = 24.dp)) {
+                        GeoRow("저장 폴더", onOpenFiles,
+                            value = historyFolderLabel(output.path, entry.runId, output.manifest?.runId),
                             enabled = online, disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                     }
                 }
                 mapCard()
                 FieldTechnicalInfo(
                     identity = entry.id,
-                    values = listOf(GeoTechnicalValue("기록 ID", entry.id)),
+                    values = buildList {
+                        add(GeoTechnicalValue("기록 ID", entry.id))
+                        entry.runId?.let { add(GeoTechnicalValue("수집 ID", it)) }
+                        entry.output?.let { add(GeoTechnicalValue("경로", "${it.rootId}/${it.path}")) }
+                    },
                     developerModeEnabled = developerModeEnabled,
                     online = online,
                     onOpenLog = onOpenLog

@@ -5,6 +5,8 @@ import com.example.jetsoncontroller.data.devices.withValidMetrics
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.ui.components.geo.GeoFigure
+import com.example.jetsoncontroller.ui.components.geo.GeoFigurePresentation
+import com.example.jetsoncontroller.ui.components.geo.figurePresentation
 import com.example.jetsoncontroller.ui.dashboard.DashboardHealth
 import com.example.jetsoncontroller.ui.dashboard.DashboardHealthIssue
 import com.example.jetsoncontroller.ui.dashboard.metricIsValid
@@ -26,6 +28,13 @@ internal fun deviceTransportLabel(type: TransportType?): String = when (type) {
     null -> "미확인"
 }
 
+internal fun deviceFigurePresentation(figure: GeoFigure): GeoFigurePresentation {
+    val shown = figurePresentation(figure)
+    return if (figure.label == "메모리" && figure.stale && !shown.unknown) {
+        shown.copy(detail = figure.detail, staleDetail = shown.detail)
+    } else shown
+}
+
 /** Missing live metrics never borrow an older number; cached numbers are explicitly stale. */
 internal fun deviceFigureItems(live: JetsonStatus?, snapshot: DeviceSnapshot?): List<GeoFigure> {
     val stored = snapshot?.withValidMetrics()
@@ -44,14 +53,15 @@ internal fun deviceFigureItems(live: JetsonStatus?, snapshot: DeviceSnapshot?): 
     val temperature = if (live != null) live.temperatureC.takeIf {
         live.metricIsValid("temperatureC") && (it > 0 || live.metricValidity["temperatureC"]?.validity == "valid")
     } else stored?.temperatureC
+    val memory = if (usedMb != null && totalMb != null) Formats.memory(usedMb * 1024L, totalMb * 1024L) else null
     return listOf(
         GeoFigure("온도", temperature?.let { Formats.temperature(it.toDouble()) }, stale = stale,
             exceededThreshold = temperature?.takeIf { it >= 80f }?.let { "80°C" }),
         GeoFigure("저장 여유", bytes?.let(Formats::size), stale = stale,
             detail = known(old.storageFree)?.let { "$it 남음" }),
         GeoFigure("CPU · GPU", known(old.cpuGpu), stale = stale),
-        GeoFigure("메모리", if (usedMb != null && totalMb != null) Formats.memory(usedMb * 1024L, totalMb * 1024L) else null,
-            stale = stale)
+        GeoFigure("메모리", memory?.substringBefore(" / "), stale = stale,
+            detail = memory?.substringAfter(" / ")?.let { "전체 $it" })
     )
 }
 

@@ -39,6 +39,7 @@ import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.tasks.*
 import com.example.jetsoncontroller.ui.model.NextActionCommand
 import com.example.jetsoncontroller.data.transport.TransportType
+import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoPaneLayout
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.data.server.ServerTicket
@@ -55,6 +56,33 @@ internal fun ticketJourneyDestination(
         java.net.URLEncoder.encode(requireNotNull(rowId), "UTF-8").replace("+", "%20"))
     WorkTicketEvent.REQUEST_START, WorkTicketEvent.SELECT_TASK -> null
     WorkTicketEvent.START_ACCEPTED -> Routes.ACTIVE_RUN.takeIf { accepted != null }
+}
+
+internal fun AppNavigationState.workRootCheckingDevice(): Boolean {
+    val survey = surveyRunState.takeIf { it.deviceId.equals(selectedDeviceId, true) }
+        ?: com.example.jetsoncontroller.ui.survey.SurveyRunUiState(restoringLocalState = true)
+    return survey.restoringLocalState || connectingLanDeviceId.equals(selectedDeviceId, true) ||
+        (survey.pipelineId == null && survey.pendingStart == null && survey.unconfirmedRunId == null &&
+            (pipelineState.observedAtMillis == null || !pipelineState.deviceId.equals(selectedDeviceId, true)))
+}
+
+internal fun AppNavigationState.workRootReachable(): Boolean = workDeviceReachable(
+    (transportState as? TransportState.Connected)?.takeIf { it.deviceId.equals(selectedDeviceId, true) } != null,
+    deviceDashboardState.statusFreshness
+)
+
+internal fun AppNavigationState.workRootDeviceTone(): Tone = workRootConnectionTone(
+    selectedConnection.tone, workRootReachable(),
+    checking = workRootCheckingDevice(),
+    basicConnection = deviceDashboardState.transportType == TransportType.BLE,
+    permissionMissing = !localNetworkPermissionGranted && !fullControlConnected,
+    credentialsRejected = deviceDashboardState.connectionState is com.example.jetsoncontroller.model.ConnectionState.RegistrationRequired
+)
+
+private fun AppNavigationState.openWorkHistoryResult(history: com.example.jetsoncontroller.model.TaskRun) {
+    val deviceId = history.deviceId ?: history.contextSnapshot?.deviceId ?: fieldState.deviceId ?: return
+    navController.navigateSingle(workHistoryResultRoute(history, deviceId))
+    navController.currentBackStackEntry?.savedStateHandle?.set("resultHistory", com.google.gson.Gson().toJson(history))
 }
 
 @Composable
@@ -108,9 +136,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
             basicConnection = deviceDashboardState.isOnline && deviceDashboardState.transportType == TransportType.BLE,
             // Until this device's task list has arrived once, the run state is being checked, not unknown.
             // A pending start or an unconfirmed run still shows its own Focus block.
-            checkingDevice = survey.restoringLocalState || connectingLanDeviceId.equals(selectedDeviceId, true) ||
-                (survey.pipelineId == null && survey.pendingStart == null && survey.unconfirmedRunId == null &&
-                    (pipelineState.observedAtMillis == null || !pipelineState.deviceId.equals(selectedDeviceId, true))),
+            checkingDevice = workRootCheckingDevice(),
             permissionMissing = !localNetworkPermissionGranted && !fullControlConnected,
             credentialsRejected = deviceDashboardState.connectionState is com.example.jetsoncontroller.model.ConnectionState.RegistrationRequired,
             lastResponseLabel = selectedSnapshot?.lastSeenAtEpochMillis?.let { com.example.jetsoncontroller.ui.devices.formatSeenAt(it, now.toEpochMilli()) },
@@ -134,7 +160,8 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                 word?.let { id to it }
             }.toMap(), lastObservedAt = selectedSnapshot?.lastSeenAtEpochMillis?.let(Instant::ofEpochMilli),
             storageWarningPercent = alertSettings.storageThresholdPercent,
-            temperatureWarningC = alertSettings.temperatureThresholdC
+            temperatureWarningC = alertSettings.temperatureThresholdC,
+            reachable = workRootReachable()
         )).copy(ticketSection = serverTicketState.takeIf {
             profile != null && it.profileId == profile && it.deviceId.equals(selectedDeviceId, true)
         })
@@ -151,14 +178,17 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
             deviceState.registeredDevices.forEach { device ->
                 val current = device.deviceId.equals(selectedDeviceId, true)
                 val snapshot = deviceSnapshots[device.deviceId.lowercase()]
-                GeoRadioRow(device.deviceName, current, {
+                WorkDeviceChoiceRow(device.deviceName, current, {
                     switcher = false
                     if (!current) connectRegisteredDevice(device)
-                }, description = if (current) listOfNotNull(tasks.deviceStrip?.connectionWord,
-                    tasks.deviceStrip?.facts?.joinToString(" · ")).joinToString(" · ") else
-                    "오프라인 · ${snapshot?.lastSeenAtEpochMillis?.let { "마지막 응답 ${com.example.jetsoncontroller.ui.devices.formatSeenAt(it, now.toEpochMilli())}" } ?: "마지막 응답 미확인"}")
+                }, word = if (current) tasks.deviceStrip?.connectionWord ?: "미확인" else "오프라인",
+                    tone = if (current) tasks.deviceStrip?.connectionTone ?: Tone.UNKNOWN else Tone.UNKNOWN,
+                    detail = if (current) tasks.deviceStrip?.facts?.joinToString(" · ")?.takeIf(String::isNotBlank)
+                    else snapshot?.lastSeenAtEpochMillis?.let {
+                        "마지막 응답 ${com.example.jetsoncontroller.ui.devices.formatSeenAt(it, now.toEpochMilli())}"
+                    } ?: "마지막 응답 미확인")
             }
-            GeoRow("장치 관리", { switcher = false; navigateToDeviceRoot(navController) })
+            GeoButton("장치 관리", { switcher = false; navigateToDeviceRoot(navController) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
         }
         reportRun?.let { target ->
             val valid = target.deviceId.equals(selectedDeviceId, true) && target.runId == run?.runId &&
@@ -178,7 +208,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
         LaunchedEffect(selectedDeviceId) { reportRun = null }
         TasksHomeScreen(tasks, { switcher = true }, openSurveyPreparation, openSurveyPreparation,
             { navController.navigateSingle(Routes.ACTIVE_RUN) },
-            { id -> fieldState.runs.firstOrNull { it.id == id }?.let(openHistoryResult) },
+            { id -> fieldState.runs.firstOrNull { it.id == id }?.let { openWorkHistoryResult(it) } },
             { navController.navigateSingle(Routes.TASK_HISTORY) },
             { navController.navigateSingle("task_detail/${Uri.encode(it)}") },
             onOpenTicket = { rowId -> ticketJourneyDestination(WorkTicketEvent.OPEN_TICKET, rowId)?.let { navController.navigateSingle(it) } },
@@ -403,6 +433,12 @@ private fun WorkTaskRoute(state: State<AppNavigationState>, entry: NavBackStackE
         val deviceId = rememberSaveable(entry.id) { selectedDeviceId.orEmpty() }
         val name = rememberSaveable(entry.id) { selectedRegisteredDeviceName ?: UnnamedDeviceLabel }
         val pipeline = remember(entry) { pipelineState.pipelines.firstOrNull { it.id == id } }
+        val lastRun = fieldState.runs.firstOrNull {
+            fieldState.deviceId.equals(deviceId, true) && it.pipelineId == id &&
+                (it.deviceId == null || it.deviceId.equals(deviceId, true))
+        }
+        val outputRoot = lastRun?.output?.rootId ?: pipeline?.outputRootId
+        val outputPath = lastRun?.output?.path ?: pipeline?.outputPath
         if (pipeline == null) WorkMissingScreen(false, { navController.popBackStack() }, { navigateToWorkRoot(navController) })
         else WorkTaskDetailScreen(pipeline,
             ticketPassiveReadiness(name, deviceDashboardState.status.takeIf { selectedDeviceId.equals(deviceId, true) },
@@ -415,7 +451,12 @@ private fun WorkTaskRoute(state: State<AppNavigationState>, entry: NavBackStackE
                 if (surveyRunState.contextLocked) "진행 중인 수집과 시작 요청을 먼저 확인하세요." else null),
             onBack = { navController.popBackStack() }, onPrepare = {
                 if (latestSelectedDeviceId.equals(deviceId, true)) openPipelinePreparation(pipeline)
-            }, ongoingRun = { WorkOngoingStrip(state.value, deviceId, name) })
+            }, ongoingRun = { WorkOngoingStrip(state.value, deviceId, name) }, lastRun = lastRun,
+            onOpenFiles = if (!outputRoot.isNullOrBlank() && !outputPath.isNullOrBlank()) ({
+                if (latestSelectedDeviceId.equals(deviceId, true) && fullControlConnected) {
+                    navController.navigateSingle("storage?rootId=${Uri.encode(outputRoot)}&path=${Uri.encode(outputPath)}")
+                }
+            }) else null)
     }
 }
 
@@ -720,8 +761,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                     deviceName = deviceState.registeredDevices.firstOrNull {
                         it.deviceId.equals(resultDeviceId, true)
                     }?.deviceName ?: "선택한 장치",
-                    connectionLabel = com.example.jetsoncontroller.ui.connection
-                        .deviceConnectionUi(resultOnline, deviceDashboardState.transportType.takeIf { resultOnline }).label,
+                    connectionLabel = workConnectionLabel(resultOnline, deviceDashboardState.transportType),
                     connectionTone = com.example.jetsoncontroller.ui.connection
                         .deviceConnectionUi(resultOnline, deviceDashboardState.transportType.takeIf { resultOnline }).tone,
                     run = resultRun,
@@ -828,7 +868,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                     onBack = { navController.popBackStack() }, onNew = { navigateToTaskStart(navController) },
                     onRefresh = { fieldToolsViewModel.refresh() }, onMore = { fieldToolsViewModel.refresh(true) },
                     onLog = fieldToolsViewModel::openLog,
-                    onOpenResult = openHistoryResult,
+                    onOpenResult = { openWorkHistoryResult(it) },
                     onRoute = {
                         requestedMapHistoryEntryId = it.id
                         requestedMapActiveRunId = null

@@ -100,7 +100,7 @@ internal fun ServerConnectionScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         SettingsPageHeader("서버 연결", onBack)
         if (profile == null) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 56.dp)) {

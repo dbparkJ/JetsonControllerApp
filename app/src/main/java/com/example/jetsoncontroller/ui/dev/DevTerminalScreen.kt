@@ -39,10 +39,13 @@ internal fun DevTerminalScreen(state: FieldState, onExecute: (String) -> Unit, o
             tone = if (state.online) Tone.SUCCESS else Tone.UNKNOWN)
         Spacer(Modifier.height(24.dp))
         GeoTextField(command, { if (it.length <= 4096) command = it }, "명령어", placeholder = "pwd",
-            singleLine = false, enabled = !state.terminalBusy, disabledReason = "명령을 실행하고 있습니다.")
+            singleLine = true, enabled = !state.terminalBusy, disabledReason = "명령을 실행하고 있습니다.")
         DevFeedback(state.error, true)
-        if (state.terminalOutput.isNotBlank()) GeoSection("출력") {
-            SelectionContainer { DevText(state.terminalOutput, mono = true) }
+        GeoSection("출력") {
+            if (state.terminalOutput.isNotBlank()) SelectionContainer { DevText(state.terminalOutput, mono = true) }
+            else DevText("명령을 실행하면 결과가 여기에 표시됩니다.", secondary = true)
         }
+        Spacer(Modifier.height(16.dp))
+        DevText("$deviceName · ${if (state.terminalBusy) "명령을 실행하고 있습니다." else if (state.online) "명령을 실행할 수 있습니다." else "장치에 연결하면 명령을 실행할 수 있습니다."}", secondary = true)
     }
 }

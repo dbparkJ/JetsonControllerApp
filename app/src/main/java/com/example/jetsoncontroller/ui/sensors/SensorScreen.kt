@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.sensors
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,10 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
-import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
+import com.example.jetsoncontroller.ui.devices.DeviceNavigationRow
 
 /** Kept for external callers; the old sensor route redirects to device detail. */
 @Suppress("UNUSED_PARAMETER")
@@ -33,7 +34,7 @@ fun SensorScreen(
     onAlerts: () -> Unit = {},
     unreadCount: Int = 0
 ) {
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         DeviceTitleBar("장치", onDevices)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(LocalGeoWindow.current.gutterDp.dp)) {
             GeoSection("센서", first = true) {
@@ -49,14 +50,14 @@ internal fun DeviceSensorRows(status: JetsonStatus, current: Boolean, control: B
     val sensors = sensorPresentations(status, current, System.currentTimeMillis())
     val camera = sensors.camera
     val gnss = sensors.gnss
-    GeoRow("카메라", onCamera, meta = cameraResolution(status.cameraSensor).takeIf { camera.activity == SensorActivity.ACTIVE },
+    DeviceNavigationRow("카메라", onCamera, meta = cameraResolution(status.cameraSensor).takeIf { camera.activity == SensorActivity.ACTIVE },
         badge = { GeoBadge(camera.badge, camera.activity.deviceSensorTone()) }, enabled = current && control,
-        disabledReason = if (!current) "미확인" else "기본 연결에서는 영상을 볼 수 없습니다.")
-    val locationWord = deviceGnssWord(gnss, status.gnssSensor)
-    GeoRow("위치(GNSS)", onGnss,
+        disabledReason = if (!current) "연결되면 쓸 수 있습니다." else "기본 연결에서는 영상을 볼 수 없습니다.")
+    val location = deviceGnssState(gnss, status.gnssSensor)
+    DeviceNavigationRow("위치(GNSS)", onGnss,
         meta = status.gnssSensor.satellites?.takeIf { gnss.activity == SensorActivity.ACTIVE }?.let { "위성 ${it}개" },
-        badge = { GeoBadge(locationWord, if (locationWord == "정밀 위치") Tone.SUCCESS else gnss.activity.deviceSensorTone()) },
-        enabled = current, disabledReason = "미확인")
+        badge = { GeoBadge(location.word, location.tone) },
+        enabled = current, disabledReason = "연결되면 쓸 수 있습니다.")
     BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 16.dp)) {
         if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -68,12 +69,4 @@ internal fun DeviceSensorRows(status: JetsonStatus, current: Boolean, control: B
             GeoBadge(sensors.imu.badge, sensors.imu.activity.deviceSensorTone())
         }
     }
-}
-
-internal fun SensorActivity.deviceSensorTone(): Tone = when (this) {
-    SensorActivity.ACTIVE -> Tone.SUCCESS
-    SensorActivity.STALE -> Tone.WARNING
-    SensorActivity.DISCONNECTED -> Tone.ERROR
-    SensorActivity.CONNECTED -> Tone.INFO
-    SensorActivity.WAITING, SensorActivity.UNCONFIGURED -> Tone.UNKNOWN
 }

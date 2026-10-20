@@ -125,7 +125,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                         "수집 기록이 없습니다", "수집을 마치면 여기에 남습니다."))
                 }
                 if (state.nextOffset != null) item {
-                    GeoButton("이전 기록 더 불러오기", onMore, style = GeoButtonStyle.Tertiary,
+                    GeoButton("이전 기록 더 불러오기", onMore, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
                         enabled = state.online && !state.loading && state.deletingRunId == null)
                 }
                 item { Spacer(Modifier.height(40.dp)) }
@@ -146,7 +146,7 @@ private fun HistoryFreshness(state: FieldState, onRefresh: () -> Unit) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(Formats.freshness(age, updated, now), Modifier.weight(1f),
                 style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
-            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, enabled = state.online)
+            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = state.online)
         }
     }
 }
@@ -161,17 +161,12 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
     Row(Modifier.fillMaxWidth().background(colors.surface).contentDivider(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(Modifier.weight(1f).contentTarget(onClick = onOpen).semantics(mergeDescendants = true) {
-            contentDescription = "${run.contextSnapshot?.surveySectionLabel ?: run.label}, 상세 보기"
+            contentDescription = "${historyRecordTitle(run)}, 상세 보기"
         }.padding(vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(run.contextSnapshot?.surveySectionLabel
-                ?: run.output?.path?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-                ?: run.label, style = LocalGeoType.current.titleSm,
+            Text(historyRecordTitle(run), style = LocalGeoType.current.titleSm,
                 color = colors.text)
-            val output = run.output
-            Text(listOfNotNull(output?.path?.trimEnd('/')?.substringAfterLast('/'), resultTime(run.startedAt),
-                elapsedResultDuration(run.startedAt, run.finishedAt)?.let(Formats::duration),
-                output?.manifest?.bytesTotal?.let(Formats::size)).joinToString(" · "),
+            Text(historyRecordMeta(run),
                 style = LocalGeoType.current.caption, color = colors.textSecondary)
             GeoReceiptLine(receipt)
         }
@@ -183,6 +178,22 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
         }
     }
 }
+
+internal fun historyFolderLabel(path: String?, vararg identifiers: String?): String? =
+    path?.trimEnd('/')?.substringAfterLast('/')?.takeIf { folder ->
+        folder.isNotBlank() && identifiers.none { !it.isNullOrBlank() && folder == it }
+    }
+
+internal fun historyRecordTitle(run: TaskRun): String =
+    historyFolderLabel(run.output?.path, run.runId, run.output?.manifest?.runId)
+        ?: run.contextSnapshot?.surveySectionLabel?.takeIf(String::isNotBlank)
+        ?: run.label
+
+internal fun historyRecordMeta(run: TaskRun): String = listOfNotNull(
+    resultTime(run.startedAt),
+    elapsedResultDuration(run.startedAt, run.finishedAt)?.let(Formats::duration),
+    run.output?.manifest?.bytesTotal?.let(Formats::size)
+).joinToString(" · ")
 
 internal fun historyReceipt(run: TaskRun, jobs: List<UploadJob>): GeoReceiptState {
     val cells = taskRunReceiptCells(run, emptyList())

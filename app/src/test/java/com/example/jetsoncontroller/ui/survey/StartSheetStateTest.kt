@@ -4,6 +4,7 @@ import com.example.jetsoncontroller.data.survey.PendingContextualStart
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.model.Tone
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -145,6 +146,22 @@ class StartSheetStateTest {
             pendingStart = PendingContextualStart("pipe", "project", 1, "section", 1, "policy", "preflight", "request"))
         assertEquals("시작 확인 중", preparationActionReason(state))
         assertFalse(startSheetRules(present(state)).canStart)
+    }
+
+    @Test fun `the readiness icon tone follows the preparation explanation`() {
+        val pending = PendingContextualStart("pipe", "project", 1, "section", 1, "policy", "preflight", "request")
+        val cases = mapOf(
+            ready() to Tone.SUCCESS,
+            ready().copy(online = false, pendingStart = pending) to Tone.PENDING,
+            ready().copy(runStateConfirmed = false) to Tone.PENDING,
+            ready().copy(online = false) to Tone.WARNING,
+            ready().copy(observedActiveRunCount = 1) to Tone.WARNING,
+            ready().copy(policy = null) to Tone.WARNING
+        )
+        cases.forEach { (state, tone) ->
+            assertEquals(preparationActionReason(state), tone, preparationActionTone(state))
+            assertEquals(tone == Tone.SUCCESS, preparationActionReason(state).endsWith(" · 시작할 수 있습니다."))
+        }
     }
 
     private fun ready(): SurveyRunUiState {

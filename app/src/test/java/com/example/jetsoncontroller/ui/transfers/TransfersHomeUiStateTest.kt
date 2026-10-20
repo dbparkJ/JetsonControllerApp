@@ -453,7 +453,7 @@ class TransfersHomeUiStateTest {
     @Test
     fun `the empty text appears only when there is nothing to list`() {
         assertEquals(
-            "보낸 파일이 없습니다. 보낼 파일을 고르면 여기에서 진행을 확인할 수 있습니다.",
+            "보낼 파일을 고르면 여기에서 진행을 확인할 수 있습니다.",
             buildTransfersHomeUiState(input()).emptyText
         )
         assertNull(buildTransfersHomeUiState(input(queue = listOf(job("job-8", UploadJobState.QUEUED)))).emptyText)

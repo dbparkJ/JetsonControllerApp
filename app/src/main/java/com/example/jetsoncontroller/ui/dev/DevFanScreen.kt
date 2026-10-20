@@ -74,11 +74,16 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
     val temperature = state.status.temperatureC.toDouble().takeIf {
         state.statusFreshness != StatusFreshness.UNKNOWN && state.status.metricIsValid("temperatureC")
     }
+    val connection = devConnectionState(state.isOnline, state.fullControlAvailable)
     DevIdentity(state.deviceName, "${Formats.temperature(temperature)} · ${Formats.freshness(state.statusAgeSeconds?.let(java.time.Duration::ofSeconds))}",
-        status = if (state.isOnline) "연결됨" else "연결 안 됨", tone = if (state.isOnline) Tone.SUCCESS else Tone.UNKNOWN)
+        status = connection.word, tone = connection.tone)
     when (fanPageState(state)) {
         FanPageState.CHECKING -> DevText("확인 중", secondary = true)
-        FanPageState.OFFLINE -> DevEmpty("팬 상태를 확인할 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 사용할 수 있습니다.")
+        FanPageState.OFFLINE -> {
+            DevEmpty("팬 상태를 확인할 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 사용할 수 있습니다.")
+            GeoButton("다시 시도", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = false,
+                disabledReason = "장치를 같은 네트워크나 직접 연결로 연결한 뒤 다시 시도하세요.")
+        }
         FanPageState.ERROR -> DevEmpty("팬 상태를 확인하지 못했습니다.", "${state.deviceName}에서 팬 정보를 받지 못했습니다.", "다시 시도", onRefresh)
         FanPageState.UNAVAILABLE -> DevEmpty("이 장치에서는 팬 제어를 사용할 수 없습니다", "${state.deviceName}은 팬 속도 조회와 제어를 지원하지 않습니다.")
         FanPageState.READY -> {
@@ -88,12 +93,13 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
                 GeoFactRow("제어 방식", if (status.mode == "AUTO") "자동 온도 제어" else "수동 ${status.percent?.let { "$it%" } ?: "미확인"}")
                 GeoFactRow("회전 속도", status.rpm?.let { "${NumberFormat.getIntegerInstance(Locale.KOREA).format(it)} RPM" } ?: "미확인", numeric = true)
             }
-            GeoSection("제어 방식") {
+            Column(Modifier.padding(top = 24.dp)) {
                 DevChoice("제어 방식", listOf("자동", "수동"), if (manual) 1 else 0, { index ->
                     manual = index == 1
                     if (!manual && status.mode != "AUTO" && status.autoAvailable) onAuto()
                 })
                 if (!manual) {
+                    Spacer(Modifier.height(12.dp))
                     DevText("온도에 따라 장치가 팬 속도를 정합니다.")
                     if (!status.autoAvailable) DevFeedback("이 장치에서는 자동 온도 제어를 사용할 수 없습니다.")
                 } else {

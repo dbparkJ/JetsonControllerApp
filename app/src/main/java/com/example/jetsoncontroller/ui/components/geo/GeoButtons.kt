@@ -83,6 +83,16 @@ internal fun Modifier.geoFocusRing(
 
 enum class GeoButtonStyle { Primary, Secondary, Tertiary, DangerOutline, DangerFilled }
 
+/** Lines a tertiary label up with the content edge (KIT §3.9): its 12 dp padding hangs into the gutter. */
+enum class GeoButtonEdge { None, Start, End }
+
+private fun tertiaryEdgeOffset(style: GeoButtonStyle, edge: GeoButtonEdge): Modifier =
+    if (style != GeoButtonStyle.Tertiary) Modifier else when (edge) {
+        GeoButtonEdge.None -> Modifier
+        GeoButtonEdge.Start -> Modifier.offset(x = (-12).dp)
+        GeoButtonEdge.End -> Modifier.offset(x = 12.dp)
+    }
+
 @Composable
 fun GeoButton(
     label: String,
@@ -95,7 +105,8 @@ fun GeoButton(
     icon: ImageVector? = null,
     disabledReason: String? = null,
     actionArea: Boolean = false,
-    contentColor: Color? = null
+    contentColor: Color? = null,
+    edge: GeoButtonEdge = GeoButtonEdge.None
 ) {
     require(!busy || !busyLabel.isNullOrBlank()) { "Busy buttons require a present-progressive label" }
     val c = LocalGeoColors.current
@@ -125,9 +136,12 @@ fun GeoButton(
         GeoButtonStyle.DangerOutline -> BorderStroke(1.dp, if (enabled) c.danger else c.disabledText)
         else -> null
     }
-    Column(modifier.widthIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // The cap comes first so a caller's fillMaxWidth() fills up to 560 dp instead of overriding it.
+    Column(Modifier.widthIn(max = 560.dp).then(modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier
+                .then(tertiaryEdgeOffset(style, edge))
+                .then(if (style == GeoButtonStyle.Tertiary && !actionArea) Modifier.width(IntrinsicSize.Max) else Modifier)
                 .heightIn(min = if (filled || actionArea) 52.dp else 48.dp)
                 .defaultMinSize(minWidth = 48.dp)
                 .onFocusChanged { focused = it.isFocused }

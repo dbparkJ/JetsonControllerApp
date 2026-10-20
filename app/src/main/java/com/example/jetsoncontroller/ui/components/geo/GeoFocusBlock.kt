@@ -44,7 +44,7 @@ fun GeoFocusBlock(state: GeoFocusBlockState, modifier: Modifier = Modifier) {
                 if (!secondary.enabled && secondary.disabledReason != null) {
                     Text(secondary.disabledReason, color = t.textSecondary, style = LocalGeoType.current.body)
                 }
-                GeoOverlayButton(secondary)
+                GeoOverlayButton(secondary, edge = GeoButtonEdge.Start)
             }
         }
     }

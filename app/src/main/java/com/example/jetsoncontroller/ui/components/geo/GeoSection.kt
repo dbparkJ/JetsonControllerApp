@@ -5,6 +5,7 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.heading
@@ -31,17 +32,21 @@ fun GeoSection(
             Text(title, color = colors.text, style = LocalGeoType.current.sectionTitle, modifier = Modifier.semantics { heading() })
         }
         val trailing: @Composable () -> Unit = {
-            if (actionLabel != null && onAction != null) GeoButton(actionLabel, onAction, style = GeoButtonStyle.Tertiary)
+            if (actionLabel != null && onAction != null) GeoButton(actionLabel, onAction, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.End)
             count?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption.copy(fontFeatureSettings = "tnum")) }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { titleContent(); trailing() }
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    titleContent()
+                    Box(Modifier.align(Alignment.End), contentAlignment = Alignment.CenterEnd) { trailing() }
+                }
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) { titleContent() }
-                    Box(Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * 0.5f)) { trailing() }
+                    Box(Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * 0.5f),
+                        contentAlignment = Alignment.CenterEnd) { trailing() }
                 }
             }
         }

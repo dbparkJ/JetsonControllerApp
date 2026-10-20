@@ -11,11 +11,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.TaskRun
+import com.example.jetsoncontroller.ui.field.historyFolderLabel
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
@@ -47,11 +50,11 @@ internal fun TicketDetailScreen(
         ongoingRun()
         GeoActionArea(visibilityKey = "${ticket.rowId}:${readiness.deviceName}", action = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${readiness.deviceName} · ${readiness.connection} · ${reason ?: "시작할 수 있습니다."}",
-                    style = type.body, color = c.textSecondary)
+                GeoReadinessLine("${readiness.deviceName} · ${readiness.connection} · ${reason ?: "시작할 수 있습니다."}",
+                    if (reason == null && readiness.controlAvailable) Tone.SUCCESS else Tone.WARNING)
                 GeoButton("수집 시작", onStart, Modifier.fillMaxWidth().focusRequester(startOpener),
                     enabled = availability.enabled && readiness.controlAvailable && reason == null, actionArea = true)
-                readiness.remedyLabel?.let { GeoButton(it, onRemedy, style = GeoButtonStyle.Tertiary) }
+                readiness.remedyLabel?.let { GeoButton(it, onRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
             }
         }) { inlineAction ->
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = gutter, vertical = 16.dp)) {
@@ -107,7 +110,8 @@ internal fun WorkDetailHeader(title: String, onBack: () -> Unit) {
 @Composable
 internal fun WorkTaskDetailScreen(
     pipeline: ManagedPipeline, readiness: TicketPassiveReadiness, onBack: () -> Unit,
-    onPrepare: () -> Unit, ongoingRun: @Composable () -> Unit = {}
+    onPrepare: () -> Unit, ongoingRun: @Composable () -> Unit = {},
+    lastRun: TaskRun? = null, onOpenFiles: (() -> Unit)? = null
 ) {
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
@@ -117,8 +121,8 @@ internal fun WorkTaskDetailScreen(
         ongoingRun()
         GeoActionArea(pipeline.id, action = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${readiness.deviceName} · ${readiness.connection} · ${readiness.blockedReason ?: "시작할 수 있습니다."}",
-                    color = c.textSecondary, style = type.body)
+                GeoReadinessLine("${readiness.deviceName} · ${readiness.connection} · ${readiness.blockedReason ?: "시작할 수 있습니다."}",
+                    if (readiness.blockedReason == null && readiness.controlAvailable) Tone.SUCCESS else Tone.WARNING)
                 GeoButton("이 작업으로 수집 준비", onPrepare, Modifier.fillMaxWidth(),
                     enabled = readiness.controlAvailable && readiness.blockedReason == null, actionArea = true)
             }
@@ -130,13 +134,37 @@ internal fun WorkTaskDetailScreen(
                 }
                 item {
                     GeoSection("정보") {
-                        taskDetailRows(pipeline, readiness.controlAvailable).forEach { row ->
-                            GeoFactRow(row.label, if (row.label == "결과 저장 폴더") row.value.substringAfterLast('/') else row.value)
+                        taskDetailRows(pipeline, readiness.controlAvailable, lastRun = lastRun).forEach { row ->
+                            if (row.tone != null) WorkBadgeFact(row.label, row.value, row.tone)
+                            else if (row.label == "결과 저장 폴더" && onOpenFiles != null) {
+                                GeoRow(row.label, onOpenFiles,
+                                    value = historyFolderLabel(row.value, lastRun?.runId, lastRun?.output?.manifest?.runId),
+                                    enabled = readiness.controlAvailable,
+                                    disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
+                            } else GeoFactRow(row.label, if (row.label == "결과 저장 폴더")
+                                historyFolderLabel(row.value, lastRun?.runId, lastRun?.output?.manifest?.runId) ?: "미확인"
+                                else row.value)
                         }
                     }
                 }
                 item { inlineAction() }
             }
+        }
+    }
+}
+
+@Composable
+private fun WorkBadgeFact(label: String, value: String, tone: Tone) {
+    BoxWithConstraints(Modifier.fillMaxWidth().contentDivider()) {
+        if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
+            Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(label, style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
+                GeoBadge(value, tone)
+            }
+        } else Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(.4f), style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
+            Box(Modifier.weight(.6f), contentAlignment = Alignment.CenterEnd) { GeoBadge(value, tone) }
         }
     }
 }

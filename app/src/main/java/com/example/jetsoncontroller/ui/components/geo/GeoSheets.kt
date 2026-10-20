@@ -55,6 +55,8 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 enum class GeoSheetKind { CHOICE, FORM, INFO }
 
+internal val LocalGeoChoiceSheet = staticCompositionLocalOf { false }
+
 data class GeoOverlayAction(
     val label: String,
     val onClick: () -> Unit,
@@ -80,9 +82,9 @@ internal fun overlayActionsFit(labelWidths: List<Int>, availableWidth: Int, gap:
 
 @Composable
 internal fun GeoOverlayButton(action: GeoOverlayAction, modifier: Modifier = Modifier,
-    style: GeoButtonStyle = GeoButtonStyle.Tertiary, color: Color? = null) {
+    style: GeoButtonStyle = GeoButtonStyle.Tertiary, color: Color? = null, edge: GeoButtonEdge = GeoButtonEdge.None) {
     GeoButton(action.label, action.onClick, modifier.width(IntrinsicSize.Max), style, action.enabled, action.busy,
-        busyLabel = action.label.takeIf { action.busy }, contentColor = color)
+        busyLabel = action.label.takeIf { action.busy }, contentColor = color, edge = edge)
 }
 
 @Composable
@@ -142,8 +144,11 @@ fun GeoSheet(
     }
     require(kind != GeoSheetKind.INFO || footer == null) { "An info sheet has no action footer" }
     RestoreOverlayFocus(openerFocusRequester)
+    val sheetContent: @Composable ColumnScope.() -> Unit = {
+        CompositionLocalProvider(LocalGeoChoiceSheet provides (kind == GeoSheetKind.CHOICE)) { content() }
+    }
     if (fullScreen) {
-        OverlayFullScreenDialog(title, subtitle, onDismissRequest, modifier, footer, content)
+        OverlayFullScreenDialog(title, subtitle, onDismissRequest, modifier, footer, sheetContent)
     } else {
         ModalBottomSheet(
             onDismissRequest = onDismissRequest,
@@ -164,7 +169,7 @@ fun GeoSheet(
                 },
                 footer = footer?.let { { OverlayFooter(it) } },
                 onBodySpaceMeasured = { bodySpace = it },
-                body = { Column(Modifier.padding(horizontal = 24.dp), content = content) }
+                body = { Column(Modifier.padding(horizontal = 24.dp), content = sheetContent) }
             )
         }
     }
@@ -173,12 +178,14 @@ fun GeoSheet(
 @Composable
 private fun OverlaySheetHeading(title: String, subtitle: String?, onDismiss: (() -> Unit)? = null) {
     val t = LocalGeoColors.current
-    Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, color = t.text, style = LocalGeoType.current.title, modifier = Modifier.semantics { heading() })
-        if (subtitle != null) Text(subtitle, color = t.textSecondary, style = LocalGeoType.current.body)
-        if (onDismiss != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            GeoOverlayButton(GeoOverlayAction("닫기", onDismiss))
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = if (onDismiss == null) 24.dp else 12.dp,
+        top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = t.text, style = LocalGeoType.current.title, modifier = Modifier.semantics { heading() })
+            if (subtitle != null) Text(subtitle, color = t.textSecondary, style = LocalGeoType.current.body)
         }
+        if (onDismiss != null) GeoIconButton(GeoIcons.close, "닫기", onDismiss)
     }
 }
 
@@ -239,15 +246,12 @@ internal fun OverlayFullScreenDialog(
             Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))) {
                 OverlayViewport(
                     header = {
-                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
-                            GeoOverlayButton(GeoOverlayAction("닫기", onDismissRequest))
-                        }
+                        OverlaySheetHeading(title, subtitle, onDismissRequest)
                     },
                     footer = footer?.let { { OverlayFooter(it) } },
                     inlineFooterWhenCrowded = true,
                     fillViewport = true
                 ) {
-                    OverlaySheetHeading(title, subtitle)
                     Column(Modifier.padding(horizontal = 24.dp), content = content)
                 }
             }

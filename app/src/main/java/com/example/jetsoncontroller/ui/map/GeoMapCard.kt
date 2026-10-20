@@ -18,8 +18,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -95,7 +93,7 @@ fun GeoMapCard(
             }) {
             GeoMapRenderer(rendered, Modifier.fillMaxSize(), interactive = false,
                 active = mapCardActive(visible, resumed, fullMapOpen || GeoMapSessions.fullMaps > 0), apiKey = apiKey,
-                onLoading = { loading = it }, onTilesFailed = { tileFailure = true })
+                onLoading = { loading = it }, onTilesFailureChanged = { tileFailure = it })
             if (loading) Text("지도를 불러오는 중입니다", Modifier.align(Alignment.Center).background(c.mapPlate).padding(8.dp),
                 style = type.body, color = c.textSecondary)
             badge?.let { GeoBadge(it.first, it.second, Modifier.align(Alignment.TopStart).padding(12.dp), GeoBadgeVariant.ON_MAP) }
@@ -198,11 +196,8 @@ internal fun GeoMapCardWithDestination(mode: GeoMapMode, data: GeoMapData, gnss:
     val focus = remember { FocusRequester() }
     GeoMapCard(mode, data, { open = true }, Modifier.focusRequester(focus), fullMapOpen = open)
     if (open) {
-        Dialog({ open = false }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-            // This window owns its system insets; the parent shell has already inset the card.
-            Box(Modifier.fillMaxSize().background(LocalGeoColors.current.surface).windowInsetsPadding(WindowInsets.safeDrawing)) {
-                GeoMapScreen(mode, data, { open = false }, gnss = gnss)
-            }
+        GeoMapWindow({ open = false }) {
+            GeoMapScreen(mode, data, { open = false }, gnss = gnss)
         }
         DisposableEffect(Unit) { onDispose { runCatching { focus.requestFocus() } } }
     }

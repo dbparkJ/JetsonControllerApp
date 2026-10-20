@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.network
 
+import com.example.jetsoncontroller.ui.model.Tone
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectableGroup
@@ -63,7 +65,7 @@ fun NetworkSettingsScreen(
         focus.clearFocus()
         confirmation = state.applyTarget()
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(c.surface)) {
         DeviceTitleBar("장치 Wi-Fi", onBack, modifier = Modifier.onSizeChanged { titleHeight = it.height / density.density }) {
             Box {
                 GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
@@ -77,8 +79,8 @@ fun NetworkSettingsScreen(
             chrome = chrome.copy(topDp = chrome.topDp + titleHeight),
             action = {
                 if (editing) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("$deviceName · ${deviceTransportLabel(state.transportType)} · ${unavailable ?: "적용할 수 있습니다."}",
-                        style = type.body, color = c.textSecondary)
+                    GeoReadinessLine("$deviceName · ${deviceTransportLabel(state.transportType)} · ${unavailable ?: "적용할 수 있습니다."}",
+                        if (unavailable == null) Tone.SUCCESS else Tone.WARNING)
                     GeoButton("적용", { requestApply() }, Modifier.testTag("wifi-connect-button"), enabled = unavailable == null,
                         busy = state.sending, busyLabel = "적용 중", actionArea = true)
                 }

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.devices
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
@@ -84,7 +85,7 @@ internal fun DeviceDetailScreen(
         }
     }
     val disabledReason = if (!targetSelected) "이 장치를 다시 선택하면 쓸 수 있습니다." else "연결되면 쓸 수 있습니다."
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(c.surface)) {
         DeviceTitleBar("장치", onBack) {
             Box {
                 GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
@@ -103,31 +104,34 @@ internal fun DeviceDetailScreen(
                 GeoStatusStrip(listOfNotNull(
                     if (!online) GeoStatusStripState(GeoStripKind.DISCONNECTED, deviceName,
                         listOfNotNull("연결이 끊겼습니다", lastSeenText?.let { "마지막 응답 $it" }).joinToString(" · "),
-                        listOf(GeoOverlayAction("다시 연결", onSameNetwork), GeoOverlayAction("연결 방법", { sheet = true }))) else null,
+                        listOf(GeoOverlayAction("연결 방법", { sheet = true }), GeoOverlayAction("다시 연결", onSameNetwork))) else null,
                     ongoingStrip
                 ))
             }
             item {
                 Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp)) {
-                    DeviceIdentity(deviceName, connection,
-                        if (online) listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · ")
-                        else lastSeenText?.let { "마지막 응답 $it" }, detail = true)
-                    GeoSection("상태", modifier = Modifier.padding(top = 8.dp)) {
-                        GeoFigureGrid(deviceFigureItems(dashboard.status.takeIf { current }, snapshot))
-                        GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary,
-                            enabled = online, disabledReason = if (online) null else disabledReason)
+                    if (online) {
+                        DeviceIdentity(deviceName, connection,
+                            listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · "), detail = true)
+                        GeoSection("상태", first = true, modifier = Modifier.padding(top = 32.dp)) {
+                            DeviceFigureGrid(deviceFigureItems(dashboard.status.takeIf { current }, snapshot))
+                        }
+                    } else {
+                        Column(Modifier.padding(top = 16.dp)) {
+                            DeviceFigureGrid(deviceFigureItems(null, snapshot))
+                        }
                     }
                     GeoSection("센서") {
                         DeviceSensorRows(dashboard.status, current, control, onCamera, onGnss)
                     }
                     GeoSection("연결") {
                         GeoRow("연결 방법", { sheet = true }, value = deviceTransportLabel(dashboard.transportType))
-                        GeoRow("장치 Wi-Fi", onNetwork, value = dashboard.status.wifiSsid,
+                        DeviceNavigationRow("장치 Wi-Fi", onNetwork, value = dashboard.status.wifiSsid,
                             enabled = online, disabledReason = disabledReason)
                     }
                     GeoSection("데이터") {
-                        GeoRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason)
-                        GeoRow("휴지통", { onTrash?.invoke() }, value = trashCount?.let { "${it}개" },
+                        DeviceNavigationRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason)
+                        DeviceNavigationRow("휴지통", { onTrash?.invoke() }, value = trashCount?.let { "${it}개" },
                             enabled = control && onTrash != null, disabledReason = disabledReason)
                     }
                     GeoSection("관리", danger = true,

@@ -31,6 +31,7 @@ fun DeveloperScreen(
             onDeveloperModeChange(enabled)
             if (!enabled) onDeveloperDisabled()
         }, description = "끄면 설정으로 돌아갑니다.")
+        DevDivider()
         GeoSwitchRow("화면에 기술 정보 표시", technical, { technical = it }, description = "상세 화면 끝에 기술 정보를 보여 줍니다.")
         devHubSections.forEach { (section, doors) ->
             GeoSection(section) {

@@ -144,7 +144,8 @@ private fun WorkTicketsSection(
         GeoRadioRow(state.deviceName, tickets?.selectedUnit != null, { onUnit(deviceUnit); picker = false })
         GeoRadioRow("전체", tickets?.selectedUnit == null, { onUnit(null); picker = false })
     }
-    GeoSection("수집 구간", actionLabel = "구간 직접 고르기", onAction = onManual) {
+    GeoSection("수집 구간", first = state.deviceStrip == null && state.focus == null,
+        actionLabel = "구간 직접 고르기".takeIf { tickets != null }, onAction = onManual) {
         if (tickets == null) {
             GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
                 "GEO& Work 수집 구간을 보려면 서버 연결이 필요합니다.", "서버 연결"), onAction = onServer)
@@ -158,7 +159,7 @@ private fun WorkTicketsSection(
                     modifier = Modifier.padding(top = 8.dp))
             }
             if (ticketRefreshVisible(tickets, now)) GeoButton("다시 확인", onRefresh,
-                style = GeoButtonStyle.Tertiary, enabled = !tickets.isLoading)
+                style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !tickets.isLoading)
             val queue = workTicketQueue(tickets.tickets, tickets.selectedUnit)
             when {
                 tickets.isLoading && tickets.tickets.isEmpty() -> GeoSkeleton(true, Modifier.padding(top = 12.dp))
@@ -196,19 +197,7 @@ private fun WorkRootHeader(state: TasksHomeUiState, onDevice: () -> Unit, onAler
             with(density) { 152.dp.roundToPx() }
         val stacked = required > constraints.maxWidth
         val device: @Composable () -> Unit = {
-            Row(Modifier.focusRequester(opener).clickable(onClick = onDevice).heightIn(min = 48.dp)
-                .padding(horizontal = 8.dp, vertical = 8.dp).semantics(mergeDescendants = true) {
-                    contentDescription = "현재 장치 ${state.deviceName}, 장치 바꾸기"
-                }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("●", color = when (state.deviceStrip?.connectionTone) {
-                    Tone.SUCCESS -> c.chromeSuccess
-                    Tone.WARNING -> c.chromeWarning
-                    Tone.PENDING -> c.chromePending
-                    else -> c.chromeNeutral
-                }, style = type.caption)
-                Text(state.deviceName, color = c.onTopBar, style = type.titleSm, modifier = Modifier.weight(1f, fill = false))
-                androidx.compose.material3.Icon(GeoIcons.chevronDown, null, Modifier.size(20.dp), tint = c.onTopBarIcon)
-            }
+            WorkDeviceSwitcher(state.deviceName, state.connectionTone, onDevice, Modifier.focusRequester(opener))
         }
         Column {
             Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 20.dp), verticalAlignment = Alignment.CenterVertically) {

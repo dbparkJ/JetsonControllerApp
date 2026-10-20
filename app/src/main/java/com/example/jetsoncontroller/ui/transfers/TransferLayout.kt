@@ -1,10 +1,7 @@
 package com.example.jetsoncontroller.ui.transfers
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +12,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.onSizeChanged
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTopBar
@@ -23,6 +19,8 @@ import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoChrome
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.model.Tone
+import com.example.jetsoncontroller.ui.tasks.WorkDeviceSwitcher
 
 @Composable
 internal fun TransferPage(
@@ -55,7 +53,8 @@ internal fun TransferPage(
 }
 
 @Composable
-internal fun TransferRootHeader(deviceName: String, onDevicePicker: () -> Unit, onAlerts: () -> Unit) {
+internal fun TransferRootHeader(deviceName: String, onDevicePicker: () -> Unit, onAlerts: () -> Unit,
+    connectionTone: Tone = Tone.UNKNOWN) {
     val c = LocalGeoColors.current
     val t = LocalGeoType.current
     val measurer = rememberTextMeasurer()
@@ -66,13 +65,7 @@ internal fun TransferRootHeader(deviceName: String, onDevicePicker: () -> Unit, 
                 measurer.measure(AnnotatedString(deviceName), t.titleSm).size.width).toDp()
         } + 132.dp
         val switcher: @Composable () -> Unit = {
-            Row(Modifier.heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onDevicePicker)
-                .padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(8.dp).background(c.chromeInfo, CircleShape))
-                Text(deviceName, Modifier.weight(1f, fill = false), style = t.titleSm, color = c.onTopBar)
-                Icon(GeoIcons.chevronDown, null, Modifier.size(20.dp), tint = c.onTopBarIcon)
-            }
+            WorkDeviceSwitcher(deviceName, connectionTone, onDevicePicker)
         }
         Column {
             Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {

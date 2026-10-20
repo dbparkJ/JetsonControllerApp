@@ -6,6 +6,23 @@ import org.junit.Test
 import java.time.Instant
 
 class HistoryEntryTest {
+    @Test fun `history titles prefer folder names and daily meta never repeats a run id`() {
+        val result = resultTestRun()
+        val entry = TaskRun("capture/run.log", result.pipelineId, "데이터 수집", result.logId, result.startedAt,
+            finishedAt = result.finishedAt, runId = result.runId, contextSnapshot = result.contextSnapshot,
+            output = result.output)
+        assertEquals("20261019_1636", historyRecordTitle(entry))
+        val identifiedFolder = entry.copy(output = result.output.copy(path = "recordings/${result.runId}/"))
+        assertEquals("북측 보조 구간", historyRecordTitle(identifiedFolder))
+        assertFalse(historyRecordMeta(identifiedFolder).contains(result.runId))
+        assertFalse(historyRecordMeta(entry).contains("20261019_1636"))
+        assertTrue(historyRecordMeta(entry).contains("12분"))
+        assertTrue(historyRecordMeta(entry).contains("1.2"))
+        assertNull(historyFolderLabel("recordings/${result.runId}", result.runId))
+        assertNull(historyFolderLabel("/", result.runId))
+        assertEquals("데이터 수집", historyRecordTitle(entry.copy(output = null, contextSnapshot = null)))
+    }
+
     @Test fun `legacy entry cannot acquire canonical storage or server confirmation`() {
         val legacy = TaskRun("capture/legacy.log", "capture", "데이터 수집", "legacy.log", "2026-09-16T07:36:00Z")
         assertNull(canonicalHistoryRunId(legacy))

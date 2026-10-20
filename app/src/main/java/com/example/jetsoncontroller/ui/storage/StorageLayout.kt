@@ -87,7 +87,7 @@ internal fun StorageFreshness(updatedAt: Long?, onRefresh: () -> Unit, prefix: S
                 else if (prefix != null) "$prefix · ${Formats.freshness(age, instant)}"
                 else Formats.freshness(age, instant),
                 style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
-            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary)
+            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
         }
     }
 }

@@ -18,6 +18,16 @@ class ConnectionRecoveryTest {
     }
 
     @Test
+    fun screensWithTheirOwnStrip_getNoSecondConnectionBanner() {
+        for (route in listOf(Routes.DEVICE_DETAIL, Routes.ACTIVE_RUN, Routes.NETWORK_SETTINGS)) {
+            assertTrue(connectionNoticeFor(route, false, null, registrationRequired = false) == null)
+        }
+        assertTrue(connectionNoticeFor(Routes.PIPELINES, false, null, registrationRequired = false) != null)
+        // Rejected credentials stay visible everywhere.
+        assertTrue(connectionNoticeFor(Routes.DEVICE_DETAIL, false, null, registrationRequired = true) != null)
+    }
+
+    @Test
     fun networkFailure_canRetryDiscovery() {
         assertFalse(connectionNoticeFor(Routes.DEVICE_DETAIL, false, null, registrationRequired = false)
             ?.message?.contains("QR") == true)

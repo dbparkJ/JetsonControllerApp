@@ -25,8 +25,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -38,6 +42,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.example.jetsoncontroller.ui.components.geo.GeoIcons
@@ -47,6 +52,7 @@ import com.example.jetsoncontroller.ui.components.geo.GeoSegmented
 import com.example.jetsoncontroller.ui.components.geo.GeoSheet
 import com.example.jetsoncontroller.ui.components.geo.GeoSnackbar
 import com.example.jetsoncontroller.ui.components.geo.showGeoSnackbar
+import com.example.jetsoncontroller.ui.components.geo.contentDivider
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.theme.*
 import kotlinx.coroutines.launch
@@ -118,13 +124,13 @@ fun ThemeScreen(onBack: () -> Unit) {
         if (!store.setMode(mode)) scope.launch { snackbar.showGeoSnackbar("화면 테마를 저장하지 못했습니다.") }
     }
 
-    Box(Modifier.fillMaxSize().background(colors.canvas)) {
+    Box(Modifier.fillMaxSize().background(colors.surface)) {
         Column(Modifier.fillMaxSize()) {
             GeoThemeTopBar(onBack)
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)
                 .padding(horizontal = gutter).padding(top = 16.dp, bottom = GeoSpace.scrollEnd)) {
                 GeoSection("미리 보기", first = true) { GeoThemePreview(state.previewPalette) }
-                GeoSection("모드") {
+                Column(Modifier.padding(top = 24.dp)) {
                     GeoSegmented(
                         label = "모드",
                         options = ThemeMode.entries.map { it.label },
@@ -193,7 +199,7 @@ private fun GeoThemePaletteRow(option: ThemePaletteOption, selected: Boolean, on
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val focused by source.collectIsFocusedAsState()
-    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp)
+    Row(Modifier.fillMaxWidth().contentDivider().heightIn(min = 72.dp)
         .background(if (pressed) c.fieldPressed else Color.Transparent)
         .selectable(selected, source, indication = null, role = Role.RadioButton, onClick = onClick)
         .padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
@@ -235,39 +241,66 @@ private fun GeoThemePreview(palette: GeoPalette) {
     CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 1f)) {
         val measurer = rememberTextMeasurer()
         val type = GeoType.forPalette(palette)
-        Canvas(Modifier.fillMaxWidth().height(160.dp).clip(GeoShape.control).border(1.dp, c.borderStrong, GeoShape.control)
+        val tabs = listOf(
+            rememberVectorPainter(GeoIcons.tabWorkFilled(c.navSelected, c.nav)),
+            rememberVectorPainter(GeoIcons.tabDevice),
+            rememberVectorPainter(GeoIcons.tabTransfer),
+            rememberVectorPainter(GeoIcons.tabSettings)
+        )
+        val chevron = rememberVectorPainter(GeoIcons.chevronDown)
+        Canvas(Modifier.fillMaxWidth().height(160.dp).clip(GeoShape.card).border(1.dp, c.border, GeoShape.card)
             .clearAndSetSemantics {
-                contentDescription = "${palette.label} 미리 보기 · 작업 · GEO-X-1 · 수집 구간 · 할 일 · 저장 공간 · 512 GB 남음 · 예시 입력 · 수집 시작 · 작업, 장치, 전송, 설정"
+                contentDescription = "${palette.label} 미리 보기 · 작업 · GEO-X-1 · 신월4거리 북측 보조 구간 · 마감 10월 21일 · 할 일 · 저장 공간 · 512 GB 남음 · 예시 입력 · 수집 시작 · 작업, 장치, 전송, 설정"
             }) {
-            fun text(value: String, x: Float, y: Float, color: Color, style: TextStyle = type.body) {
-                drawText(measurer, value, topLeft = Offset(x.dp.toPx(), y.dp.toPx()),
-                    style = style.copy(color = color, fontSize = style.fontSize * .6f, lineHeight = style.lineHeight * .6f))
+            fun text(value: String, x: Float, y: Float, color: Color, style: TextStyle = type.body,
+                width: Float? = null): Float {
+                val layout = measurer.measure(value,
+                    style = style.copy(color = color, fontSize = style.fontSize * .6f, lineHeight = style.lineHeight * .6f),
+                    constraints = Constraints(maxWidth = width?.let { it.dp.roundToPx().coerceAtLeast(1) } ?: Constraints.Infinity))
+                drawText(layout, topLeft = Offset(x.dp.toPx(), y.dp.toPx()))
+                return layout.size.height.toDp().value
             }
-            fun rect(color: Color, x: Float, y: Float, width: Float, height: Float) {
-                drawRect(color, Offset(x.dp.toPx(), y.dp.toPx()), Size(width.dp.toPx(), height.dp.toPx()))
+            fun rect(color: Color, x: Float, y: Float, width: Float, height: Float, radius: Float = 0f) {
+                drawRoundRect(color, topLeft = Offset(x.dp.toPx(), y.dp.toPx()),
+                    size = Size(width.dp.toPx(), height.dp.toPx()), cornerRadius = CornerRadius(radius.dp.toPx()))
             }
             val width = size.width.toDp().value
-            rect(c.canvas, 0f, 0f, width, 160f)
-            rect(c.topBar, 0f, 0f, width, 28f)
-            text("작업", 12f, 5f, c.onTopBar, type.heading)
-            text("GEO-X-1", width - 64f, 8f, c.onTopBar, type.titleSm)
-            rect(c.surface, 8f, 34f, width - 16f, 48f)
-            text("수집 구간", 16f, 36f, c.text, type.titleSm)
-            text("GEO-X-1 · 수집 준비", 16f, 52f, c.textSecondary, type.caption)
-            rect(c.neutralSoft, width - 46f, 38f, 30f, 16f)
-            text("할 일", width - 41f, 40f, c.neutral, type.badge)
-            text("저장 공간 · 512 GB 남음", 16f, 67f, c.text)
-            text("예시 입력", 12f, 88f, c.textSecondary, type.label)
-            val fieldWidth = (width - 32f) * .52f
-            rect(c.field, 12f, 102f, fieldWidth, 26f)
-            drawRect(c.borderStrong, Offset(12.dp.toPx(), 102.dp.toPx()),
-                Size(fieldWidth.dp.toPx(), 26.dp.toPx()), style = Stroke(1.dp.toPx()))
-            val buttonX = fieldWidth + 20f
-            rect(c.primary, buttonX, 102f, width - buttonX - 12f, 26f)
-            text("수집 시작", buttonX + 10f, 108f, c.onPrimary, type.button)
-            rect(c.nav, 0f, 136f, width, 24f)
+            rect(c.surface, 0f, 0f, width, 160f)
+            rect(c.topBar, 0f, 0f, width, 32f)
+            text("작업", 12f, 6f, c.onTopBar, type.heading)
+            drawCircle(c.chromeSuccess, radius = 3.dp.toPx(), center = Offset((width - 82f).dp.toPx(), 16.dp.toPx()))
+            text("GEO-X-1", width - 74f, 9f, c.onTopBar, type.titleSm)
+            translate((width - 24f).dp.toPx(), 10.dp.toPx()) {
+                with(chevron) { draw(Size(12.dp.toPx(), 12.dp.toPx()), colorFilter = ColorFilter.tint(c.onTopBarIcon)) }
+            }
+            val columnWidth = (width - 36f) / 2f
+            val fieldX = 24f + columnWidth
+            val titleHeight = text("신월4거리 북측 보조 구간", 12f, 36f, c.text, type.titleSm, width = columnWidth - 42f)
+            val metaHeight = text("마감 10월 21일", 12f, 38f + titleHeight, c.textSecondary, type.caption,
+                width = columnWidth - 42f)
+            val badgeX = 12f + columnWidth - 36f
+            rect(c.neutralSoft, badgeX, 36f, 36f, 16f, radius = 8f)
+            drawCircle(c.neutral, radius = 2.dp.toPx(), center = Offset((badgeX + 7f).dp.toPx(), 44.dp.toPx()))
+            text("할 일", badgeX + 12f, 38f, c.neutral, type.badge)
+            val dividerY = 44f + titleHeight + metaHeight
+            rect(c.border, 12f, dividerY, columnWidth, 1f)
+            text("저장 공간", 12f, dividerY + 8f, c.textSecondary)
+            text("512 GB 남음", 12f + columnWidth - 62f, dividerY + 8f, c.text)
+            text("예시 입력", fieldX, 38f, c.text, type.label)
+            rect(c.field, fieldX, 56f, columnWidth, 22f, radius = 6f)
+            drawRoundRect(c.borderStrong, Offset(fieldX.dp.toPx(), 56.dp.toPx()),
+                Size(columnWidth.dp.toPx(), 22.dp.toPx()), cornerRadius = CornerRadius(6.dp.toPx()), style = Stroke(1.dp.toPx()))
+            rect(c.primary, fieldX, 86f, columnWidth, 24f, radius = 6f)
+            text("수집 시작", fieldX + columnWidth / 2 - 24f, 91f, c.onPrimary, type.button)
+            rect(c.nav, 0f, 128f, width, 32f)
+            rect(c.navBorder, 0f, 128f, width, 1f)
             listOf("작업", "장치", "전송", "설정").forEachIndexed { index, label ->
-                text(label, width * (index + .5f) / 4f - 8f, 142f,
+                val centerX = width * (index + .5f) / 4f
+                translate((centerX - 6f).dp.toPx(), 132.dp.toPx()) {
+                    with(tabs[index]) { draw(Size(12.dp.toPx(), 12.dp.toPx()),
+                        colorFilter = if (index == 0) null else ColorFilter.tint(c.navUnselected)) }
+                }
+                text(label, centerX - 8f, 146f,
                     if (index == 0) c.navSelected else c.navUnselected, if (index == 0) type.tabSelected else type.tab)
             }
         }

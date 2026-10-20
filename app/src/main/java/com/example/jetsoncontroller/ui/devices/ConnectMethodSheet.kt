@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.ui.devices
 
-import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.runtime.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
@@ -29,11 +28,11 @@ internal fun ConnectMethodSheet(
         subtitle = listOfNotNull(connection.label, lastSeenText?.let { "마지막 응답 $it" }).joinToString(" · "),
         onDismissRequest = onDismiss
     ) {
-        GeoRow("같은 네트워크에서 다시 찾기", onSameNetwork,
+        DeviceConnectionChoice("같은 네트워크에서 다시 찾기", GeoIcons.wifi, onClick = onSameNetwork,
             meta = "휴대폰과 장치가 같은 Wi-Fi에 있을 때 씁니다. 모든 기능을 쓸 수 있습니다.")
-        GeoRow("장치에 직접 연결", { confirmDirect = true },
+        DeviceConnectionChoice("장치에 직접 연결", GeoIcons.link, onClick = { confirmDirect = true },
             meta = "공유기 없이 휴대폰과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.")
-        GeoRow("블루투스로 기본 연결", {
+        DeviceConnectionChoice("블루투스로 기본 연결", GeoIcons.bluetooth, onClick = {
             if (bluetoothPermissionGranted) onBluetooth?.invoke() else onRequestBluetoothPermission()
         }, meta = if (bluetoothBusy) "기본 연결을 확인하고 있습니다." else if (bluetoothPermissionGranted) "가까운 장치를 찾아 기본 연결합니다."
             else "가까운 장치를 찾으려면 블루투스 권한이 필요합니다.",
@@ -44,7 +43,7 @@ internal fun ConnectMethodSheet(
                 kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 시도",
                 onAction = if (!bluetoothBusy) onBluetooth else null)
         }
-        GeoRow("QR 코드로 다시 등록", onQrRegister, meta = "인증 정보를 확인할 수 없을 때 씁니다.")
+        DeviceConnectionChoice("QR 코드로 다시 등록", GeoIcons.qr, onClick = onQrRegister, meta = "인증 정보를 확인할 수 없을 때 씁니다.")
     }
     if (confirmDirect) GeoConfirmDialog(
         title = "${deviceName}에 직접 연결할까요?",

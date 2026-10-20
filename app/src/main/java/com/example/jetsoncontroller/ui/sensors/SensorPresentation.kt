@@ -4,6 +4,10 @@ import com.example.jetsoncontroller.model.GnssSensorStatus
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.dashboard.statusFreshness
+import com.example.jetsoncontroller.ui.model.PositionQuality
+import com.example.jetsoncontroller.ui.model.SensorState
+import com.example.jetsoncontroller.ui.model.Tone
+import com.example.jetsoncontroller.ui.model.VocabularyEntry
 
 enum class GnssReceptionState {
     GNSS_OFF,
@@ -261,12 +265,26 @@ fun cameraFrameIsLive(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now
 internal fun cameraResolution(camera: com.example.jetsoncontroller.model.CameraSensorStatus): String? =
     if ((camera.frameWidth ?: 0) > 0 && (camera.frameHeight ?: 0) > 0) "${camera.frameWidth} × ${camera.frameHeight}" else null
 
-internal fun deviceGnssWord(presentation: SensorPresentation, gnss: GnssSensorStatus): String =
-    if (presentation.activity != SensorActivity.ACTIVE) presentation.badge else when {
-        !gnss.hasValidLocation() -> "위치 미확인"
-        gnssReceptionState(true, gnss.fixType, gnss.rtkStatus) == GnssReceptionState.RTK_FIXED -> "정밀 위치"
-        else -> "대략 위치"
+internal fun SensorActivity.deviceSensorState(): SensorState = when (this) {
+    SensorActivity.ACTIVE -> SensorState.RECEIVING
+    SensorActivity.STALE -> SensorState.DELAYED
+    SensorActivity.DISCONNECTED -> SensorState.DISCONNECTED
+    SensorActivity.CONNECTED -> SensorState.WAITING
+    SensorActivity.WAITING -> SensorState.UNKNOWN
+    SensorActivity.UNCONFIGURED -> SensorState.NOT_CONFIGURED
+}
+
+internal fun SensorActivity.deviceSensorTone(): Tone = deviceSensorState().tone
+
+internal fun deviceGnssState(presentation: SensorPresentation, gnss: GnssSensorStatus): VocabularyEntry =
+    if (presentation.activity != SensorActivity.ACTIVE) presentation.activity.deviceSensorState() else when {
+        !gnss.hasValidLocation() -> PositionQuality.UNKNOWN
+        gnssReceptionState(true, gnss.fixType, gnss.rtkStatus) == GnssReceptionState.RTK_FIXED -> PositionQuality.PRECISE
+        else -> PositionQuality.APPROXIMATE
     }
+
+internal fun deviceGnssWord(presentation: SensorPresentation, gnss: GnssSensorStatus): String =
+    deviceGnssState(presentation, gnss).word
 
 internal enum class CameraStageState { WAITING, LIVE, DELAYED, ERROR }
 

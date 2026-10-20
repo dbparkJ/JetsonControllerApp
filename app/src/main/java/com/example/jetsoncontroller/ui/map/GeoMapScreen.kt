@@ -9,7 +9,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,12 +25,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -143,14 +150,11 @@ fun GeoMapScreen(
                 Box(Modifier.fillMaxSize().testTag("gnss-map-pane")) {
                     GeoMapRenderer(renderedData, Modifier.fillMaxSize(), base, followDevice = mode == GeoMapMode.RUN,
                         panelBottomDp = bottom, panelEndDp = end, camera = camera, apiKey = apiKey,
-                        onLoading = { loading = it }, onTilesFailed = { tilesFailed = true })
+                        onLoading = { loading = it }, onTilesFailureChanged = { tilesFailed = it })
                     val controlsEnd = end.dp + 12.dp
                     Column(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = controlsEnd),
                         horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.width(152.dp).shadow(1.dp, CircleShape).background(colors.mapPlate, CircleShape)) {
-                            GeoSegmented("지도 종류", listOf("일반", "위성"), base.ordinal,
-                                { base = GeoMapBase.entries[it] }, { base = if (base == GeoMapBase.GENERAL) GeoMapBase.SATELLITE else GeoMapBase.GENERAL })
-                        }
+                        MapBasePicker(base) { base = it }
                         MapControl(GeoIcons.myLocation, "장치 위치로", camera::device, selected = camera.following,
                             enabled = renderedData.device != null)
                         if (renderedData.geometry?.positions?.isNotEmpty() == true) MapControl(GeoIcons.fitZone, "구역 전체 보기", camera::fitZone)
@@ -191,6 +195,27 @@ fun GeoMapScreen(
                     sheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     sheetContent = { panel(Modifier.fillMaxWidth().height((height - 48.dp).coerceAtLeast(128.dp))) },
                     containerColor = colors.sunken) { map(peekDp, 0) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapBasePicker(base: GeoMapBase, onSelect: (GeoMapBase) -> Unit) {
+    val colors = LocalGeoColors.current
+    Row(Modifier.width(IntrinsicSize.Max).shadow(1.dp, CircleShape).background(colors.mapPlate, CircleShape)
+        .selectableGroup().semantics { contentDescription = "지도 종류" }.padding(horizontal = 4.dp)) {
+        GeoMapBase.entries.forEach { option ->
+            val selected = base == option
+            var focused by remember { mutableStateOf(false) }
+            Box(Modifier.widthIn(min = 64.dp).heightIn(min = 48.dp)
+                .onFocusChanged { focused = it.isFocused }.geoFocusRing(CircleShape, focused, tint = colors.focus)
+                .clip(CircleShape).selectable(selected, role = Role.Tab, onClick = { onSelect(option) })
+                .background(if (selected) colors.sunken else colors.mapPlate)
+                .then(if (selected) Modifier.border(1.dp, colors.borderStrong, CircleShape) else Modifier)
+                .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                Text(if (option == GeoMapBase.GENERAL) "일반" else "위성", style = geoLabelTextStyle(),
+                    color = if (selected) colors.text else colors.textSecondary)
             }
         }
     }

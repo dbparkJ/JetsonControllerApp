@@ -142,8 +142,8 @@ internal fun RunResultScreen(
             val gutter = LocalGeoWindow.current.gutterDp.dp
             GeoActionArea(visibilityKey = "${run.deviceId}:${run.runId}", action = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("$deviceName · $connectionLabel · ${chain.explanation}",
-                        style = LocalGeoType.current.body, color = c.textSecondary)
+                    GeoReadinessLine("$deviceName · $connectionLabel · ${chain.explanation}",
+                        if (chain.enabled) Tone.SUCCESS else Tone.WARNING)
                     val callbackAvailable = when (chain.action) {
                         ResultAction.TRANSFER -> onOpenTransfer != null
                         ResultAction.VERIFY -> onVerifyReceipt != null
@@ -166,7 +166,7 @@ internal fun RunResultScreen(
                                 "다시 확인" -> onRefresh()
                                 else -> onConnectionMethods()
                             }
-                        }, style = GeoButtonStyle.Tertiary)
+                        }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                     }
                 }
             }) { inlineAction ->
@@ -200,9 +200,10 @@ internal fun RunResultScreen(
                                 Text("관찰한 시간 기준", color = c.textSecondary, style = LocalGeoType.current.caption)
                             }
                             if (zoneRevisionChanged) GeoInlineNote("수집 구역이 바뀌었습니다. 이 수집은 시작할 때의 구역으로 표시합니다.")
-                            GeoSection("저장 폴더") {
-                                GeoRow(run.output.path.trimEnd('/').substringAfterLast('/').ifBlank { "미확인" },
-                                    onOpenFiles, enabled = online && runOutputStored(run),
+                            Column(Modifier.padding(top = 24.dp)) {
+                                GeoRow("저장 폴더", onOpenFiles,
+                                    value = historyFolderLabel(run.output.path, run.runId, run.output.manifest?.runId),
+                                    enabled = online && runOutputStored(run),
                                     disabledReason = if (!online) "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다." else "장치 저장 결과를 확인한 뒤 폴더를 볼 수 있습니다.")
                             }
                             RunQualityEvidence(run.quality, zoneObservation = observedZone,

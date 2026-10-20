@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,12 +18,12 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.alerts.AlertSettings
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.geo.GeoSection
-import com.example.jetsoncontroller.ui.components.geo.GeoSliderRow
 import com.example.jetsoncontroller.ui.components.geo.GeoStateBlock
 import com.example.jetsoncontroller.ui.components.geo.GeoStateContent
 import com.example.jetsoncontroller.ui.components.geo.GeoStateKind
 import com.example.jetsoncontroller.ui.components.geo.GeoSwitchRow
-import kotlin.math.roundToInt
+import com.example.jetsoncontroller.ui.components.geo.GeoButton
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -43,7 +44,7 @@ fun AlertSettingsScreen(
     developerModeEnabled: Boolean = false,
     onBack: () -> Unit = {}
 ) {
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         SettingsPageHeader("알림 기준", onBack)
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -56,17 +57,16 @@ fun AlertSettingsScreen(
                         GeoStateContent(
                             kind = GeoStateKind.PERMISSION,
                             title = "알림 권한이 꺼져 있습니다",
-                            explanation = "켜 둔 알림을 받으려면 권한을 허용하세요.",
-                            actionLabel = "권한 허용"
-                        ),
-                        onAction = onRequestNotificationPermission
+                            explanation = "켜 둔 알림을 받으려면 권한을 허용하세요."
+                        )
                     )
+                    GeoButton("권한 허용", onRequestNotificationPermission, Modifier.padding(top = 8.dp))
                 }
             }
             item {
                 GeoSection(
                     title = "장치 상태",
-                    first = true,
+                    first = notificationPermissionGranted,
                     note = "기준을 넘을 때마다 한 번만 알립니다."
                 ) {
                     AlertThresholdControl(
@@ -153,7 +153,7 @@ private fun AlertThresholdControl(
     onThresholdChange: (Int) -> Unit
 ) {
     var sliderValue by remember(threshold) { mutableFloatStateOf(threshold.toFloat()) }
-    val roundedValue = sliderValue.roundToInt().coerceIn(range)
+    val roundedValue = alertThresholdValue(sliderValue, range)
     Column(Modifier.fillMaxWidth()) {
         GeoSwitchRow(
             title = title,
@@ -161,16 +161,15 @@ private fun AlertThresholdControl(
             checked = enabled,
             onCheckedChange = onEnabledChange
         )
-        GeoSliderRow(
-            title = "$title 기준",
-            value = sliderValue,
+        GeoAlertThresholdSlider(
+            title = title,
+            value = roundedValue,
             valueLabel = valueLabel(roundedValue),
-            onValueChange = { sliderValue = it.coerceIn(range.first.toFloat(), range.last.toFloat()) },
-            valueRange = range.first.toFloat()..range.last.toFloat(),
-            step = 1f,
+            onValueChange = { sliderValue = it.toFloat() },
+            range = range,
             enabled = enabled,
-            disabledReason = "알림을 켜면 기준을 조정할 수 있습니다.",
-            onValueChangeFinished = { onThresholdChange(sliderValue.roundToInt().coerceIn(range)) }
+            onStep = { sliderValue = it.toFloat(); onThresholdChange(it) },
+            onValueChangeFinished = { onThresholdChange(alertThresholdValue(sliderValue, range)) }
         )
     }
 }

@@ -42,7 +42,7 @@ fun UploadTargetSettingsScreen(
                 targets.forEach { target -> DevAddressRow(target.label, target.baseUrl ?: "주소 미확인", { open(target) }) }
             }
         }
-        GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, enabled = controlAvailable && !isLoading)
+        GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = controlAvailable && !isLoading)
     }
 }
 

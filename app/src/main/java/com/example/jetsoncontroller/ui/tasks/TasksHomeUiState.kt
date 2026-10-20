@@ -8,7 +8,6 @@ import com.example.jetsoncontroller.ui.field.RunReceiptCell
 import com.example.jetsoncontroller.ui.field.isActiveRun
 import com.example.jetsoncontroller.ui.field.runBytesLabel
 import com.example.jetsoncontroller.ui.field.taskRunReceiptCells
-import com.example.jetsoncontroller.ui.pipelines.taskStateLabel
 import com.example.jetsoncontroller.ui.survey.SurveyRunUiState
 import java.time.Duration
 import java.time.Instant
@@ -62,8 +61,11 @@ internal data class TasksHomeInput(
     val storageWarningPercent: Int = 85,
     val temperatureWarningC: Int = 80,
     /** The device's task list was read within the freshness window (tasksAreFresh). */
-    val tasksFresh: Boolean = false
-)
+    val tasksFresh: Boolean = false,
+    val reachable: Boolean? = null
+) {
+    val deviceReachable: Boolean get() = reachable ?: (connected || basicConnection)
+}
 
 private val BusyPipelineStates = setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.STOPPING,
     PipelineState.RETRYING, PipelineState.WAITING_FOR_TIME_SYNC)
@@ -120,7 +122,8 @@ internal data class TasksHomeUiState(
     val otherTasksEmptyText: String,
     val ticketSection: ServerTicketUiState? = null,
     val focus: NextAction? = null,
-    val deviceStrip: GeoDeviceStripState? = null
+    val deviceStrip: GeoDeviceStripState? = null,
+    val connectionTone: Tone = Tone.UNKNOWN
 )
 
 internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
@@ -168,7 +171,9 @@ internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
         otherTasksEmptyText = "이 장치에 등록된 작업이 없습니다",
         focus = workNextAction(input).takeUnless { input.checkingDevice && !input.permissionMissing && !input.credentialsRejected &&
             survey.pendingStart == null && survey.unconfirmedRunId == null },
-        deviceStrip = workDeviceStrip(input)
+        deviceStrip = workDeviceStrip(input),
+        connectionTone = workRootConnectionTone(input.connectionTone, input.deviceReachable, input.checkingDevice,
+            input.basicConnection, input.permissionMissing, input.credentialsRejected)
     )
 }
 
@@ -177,7 +182,7 @@ internal fun workNextAction(input: TasksHomeInput): NextAction {
     return nextAction(NextActionInput(
         deviceName = input.deviceName ?: UnnamedDeviceLabel,
         field = FieldStageInput(
-            connected = input.connected || input.basicConnection,
+            connected = input.deviceReachable,
             runStateConfirmed = (s.runStateConfirmed && !s.restoringLocalState) || idleConfirmedFromTaskList(input),
             activeRunId = s.activeRun?.takeIf { it.active }?.runId,
             pendingStartRequestId = s.pendingStart?.clientRequestId,
@@ -250,7 +255,7 @@ internal fun workDeviceStrip(input: TasksHomeInput): GeoDeviceStripState {
 }
 
 /** One labelled line on the read-only task detail. */
-internal data class TaskDetailRow(val label: String, val value: String)
+internal data class TaskDetailRow(val label: String, val value: String, val tone: Tone? = null)
 
 /**
  * Status and metadata a normal operator may read. Run logs, configuration and editing stay in
@@ -260,9 +265,17 @@ internal fun taskDetailRows(
     pipeline: ManagedPipeline,
     connected: Boolean,
     zone: ZoneId = ZoneId.systemDefault()
+): List<TaskDetailRow> = taskDetailRows(pipeline, connected, zone, null)
+
+internal fun taskDetailRows(
+    pipeline: ManagedPipeline,
+    connected: Boolean,
+    zone: ZoneId = ZoneId.systemDefault(),
+    lastRun: TaskRun?
 ): List<TaskDetailRow> {
     val execution = pipeline.execution
-    val lastRun = formatTaskTime(execution?.startedAt, zone) ?: "기록 없음"
+    val history = lastRun?.takeIf { it.pipelineId == pipeline.id }
+    val lastRunTime = formatTaskTime(history?.startedAt ?: execution?.startedAt, zone) ?: "기록 없음"
     val lastResult = when {
         execution == null -> "기록 없음"
         execution.active -> "진행 중"
@@ -270,11 +283,20 @@ internal fun taskDetailRows(
         execution.exitCode != null -> "비정상 종료"
         else -> "결과 미확인"
     }
+    val storage = history?.takeIf { !it.isActiveRun() }
+        ?.let { taskRunReceiptCells(it, emptyList())[1] }
+    val task = workTaskState(pipeline, connected)
     return listOf(
-        TaskDetailRow("상태", taskStateLabel(pipeline, confirmed = connected)),
-        TaskDetailRow("마지막 실행", lastRun),
-        TaskDetailRow("마지막 결과", lastResult),
-        TaskDetailRow("결과 저장 폴더", pipeline.outputPath?.takeIf(String::isNotBlank) ?: "설정되지 않음")
+        TaskDetailRow("상태", task.word, task.tone),
+        TaskDetailRow("마지막 실행", lastRunTime),
+        TaskDetailRow("마지막 결과", storage?.value ?: lastResult, storage?.tone ?: when {
+            execution?.active == true -> Tone.INFO
+            execution?.exitCode == 0 -> Tone.SUCCESS
+            execution?.exitCode != null -> Tone.WARNING
+            else -> Tone.UNKNOWN
+        }),
+        TaskDetailRow("결과 저장 폴더", history?.output?.path
+            ?: pipeline.outputPath?.takeIf(String::isNotBlank) ?: "설정되지 않음")
     )
 }
 

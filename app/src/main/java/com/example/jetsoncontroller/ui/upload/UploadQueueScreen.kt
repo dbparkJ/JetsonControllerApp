@@ -98,7 +98,7 @@ fun UploadQueueScreen(
                         } }
                     }
                 }
-                item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary) }
+                item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
             }
         }
         Box(Modifier.align(Alignment.BottomCenter)) { GeoOperationMessageHost(message, onDismissMessage) }

@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.ui.pipelines
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -19,15 +20,6 @@ import com.example.jetsoncontroller.ui.survey.toDraft
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.math.BigDecimal
-
-internal fun policyUnitsToBytes(value: String, multiplier: Long): String? = runCatching {
-    BigDecimal(value).multiply(BigDecimal.valueOf(multiplier)).longValueExact().takeIf { it >= 0 }?.toString()
-}.getOrNull()
-
-internal fun policyBytesToUnits(value: String, divisor: Long): String = runCatching {
-    BigDecimal(value).divide(BigDecimal.valueOf(divisor)).stripTrailingZeros().toPlainString()
-}.getOrDefault("")
 
 internal data class PipelinePolicyState(
     val draft: RunPolicyDraft = RunPolicyDraft(), val policy: PipelineRunPolicy? = null,
@@ -104,10 +96,18 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
     onBack: () -> Unit, onEdit: (RunPolicyDraft.() -> RunPolicyDraft) -> Unit, onSave: () -> Unit, onReload: () -> Unit) {
     var rootPicker by remember { mutableStateOf(false) }
     var confirmReload by remember { mutableStateOf(false) }
-    var minimumGb by remember(state.draft.minFreeBytes) { mutableStateOf(policyBytesToUnits(state.draft.minFreeBytes, 1_000_000_000)) }
-    var minimumMb by remember(state.draft.outputMinBytes) { mutableStateOf(policyBytesToUnits(state.draft.outputMinBytes, 1_000_000)) }
+    var minimumFree by remember { mutableStateOf(PolicySizeEdit(policySizeInput(state.draft.minFreeBytes))) }
+    var minimumOutput by remember { mutableStateOf(PolicySizeEdit(policySizeInput(state.draft.outputMinBytes))) }
+    LaunchedEffect(state.draft.minFreeBytes, state.busy) {
+        if (state.busy || minimumFree.sourceBytes != state.draft.minFreeBytes)
+            minimumFree = PolicySizeEdit(policySizeInput(state.draft.minFreeBytes))
+    }
+    LaunchedEffect(state.draft.outputMinBytes, state.busy) {
+        if (state.busy || minimumOutput.sourceBytes != state.draft.outputMinBytes)
+            minimumOutput = PolicySizeEdit(policySizeInput(state.draft.outputMinBytes))
+    }
     val enabled = state.online && !state.busy
-    val validUnits = policyUnitsToBytes(minimumGb, 1_000_000_000) != null && policyUnitsToBytes(minimumMb, 1_000_000) != null
+    val validUnits = minimumFree.bytes != null && minimumOutput.bytes != null
     if (rootPicker) GeoSheet("결과 저장소", { rootPicker = false }) {
         state.roots.forEach { root -> GeoRadioRow(root.label, root.id == state.draft.outputRootId,
             { rootPicker = false; onEdit { copy(outputRootId = root.id) } }) }
@@ -122,7 +122,7 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
         DevIdentity(label, deviceName)
         DevFeedback(state.message, state.needsReview)
         if (state.busy) DevText("확인 중")
-        GeoButton("장치 설정 다시 불러오기", { confirmReload = true }, style = GeoButtonStyle.Tertiary, enabled = enabled)
+        GeoButton("장치 설정 다시 불러오기", { confirmReload = true }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = enabled)
         GeoSection("센서") {
             for ((key, name) in listOf("camera" to "카메라", "gnss" to "위치(GNSS)", "imu" to "움직임(IMU)")) {
                 DevChoice(name, listOf("필수", "선택", "사용 안 함"), (state.draft.sensors[key] ?: SensorRequirementChoice.NOT_USED).ordinal,
@@ -131,17 +131,29 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
             }
         }
         GeoSection("시작 전 점검") {
-            GeoTextField(minimumGb, { value -> minimumGb = value
-                policyUnitsToBytes(value, 1_000_000_000)?.let { onEdit { copy(minFreeBytes = it) } }
-            }, "최소 여유 공간", numeric = true, unit = "GB", enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
+            GeoTextField(minimumFree.text, { value -> minimumFree = minimumFree.edit(value)
+                minimumFree.bytes?.let { onEdit { copy(minFreeBytes = it) } }
+            }, "최소 여유 공간", numeric = true, unit = minimumFree.input.unit, enabled = enabled,
+                error = if (minimumFree.bytes == null) "0 이상의 용량을 입력하세요." else null,
+                disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
         }
         GeoSection("예상 결과") {
-            GeoTextField(state.draft.outputMinFiles, { value -> onEdit { copy(outputMinFiles = value.take(9)) } }, "최소 파일 수",
-                numeric = true, unit = "개", enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
-            Spacer(Modifier.height(16.dp))
-            GeoTextField(minimumMb, { value -> minimumMb = value
-                policyUnitsToBytes(value, 1_000_000)?.let { onEdit { copy(outputMinBytes = it) } }
-            }, "최소 용량", numeric = true, unit = "MB", enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
+            val files: @Composable (Modifier) -> Unit = { modifier ->
+                GeoTextField(state.draft.outputMinFiles, { value -> onEdit { copy(outputMinFiles = value.take(9)) } }, "최소 파일 수", modifier,
+                    numeric = true, unit = "개", enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
+            }
+            val size: @Composable (Modifier) -> Unit = { modifier ->
+                GeoTextField(minimumOutput.text, { value -> minimumOutput = minimumOutput.edit(value)
+                    minimumOutput.bytes?.let { onEdit { copy(outputMinBytes = it) } }
+                }, "최소 용량", modifier, numeric = true, unit = minimumOutput.input.unit, enabled = enabled,
+                    error = if (minimumOutput.bytes == null) "0 이상의 용량을 입력하세요." else null,
+                    disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
+            }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                if (maxWidth < 320.dp || LocalDensity.current.fontScale >= 1.5f) {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { files(Modifier); size(Modifier) }
+                } else Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { files(Modifier.weight(1f)); size(Modifier.weight(1f)) }
+            }
             Spacer(Modifier.height(16.dp))
             GeoPickerField("결과 저장소", state.roots.firstOrNull { it.id == state.draft.outputRootId }?.label ?: "선택 안 됨",
                 { rootPicker = true }, enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")

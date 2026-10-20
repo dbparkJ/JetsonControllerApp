@@ -284,7 +284,7 @@ Counts include confirmation taps and exclude scrolling, typing, waiting and OS p
 | F8 developer tools | 11 while locked; 2 once unlocked | 작업 root |
 
 **F1 · First run and registration — 2 taps**
-1. Cold start with no device: splash → 장치 등록 scene (no bar). Heading "GEO-X에 장치를 등록하세요"; body "장치 본체의 QR 코드를 스캔하면 이 휴대폰에서 장치를 관리할 수 있습니다."; device photo 120; section "등록에 필요한 권한" with rows "카메라 · QR 코드를 읽습니다." and "블루투스 · 가까운 장치를 찾아 인증합니다."; primary "QR 코드 스캔"; tertiary "장치 없이 서버 파일 보기"; gear → 설정.
+1. Cold start with no device: splash → 장치 등록 scene (no bar). Heading "GEO-X에 장치를 등록하세요"; body "장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다." (device-neutral: the same scene runs on tablets); device photo 120; section "등록에 필요한 권한" with rows "카메라 · QR 코드를 읽습니다." and "블루투스 · 가까운 장치를 찾아 인증합니다."; primary "QR 코드 스캔" (full width up to 560 dp); tertiary "장치 없이 서버 파일 보기" centred under it; gear → 설정.
 2. "QR 코드 스캔" (1) → camera permission if needed → `scan`. Denied: the stage shows the permission block ("카메라 권한이 꺼져 있습니다" + "권한 허용", or "설정에서 허용" when permanently denied) and "코드 직접 입력" stays available.
 3. QR read → haptic, preview freezes, sheet "장치 등록": photo 40, "GEO-X-1", "등록 코드 •••• 4DE0", "블루투스로 장치를 찾아 이 휴대폰에 등록합니다.", secondary "다시 스캔", primary "등록".
 4. "등록" (2) → Bluetooth/nearby permission if needed → progress in the same sheet: a 4 dp indeterminate bar and one line changing in place ("GEO-X-1을 찾는 중입니다." → "연결하는 중입니다." → "장치를 확인하는 중입니다." → "인증하는 중입니다." → "상태를 맞추는 중입니다.") and tertiary "취소" (cancel keeps the scanned code so "다시 시도" needs no rescan).
@@ -353,7 +353,7 @@ Values come from `web-tokens.css`; where the app needs more (field ergonomics, A
 2. **Navigation chrome:** bottom bar when the available width is < 600 dp; an 80 dp rail at ≥ 600 dp, in any orientation (a phone in landscape is 882 dp wide and gets the rail). The rail's items are top-aligned with 8 dp gaps and the rail scrolls vertically when four items at the current font scale do not fit.
 3. **Pane width** = window width − rail (80, when shown) − horizontal safe-drawing insets. All gutters and columns derive from the pane width, not the window.
 4. **Gutter** (web `--mobile-page-gutter`): 24 dp when the pane is ≥ 390 dp, 20 dp at 340–389 dp, 16 dp below 340 dp.
-5. **Content column:** max 720 dp, centred in the pane on `canvas` when the pane is wider; the body sheet is `surface`.
+5. **Content column:** max 720 dp, centred in the pane on `canvas` when the pane is wider; the body sheet is `surface`. A screen without a list | detail layout keeps this column in a two-pane-capable window too; only routes drawn with `GeoPaneLayout` span the window.
 6. **Two panes (list | detail)** only when all of these hold: width class expanded, height class not compact, font scale < 1.5, and the pane fits `listMin + 1 + detailMin + 2 × gutter`, where `listMin = 320 dp × max(1, fontScale)` and `detailMin = 400 dp × max(1, fontScale)`. Used by 장치 (list | 상세), 전송 (list | 상세), 작업 (queue | 수집 구간) and 설정 (list | page). Otherwise single pane.
 7. **Columns and spans.** Compact: 4 columns, 16 dp gaps; medium: 8; expanded single pane: 8 inside the 720 dp column. Spans: sections, rows, notes, strips, the map card and the action area span all columns; figure-grid cells span half (2 of 4, 4 of 8); a button pair splits into two equal halves; the theme swatch, device photo and icons are fixed sizes, not spans. Label/value pairs are not grid items: label 40 %, value 60 % of the row's content width.
 8. **Vertical rhythm:** multiples of 4 dp; heights are minimums, never fixed for anything that holds text.
@@ -395,9 +395,10 @@ Ownership: `GeoSection` alone puts 24 dp above its title (28 for danger sections
 1. A screen with a primary action declares it once; `GeoActionArea` decides where it sits.
 2. **Sticky** (pinned above the bottom bar or the navigation inset) when `viewport − measured top chrome − measured bottom chrome − IME − measured action area ≥ 280 dp`; otherwise it is the last item of the scroll content with the same look. On the drawing frame: 882 − 92 − 112 − 108 = 570 → sticky. In landscape (412 high) it is inline.
 3. Tab roots have no action area except 전송 ("파일 보내기"); scenes (장치 등록) pin their primary.
-4. **The action area never shrinks while the screen is visible**: it keeps the largest height it has measured, so a live readiness line cannot move the primary under the thumb. It may grow.
-5. Compact height (< 480 dp): action areas inline, status strip single line with its action, map card 160 dp, two-column content where the template defines it (수집 중: map | figures; 수집 결과: receipt | map).
-6. IME open: the bottom bar hides, the action area rides above the IME (rule 2 still applies), the focused field is brought into view; forms that take the keyboard as their main content are focused flows (no bar at all, §1.2).
+4. **Look:** a pinned action area has a 1 dp `border` hairline on top (none inline); its readiness line is `GeoReadinessLine` — a 16 dp tone icon (success when the primary can run, warning when blocked, pending while checking, unknown before a choice), 6 dp gap, `body` `textSecondary`.
+5. **The action area never shrinks while the screen is visible**: it keeps the largest height it has measured, so a live readiness line cannot move the primary under the thumb. It may grow.
+6. Compact height (< 480 dp): action areas inline, status strip single line with its action, map card 160 dp, two-column content where the template defines it (수집 중: map | figures; 수집 결과: receipt | map).
+7. IME open: the bottom bar hides, the action area rides above the IME (rule 2 still applies), the focused field is brought into view; forms that take the keyboard as their main content are focused flows (no bar at all, §1.2).
 
 ### 3.5 Text alignment, numbers and wrapping [`GeoText`, `GeoNumber`]
 
@@ -471,7 +472,7 @@ Screen code imports only `Geo*` components (an import lint, applied package by p
 | **GeoBadge** | pill, min 24 dp high, 8 dp horizontal padding, 6 dp dot + 6 + one vocabulary word `caption`/600 | tone-soft fill, tone dot and text; 고대비 adds a 1 dp solid tone border; on-map variant `mapPlate` + `shadow-sm`; on-dark variant opaque #1E1F21 (§4.3); never tappable, never carries time; one per row |
 | **GeoButton · primary** | min 52 dp, radius 10, `primary`, label `button` `onPrimary`; full width in action areas (max 560 dp); leading 20 dp icon only when it disambiguates | one per screen; disabled keeps its place with the reason in the readiness line or next to it, plus a remedy when one exists |
 | **GeoButton · secondary** | min 48 dp (52 beside a primary), 1 dp `borderStrong`, label `text` | pairs per the stacking rule below |
-| **GeoButton · tertiary** | min 48 dp target, 12 dp horizontal padding, label `primary` | section actions, strips, Focus secondary, state blocks |
+| **GeoButton · tertiary** | min 48 dp target, 12 dp horizontal padding, label `primary` | section actions, strips, Focus secondary, state blocks; the label lines up with the content edge (`GeoButtonEdge`): a start-aligned tertiary hangs its padding into the gutter (−12 dp), a trailing one in a section header, strip or row (+12 dp); centred and paired buttons keep their box |
 | **GeoButton · danger-outline** | min 48 dp (52 in action areas), 1 dp `danger` border, label `danger` | stop, reboot, power-off, cancel transfer, source clean-up, 등록 해제, 휴지통 비우기; a consequence line is visible above it |
 | **GeoButton · danger-filled** | as primary with `danger` / `onDanger` | only the confirm of an S1b dialog |
 | **Stacking rule (one rule everywhere)** | buttons that share a row (screen pairs, dialog actions, sheet footers) stay on one row when every label fits on one line in its share (equal halves for pairs; natural width, end-aligned, for dialogs) | otherwise they stack full width, primary/confirm first; labels may wrap to 2 lines and the button grows |
@@ -517,7 +518,7 @@ Durations and easing from the web: 120 / 180 / 240 ms on `CubicBezierEasing(0.2f
 | sheet and dialog enter/exit, screen push/pop (fade + 24 dp horizontal shift, mirrored on pop), loader → app crossfade, map camera moves, device marker glide | 240 |
 | geon-loader | 2400 cycle (§6.3) |
 
-Numbers never animate; no bounce, overshoot, shimmer or pulse; nothing moves by itself except progress, the loader and the device marker; primary controls never move when a live value changes (§3.4.4). **Reduced motion** (animator duration scale 0 or "애니메이션 제거", observed while running): every duration 0, the loader shows the static full-colour symbol, map camera and marker jump, sheets appear in place. **Haptics** (system setting respected): `CONFIRM` when a start or stop is accepted, `REJECT` once per confirmed zone exit, `LONG_PRESS` on a QR read; haptics only supplement visible changes.
+Numbers never animate; no bounce, overshoot, shimmer or pulse; nothing moves by itself except progress, the loader and the device marker; primary controls never move when a live value changes (§3.4.5). **Reduced motion** (animator duration scale 0 or "애니메이션 제거", observed while running): every duration 0, the loader shows the static full-colour symbol, map camera and marker jump, sheets appear in place. **Haptics** (system setting respected): `CONFIRM` when a start or stop is accepted, `REJECT` once per confirmed zone exit, `LONG_PRESS` on a QR read; haptics only supplement visible changes.
 
 ### 3.11 Accessibility [`GeoA11y` checks in tests]
 

@@ -35,6 +35,7 @@ import com.example.jetsoncontroller.data.alerts.AlertRecord
 import com.example.jetsoncontroller.data.alerts.AlertSeverity
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoButton
+import com.example.jetsoncontroller.ui.components.geo.GeoButtonEdge
 import com.example.jetsoncontroller.ui.components.geo.GeoButtonStyle
 import com.example.jetsoncontroller.ui.components.geo.GeoConfirmDialog
 import com.example.jetsoncontroller.ui.components.geo.GeoConfirmKind
@@ -245,7 +246,7 @@ private fun AlertRow(
             label = "삭제",
             onClick = onDelete,
             modifier = Modifier.widthIn(min = 56.dp, max = 72.dp),
-            style = GeoButtonStyle.Tertiary
+            style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.End
         )
     }
 }

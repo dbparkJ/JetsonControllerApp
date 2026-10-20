@@ -2,11 +2,6 @@ package com.example.jetsoncontroller.ui.map
 
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -25,7 +20,6 @@ import com.example.jetsoncontroller.ui.navigation.AppNavigationState
 import com.example.jetsoncontroller.ui.navigation.Routes
 import com.example.jetsoncontroller.ui.runResultRoute
 import com.example.jetsoncontroller.ui.theme.GeoMotion
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -111,10 +105,8 @@ internal fun mapUncertainty(gnss: GnssSensorStatus): Double =
 internal fun GeoMapRouteWindow(
     state: AppNavigationState, mode: GeoMapMode, device: String?, run: String?, ticket: String?, history: String?, onBack: () -> Unit
 ) {
-    Dialog(onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Box(Modifier.fillMaxSize().background(LocalGeoColors.current.surface).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            GeoMapRoute(state, mode, device, run, ticket, history, onBack)
-        }
+    GeoMapWindow(onBack) {
+        GeoMapRoute(state, mode, device, run, ticket, history, onBack)
     }
 }
 

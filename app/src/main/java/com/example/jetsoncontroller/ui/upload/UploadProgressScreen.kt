@@ -161,13 +161,17 @@ fun UploadProgressScreen(
                 }
                 GeoActionArea(visibilityKey = "$deviceId:${job.id}:${actions.primary}", action = {
                     if (actions.primary != TransferDetailAction.NONE) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(when (actions.primary) {
+                        GeoReadinessLine(when (actions.primary) {
                             TransferDetailAction.CANCEL -> "$deviceName · 취소하면 처음부터 다시 보내야 합니다."
                             TransferDetailAction.REPORT -> "$deviceName · 서버 수신 확인 · 완료를 보고하세요."
                             else -> "$deviceName · ${actions.word}"
-                        }, style = t.body, color = c.textSecondary)
+                        }, when {
+                            actions.primary == TransferDetailAction.CANCEL -> Tone.WARNING
+                            primaryEnabled -> Tone.SUCCESS
+                            else -> Tone.WARNING
+                        })
                         if (!primaryEnabled && actions.primary in setOf(TransferDetailAction.RETRY, TransferDetailAction.VERIFY)) {
-                            GeoButton("장치 Wi-Fi 설정", onConnectionRemedy, style = GeoButtonStyle.Tertiary)
+                            GeoButton("장치 Wi-Fi 설정", onConnectionRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                         }
                         GeoButton(if (actions.primary == TransferDetailAction.REPORT && reportFailed) "다시 보고" else actions.primary.label, {
                             fixedTarget?.let { target -> when (actions.primary) {

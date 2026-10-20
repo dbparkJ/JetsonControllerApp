@@ -28,7 +28,6 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.android.tile.TileOperation
 import kotlin.math.cos
 
 enum class GeoMapBase { GENERAL, SATELLITE }
@@ -41,7 +40,7 @@ internal const val MapDevice = "#121A3D"
 internal const val MapGap = "#B3372C"
 
 /** Style JSON creates native FillLayer / LineLayer / CircleLayer objects; no annotation API. */
-internal fun mapStyleJson(base: GeoMapBase, apiKey: String, background: String, dim: Float): String {
+internal fun mapStyleJson(base: GeoMapBase, apiKey: String, background: String, dim: Float, rasterSource: String = "raster"): String {
     val sources = linkedMapOf<String, Any>()
     val layers = mutableListOf<Map<String, Any>>()
     fun layer(id: String, type: String, source: String? = null, kind: Any? = null,
@@ -56,9 +55,9 @@ internal fun mapStyleJson(base: GeoMapBase, apiKey: String, background: String, 
     layer("background", "background", paint = mapOf("background-color" to background))
     if (apiKey.isNotBlank()) {
         val path = if (base == GeoMapBase.GENERAL) "Base/{z}/{y}/{x}.png" else "Satellite/{z}/{y}/{x}.jpeg"
-        sources["raster"] = mapOf("type" to "raster", "tileSize" to 256, "maxzoom" to 19,
+        sources[rasterSource] = mapOf("type" to "raster", "tileSize" to 256, "maxzoom" to 19,
             "tiles" to listOf("https://api.vworld.kr/req/wmts/1.0.0/$apiKey/$path"), "attribution" to "© VWorld")
-        layer("raster", "raster", "raster", paint = mapOf("raster-brightness-max" to if (base == GeoMapBase.GENERAL) dim else 1f,
+        layer("raster", "raster", rasterSource, paint = mapOf("raster-brightness-max" to if (base == GeoMapBase.GENERAL) dim else 1f,
             "raster-saturation" to if (base == GeoMapBase.GENERAL && dim < 1f) -0.2f else 0f))
     }
     listOf("zone", "trail", "device", "phone").forEach {
@@ -186,7 +185,8 @@ fun GeoMapRenderer(
     panelBottomDp: Int = 0, panelEndDp: Int = 0,
     camera: GeoMapCamera = remember { GeoMapCamera() },
     apiKey: String = BuildConfig.VWORLD_API_KEY,
-    onLoading: (Boolean) -> Unit = {}, onTilesFailed: () -> Unit = {}
+    onLoading: (Boolean) -> Unit = {}, onTilesFailed: () -> Unit = {},
+    onTilesFailureChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -194,6 +194,7 @@ fun GeoMapRenderer(
     val palette = LocalGeoPalette.current
     val loading by rememberUpdatedState(onLoading)
     val failed by rememberUpdatedState(onTilesFailed)
+    val failureChanged by rememberUpdatedState(onTilesFailureChanged)
     val view = remember {
         // Native tile errors can include request URLs. Keep those URLs, including the key, out of logs.
         MapLibre.getInstance(context)
@@ -201,7 +202,7 @@ fun GeoMapRenderer(
         runCatching { Class.forName("timber.log.Timber").getMethod("uprootAll").invoke(null) }
         MapView(context).apply { onCreate(null); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
     }
-    val controller = remember { GeoMapController(view, camera, { loading(it) }, { failed() }) }
+    val controller = remember { GeoMapController(view, camera, { loading(it) }, { failed() }, { failureChanged(it) }) }
     DisposableEffect(view, lifecycle, active) {
         var started = false
         var resumed = false
@@ -225,19 +226,23 @@ fun GeoMapRenderer(
     DisposableEffect(view) { onDispose { controller.destroy(); view.onDestroy() } }
     val dim = when (palette) { GeoPalette.GRAPHITE, GeoPalette.NAVY_DARK -> .75f; GeoPalette.MIST -> .85f; else -> 1f }
     val background = String.format("#%06X", colors.sunken.toArgb() and 0xFFFFFF)
-    val style = remember(base, apiKey, background, dim) { mapStyleJson(base, apiKey, background, dim) }
+    // Source ids distinguish late tile events from a previous base, palette or key.
+    val rasterSource = remember(base, apiKey, background, dim) { "raster-${java.util.UUID.randomUUID()}" }
+    val style = remember(base, apiKey, background, dim, rasterSource) { mapStyleJson(base, apiKey, background, dim, rasterSource) }
     AndroidView(factory = { view }, modifier = modifier, update = {
-        controller.update(data, style, interactive, followDevice, panelBottomDp, panelEndDp)
+        controller.update(data, style, rasterSource, interactive, followDevice, panelBottomDp, panelEndDp)
     })
 }
 
 private class GeoMapController(
     private val view: MapView, private val camera: GeoMapCamera,
-    private val loading: (Boolean) -> Unit, private val failed: () -> Unit
+    private val loading: (Boolean) -> Unit, private val failed: () -> Unit,
+    private val failureChanged: (Boolean) -> Unit
 ) {
     private var map: MapLibreMap? = null
     private var style: Style? = null
     private var requestedStyle: String? = null
+    private var rasterSource = ""
     private var generation = 0L
     private var destroyed = false
     private var positioned = false
@@ -248,9 +253,21 @@ private class GeoMapController(
     private var pendingData = GeoMapData()
     private var interactive = true
     private var previousData: GeoMapData? = null
-    private val errorListener = MapView.OnDidFailLoadingMapListener { failed() }
-    private val tileListener = MapView.OnTileActionListener { operation, _, _, _, _, _, source ->
-        if (operation == TileOperation.Error && source == "raster") failed()
+    private var loadState = GeoMapLoadState()
+    private val errorListener = MapView.OnDidFailLoadingMapListener {
+        if (!destroyed && requestedStyle != null && style == null) publish(loadState.styleError())
+    }
+    private val tileListener = MapView.OnTileActionListener { operation, x, y, z, wrap, overscaledZ, source ->
+        if (!destroyed && requestedStyle != null) {
+            publish(loadState.tileAction(source, GeoMapTileId(x, y, z, wrap, overscaledZ), operation, rasterSource))
+        }
+    }
+    private fun publish(next: GeoMapLoadState) {
+        val previous = loadState
+        loadState = next
+        loading(next.loading)
+        failureChanged(next.failed)
+        if (next.failed && !previous.failed) failed()
     }
     private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> render() }
     init {
@@ -268,7 +285,7 @@ private class GeoMapController(
             load()
         }
     }
-    fun update(data: GeoMapData, styleJson: String, interactive: Boolean, follow: Boolean, bottom: Int, end: Int) {
+    fun update(data: GeoMapData, styleJson: String, rasterSource: String, interactive: Boolean, follow: Boolean, bottom: Int, end: Int) {
         pendingData = data
         this.interactive = interactive
         camera.data = data
@@ -279,6 +296,7 @@ private class GeoMapController(
         configure()
         if (requestedStyle != styleJson) {
             requestedStyle = styleJson
+            this.rasterSource = rasterSource
             load()
         } else render()
     }
@@ -296,12 +314,12 @@ private class GeoMapController(
         val target = map ?: return
         val json = requestedStyle ?: return
         val request = ++generation
-        style = null; rendered.clear(); previousData = null; loading(true)
+        style = null; rendered.clear(); previousData = null; publish(GeoMapLoadState())
         target.setStyle(Style.Builder().fromJson(json)) { ready ->
             if (destroyed || request != generation) return@setStyle
             style = ready
             render()
-            loading(false)
+            publish(loadState.styleLoaded())
         }
     }
     private fun render() {

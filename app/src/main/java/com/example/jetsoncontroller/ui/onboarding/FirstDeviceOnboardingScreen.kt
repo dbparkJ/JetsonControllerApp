@@ -61,26 +61,33 @@ fun FirstDeviceOnboardingScreen(
             visibilityKey = "first-device",
             scene = true,
             action = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GeoButton("QR 코드 스캔", onScanQr, Modifier.fillMaxWidth(), actionArea = true)
-                    if (onViewServerFiles != null) GeoButton(
-                        "장치 없이 서버 파일 보기", onViewServerFiles, Modifier.fillMaxWidth(), style = GeoButtonStyle.Tertiary
-                    )
+                // On a tablet the scene keeps the 720 dp content column; buttons cap themselves at 560 dp.
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    Column(Modifier.widthIn(max = 720.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        GeoButton("QR 코드 스캔", onScanQr, Modifier.fillMaxWidth(), actionArea = true)
+                        // The tertiary hugs its label and sits centred under the primary (board r3-pair-first-run).
+                        if (onViewServerFiles != null) GeoButton(
+                            "장치 없이 서버 파일 보기", onViewServerFiles, style = GeoButtonStyle.Tertiary
+                        )
+                    }
                 }
             }
         ) { inlineAction ->
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = gutter)) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.widthIn(max = 720.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = gutter)) {
                 Image(painterResource(R.drawable.geo_device), null, Modifier.size(120.dp))
                 Spacer(Modifier.height(32.dp))
                 Text("GEO-X에 장치를 등록하세요", Modifier.semantics { heading() }, style = type.heading, color = colors.text)
                 Spacer(Modifier.height(8.dp))
-                Text("장치 본체의 QR 코드를 스캔하면 이 휴대폰에서 장치를 관리할 수 있습니다.", style = type.body, color = colors.textSecondary)
+                Text("장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다.", style = type.body, color = colors.textSecondary)
                 Spacer(Modifier.height(8.dp))
                 GeoSection("등록에 필요한 권한") {
                     PermissionRow(GeoIcons.camera, "카메라", "QR 코드를 읽습니다.")
                     PermissionRow(GeoIcons.bluetooth, "블루투스", "가까운 장치를 찾아 인증합니다.")
                 }
                 inlineAction()
+            }
             }
         }
     }

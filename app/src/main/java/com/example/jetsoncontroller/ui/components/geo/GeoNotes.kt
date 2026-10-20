@@ -38,8 +38,8 @@ fun GeoInlineNote(
         GeoToneIcon(tone)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text, color = colors.text, style = LocalGeoType.current.body)
-            if (actionLabel != null && onAction != null) GeoButton(actionLabel, onAction, style = GeoButtonStyle.Tertiary)
-            if (kind == GeoNoteKind.HELP && onDismiss != null) GeoButton("닫기", onDismiss, style = GeoButtonStyle.Tertiary)
+            if (actionLabel != null && onAction != null) GeoButton(actionLabel, onAction, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+            if (kind == GeoNoteKind.HELP && onDismiss != null) GeoButton("닫기", onDismiss, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
         }
     }
 }

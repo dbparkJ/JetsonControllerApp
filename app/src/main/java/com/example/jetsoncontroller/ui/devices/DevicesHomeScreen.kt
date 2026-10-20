@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.devices
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
@@ -79,7 +80,7 @@ internal fun DevicesHomeScreen(
     var hiddenKeys by rememberSaveable(selectedDeviceId) { mutableStateOf(arrayListOf<String>()) }
     val visibleHealth = healthItems.filterNot { it.key in hiddenKeys }
     val fallbackAttention = attention.takeIf { healthItems.isEmpty() && "unsent" !in hiddenKeys }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         DeviceTitleBar("장치", root = true) {
             GeoIconButton(GeoIcons.add, "장치 등록", onAddDevice, chrome = true)
             DeviceAlertButton(unreadAlertCount, onAlertsClick)
@@ -93,14 +94,12 @@ internal fun DevicesHomeScreen(
                         current?.deviceName ?: "GEO-X", onRequestLocalNetworkPermission)
                     if (current == null) {
                         GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "등록된 장치가 없습니다",
-                            "장치 본체의 QR 코드를 스캔하면 이 휴대폰에서 장치를 관리할 수 있습니다.", "QR 코드 스캔"),
+                            "장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다.", "QR 코드 스캔"),
                             onAction = onAddDevice)
-                        GeoButton("장치 없이 서버 파일 보기", onServerFiles, style = GeoButtonStyle.Tertiary)
+                        GeoButton("장치 없이 서버 파일 보기", onServerFiles, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                     } else {
                         GeoSection("현재 장치", first = true) {
-                            GeoRow(current.deviceName, onOpenDevice,
-                                leading = { DevicePhoto(56.dp) },
-                                badge = { GeoBadge(connection.label, connection.tone) },
+                            DeviceIdentity(current.deviceName, connection, onClick = onOpenDevice,
                                 meta = if (online) listOfNotNull(deviceTransportLabel(currentDashboard.transportType),
                                     currentDashboard.statusAgeSeconds?.let { Formats.freshness(Duration.ofSeconds(it.coerceAtLeast(0))) }).joinToString(" · ")
                                     else lastSeen?.let { "마지막 응답 $it" } ?: "현재 상태 미확인")
@@ -112,12 +111,12 @@ internal fun DevicesHomeScreen(
                         }
                         GeoSection("확인할 일", count = Formats.caseCount((visibleHealth.size + if (fallbackAttention == null) 0 else 1).toLong())) {
                             visibleHealth.forEach { item ->
-                                GeoActionRow(item.title, "숨기기", { onHealthItem(item) },
-                                    { hiddenKeys = ArrayList(hiddenKeys + item.key) }, meta = item.detail)
+                                DeviceAttentionRow(item.title, item.detail, { onHealthItem(item) },
+                                    { hiddenKeys = ArrayList(hiddenKeys + item.key) })
                             }
                             fallbackAttention?.let {
-                                GeoActionRow("${current.deviceName} ${it.title}", "숨기기", onAttentionClick,
-                                    { hiddenKeys = ArrayList(hiddenKeys + "unsent") }, meta = it.detail)
+                                DeviceAttentionRow("${current.deviceName} ${it.title}", it.detail, onAttentionClick,
+                                    { hiddenKeys = ArrayList(hiddenKeys + "unsent") })
                             }
                             if (visibleHealth.isEmpty() && fallbackAttention == null) Text("확인할 일이 없습니다.",
                                 style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)

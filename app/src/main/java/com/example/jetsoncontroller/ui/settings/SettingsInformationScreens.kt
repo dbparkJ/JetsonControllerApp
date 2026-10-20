@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,30 +26,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.BuildConfig
 import com.example.jetsoncontroller.ui.components.geo.GeoFactRow
-import com.example.jetsoncontroller.ui.components.geo.GeoIconButton
-import com.example.jetsoncontroller.ui.components.geo.GeoIcons
 import com.example.jetsoncontroller.ui.components.geo.GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoSnackbar
 import com.example.jetsoncontroller.ui.components.geo.showGeoSnackbar
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
 import kotlinx.coroutines.launch
 
 @Composable
 internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        GeoIconButton(GeoIcons.back, "뒤로", onBack)
-        Text(
-            title,
-            modifier = Modifier.weight(1f).padding(start = 12.dp, end = 20.dp),
-            color = LocalGeoColors.current.text,
-            style = LocalGeoType.current.title
-        )
-    }
+    DeviceTitleBar(title, onBack)
 }
 
 @Composable
@@ -61,7 +49,7 @@ fun SettingsAboutScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         SettingsPageHeader("앱 정보", onBack)
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
@@ -104,7 +92,7 @@ fun SettingsAboutScreen(
 
 @Composable
 fun SettingsHelpScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         SettingsPageHeader("도움말", onBack)
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -112,31 +100,16 @@ fun SettingsHelpScreen(onBack: () -> Unit) {
                 start = 24.dp, end = 24.dp, top = 12.dp, bottom = 24.dp
             )
         ) {
-            item {
-                GeoSection("수집", first = true) {
-                    Text(
-                        "장치를 연결하고 수집 구간과 작업을 고른 뒤 수집 시작을 누르세요. 시작 전 점검을 통과하면 수집을 시작합니다.",
-                        color = LocalGeoColors.current.textSecondary,
-                        style = LocalGeoType.current.body
-                    )
-                }
-            }
-            item {
-                GeoSection("전송") {
-                    Text(
-                        "수집 후 파일에서 저장 결과와 서버 수신을 확인할 수 있습니다. 같은 네트워크에서 수집 결과를 서버로 보낼 수 있습니다.",
-                        color = LocalGeoColors.current.textSecondary,
-                        style = LocalGeoType.current.body
-                    )
-                }
-            }
-            item {
-                GeoSection("연결 문제") {
-                    Text(
-                        "연결이 끊기면 다시 연결을 누르세요. 주변에서 찾을 수 없으면 연결 방법에서 장치 Wi-Fi 또는 직접 연결을 확인하세요. 인증 정보가 거절되면 QR 코드로 다시 등록하세요.",
-                        color = LocalGeoColors.current.textSecondary,
-                        style = LocalGeoType.current.body
-                    )
+            settingsHelpSections.forEachIndexed { index, section ->
+                item {
+                    GeoSection(section.title, first = index == 0) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            section.paragraphs.forEach { paragraph ->
+                                Text(paragraph, color = LocalGeoColors.current.textSecondary,
+                                    style = LocalGeoType.current.body)
+                            }
+                        }
+                    }
                 }
             }
         }

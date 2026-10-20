@@ -137,7 +137,7 @@ internal fun FileBrowser(
                                 GeoRadioRow(row.label, row.id == target?.id, { targetId = row.id })
                             }
                         }
-                        if (!send.enabled) GeoButton("장치 Wi-Fi 설정", send.onRemedy, style = GeoButtonStyle.Tertiary)
+                        if (!send.enabled) GeoButton("장치 Wi-Fi 설정", send.onRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                         GeoButton("전송 시작", { target?.let { send.onStart(root, sendPath, it.id) } },
                             Modifier.fillMaxWidth(), enabled = send.enabled && state.controlAvailable && summary != null && target != null &&
                                 !send.calculating && !send.sending,
@@ -153,11 +153,11 @@ internal fun FileBrowser(
                             GeoInlineNote("${state.deviceName} 연결이 끊겼습니다. 마지막으로 본 목록입니다.",
                                 tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
                                 actionLabel = "다시 연결", onAction = onReconnect)
-                            GeoButton("연결 방법", onConnection, style = GeoButtonStyle.Tertiary)
+                            GeoButton("연결 방법", onConnection, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                         }
                         item {
                             GeoButton(if (state.currentPath.isBlank()) "수집 자료" else "수집 자료 / ${state.currentPath}",
-                                onParent, style = GeoButtonStyle.Tertiary)
+                                onParent, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                             if (state.currentPath.isBlank()) {
                                 GeoTextField(query, { query = it }, "검색", Modifier.testTag("file-search"))
                                 Spacer(Modifier.height(12.dp))

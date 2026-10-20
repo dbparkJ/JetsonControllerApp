@@ -80,7 +80,7 @@ private fun OverlayStrip(state: GeoStatusStripState) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GeoToneIcon(state.kind.tone)
                 Text(state.text, Modifier.weight(1f), color = t.text, style = LocalGeoType.current.body)
-                if (inline && single != null) GeoOverlayButton(single)
+                if (inline && single != null) GeoOverlayButton(single, edge = GeoButtonEdge.End)
             }
             if (!inline && state.actions.isNotEmpty()) {
                 // Each action gets its natural one-line width, or its own wrapping row.
@@ -102,7 +102,9 @@ private fun StripActions(actions: List<GeoOverlayAction>) {
         val widths = actions.map { measure.measure(it.label, style, softWrap = false, maxLines = 1).size.width + with(density) { 24.dp.roundToPx() } }
         if (overlayActionsFit(widths, constraints.maxWidth, with(density) { 8.dp.roundToPx() }, equal = false)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                actions.forEach { GeoOverlayButton(it) }
+                actions.forEachIndexed { index, action ->
+                    GeoOverlayButton(action, edge = if (index == actions.lastIndex) GeoButtonEdge.End else GeoButtonEdge.None)
+                }
             }
         } else {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {

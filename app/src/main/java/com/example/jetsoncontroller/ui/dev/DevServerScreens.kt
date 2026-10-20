@@ -70,7 +70,8 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
                 disabledReason = "프로필 정보와 관리자에게 받은 직원 토큰을 입력하세요.")
         }
     }) {
-        GeoTextField(id, { id = it.lowercase().take(64) }, "프로필 ID", readOnly = profile != null)
+        if (profile != null) GeoFactRow("프로필 ID", id)
+        else GeoTextField(id, { id = it.lowercase().take(64) }, "프로필 ID")
         Spacer(Modifier.height(16.dp))
         GeoTextField(name, { name = it.take(128) }, "표시 이름")
         Spacer(Modifier.height(16.dp))
@@ -99,34 +100,41 @@ internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit
     val eligible = state.trash.filter(::isServerPurgeEligible).map { it.sessionId }
     val busy = state.isLoading || state.isConnecting || state.isEmptyingTrash
     val profile = state.profiles.firstOrNull { it.profile.profileId == state.selectedProfileId }?.profile
+    val content = serverTrashContent(profile != null, busy, state.messageIsError, state.trash.isNotEmpty())
     pending?.let { frozen ->
         val count = frozen.sessions.size
         val body = "표시된 ${count}개 항목을 서버에서 영구 삭제합니다. 되돌릴 수 없습니다." +
             if (state.trashTotal > count) " 전체 ${state.trashTotal}개 중 표시된 ${count}개만 지웁니다." else ""
         GeoConfirmDialog("서버 휴지통을 비울까요?", body, "영구 삭제", {
             pending = null
-            if (frozen.valid(state.selectedProfileId, eligible, state.trashEmptySupported, busy)) onPurge(frozen.profileId, frozen.sessions)
+            if (profile?.profileId == frozen.profileId && frozen.valid(state.selectedProfileId, eligible, state.trashEmptySupported, busy)) onPurge(frozen.profileId, frozen.sessions)
         }, { pending = null }, kind = GeoConfirmKind.DANGER,
-            confirmEnabled = frozen.valid(state.selectedProfileId, eligible, state.trashEmptySupported, busy),
+            confirmEnabled = profile?.profileId == frozen.profileId && frozen.valid(state.selectedProfileId, eligible, state.trashEmptySupported, busy),
             disabledReason = "서버와 표시된 휴지통 항목을 다시 확인하세요.")
     }
-    DevPage("서버 휴지통 비우기", onBack, footer = if (state.trashEmptySupported && eligible.isNotEmpty()) ({
+    DevPage("서버 휴지통", onBack, footer = if (profile != null && state.trashEmptySupported && eligible.isNotEmpty()) ({
         GeoButton("표시된 ${eligible.size}개 비우기", {
             state.selectedProfileId?.let { pending = ServerPurgeTarget(it, eligible.toList()) }
         }, Modifier.fillMaxWidth(), style = GeoButtonStyle.DangerOutline, enabled = !busy, actionArea = true)
     }) else null) {
+        if (content == ServerTrashContent.NO_PROFILE) {
+            DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 설정하세요.")
+            return@DevPage
+        }
         DevText(listOfNotNull(profile?.displayName, state.refreshedAt?.let { "마지막 동기화 ${devTimestamp(it)}" }).joinToString(" · "))
         if (state.capabilities == null) GeoButton("연결 확인", onConnect, style = GeoButtonStyle.Secondary, enabled = !busy)
         GeoSection("휴지통") {
-            DevText("전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다.")
+            if (content == ServerTrashContent.CONTENT || content == ServerTrashContent.EMPTY)
+                DevText("전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다.")
             state.trash.forEach { job ->
                 GeoFactRow(job.sourceName, "${Formats.size(job.totalBytes)} · ${if (job.state == "PURGING") "삭제 처리 중" else if (job.restoreSupported == false) "복원할 수 없음" else "복원 가능"}")
             }
-            if (state.trash.isEmpty() && !busy) DevEmpty("서버 휴지통이 비어 있습니다", "휴지통으로 옮긴 수신 결과가 여기에 표시됩니다.")
+            if (content == ServerTrashContent.EMPTY) DevEmpty("서버 휴지통이 비어 있습니다", "휴지통으로 옮긴 수신 결과가 여기에 표시됩니다.")
+            if (content == ServerTrashContent.ERROR) DevEmpty("서버 휴지통을 불러오지 못했습니다", "서버 연결을 확인하고 다시 시도하세요.", "다시 시도", onRefresh)
             if (!state.trashEmptySupported && state.capabilities != null) DevText("이 서버에서는 휴지통 비우기를 지원하지 않습니다.")
             if (busy) DevText("확인 중")
             DevFeedback(state.message, state.messageIsError)
-            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, enabled = !busy)
+            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !busy)
         }
     }
 }

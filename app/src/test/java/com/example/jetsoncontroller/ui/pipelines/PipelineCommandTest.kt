@@ -26,6 +26,7 @@ class PipelineCommandTest {
             `when`(repo.selectedDeviceId).thenReturn(device)
             `when`(repo.transportState).thenReturn(transport)
             `when`(repo.mobileRtkRelayState).thenReturn(MutableStateFlow(MobileRtkRelayState()))
+            `when`(repo.registeredDevices).thenReturn(MutableStateFlow(listOf(RegisteredDevice("a", "Device A"))))
             val task = ManagedPipeline("task", "Task", entrypoint = "main.py", config = "config.yaml", virtualenv = "venv", state = PipelineState.STOPPED)
             `when`(repo.getPipelines()).thenReturn(Result.success(listOf(task)))
             `when`(repo.getWorkspaceRoots()).thenReturn(Result.success(emptyList()))
@@ -40,6 +41,7 @@ class PipelineCommandTest {
             runCurrent()
             verify(repo, times(1)).controlPipeline("task", "start")
             assertEquals("start", vm.uiState.value.pendingActions["task"])
+            assertEquals("Device A", vm.uiState.value.deviceName)
             assertEquals(PipelineState.STARTING, vm.uiState.value.pipelines.single().state)
             vm.setLabel("preserved draft")
             vm.beginCreate()
@@ -48,6 +50,7 @@ class PipelineCommandTest {
             transport.value = TransportState.Connected(type = TransportType.LAN, deviceId = "b", deviceName = "Device B")
             runCurrent()
             assertEquals("", vm.uiState.value.draft.label)
+            assertEquals("선택한 장치", vm.uiState.value.deviceName)
             vm.setLabel("B draft")
             device.value = "a"
             transport.value = TransportState.Connected(type = TransportType.LAN, deviceId = "a", deviceName = "Device A")
@@ -73,6 +76,7 @@ class PipelineCommandTest {
             `when`(repo.selectedDeviceId).thenReturn(device)
             `when`(repo.transportState).thenReturn(transport)
             `when`(repo.mobileRtkRelayState).thenReturn(MutableStateFlow(MobileRtkRelayState()))
+            `when`(repo.registeredDevices).thenReturn(MutableStateFlow(emptyList()))
             val task = ManagedPipeline(
                 "task",
                 "Task",

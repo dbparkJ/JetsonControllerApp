@@ -38,17 +38,29 @@ internal fun TransfersHomeScreen(
     onDevicePicker: () -> Unit = {},
     onAlerts: () -> Unit = {},
     onRefresh: () -> Unit = {},
+    /** The board has no standing refresh button; it appears only when the transfer list could not be read. */
+    refreshVisible: Boolean = false,
     sendEnabled: Boolean = true,
     controlAvailable: Boolean = sendEnabled,
     onFixedCancel: ((TransferActionTarget) -> Unit)? = null,
     onDeviceConfirmationClosed: () -> Unit = {},
     onConnectionRemedy: () -> Unit = {},
-    ongoingRun: @Composable () -> Unit = {}
+    ongoingRun: @Composable () -> Unit = {},
+    connectionTone: Tone = Tone.UNKNOWN
 ) {
     val c = LocalGeoColors.current
     val t = LocalGeoType.current
     val scroll = rememberLazyListState()
     var cancel by remember { mutableStateOf<ActiveTransferState?>(null) }
+    // SPEC §3.3: only the first section under the top bar drops its 24 dp gap.
+    val firstSection = when {
+        state.active.isNotEmpty() -> "보내는 중"
+        state.failed.isNotEmpty() -> "확인이 필요한 전송"
+        state.sendableRuns.isNotEmpty() -> "보낼 수집"
+        state.queued.isNotEmpty() -> "대기 중"
+        state.awaitingVerification.isNotEmpty() -> "수신 확인 중"
+        else -> "서버 수신 확인"
+    }
     LaunchedEffect(deviceId) {
         if (cancel != null && cancel?.target?.deviceId?.equals(deviceId, true) == false) {
             cancel = null
@@ -64,11 +76,11 @@ internal fun TransfersHomeScreen(
             },
             onDismissRequest = { cancel = null }, dismissLabel = "계속 보내기", kind = GeoConfirmKind.DANGER)
     }
-    TransferPage("전송", header = { TransferRootHeader(deviceName, onDevicePicker, onAlerts) }) {
+    TransferPage("전송", header = { TransferRootHeader(deviceName, onDevicePicker, onAlerts, connectionTone) }) {
         GeoActionArea(visibilityKey = deviceId ?: "transfers", action = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(readiness, style = t.body, color = c.textSecondary)
-                if (!sendEnabled) GeoButton("연결 방법", onConnectionRemedy, style = GeoButtonStyle.Tertiary)
+                GeoReadinessLine(readiness, if (sendEnabled) Tone.SUCCESS else Tone.WARNING)
+                if (!sendEnabled) GeoButton("연결 방법", onConnectionRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 GeoButton("파일 보내기", onPickFiles, Modifier.fillMaxWidth(), actionArea = true)
             }
         }) { inlineAction ->
@@ -77,7 +89,7 @@ internal fun TransfersHomeScreen(
             }, contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
                 item { ongoingRun() }
                 if (state.active.isNotEmpty()) item {
-                    GeoSection("보내는 중", first = true) {
+                    GeoSection("보내는 중", first = firstSection == "보내는 중") {
                         state.active.forEach { active ->
                             Column(Modifier.fillMaxWidth().clickable { onOpenTransfer(active.jobId) }
                                 .padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -95,7 +107,7 @@ internal fun TransfersHomeScreen(
                     }
                 }
                 if (state.failed.isNotEmpty()) item {
-                    GeoSection("확인이 필요한 전송", first = state.active.isEmpty()) {
+                    GeoSection("확인이 필요한 전송", first = firstSection == "확인이 필요한 전송") {
                         state.failed.forEach { row ->
                             GeoActionRow(row.title, "다시 보내기", { onOpenTransfer(row.jobId) },
                                 { onRetryTransfer(row.jobId) }, meta = row.cause,
@@ -105,7 +117,7 @@ internal fun TransfersHomeScreen(
                     }
                 }
                 if (state.sendableRuns.isNotEmpty()) item {
-                    GeoSection("보낼 수집", first = state.active.isEmpty() && state.failed.isEmpty()) {
+                    GeoSection("보낼 수집", first = firstSection == "보낼 수집") {
                         state.sendableRuns.forEach { row ->
                             GeoActionRow(row.title, "보내기", { onOpenRun(row.runId) }, { onSendRun(row.runId) },
                                 meta = row.detail, actionEnabled = sendEnabled, disabledReason = readiness)
@@ -113,13 +125,13 @@ internal fun TransfersHomeScreen(
                     }
                 }
                 if (state.queued.isNotEmpty()) item {
-                    GeoSection("대기 중") { state.queued.forEach { TransferHomeRow(it, onOpenTransfer) } }
+                    GeoSection("대기 중", first = firstSection == "대기 중") { state.queued.forEach { TransferHomeRow(it, onOpenTransfer) } }
                 }
                 if (state.awaitingVerification.isNotEmpty()) item {
-                    GeoSection("수신 확인 중") { state.awaitingVerification.forEach { TransferHomeRow(it, onOpenTransfer) } }
+                    GeoSection("수신 확인 중", first = firstSection == "수신 확인 중") { state.awaitingVerification.forEach { TransferHomeRow(it, onOpenTransfer) } }
                 }
                 item {
-                    GeoSection("서버 수신 확인", actionLabel = "전체 기록", onAction = onOpenHistory) {
+                    GeoSection("서버 수신 확인", first = firstSection == "서버 수신 확인", actionLabel = "전체 기록", onAction = onOpenHistory) {
                         state.verified.forEach { TransferHomeRow(it, onOpenTransfer) }
                         state.emptyText?.let {
                             GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "보낸 파일이 없습니다", it))
@@ -139,7 +151,7 @@ internal fun TransfersHomeScreen(
                             GeoFactRow("GEO& Work 알림", notice.text)
                         }
                     }
-                    GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary)
+                    if (refreshVisible) GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 item { inlineAction() }
             }

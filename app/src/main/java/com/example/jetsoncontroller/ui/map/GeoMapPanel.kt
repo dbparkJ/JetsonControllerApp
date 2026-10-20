@@ -118,7 +118,7 @@ fun GeoMapPanel(
                 GeoFactRow("마지막 위치", mapSampleTime(gnss.lastSampleAtEpochMillis))
                 GeoSwitchRow("휴대폰 위치 표시", phoneShown, onPhoneShown)
                 phoneMessage?.let { GeoInlineNote(it) }
-                phoneRemedy?.let { GeoButton(it.first, it.second, style = GeoButtonStyle.Tertiary) }
+                phoneRemedy?.let { GeoButton(it.first, it.second, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
                 Text(presentation.detail, style = type.caption, color = c.textSecondary)
                 GeoRow("위치 품질 자세히", { qualityDetails = true }, modifier = Modifier.focusRequester(qualityFocus))
             }
@@ -151,26 +151,34 @@ private fun GeoMapLegend() {
     val entries = listOf("수집 구역" to MapBlue, "경로" to MapBlue, "영역" to MapBlue, "지점" to MapBlue,
         "정밀 위치" to MapPrecise, "대략 위치" to MapApproximate, "위치 미확인" to MapUnknown,
         "관찰하지 못한 시간" to MapGap, "장치" to MapDevice)
-    entries.forEachIndexed { index, (label, color) ->
-        Row(Modifier.fillMaxWidth().heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Canvas(Modifier.size(36.dp, 20.dp)) {
-                val ink = Color(android.graphics.Color.parseColor(color))
-                when (index) {
-                    3, 8 -> {
-                        drawCircle(Color.White, 8.dp.toPx()); drawCircle(ink, if (index == 3) 5.dp.toPx() else 7.dp.toPx())
-                    }
-                    7 -> drawCircle(ink, 4.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
-                    else -> {
-                        val start = Offset(2.dp.toPx(), size.height / 2); val end = Offset(size.width - 2.dp.toPx(), size.height / 2)
-                        drawLine(Color.White, start, end, 7.dp.toPx(), StrokeCap.Round)
-                        val dash = when (index) { 0 -> floatArrayOf(6.dp.toPx(), 4.dp.toPx()); 5 -> floatArrayOf(8.dp.toPx(), 4.dp.toPx()); 6 -> floatArrayOf(2.dp.toPx(), 4.dp.toPx()); else -> null }
-                        drawLine(ink, start, end, if (index < 4) 2.dp.toPx() else 4.dp.toPx(),
-                            if (dash == null) StrokeCap.Round else StrokeCap.Butt, pathEffect = dash?.let { PathEffect.dashPathEffect(it) })
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        entries.withIndex().chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                pair.forEach { (index, entry) ->
+                    val (label, color) = entry
+                    Row(Modifier.weight(1f).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Canvas(Modifier.size(24.dp)) {
+                            val ink = Color(android.graphics.Color.parseColor(color))
+                            when (index) {
+                                3, 8 -> {
+                                    drawCircle(Color.White, 8.dp.toPx()); drawCircle(ink, if (index == 3) 5.dp.toPx() else 7.dp.toPx())
+                                }
+                                7 -> drawCircle(ink, 4.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+                                else -> {
+                                    val start = Offset(2.dp.toPx(), size.height / 2); val end = Offset(size.width - 2.dp.toPx(), size.height / 2)
+                                    drawLine(Color.White, start, end, 7.dp.toPx(), StrokeCap.Round)
+                                    val dash = when (index) { 0 -> floatArrayOf(6.dp.toPx(), 4.dp.toPx()); 5 -> floatArrayOf(8.dp.toPx(), 4.dp.toPx()); 6 -> floatArrayOf(2.dp.toPx(), 4.dp.toPx()); else -> null }
+                                    drawLine(ink, start, end, if (index < 4) 2.dp.toPx() else 4.dp.toPx(),
+                                        if (dash == null) StrokeCap.Round else StrokeCap.Butt, pathEffect = dash?.let { PathEffect.dashPathEffect(it) })
+                                }
+                            }
+                        }
+                        Text(label, color = c.text, style = type.body, modifier = Modifier.weight(1f))
                     }
                 }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
-            Text(label, color = c.text, style = type.body)
         }
     }
 }

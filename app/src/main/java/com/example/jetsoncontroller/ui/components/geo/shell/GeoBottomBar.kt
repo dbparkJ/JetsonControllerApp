@@ -22,6 +22,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -61,8 +63,14 @@ fun GeoBottomBar(
     modifier: Modifier = Modifier,
     enabledSections: Set<GeoTab> = GeoTab.entries.toSet()
 ) {
-    Surface(color = LocalGeoColors.current.nav, modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.selectableGroup().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))) {
+    val colors = LocalGeoColors.current
+    Surface(color = colors.nav, modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.drawWithContent {
+            drawContent()
+            if (colors.navBorder.alpha > 0f) {
+                drawRect(colors.navBorder, size = Size(size.width, 1.dp.toPx()))
+            }
+        }.selectableGroup().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))) {
             shellTabs.forEach { tab ->
                 ShellTabItem(tab, selected == tab.section, tab.section in enabledSections,
                     { onSelect(tab.section) }, Modifier.weight(1f))

@@ -97,7 +97,8 @@ data class PipelineUiState(
     val mobileRtkRelay: MobileRtkRelayState = MobileRtkRelayState(),
     val message: String? = null,
     val error: String? = null,
-    val technicalError: String? = null
+    val technicalError: String? = null,
+    val deviceName: String = "선택한 장치"
 ) {
     val configHasChanges: Boolean
         get() = configFields.any { originalConfigValues[it.path] != it.value }
@@ -132,7 +133,10 @@ class PipelineViewModel(
             combine(repository.selectedDeviceId, repository.transportState) { deviceId, transport ->
                 deviceId to transport
             }.collectLatest { (deviceId, transport) ->
-                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId)
+                _uiState.value = workspace.select(deviceId, _uiState.value).copy(deviceId = deviceId,
+                    deviceName = repository.registeredDevices.value.firstOrNull {
+                        it.deviceId.equals(deviceId, true)
+                    }?.deviceName?.takeIf { it.isNotBlank() } ?: "선택한 장치")
                 connectionGeneration += 1
                 operationJob?.cancel()
                 pollingJob?.cancel()

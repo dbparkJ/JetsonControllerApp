@@ -33,7 +33,7 @@ fun GeoStateBlock(
         Text(state.explanation, color = colors.textSecondary, style = LocalGeoType.current.body)
         if (state.actionLabel != null && onAction != null) {
             Spacer(Modifier.height(4.dp))
-            GeoButton(state.actionLabel, onAction, style = GeoButtonStyle.Tertiary)
+            GeoButton(state.actionLabel, onAction, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
         }
     }
 }

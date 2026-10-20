@@ -40,6 +40,8 @@ fun GeoAppShell(
     navigationVisible: Boolean = true,
     modifier: Modifier = Modifier,
     mediaInsets: Boolean = false,
+    /** The current screen lays out its own list | detail panes (GeoPaneLayout); every other screen keeps the 720 dp column. */
+    paneLayout: Boolean = false,
     topBar: @Composable () -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -81,7 +83,7 @@ fun GeoAppShell(
                             Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)))
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                                val column = if (geoWindow.twoPane) Modifier else Modifier.widthIn(max = 720.dp)
+                                val column = if (geoWindow.twoPane && paneLayout) Modifier else Modifier.widthIn(max = 720.dp)
                                 Box(column.fillMaxSize()
                                     .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                                     .consumeWindowInsets(WindowInsets.navigationBars)) { content() }

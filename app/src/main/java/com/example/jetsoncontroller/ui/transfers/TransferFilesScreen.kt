@@ -67,7 +67,7 @@ internal fun TransferFilesScreen(
                     targets.size == 1 -> GeoFactRow("받는 서버", target?.let(::transferTargetLabel).orEmpty())
                     else -> targets.forEach { row -> GeoRadioRow(transferTargetLabel(row), row.id == target?.id, { targetId = row.id }) }
                 }
-                if (!sendEnabled) GeoButton("장치 Wi-Fi 설정", onRemedy, style = GeoButtonStyle.Tertiary)
+                if (!sendEnabled) GeoButton("장치 Wi-Fi 설정", onRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 GeoButton("전송 시작", {
                     if (root != null && selectedPath != null && target != null) onStart(root, selectedPath!!, target.id)
                 }, Modifier.fillMaxWidth(), enabled = sendEnabled && selection != null && target != null && !calculating && !sending,
@@ -101,15 +101,15 @@ internal fun TransferFilesScreen(
                         }, description = entry.sizeBytes?.let(Formats::size), enabled = state.controlAvailable,
                             disabledReason = disabledReason)
                         if (entry.type == com.example.jetsoncontroller.model.RemoteEntryType.DIRECTORY) {
-                            GeoButton("폴더 열기", { onDirectory(entry) }, style = GeoButtonStyle.Tertiary)
-                        } else GeoButton("미리 보기", { onFilePreview(entry) }, style = GeoButtonStyle.Tertiary)
+                            GeoButton("폴더 열기", { onDirectory(entry) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+                        } else GeoButton("미리 보기", { onFilePreview(entry) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                     }
                 }
                 }
                 if (entries.isEmpty() && !state.isLoading && state.controlAvailable) item {
                     GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "파일이 없습니다", "다른 위치나 유형을 선택하세요."))
                 }
-                item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary) }
+                item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
                 item { inlineAction() }
             }
         }

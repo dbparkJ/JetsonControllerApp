@@ -19,15 +19,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -42,7 +43,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
+import com.example.jetsoncontroller.ui.theme.GeoColors
 import kotlin.math.roundToInt
 
 @Composable
@@ -113,10 +116,11 @@ fun GeoRadioRow(
     modifier: Modifier = Modifier,
     description: String? = null,
     enabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    badge: (@Composable () -> Unit)? = null
 ) {
     GeoSelectionRow(title, description, enabled, disabledReason, modifier,
-        trailing = false, selected = selected, role = Role.RadioButton, onSelect = onClick
+        trailing = false, selected = selected, role = Role.RadioButton, onSelect = onClick, badge = badge
     ) { focused ->
         val c = LocalGeoColors.current
         Canvas(Modifier.size(20.dp).geoFocusRing(CircleShape, focused)) {
@@ -159,6 +163,7 @@ private fun GeoSelectionRow(
     selected: Boolean,
     role: Role,
     onSelect: () -> Unit,
+    badge: (@Composable () -> Unit)? = null,
     indicator: @Composable (focused: Boolean) -> Unit
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled controls require a visible reason" }
@@ -172,10 +177,17 @@ private fun GeoSelectionRow(
         Modifier.toggleable(selected, source, indication = null, enabled = enabled, role = role, onValueChange = { onSelect() })
     }
     val meta = if (enabled) description else listOfNotNull(description, disabledReason).joinToString(" ")
+    val inChoiceSheet = LocalGeoChoiceSheet.current
+    val fill = selectionRowFill(c, role, inChoiceSheet, selected, enabled, pressed)
     Row(
         modifier.fillMaxWidth().heightIn(min = if (meta.isNullOrEmpty()) 56.dp else 72.dp)
             .onFocusChanged { focused = it.isFocused }
-            .background(if (pressed) c.fieldPressed else Color.Transparent)
+            .drawBehind {
+                // Sheet content keeps its gutter; the choice highlight reaches the sheet edges.
+                val gutter = if (inChoiceSheet) 24.dp.toPx() else 0f
+                drawRect(fill, topLeft = Offset(-gutter, 0f), size = Size(size.width + gutter * 2, size.height))
+            }
+            .contentDivider()
             .then(interaction)
             .padding(vertical = if (meta.isNullOrEmpty()) 16.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -183,12 +195,30 @@ private fun GeoSelectionRow(
     ) {
         if (!trailing) indicator(focused)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
-                color = if (enabled) c.text else c.disabledText)
+            // A badge sits on the title line, right after the title (board r3-work-device-switcher).
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.titleSmall.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
+                    color = if (enabled) c.text else c.disabledText)
+                badge?.invoke()
+            }
             if (!meta.isNullOrEmpty()) Text(meta, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         }
         if (trailing) indicator(focused)
     }
+}
+
+internal fun selectionRowFill(
+    colors: GeoColors,
+    role: Role,
+    inChoiceSheet: Boolean,
+    selected: Boolean,
+    enabled: Boolean,
+    pressed: Boolean
+): Color = when {
+    enabled && pressed -> colors.fieldPressed
+    enabled && selected && inChoiceSheet && (role == Role.RadioButton || role == Role.Checkbox) -> colors.primaryTint
+    else -> Color.Transparent
 }
 
 /** [onOpenPicker] opens the owning screen's choice sheet when the segments cannot fit. */
@@ -258,6 +288,9 @@ fun GeoSegmented(
     }
 }
 
+internal fun sliderStepValue(value: Float, valueRange: ClosedFloatingPointRange<Float>, step: Float): Float =
+    (valueRange.start + ((value - valueRange.start) / step).roundToInt() * step).coerceIn(valueRange)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeoSliderRow(
@@ -281,13 +314,16 @@ fun GeoSliderRow(
     val current = value.coerceIn(valueRange)
     var focused by remember { mutableStateOf(false) }
     fun change(newValue: Float) {
-        onValueChange((valueRange.start + ((newValue - valueRange.start) / step).roundToInt() * step).coerceIn(valueRange))
+        onValueChange(sliderStepValue(newValue, valueRange, step))
     }
-    Column(modifier.fillMaxWidth()) {
+    Column(modifier.fillMaxWidth().contentDivider().padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = if (enabled) c.text else c.disabledText)
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                color = if (enabled) c.text else c.disabledText)
             Text(valueLabel, Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
-                style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"), color = if (enabled) c.text else c.disabledText,
+                style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+                color = if (enabled) c.textSecondary else c.disabledText,
                 textAlign = androidx.compose.ui.text.style.TextAlign.End)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -302,11 +338,23 @@ fun GeoSliderRow(
                     .semantics { contentDescription = title; stateDescription = valueLabel },
                     enabled = enabled, valueRange = valueRange, steps = intervals - 1,
                     onValueChangeFinished = onValueChangeFinished,
-                    colors = SliderDefaults.colors(thumbColor = c.primary, activeTrackColor = c.primary,
-                        inactiveTrackColor = c.field, activeTickColor = c.onPrimary, inactiveTickColor = c.borderStrong,
-                        disabledThumbColor = c.disabledText, disabledActiveTrackColor = c.disabledFill,
-                        disabledInactiveTrackColor = c.disabledFill, disabledActiveTickColor = c.disabledText,
-                        disabledInactiveTickColor = c.disabledText))
+                    thumb = {
+                        Canvas(Modifier.size(24.dp)) {
+                            drawCircle(c.surface)
+                            drawCircle(if (enabled) c.primary else c.disabledText, radius = 10.dp.toPx())
+                        }
+                    },
+                    track = {
+                        Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                            val fraction = (current - valueRange.start) / (valueRange.endInclusive - valueRange.start)
+                            val start = if (layoutDirection == LayoutDirection.Rtl) size.width else 0f
+                            val end = if (layoutDirection == LayoutDirection.Rtl) size.width * (1f - fraction) else size.width * fraction
+                            drawLine(if (enabled) c.borderStrong else c.disabledFill,
+                                Offset(0f, center.y), Offset(size.width, center.y), size.height, StrokeCap.Round)
+                            if (fraction > 0f) drawLine(if (enabled) c.primary else c.disabledText,
+                                Offset(start, center.y), Offset(end, center.y), size.height, StrokeCap.Round)
+                        }
+                    })
             }
             GeoIconButton(GeoIcons.zoomIn, "$title 증가", {
                 change(current + step)

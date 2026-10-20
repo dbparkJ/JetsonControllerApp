@@ -218,6 +218,11 @@ private val routesNeedingConnectionNotice = routesRequiringDeviceConnection + se
     Routes.DEVICE_DETAIL
 )
 
+/** Routes whose composable uses GeoPaneLayout (workGraph); they span the whole two-pane window. */
+private val paneLayoutRoutes = setOf(Routes.WORK_BROWSE, Routes.TASKS, Routes.TICKET_DETAIL)
+
+private val routesWithOwnConnectionStrip = setOf(Routes.DEVICE_DETAIL, Routes.ACTIVE_RUN, Routes.NETWORK_SETTINGS)
+
 // Only these screens hold input the operator is writing, so only they promise to keep it.
 private val routesWithEditableInput = setOf(
     Routes.SURVEY_RUN,
@@ -239,6 +244,8 @@ internal fun connectionNoticeFor(
     }
     // With no registered device there is nothing to wait for; the 장치 root asks for a QR registration.
     if (!hasRegisteredDevice || fullControlConnected || route !in routesNeedingConnectionNotice) return null
+    // These screens show their own connection strip under their top bar; a second banner would repeat it.
+    if (route in routesWithOwnConnectionStrip) return null
     val outcome = if (route in routesWithEditableInput) "작성한 내용은 유지됩니다." else "연결되면 최신 정보로 바뀝니다."
     return if (transportType == TransportType.BLE) {
         ConnectionNotice("전체 제어 연결이 필요합니다. $outcome", Tone.WARNING)
@@ -867,7 +874,8 @@ fun JetsonApp(
             navigationVisible = primaryNavigationVisible(currentRoute, focusedMedia = navigationState.hasFocusedMediaPreview()) &&
                 deviceState.registeredDevices.isNotEmpty(),
             onSelect = onSectionSelected,
-            mediaInsets = currentRoute in setOf(Routes.CAMERA_PREVIEW, Routes.QR_SCANNER) || navigationState.hasFocusedMediaPreview()
+            mediaInsets = currentRoute in setOf(Routes.CAMERA_PREVIEW, Routes.QR_SCANNER) || navigationState.hasFocusedMediaPreview(),
+            paneLayout = currentRoute in paneLayoutRoutes
         ) {
             Column(Modifier.fillMaxSize()) {
                 if (!fullControlConnected) connectionNotice?.let { notice ->

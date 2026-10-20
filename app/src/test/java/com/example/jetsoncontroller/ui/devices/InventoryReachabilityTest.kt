@@ -15,7 +15,7 @@ class InventoryReachabilityTest {
         val graph = source("navigation/DeviceGraph.kt")
         val root = source("devices/DevicesHomeScreen.kt")
         val detail = source("devices/DeviceDetailScreen.kt")
-        assertTrue(root.contains("GeoRow(current.deviceName, onOpenDevice"))
+        assertTrue(root.contains("DeviceIdentity(current.deviceName, connection, onClick = onOpenDevice"))
         assertTrue(graph.contains("onOpenDevice = { navController.navigateSingle(Routes.DEVICE_DETAIL) }"))
         listOf("상태", "센서", "연결", "데이터", "관리", "이 휴대폰").forEach {
             assertTrue("Missing device-detail section: $it", detail.contains("GeoSection(\"$it\""))
@@ -37,7 +37,7 @@ class InventoryReachabilityTest {
     @Test fun `connection options camera states and Wi-Fi overlays have operator doors`() {
         val connect = source("devices/ConnectMethodSheet.kt")
         listOf("같은 네트워크에서 다시 찾기", "장치에 직접 연결", "블루투스로 기본 연결", "QR 코드로 다시 등록").forEach {
-            assertTrue(connect.contains("GeoRow(\"$it\""))
+            assertTrue(connect.contains("DeviceConnectionChoice(\"$it\""))
         }
         val wifi = source("network/NetworkSettingsScreen.kt")
         listOf("현재 네트워크", "주변 네트워크", "숨겨진 네트워크 추가", "권한 허용").forEach { assertTrue(wifi.contains(it)) }

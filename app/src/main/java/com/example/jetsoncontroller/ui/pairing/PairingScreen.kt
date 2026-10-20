@@ -64,7 +64,7 @@ fun PairingScreen(
                 PairingPhase.ERROR -> {
                     Text("등록하지 못했습니다", style = type.sectionTitle, color = colors.text)
                     Text(pairingFailureText(state.errorMessage), style = type.body, color = colors.textSecondary)
-                    GeoButton("다시 스캔", onCancel, style = GeoButtonStyle.Tertiary)
+                    GeoButton("다시 스캔", onCancel, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 else -> {
                     Text(pairingProgressText(state.phase), style = type.body, color = colors.text)

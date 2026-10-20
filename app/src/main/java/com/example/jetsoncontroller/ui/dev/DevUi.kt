@@ -8,7 +8,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,15 +80,24 @@ internal fun DevText(text: String, secondary: Boolean = false, mono: Boolean = f
         style = if (mono) LocalGeoType.current.mono else LocalGeoType.current.body)
 }
 
+@Composable
+internal fun DevDivider() = HorizontalDivider(color = LocalGeoColors.current.border)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DevIdentity(name: String, detail: String? = null, status: String? = null,
-    tone: Tone = Tone.UNKNOWN) {
+    tone: Tone = Tone.UNKNOWN, statusInDetail: Boolean = false) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(name, style = LocalGeoType.current.heading, color = LocalGeoColors.current.text)
-        if (status != null) GeoBadge(status, tone)
+        if (status != null && !statusInDetail) GeoBadge(status, tone)
     }
-    detail?.let { Spacer(Modifier.height(4.dp)); DevText(it, secondary = true) }
+    if ((status != null && statusInDetail) || detail != null) {
+        Spacer(Modifier.height(4.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (status != null && statusInDetail) GeoBadge(status, tone)
+            detail?.let { DevText(it, secondary = true) }
+        }
+    }
 }
 
 @Composable
@@ -98,8 +108,8 @@ internal fun DevFeedback(message: String?, error: Boolean = false) {
 
 @Composable
 internal fun DevAddressRow(label: String, address: String, onClick: () -> Unit) {
-    val type = MaterialTheme.typography
-    MaterialTheme(typography = type.copy(bodySmall = type.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))) {
+    CompositionLocalProvider(LocalGeoType provides LocalGeoType.current.copy(
+        caption = LocalGeoType.current.mono)) {
         GeoRow(label, onClick, meta = address)
     }
 }
@@ -123,10 +133,27 @@ internal fun DevChoice(label: String, options: List<String>, selected: Int, onSe
 @Composable
 internal fun DevCopyValue(label: String, value: String) {
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        DevText(label, secondary = true)
-        SelectionContainer { DevText(value, mono = true) }
-        GeoButton("$label 복사", { clipboard.setText(androidx.compose.ui.text.AnnotatedString(value)) }, style = GeoButtonStyle.Tertiary)
+    Column {
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BoxWithConstraints(Modifier.weight(1f).padding(vertical = 12.dp)) {
+                if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        DevText(label, secondary = true)
+                        SelectionContainer { DevText(value, mono = true) }
+                    }
+                } else Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(label, Modifier.weight(1f), style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
+                    SelectionContainer(Modifier.weight(2f)) {
+                        Text(value, Modifier.fillMaxWidth(), style = LocalGeoType.current.mono,
+                            color = LocalGeoColors.current.text, textAlign = TextAlign.End)
+                    }
+                }
+            }
+            GeoIconButton(GeoIcons.copy, "$label 주소 복사",
+                { clipboard.setText(androidx.compose.ui.text.AnnotatedString(value)) })
+        }
+        HorizontalDivider(color = LocalGeoColors.current.border)
     }
 }
 

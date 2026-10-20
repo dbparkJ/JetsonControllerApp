@@ -114,7 +114,7 @@ internal fun SurveyRunScreen(
         GeoSheet("프로젝트 선택", { projectPicker = false }, openerFocusRequester = projectFocus,
             footer = {
                 GeoButton("새 프로젝트", { projectPicker = false; newProject = true },
-                    style = GeoButtonStyle.Tertiary, icon = GeoIcons.add)
+                    style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, icon = GeoIcons.add)
             }) {
             state.projects.forEach { project ->
                 GeoRadioRow(project.label, state.selectedProject?.surveyProjectId == project.surveyProjectId,
@@ -140,7 +140,7 @@ internal fun SurveyRunScreen(
             chrome = LocalGeoChrome.current.let { it.copy(topDp = it.topDp + topHeight) },
             action = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("$displayName · ${preparationActionReason(state)}", style = type.body, color = c.textSecondary)
+                    GeoReadinessLine("$displayName · ${preparationActionReason(state)}", preparationActionTone(state))
                     when {
                         state.pendingStart != null -> GeoButton("시작 결과 확인", onRetryPendingStart,
                             Modifier.fillMaxWidth(), enabled = state.online && state.operation == null,
@@ -154,7 +154,7 @@ internal fun SurveyRunScreen(
                             disabledReason = preparationActionReason(state), actionArea = true)
                     }
                     if (!state.online && onConnectionMethod != null) {
-                        GeoButton("연결 방법", onConnectionMethod, style = GeoButtonStyle.Tertiary)
+                        GeoButton("연결 방법", onConnectionMethod, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                     }
                 }
             }
@@ -209,7 +209,7 @@ internal fun SurveyRunScreen(
                                     enabled = editable, disabledReason = lockedReason)
                             }
                         }
-                        GeoButton("새 구간", { newSection = true }, style = GeoButtonStyle.Tertiary,
+                        GeoButton("새 구간", { newSection = true }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
                             icon = GeoIcons.add, enabled = editable &&
                                 (state.selectedProject != null || state.preparationDraft?.project != null),
                             disabledReason = "프로젝트를 먼저 선택하세요.")
@@ -252,7 +252,7 @@ internal fun SurveyStartSheet(
         kind = GeoSheetKind.FORM, openerFocusRequester = openerFocusRequester,
         footer = {
             rules.blockingReason?.let { Text(it, color = c.textSecondary, style = type.body) }
-            if (rules.showRecheck) GeoButton("다시 점검", onRecheck, style = GeoButtonStyle.Tertiary)
+            if (rules.showRecheck) GeoButton("다시 점검", onRecheck, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
             GeoSheetFooter(GeoOverlayAction(rules.primaryLabel, onStart, enabled = rules.canStart, busy = rules.busy),
                 GeoOverlayAction("취소", onDismissRequest))
         }) {
@@ -275,7 +275,7 @@ internal fun SurveyStartSheet(
                         GeoStartPhase.FAILED -> Tone.WARNING
                     }, failureReason = check.reason.takeIf { check.phase == GeoStartPhase.FAILED })
                 if (check.phase == GeoStartPhase.FAILED) check.remedy?.let {
-                    GeoButton(it.label, it.onClick, style = GeoButtonStyle.Tertiary,
+                    GeoButton(it.label, it.onClick, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
                         enabled = it.enabled, disabledReason = it.disabledReason)
                 }
             }
@@ -298,6 +298,18 @@ internal fun preparationActionReason(state: SurveyRunUiState): String = when {
     !state.preparationSelectionComplete -> "프로젝트와 구간을 선택하세요."
     state.policy == null -> "수집 작업 설정을 확인하세요."
     else -> "${state.preparationTelemetry.connectionLabel} · 시작할 수 있습니다."
+}
+
+/** The icon tone for [preparationActionReason], in the same order. */
+internal fun preparationActionTone(state: SurveyRunUiState): Tone = when {
+    state.pendingStart != null -> Tone.PENDING
+    state.unconfirmedRunId != null -> Tone.WARNING
+    state.restoringLocalState || !state.runStateConfirmed -> Tone.PENDING
+    !state.online || !state.controlAvailable -> Tone.WARNING
+    state.contextLocked || state.observedActiveRunCount > 0 -> Tone.WARNING
+    !state.preparationSelectionComplete -> Tone.UNKNOWN
+    state.policy == null -> Tone.WARNING
+    else -> Tone.SUCCESS
 }
 
 internal fun startReadinessLabel(state: SurveyRunUiState): String = when {
