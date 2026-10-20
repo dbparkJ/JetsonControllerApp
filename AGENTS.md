@@ -8,6 +8,15 @@ Android Kotlin/Jetpack Compose lives in `app/`; Python Jetson services in `backe
 - Briefs for sub-agents and Codex workers ask for the final report in Korean.
 - Code, identifiers, paths, commands, code comments and commit messages follow this repository's conventions.
 
+## Who does the work
+
+- Delegated work goes to Codex workers: code, investigation, tests and documents.
+  - Launch them with `codex exec`, which OCX routes. In Claude Desktop the `ocx-gpt-6-*` subagent types do not reach OCX, so do not use them.
+  - gpt-6.1-sol takes design-heavy code, gpt-6-luna mechanical work, captures and tests, and gpt-6-astra review.
+- Claude sessions and Claude subagents supervise unless the user assigns them the work.
+  - Supervising means: plan and brief, watch the workers, review and verify the result (build, tests, device checks), decide on commit, push and deployment, and report.
+  - Device control that the Codex sandbox cannot do (adb, the Jetson) stays with the supervising session, under the usual authorization.
+
 ## Task scope and context
 
 - Start with the affected code and tests. Read documentation only when it resolves a question for the current task; reuse unchanged material already read in this session.
