@@ -53,6 +53,16 @@ class GeoMapLoadStateTest {
         assertTrue(failed.tileAction("trail", tile, TileOperation.EndParse).failed)
     }
 
+    @Test fun edgeTilesOutsideCoverageDoNotFailALoadedMap() {
+        var state = GeoMapLoadState().styleLoaded()
+        (0 until 6).forEach { state = state.tileAction("raster", tile.copy(x = 10 + it), TileOperation.EndParse) }
+        state = state.tileAction("raster", tile, TileOperation.Error).tileAction("raster", otherTile, TileOperation.Error)
+        assertFalse("two sea tiles among six loaded ones", state.failed)
+        var offline = GeoMapLoadState().styleLoaded()
+        (0 until 6).forEach { offline = offline.tileAction("raster", tile.copy(x = 10 + it), TileOperation.Error) }
+        assertTrue("nothing loaded", offline.failed)
+    }
+
     @Test fun cancelledFailedRequestNoLongerReportsFailure() {
         val failed = GeoMapLoadState().styleLoaded().tileAction("raster", tile, TileOperation.Error)
         assertFalse(failed.tileAction("raster", tile, TileOperation.Cancelled).failed)

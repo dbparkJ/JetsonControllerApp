@@ -162,8 +162,8 @@ internal fun DirectServerScreen(
 
 @Composable
 private fun ServerState(title: String, explanation: String, action: String? = null, onAction: (() -> Unit)? = null) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 56.dp)) {
-        item { GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, title, explanation, action), onAction = onAction) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = storageGutter)) {
+        item { GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, title, explanation, action), fullScreen = true, onAction = onAction) }
     }
 }
 
@@ -184,8 +184,7 @@ private fun JobsList(state: DirectServerUiState, onRefresh: () -> Unit, onJob: (
                     enabled = !state.isLoading && !state.isConnecting, disabledReason = "수신 결과를 불러오고 있습니다.")
             }
             if (state.jobs.isEmpty() && !state.isLoading && state.message == null) item {
-                Spacer(Modifier.height(56.dp))
-                GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "수신 결과가 없습니다", "서버가 파일을 받으면 여기에 표시됩니다."))
+                GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY, "수신 결과가 없습니다", "서버가 파일을 받으면 여기에 표시됩니다."))
             }
         }
     }
@@ -261,8 +260,7 @@ private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> U
                     disabledReason = if (!restorable) serverTrashStatus(job) else "서버 연결과 복원 권한을 확인하세요.")
             }
             if (state.trash.isEmpty() && !state.isLoading && state.message == null) item {
-                Spacer(Modifier.height(56.dp))
-                GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다", "서버 휴지통으로 옮긴 수신 결과가 여기에 표시됩니다."))
+                GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다", "서버 휴지통으로 옮긴 수신 결과가 여기에 표시됩니다."))
             }
         }
     }

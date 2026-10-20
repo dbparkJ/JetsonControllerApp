@@ -91,8 +91,7 @@ fun LocalTrashScreen(
                         LocalTrashEntry(entry, state.online, busy) { onRestore(entry) }
                     }
                     if (state.entries.isEmpty() && !busy && state.online && state.hasLoaded && state.error == null) item {
-                        Spacer(Modifier.height(56.dp))
-                        GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다",
+                        GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다",
                             "휴지통으로 옮긴 장치 파일과 수집 기록이 여기에 표시됩니다."))
                     }
                     val renamed = localTrashTechnicalNames(state.entries)

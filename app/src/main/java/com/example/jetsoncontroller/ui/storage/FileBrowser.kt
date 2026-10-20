@@ -176,14 +176,14 @@ internal fun FileBrowser(
                             items(group, key = { it.relativePath }) { entry ->
                                 val directory = entry.type == RemoteEntryType.DIRECTORY
                                 val select = { selectedPath = if (selectedPath == entry.relativePath) null else entry.relativePath }
-                                if (selecting) GeoRadioRow(entry.name, selectedPath == entry.relativePath, select,
+                                if (selecting) GeoRadioRow(breakableFileName(entry.name), selectedPath == entry.relativePath, select,
                                     description = entry.sizeBytes?.let(Formats::size), enabled = state.controlAvailable,
                                     disabledReason = "장치에 연결되면 쓸 수 있습니다.")
-                                else if (send != null && !directory) GeoActionRow(entry.name, "선택",
+                                else if (send != null && !directory) GeoActionRow(breakableFileName(entry.name), "선택",
                                     { if (state.controlAvailable) onFile(entry) else onConnection() }, select,
                                     meta = mediaCategory(entry), actionEnabled = state.controlAvailable,
                                     disabledReason = "장치에 연결되면 쓸 수 있습니다.")
-                                else GeoRow(entry.name, {
+                                else GeoRow(breakableFileName(entry.name), {
                                     if (!state.controlAvailable) onConnection()
                                     else if (directory) onDirectory(entry) else onFile(entry)
                                 },
@@ -194,9 +194,8 @@ internal fun FileBrowser(
                             }
                         }
                         if (entries.isEmpty() && !state.isLoading && failure == null) item {
-                            Spacer(Modifier.height(56.dp))
                             val filtered = query.isNotBlank() || category != "전체"
-                            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                            GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY,
                                 if (filtered) "검색 결과가 없습니다" else "파일이 없습니다",
                                 if (filtered) "다른 이름이나 유형으로 찾아보세요." else "수집을 마치면 여기에 표시됩니다."))
                         }
@@ -263,3 +262,7 @@ internal fun StorageSendBrowser(
     onConnection = onConnection, onReconnect = onReconnect,
     send = FileSendReview(targets, summary, calculating, sending, sendEnabled, disabledReason, onSelect, onStart, onRemedy),
     error = error, ongoingRun = ongoingRun)
+
+/** Lets long file and folder names wrap after - _ . instead of in the middle of a word (2026-09-02-14-44-32_raw). */
+internal fun breakableFileName(name: String): String =
+    name.replace(Regex("([-_.])(?=.)"), "$1\u200B")
