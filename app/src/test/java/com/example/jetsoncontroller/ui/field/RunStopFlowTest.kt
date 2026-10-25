@@ -20,6 +20,25 @@ class RunStopFlowTest {
         assertNull(transition(confirmed.flow, RunStopEvent.REQUEST).command)
     }
 
+    @Test fun `home stop request opens only the exact run confirmation without sending`() {
+        val target = runTarget(active)
+        val requested = reduceRunStop(RunStopFlow(), RunStopEvent.REQUEST, active, true, true,
+            requestedTarget = target)
+        assertEquals(RunStopStep.CONFIRMING, requested.flow.step)
+        assertEquals(target, requested.flow.target)
+        assertNull(requested.command)
+        listOf(active.copy(deviceId = "other-device"), active.copy(pipelineId = "other-task"),
+            active.copy(runId = "other-run")).forEach { changed ->
+            val rejected = reduceRunStop(RunStopFlow(), RunStopEvent.REQUEST, changed, true, true,
+                requestedTarget = target)
+            assertEquals(RunStopStep.IDLE, rejected.flow.step)
+            assertNull(rejected.command)
+        }
+        assertEquals(RunStopStep.IDLE,
+            reduceRunStop(RunStopFlow(), RunStopEvent.REQUEST, active, false, true,
+                requestedTarget = target).flow.step)
+    }
+
     @Test fun `remote completion and dismissal stay on the run`() {
         val ended = active.copy(active = false, state = "STOPPED")
         assertNull(transition(RunStopFlow(), RunStopEvent.OBSERVE, ended).openResult)

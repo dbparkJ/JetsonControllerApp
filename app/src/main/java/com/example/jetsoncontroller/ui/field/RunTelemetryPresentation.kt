@@ -87,13 +87,15 @@ internal fun reduceRunStop(
     online: Boolean,
     stopAvailable: Boolean,
     awaitingStart: Boolean = false,
-    stopInProgress: Boolean = false
+    stopInProgress: Boolean = false,
+    requestedTarget: StopTarget? = null
 ): RunStopTransition {
     val allowed = online && stopAvailable && run?.active == true && !awaitingStart && !stopInProgress
     val same = flow.target?.matches(run) == true
     val idle = RunStopTransition(RunStopFlow())
     return when (event) {
-        RunStopEvent.REQUEST -> if (flow.step == RunStopStep.IDLE && allowed && run != null) {
+        RunStopEvent.REQUEST -> if (flow.step == RunStopStep.IDLE && allowed && run != null &&
+            (requestedTarget == null || requestedTarget.matches(run))) {
             RunStopTransition(RunStopFlow(RunStopStep.CONFIRMING, runTarget(run)))
         } else RunStopTransition(flow)
         RunStopEvent.CONFIRM -> if (flow.step == RunStopStep.CONFIRMING && allowed && same) {

@@ -9,12 +9,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.SheetValue
@@ -25,16 +21,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -49,6 +41,8 @@ import com.example.jetsoncontroller.ui.sensors.MobileLocationViewModel
 import com.example.jetsoncontroller.ui.sensors.mobileLocationAvailability
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.GeoShape
+import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,7 +137,7 @@ fun GeoMapScreen(
                     }, modifier = modifier,
                     runElapsed = runElapsed, onStopRequest = onStopRequest, stopEnabled = stopEnabled, stopBusy = stopBusy,
                     stopError = stopError, stopOpener = stopOpener,
-                    phoneMessage = phoneMessage, phoneRemedy = phoneRemedy, developerMode = developerMode,
+                    phoneMessage = phoneMessage, phoneRemedy = phoneRemedy, developerMode = developerMode, deviceName = deviceName,
                     // The peek is the summary itself; a taller floor showed the top of the next section.
                     onPeekHeight = { peekDp = it })
             }
@@ -175,7 +169,7 @@ fun GeoMapScreen(
                     }
                     message?.let {
                         Text(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, end = end.dp + 72.dp, bottom = bottom.dp + 40.dp)
-                            .background(colors.mapPlate, RoundedCornerShape(6.dp)).padding(8.dp), color = colors.textSecondary, style = type.caption)
+                            .background(colors.mapPlate, GeoShape.badge).padding(8.dp), color = colors.textSecondary, style = type.caption)
                     }
                 }
             }
@@ -192,7 +186,7 @@ fun GeoMapScreen(
                 val height = maxHeight
                 BottomSheetScaffold(scaffoldState = scaffold, sheetPeekHeight = peekDp.dp.coerceAtMost(height),
                     sheetDragHandle = null, sheetContainerColor = colors.surface, sheetContentColor = colors.text,
-                    sheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                    sheetShape = GeoShape.sheetTop,
                     sheetContent = { panel(Modifier.fillMaxWidth().height((height - 48.dp).coerceAtLeast(128.dp))) },
                     containerColor = colors.sunken) { map(peekDp, 0) }
             }
@@ -203,20 +197,12 @@ fun GeoMapScreen(
 @Composable
 private fun MapBasePicker(base: GeoMapBase, onSelect: (GeoMapBase) -> Unit) {
     val colors = LocalGeoColors.current
-    Row(Modifier.width(IntrinsicSize.Max).shadow(1.dp, CircleShape).background(colors.mapPlate, CircleShape)
-        .selectableGroup().semantics { contentDescription = "지도 종류" }.padding(horizontal = 4.dp)) {
+    Row(Modifier.width(IntrinsicSize.Max).geoCardShadow(GeoShape.control)
+        .background(colors.mapPlate, GeoShape.control).selectableGroup()
+        .semantics { contentDescription = "지도 종류" }.padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         GeoMapBase.entries.forEach { option ->
-            val selected = base == option
-            var focused by remember { mutableStateOf(false) }
-            Box(Modifier.widthIn(min = 64.dp).heightIn(min = 48.dp)
-                .onFocusChanged { focused = it.isFocused }.geoFocusRing(CircleShape, focused, tint = colors.focus)
-                .clip(CircleShape).selectable(selected, role = Role.Tab, onClick = { onSelect(option) })
-                .background(if (selected) colors.sunken else colors.mapPlate)
-                .then(if (selected) Modifier.border(1.dp, colors.borderStrong, CircleShape) else Modifier)
-                .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                Text(if (option == GeoMapBase.GENERAL) "일반" else "위성", style = geoLabelTextStyle(),
-                    color = if (selected) colors.text else colors.textSecondary)
-            }
+            GeoFilterChip(if (option == GeoMapBase.GENERAL) "일반" else "위성", base == option, { onSelect(option) })
         }
     }
 }
@@ -226,6 +212,7 @@ private fun MapControl(icon: androidx.compose.ui.graphics.vector.ImageVector, la
                        selected: Boolean = false, enabled: Boolean = true) {
     val c = LocalGeoColors.current
     GeoIconButton(icon, label, action,
-        Modifier.shadow(1.dp, CircleShape).background(if (selected) c.primaryTint else c.mapPlate, CircleShape)
+        Modifier.size(48.dp).geoCardShadow(GeoShape.control)
+            .background(if (selected) c.primaryTint else c.mapPlate, GeoShape.control)
             .semantics { this.selected = selected }, enabled = enabled)
 }

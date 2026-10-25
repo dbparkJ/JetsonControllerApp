@@ -32,11 +32,15 @@ internal fun StoragePage(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val colors = LocalGeoColors.current
+    val base = LocalGeoColors.current
+    val colors = if (media) base.copy(topBar = com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaStage,
+        onTopBar = com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaText,
+        onTopBarIcon = com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaText) else base
     val chrome = LocalGeoChrome.current
     val density = LocalDensity.current
     var topDp by remember { mutableFloatStateOf(0f) }
-    Column(Modifier.fillMaxSize().background(if (media) androidx.compose.ui.graphics.Color.Black else colors.surface)) {
+    CompositionLocalProvider(LocalGeoColors provides colors) {
+    Column(Modifier.fillMaxSize().background(if (media) com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaStage else colors.canvas)) {
         GeoTopBar(Modifier.onSizeChanged { topDp = it.height / density.density }) {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -49,6 +53,7 @@ internal fun StoragePage(
         CompositionLocalProvider(LocalGeoChrome provides chrome.copy(topDp = chrome.topDp + topDp)) {
             content()
         }
+    }
     }
 }
 

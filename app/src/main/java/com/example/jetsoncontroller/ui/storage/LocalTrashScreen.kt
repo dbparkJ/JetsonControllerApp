@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.storage
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -84,7 +85,8 @@ fun LocalTrashScreen(
                             state.emptySupported -> "복원 가능한 항목은 원래 위치로 되돌릴 수 있습니다. 휴지통을 비우면 표시된 항목이 영구 삭제됩니다."
                             else -> "이 장치는 휴지통 비우기를 지원하지 않습니다. 장치 소프트웨어 업데이트가 필요합니다."
                         })
-                        if (busy) GeoProgress()
+                        if (state.loading) GeoSkeleton("장치 휴지통을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
+                        else if (busy) GeoProgress()
                         state.error?.let { GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR) }
                     }
                     items(state.entries, key = { it.trashId }) { entry ->
@@ -110,42 +112,39 @@ fun LocalTrashScreen(
 private fun LocalTrashEntry(entry: TrashEntry, online: Boolean, busy: Boolean, onRestore: () -> Unit) {
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
-    val density = LocalDensity.current
-    val measurer = rememberTextMeasurer()
     val restorable = localTrashCanRestore(entry)
     val actionLabel = if (restorable) "원래 위치로 복원" else "복원할 수 없음"
-    val actionWidth = with(density) {
-        measurer.measure(AnnotatedString(actionLabel), if (restorable) type.button else type.caption).size.width.toDp()
-    } + if (restorable) 32.dp else 0.dp
-    BoxWithConstraints(Modifier.fillMaxWidth().drawBehind {
-        drawLine(colors.border, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
-    }.padding(vertical = 12.dp)) {
+    val actionWidth = 88.dp
+    R7Card(Modifier.padding(bottom = 12.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
         val body: @Composable (Modifier) -> Unit = { modifier ->
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                GeoIconTile(GeoIcons.trash)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(breakableFileName(localTrashTitle(entry)), style = type.titleSm, color = colors.text)
                     GeoBadge(localTrashStateLabel(entry), when (entry.state) {
                         "PURGING", "RESTORING", "MOVING_TO_TRASH" -> Tone.PENDING
                         "TRASHED" -> if (entry.restoreSupported) Tone.UNKNOWN else Tone.WARNING
                         else -> Tone.WARNING
-                    })
+                    }, variant = GeoBadgeVariant.INLINE)
+                    Text(localTrashMeta(entry), style = type.caption, color = colors.textSecondary)
                 }
-                Text(localTrashMeta(entry), style = type.caption, color = colors.textSecondary)
             }
         }
         val action: @Composable (Modifier) -> Unit = { modifier ->
-            if (restorable) GeoButton(actionLabel, onRestore, modifier, style = GeoButtonStyle.Secondary,
+            if (restorable) GeoButton(actionLabel, onRestore, modifier, style = GeoButtonStyle.Tertiary, actionArea = true,
                 enabled = online && !busy,
                 disabledReason = if (!online) "장치에 연결되면 쓸 수 있습니다." else "복원 상태를 확인하고 있습니다.")
             else Text(actionLabel, modifier, style = type.caption, color = colors.textSecondary)
         }
-        if (actionWidth + 8.dp + 160.dp > maxWidth) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             body(Modifier.fillMaxWidth())
-            action(Modifier.fillMaxWidth())
-        } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.align(Alignment.End).width(actionWidth)) { action(Modifier.fillMaxWidth()) }
+        } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
             body(Modifier.weight(1f))
             action(Modifier.width(actionWidth))
         }
+    }
     }
 }
 

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.upload
 
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -45,9 +46,10 @@ fun UploadTargetSettingsScreen(
         DevFeedback(error, true)
         if (!controlAvailable) DevText("장치에 연결하면 서버를 설정할 수 있습니다.")
         when {
-            isLoading -> DevText("확인 중")
+            isLoading -> DevLoading()
             targets.isEmpty() -> DevEmpty("등록된 업로드 서버가 없습니다", "서버를 추가하면 여기에 표시됩니다.", "서버 추가", { open(null) })
-            else -> GeoSection("서버", first = true, count = "${targets.size}개", note = "${deviceName}에 저장된 서버입니다.") {
+            else -> GeoSection("서버", first = true, count = "${targets.size}개", note = "${deviceName}에 저장된 서버입니다.",
+                trailingColumn = GeoRowTrailing.None) {
                 targets.forEach { target -> DevAddressRow(target.label, target.baseUrl ?: "주소 미확인", { open(target) }) }
             }
         }

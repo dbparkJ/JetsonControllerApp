@@ -234,7 +234,32 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                 reportFailed -> "보고 실패 · 서버 연결을 확인하고 다시 보고하세요."
                 reportPending -> "보고 대기"
                 else -> reportPresentation.message
-            }, focusReportEnabled = reportEnabled)
+            }, focusReportEnabled = reportEnabled,
+            onCamera = { navController.navigateSingle(Routes.CAMERA_PREVIEW) },
+            onSendFiles = { navController.navigateSingle(Routes.DATA) },
+            onDeviceMap = {
+                requestedMapHistoryEntryId = null
+                requestedMapActiveRunId = null
+                navController.navigateSingle(Routes.GNSS_MAP)
+            },
+            onDeviceFiles = { navController.navigateSingle(Routes.STORAGE) },
+            stopAction = GeoButtonAction("수집 종료", {
+                val latest = state.value
+                val target = latest.surveyRunState.activeRun?.takeIf {
+                    it.deviceId.equals(latest.selectedDeviceId, true) &&
+                        it.deviceId.equals(survey.activeRun?.deviceId, true) &&
+                        it.pipelineId == survey.activeRun?.pipelineId && it.runId == survey.activeRun?.runId &&
+                        latest.fullControlConnected && matchingStopTarget(it, latest.pipelineState.pipelines) != null
+                }
+                if (target != null) {
+                    navController.navigateSingle(Routes.ACTIVE_RUN)
+                    navController.currentBackStackEntry?.savedStateHandle?.set(
+                        com.example.jetsoncontroller.ui.field.WorkStopRequestKey,
+                        arrayListOf(target.deviceId, target.pipelineId, target.runId))
+                }
+            }, enabled = fullControlConnected && matchingStopTarget(survey.activeRun, pipelineState.pipelines) != null &&
+                survey.operation != "stop" && survey.pendingStart == null && survey.unconfirmedRunId == null,
+                disabledReason = "수집 상태를 다시 확인하세요."))
     }
 }
 

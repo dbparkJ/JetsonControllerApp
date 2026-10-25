@@ -27,6 +27,7 @@ import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.model.TaskState
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
 import kotlinx.coroutines.delay
 import java.time.Instant
 
@@ -121,7 +122,7 @@ internal fun SurveyRunScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.canvas)) {
         GeoTopBar {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
                 .onSizeChanged { topHeight = it.height / density.density }.padding(horizontal = 4.dp),
@@ -187,6 +188,7 @@ internal fun SurveyRunScreen(
                         tone = Tone.PENDING)
                 }
                 item {
+                    WorkSurfaceCard(Modifier.padding(top = 24.dp)) {
                     GeoPickerField("프로젝트", state.preparationDraft?.project.preparationLabel(state.selectedProject?.label ?: "프로젝트 선택"),
                         { projectPicker = true }, Modifier.focusRequester(projectFocus),
                         enabled = editable, disabledReason = lockedReason)
@@ -196,8 +198,11 @@ internal fun SurveyRunScreen(
                         GeoButton("선택", { onCreateProject(projectLabel); newProject = false },
                             enabled = editable && projectLabel.isNotBlank(), style = GeoButtonStyle.Secondary)
                     }
+                    }
                     GeoSection("구간") {
+                      WorkSurfaceCard {
                         Column(Modifier.selectableGroup()) {
+                            if (state.isLoading && state.sections.isEmpty()) GeoSkeleton("수집 구간을 불러오는 중", kind = GeoSkeletonKind.Rows)
                             state.sections.forEach { section ->
                                 GeoRadioRow(section.label, state.selectedSection?.surveySectionId == section.surveySectionId,
                                     { newSection = false; onSelectSection(section) }, enabled = editable,
@@ -218,12 +223,21 @@ internal fun SurveyRunScreen(
                             GeoButton("선택", { onCreateSection(sectionLabel); newSection = false },
                                 style = GeoButtonStyle.Secondary, enabled = editable && sectionLabel.isNotBlank())
                         }
+                      }
                     }
                     GeoSection("준비 상태") {
-                        preparationReadiness(state, now).forEach { row ->
-                            if (row.label == "보정 정보 중계") {
-                                GeoRow(row.label, { if (onCorrectionRelay != null) onCorrectionRelay() else relayInfo = true }, value = row.value)
-                            } else GeoCheckRow(row.label, row.value, row.tone)
+                        WorkSurfaceCard {
+                          GeoRowList(GeoRowTrailing.Status) {
+                            val rows = preparationReadiness(state, now)
+                            rows.forEachIndexed { index, row ->
+                                val openRelay: (() -> Unit)? = if (row.label == "보정 정보 중계") {
+                                    { if (onCorrectionRelay != null) onCorrectionRelay() else relayInfo = true }
+                                } else null
+                                GeoPreparationStatusRow(row.label, row.value, preparationStatusWord(row), row.tone,
+                                    onClick = openRelay,
+                                    divider = index < rows.lastIndex)
+                            }
+                          }
                         }
                     }
                     inlineAction()
@@ -273,48 +287,8 @@ internal fun SurveyStartSheet(
     openerFocusRequester: FocusRequester? = null,
     optionalChecks: List<GeoStartCheck> = emptyList()
 ) {
-    val c = LocalGeoColors.current
-    val type = LocalGeoType.current
-    val rules = startSheetRules(state)
-    GeoSheet("${state.sectionName} 수집을 시작할까요?", onDismissRequest, modifier,
-        kind = GeoSheetKind.FORM, openerFocusRequester = openerFocusRequester,
-        footer = {
-            rules.blockingReason?.let { Text(it, color = c.textSecondary, style = type.body) }
-            if (rules.showRecheck) GeoButton("다시 점검", onRecheck, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
-            GeoSheetFooter(GeoOverlayAction(rules.primaryLabel, onStart, enabled = rules.canStart, busy = rules.busy),
-                GeoOverlayAction("취소", onDismissRequest))
-        }) {
-        if (state.ticketLinked) {
-            Text("${state.sectionName} · ${state.projectName} · ${state.deviceName}", style = type.body, color = c.textSecondary)
-        } else {
-            GeoFactRow("장치", state.deviceName)
-            GeoFactRow("프로젝트", state.projectName)
-            GeoFactRow("구간", state.sectionName)
-        }
-        Spacer(Modifier.height(8.dp))
-        if (state.insideZone) GeoBadge(state.zoneLine, Tone.SUCCESS)
-        else Text(state.zoneLine, style = type.body, color = c.text)
-        GeoSection("시작 전 점검") {
-            (state.checks + optionalChecks).forEach { check ->
-                GeoCheckRow(check.label, if (check.phase == GeoStartPhase.CHECKING) "확인 중" else check.value ?: "미확인",
-                    when (check.phase) {
-                        GeoStartPhase.CHECKING -> Tone.PENDING
-                        GeoStartPhase.PASSED -> Tone.SUCCESS
-                        GeoStartPhase.FAILED -> Tone.WARNING
-                    }, failureReason = check.reason.takeIf { check.phase == GeoStartPhase.FAILED })
-                if (check.phase == GeoStartPhase.FAILED) check.remedy?.let {
-                    GeoButton(it.label, it.onClick, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
-                        enabled = it.enabled, disabledReason = it.disabledReason)
-                }
-            }
-        }
-        if (state.ticketLinked) {
-            Spacer(Modifier.height(12.dp))
-            Text("GEO& Work 상태가 '진행 중'으로 바뀝니다.", style = type.body, color = c.text)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text("시작하면 이 수집의 프로젝트와 구간을 바꿀 수 없습니다.", style = type.body, color = c.text)
-    }
+    GeoStartSheet(state, onStart, onRecheck, onDismissRequest, modifier, openerFocusRequester,
+        optionalChecks = optionalChecks)
 }
 
 internal fun preparationActionReason(state: SurveyRunUiState): String = when {

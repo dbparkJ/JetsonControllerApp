@@ -1,5 +1,6 @@
-﻿package com.example.jetsoncontroller.ui.upload
+package com.example.jetsoncontroller.ui.upload
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
@@ -16,6 +17,7 @@ import com.example.jetsoncontroller.ui.transfers.*
 import com.example.jetsoncontroller.ui.model.Formats
 import java.time.Instant
 import java.time.ZoneId
+import com.example.jetsoncontroller.ui.storage.R7Section
 
 @Composable
 fun UploadQueueScreen(
@@ -42,7 +44,6 @@ fun UploadQueueScreen(
     ongoingRun: @Composable () -> Unit = {}
 ) {
     var selected by rememberSaveable(deviceId) { mutableIntStateOf(0) }
-    var picker by remember { mutableStateOf(false) }
     var deletion by remember(deviceId) { mutableStateOf<Pair<TransferActionTarget, UploadJob>?>(null) }
     LaunchedEffect(currentDeviceId) {
         if (deletion != null && !deviceId.equals(currentDeviceId, true)) {
@@ -58,17 +59,14 @@ fun UploadQueueScreen(
             onDismissRequest = { deletion = null },
             confirmEnabled = mutationEnabled && !isLoading, disabledReason = "장치 연결을 확인하세요.")
     }
-    if (picker) GeoSheet("전송 기록 필터", { picker = false }) {
-        options.forEachIndexed { i, name -> GeoRadioRow(name, i == selected, { selected = i; picker = false }) }
-    }
     Box(Modifier.fillMaxSize()) {
         TransferPage("전송 기록", onBack) {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
                 item { ongoingRun() }
                 if (queue.isNotEmpty()) item {
-                    GeoSegmented("전송 기록 필터", options, selected, { selected = it }, { picker = true })
+                    GeoFilters(options, selected, { selected = it })
                 }
-                if (isLoading) item { GeoProgress() }
+                if (isLoading) item { GeoSkeleton("전송 기록을 불러오는 중", kind = GeoSkeletonKind.Rows) }
                 error?.let { item { GeoInlineNote("전송 기록을 불러오지 못했습니다. 다시 시도하세요.",
                     actionLabel = "다시 확인", onAction = onRefresh) } }
                 if (visible.isEmpty() && !isLoading) item {
@@ -77,24 +75,24 @@ fun UploadQueueScreen(
                 }
                 visible.groupBy { transferLogDay(jobDates[it.id] ?: it.verifiedAt) }.entries.forEachIndexed { groupIndex, (day, jobs) ->
                     item(key = day) {
-                        GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) { jobs.forEach { job ->
+                        R7Section(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp),
+                            trailingColumn = GeoRowTrailing.Status) { jobs.forEachIndexed { index, job ->
                             val actions = transferDetailActions(job)
                             var menu by remember(deviceId, job.id) { mutableStateOf(false) }
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                GeoRow(transferSourceName(job), { onJobClick(job) }, Modifier.weight(1f),
+                                GeoRow(transferSourceName(job), { onJobClick(job) },
                                     meta = if (job.state == com.example.jetsoncontroller.model.UploadJobState.FAILED)
                                         "연결이 끊겨 멈췄습니다." else listOfNotNull(
                                             targets.firstOrNull { it.id == job.targetId }?.let(::transferTargetLabel),
                                             job.bytesTotal?.let(Formats::size)).joinToString(" · "),
-                                    badge = { GeoBadge(actions.word, actions.tone) })
-                                if (isDeletableUploadJob(job)) Box {
+                                    badge = { GeoBadge(actions.word, actions.tone) },
+                                    leading = { GeoIconTile(GeoIcons.tabTransfer) }, divider = index < jobs.lastIndex,
+                                    extra = if (isDeletableUploadJob(job)) ({ Box(Modifier.align(Alignment.End)) {
                                     GeoIconButton(GeoIcons.more, "${transferSourceName(job)} 메뉴", { menu = true })
                                     GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
                                         deletion = transferActionTarget(deviceId.orEmpty(), job) to job
                                     }, destructive = true, enabled = mutationEnabled && !isLoading,
                                         disabledReason = "장치 연결을 확인하세요.")))
-                                } else Spacer(Modifier.width(48.dp))
-                            }
+                                } }) else null)
                         } }
                     }
                 }

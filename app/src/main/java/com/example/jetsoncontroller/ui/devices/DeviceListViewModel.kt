@@ -131,7 +131,7 @@ class DeviceListViewModel(
 
     private val savedDevicesState =
         combine(
-            repository.registeredDevices,
+            repository.registeredDeviceSnapshot,
             reconnectState
         ) { devices, reconnect ->
             devices to reconnect
@@ -153,7 +153,8 @@ class DeviceListViewModel(
 
             DeviceListUiState(
                 devices = devices,
-                registeredDevices = savedDevices.first,
+                registeredDevices = savedDevices.first.orEmpty(),
+                isLoading = savedDevices.first == null,
                 isScanning = scanState is BleScanState.Scanning,
                 permissionGranted = permission,
                 connectionState = connection,

@@ -54,6 +54,19 @@ internal fun resultVerification(job: UploadJob): UploadVerification? {
     }
 }
 
+/** Source stages use the same evidence in result and transfer detail screens. */
+internal fun runSourceReceipt(run: PipelineRun): GeoReceiptState {
+    val cells = pipelineRunReceiptCells(run, Tone.UNKNOWN)
+    val stored = runOutputStored(run)
+    val manifest = run.output.manifest?.takeIf { stored }
+    return GeoReceiptState(
+        collection = GeoReceiptItem(cells[0].value, cells[0].tone,
+            "${resultTime(run.finishedAt)} · ${resultDuration(run)}", !run.active && run.finishedAt != null),
+        storage = GeoReceiptItem(cells[1].value, cells[1].tone,
+            manifest?.let { "${String.format(Locale.ROOT, "%,d", it.fileCount)}개 · ${Formats.size(it.bytesTotal)}" }, stored)
+    )
+}
+
 internal fun resultChain(
     run: PipelineRun,
     jobs: List<UploadJob>,
@@ -69,7 +82,6 @@ internal fun resultChain(
     reportFailed: Boolean = false,
     localDeviceWord: String = "휴대폰"
 ): ResultChain {
-    val cells = pipelineRunReceiptCells(run, Tone.UNKNOWN)
     val stored = runOutputStored(run)
     val exact = jobs.filter { resultJobMatches(run, it) }
     val verified = exact.firstOrNull {
@@ -92,21 +104,14 @@ internal fun resultChain(
         else -> GeoReceiptItem(meta = "이 ${localDeviceWord}에서 보낸 기록이 없습니다.")
     }
     val report = when {
-        !ticketLinked -> GeoReceiptItem("해당 없음", Tone.UNKNOWN, "연결된 수집 구간이 없습니다.", true)
+        !ticketLinked -> GeoReceiptItem("해당 없음", Tone.UNKNOWN, "연결된 수집 구간이 없습니다.")
         reported -> GeoReceiptItem("보고 완료", Tone.SUCCESS, reportMessage, true)
         reportPending -> GeoReceiptItem("보고 대기", Tone.PENDING, reportMessage ?: "완료 보고를 보내고 있습니다.")
         reportFailed || reportMessage?.contains("실패") == true -> GeoReceiptItem("보고 실패", Tone.WARNING, reportMessage)
         else -> GeoReceiptItem("보고 전", Tone.UNKNOWN,
             reportMessage ?: "서버 수신을 확인한 뒤 보고할 수 있습니다.")
     }
-    val manifest = run.output.manifest?.takeIf { stored }
-    val receipt = GeoReceiptState(
-        collection = GeoReceiptItem(cells[0].value, cells[0].tone,
-            "${resultTime(run.finishedAt)} · ${resultDuration(run)}", !run.active && run.finishedAt != null),
-        storage = GeoReceiptItem(cells[1].value, cells[1].tone,
-            manifest?.let { "${String.format(Locale.ROOT, "%,d", it.fileCount)}개 · ${Formats.size(it.bytesTotal)}" }, stored),
-        server = server, report = report
-    )
+    val receipt = runSourceReceipt(run).copy(server = server, report = report)
     fun action(action: ResultAction, enabled: Boolean, explanation: String, remedy: String? = null, job: UploadJob? = null) =
         ResultChain(receipt, action, enabled, explanation, remedy, job?.id)
     return when {

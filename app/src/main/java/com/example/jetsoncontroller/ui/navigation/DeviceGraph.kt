@@ -29,6 +29,7 @@ internal fun NavGraphBuilder.deviceGraph(state: State<AppNavigationState>, inclu
 
                 DevicesHomeScreen(
                     registeredDevices = deviceState.registeredDevices,
+                    loadingDevices = deviceState.isLoading,
                     selectedDeviceId = selectedDeviceId,
                     currentDashboard = deviceDashboardState,
                     snapshots = deviceSnapshots,

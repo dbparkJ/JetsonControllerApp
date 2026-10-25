@@ -55,6 +55,7 @@ import com.example.jetsoncontroller.ui.components.geo.geoFocusRing
 import com.example.jetsoncontroller.ui.components.geo.geoInputTextStyle
 import com.example.jetsoncontroller.ui.components.geo.geoLabelTextStyle
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.storage.R7Card
 
 @Composable
 internal fun ServerConnectionScreen(
@@ -102,7 +103,7 @@ internal fun ServerConnectionScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
         SettingsPageHeader("서버 연결", onBack)
         if (profile == null) {
             Box(Modifier.fillMaxWidth().padding(horizontal = LocalGeoWindow.current.gutterDp.dp, vertical = 56.dp)) {
@@ -120,12 +121,14 @@ internal fun ServerConnectionScreen(
                 contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp)
             ) {
                 item {
+                    R7Card {
                     ServerConnectionStatusRow(state)
                     GeoPropertyList(listOf("서버", "환경", "직원", "프로젝트")) {
                     GeoFactRow("서버", profile.profile.displayName)
                     GeoFactRow("환경", serverEnvironmentLabel(profile.profile.environment))
                     GeoFactRow("직원", profile.profile.employeeId)
                     GeoFactRow("프로젝트", profile.profile.projectId)
+                    }
                     }
                 }
                 if (state.errorMessage != null) {
@@ -155,7 +158,8 @@ internal fun ServerConnectionScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.isBusy,
                     busy = state.isBusy,
-                    busyLabel = "확인하는 중"
+                    busyLabel = "확인하는 중",
+                    actionArea = true
                 )
             }
         }
@@ -164,13 +168,8 @@ internal fun ServerConnectionScreen(
 
 @Composable
 private fun ServerConnectionStatusRow(state: ServerConnectionUiState) {
-    val (word, tone) = when (state.status) {
-        ServerConnectionStatus.UNKNOWN -> "확인 전" to Tone.UNKNOWN
-        ServerConnectionStatus.CHECKING -> "확인 중" to Tone.PENDING
-        ServerConnectionStatus.CONNECTED -> "연결됨" to Tone.SUCCESS
-        ServerConnectionStatus.LOGIN_REQUIRED -> "다시 로그인 필요" to Tone.WARNING
-        ServerConnectionStatus.FAILED -> "연결 실패" to Tone.ERROR
-    }
+    val word = serverConnectionWord(state.status)
+    val tone = serverConnectionTone(state.status)
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -179,7 +178,7 @@ private fun ServerConnectionStatusRow(state: ServerConnectionUiState) {
         Text("상태", Modifier.weight(1f), color = LocalGeoColors.current.textSecondary,
             style = LocalGeoType.current.body)
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            GeoBadge(word, tone)
+            GeoBadge(word, tone, variant = com.example.jetsoncontroller.ui.components.geo.GeoBadgeVariant.INLINE)
             state.lastCheckedAtEpochMillis?.let {
                 Text(
                     "마지막 확인 " + formatServerCheckTime(it),

@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dev
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.theme.*
+import com.example.jetsoncontroller.ui.storage.R7Card
 
 internal val LocalDevOngoingStrip = staticCompositionLocalOf<@Composable () -> Unit> { {} }
 
@@ -35,7 +37,7 @@ internal fun DevFrame(title: String, onBack: () -> Unit,
     var headerHeight by remember { mutableFloatStateOf(56f) }
     var stripHeight by remember { mutableFloatStateOf(0f) }
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.canvas)) {
         Row(Modifier.fillMaxWidth().background(c.topBar)
             .onSizeChanged { headerHeight = it.height / density.density }
             .heightIn(min = 56.dp).padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -81,20 +83,27 @@ internal fun DevText(text: String, secondary: Boolean = false, mono: Boolean = f
 }
 
 @Composable
+internal fun DevLoading(text: String = "확인 중", modifier: Modifier = Modifier) {
+    GeoSkeleton(text, modifier, kind = GeoSkeletonKind.Rows)
+}
+
+@Composable
 internal fun DevDivider() = HorizontalDivider(color = LocalGeoColors.current.border)
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DevIdentity(name: String, detail: String? = null, status: String? = null,
     tone: Tone = Tone.UNKNOWN, statusInDetail: Boolean = false) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(name, style = LocalGeoType.current.heading, color = LocalGeoColors.current.text)
-        if (status != null && !statusInDetail) GeoBadge(status, tone)
+    val line = with(LocalDensity.current) { LocalGeoType.current.heading.lineHeight.toDp() }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+        Text(name, Modifier.weight(1f), style = LocalGeoType.current.heading, color = LocalGeoColors.current.text)
+        if (status != null && !statusInDetail) Box(Modifier.heightIn(min = line), contentAlignment = Alignment.CenterEnd) {
+            GeoBadge(status, tone, Modifier.width(88.dp), minWidth = 88.dp)
+        }
     }
     if ((status != null && statusInDetail) || detail != null) {
         Spacer(Modifier.height(4.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (status != null && statusInDetail) GeoBadge(status, tone)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (status != null && statusInDetail) GeoBadge(status, tone, variant = GeoBadgeVariant.INLINE)
             detail?.let { DevText(it, secondary = true) }
         }
     }
@@ -102,15 +111,17 @@ internal fun DevIdentity(name: String, detail: String? = null, status: String? =
 
 @Composable
 internal fun DevFeedback(message: String?, error: Boolean = false) {
-    if (message != null) Text(message, Modifier.padding(vertical = 12.dp), style = LocalGeoType.current.body,
-        color = if (error) LocalGeoColors.current.danger else LocalGeoColors.current.text)
+    if (message != null) {
+        if (error) GeoInlineNote(message, Modifier.padding(vertical = 12.dp), tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR)
+        else Text(message, Modifier.padding(vertical = 12.dp), style = LocalGeoType.current.body, color = LocalGeoColors.current.text)
+    }
 }
 
 @Composable
 internal fun DevAddressRow(label: String, address: String, onClick: () -> Unit) {
     CompositionLocalProvider(LocalGeoType provides LocalGeoType.current.copy(
         caption = LocalGeoType.current.mono)) {
-        GeoRow(label, onClick, meta = address)
+        GeoRow(label, onClick, meta = address, leading = { GeoIconTile(GeoIcons.router) })
     }
 }
 

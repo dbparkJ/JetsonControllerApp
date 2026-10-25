@@ -48,13 +48,12 @@ internal fun TaskChoiceSheet(
         subtitle = listOfNotNull(ticketTitle, deviceName).joinToString(" · "),
         openerFocusRequester = openerFocusRequester) {
         when {
-            !sameDevice || state.isLoading -> Text("확인 중", color = LocalGeoColors.current.textSecondary,
-                style = LocalGeoType.current.body)
+            !sameDevice || state.isLoading -> GeoSkeleton("수집 작업을 불러오는 중", kind = GeoSkeletonKind.Rows)
             state.error != null -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
                 "수집 작업을 불러오지 못했습니다", "연결 상태를 확인하고 다시 시도하세요."))
             state.pipelines.isEmpty() -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
                 "이 장치에 수집 작업이 없습니다", "관리자에게 작업 등록을 요청하세요."))
-            else -> state.pipelines.forEach { pipeline ->
+            else -> GeoRowList(GeoRowTrailing.Status) { state.pipelines.forEachIndexed { index, pipeline ->
                 val word = taskChoiceState(pipeline)
                 GeoRow(pipeline.label, {
                     // A tap on a stale row cannot select a task on the next device.
@@ -64,10 +63,11 @@ internal fun TaskChoiceSheet(
                         }
                 }, meta = pipeline.execution?.startedAt?.let { time ->
                     runCatching { Instant.parse(time) }.getOrNull()?.let { "마지막 실행 ${Formats.time(it)}" }
-                }, badge = { GeoBadge(word.word, word.tone) },
+                }, badge = { GeoBadge(word.word, word.tone) }, leading = { GeoIconTile(GeoIcons.tabWork) },
+                    divider = index < state.pipelines.lastIndex,
                     enabled = state.controlAvailable && state.busyPipelineId == null,
                     disabledReason = "연결되면 작업을 선택할 수 있습니다.")
-            }
+            } }
         }
     }
 }

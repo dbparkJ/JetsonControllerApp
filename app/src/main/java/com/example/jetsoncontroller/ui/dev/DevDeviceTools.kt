@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dev
 
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -28,7 +29,7 @@ internal fun DevNetworkScreen(state: FieldState, onRefresh: () -> Unit, onBack: 
 @Composable
 internal fun DevNetworkContent(state: FieldState) {
     GeoSection("주소", first = true, modifier = Modifier.padding(top = 24.dp)) {
-        if (state.networkBusy) DevText("확인 중")
+        if (state.networkBusy) DevLoading()
         if (!state.online) DevText("장치를 같은 네트워크나 직접 연결로 연결하면 조회할 수 있습니다.")
         state.network?.interfaces?.distinctBy { it.interfaceName to it.address }?.groupBy(::networkAddressLabel)?.forEach { (label, addresses) ->
             addresses.forEach { address ->

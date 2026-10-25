@@ -105,8 +105,8 @@ class JetsonRepository(
         StateFlow<BlePairingState> =
         gattClient.pairingState
 
-    val registeredDevices:
-        StateFlow<List<RegisteredDevice>> =
+    internal val registeredDeviceSnapshot:
+        StateFlow<List<RegisteredDevice>?> =
         credentialStore.registeredDevices
             .map { credentials ->
                 credentials
@@ -121,8 +121,15 @@ class JetsonRepository(
             .stateIn(
                 scope = scope,
                 started = SharingStarted.Eagerly,
-                initialValue = emptyList()
+                initialValue = null
             )
+
+    val registeredDevices: StateFlow<List<RegisteredDevice>> =
+        registeredDeviceSnapshot.map { it.orEmpty() }.stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = emptyList()
+        )
 
     private val _status = MutableStateFlow(JetsonStatus())
     val status: StateFlow<JetsonStatus> = _status.asStateFlow()

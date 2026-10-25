@@ -20,6 +20,7 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import com.example.jetsoncontroller.ui.storage.R7Card
 
 /** The developer log adds file size and row padding while sharing the follow rules. */
 @Composable
@@ -44,7 +45,7 @@ internal fun DevLogView(lines: List<GeoLogLine>, live: Boolean, sizeBytes: Long?
             try { devLogEnd(list, lines.lastIndex) } finally { automatic = false }
         }
     }
-    Column(modifier) {
+    R7Card(modifier) {
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             GeoBadge(if (live) "실시간" else "보관 로그", if (live) Tone.SUCCESS else Tone.UNKNOWN)
             Spacer(Modifier.weight(1f))

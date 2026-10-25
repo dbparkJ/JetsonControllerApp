@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
 
 @Composable
 fun DeveloperScreen(
@@ -38,6 +39,8 @@ fun DeveloperScreen(
         GeoSwitchRow("화면에 기술 정보 표시", technical, { technical = it }, description = "상세 화면 끝에 기술 정보를 보여 줍니다.")
         devHubSections.forEachIndexed { index, (section, doors) ->
             GeoSection(section, first = index == 0, modifier = Modifier.padding(top = if (index == 0) 24.dp else 0.dp)) {
+              WorkSurfaceCard {
+               GeoRowList(GeoRowTrailing.None) {
                 doors.forEachIndexed { doorIndex, door ->
                     GeoRow(door.label, {
                         if (onOpenTool != null) open(door.destination.route)
@@ -47,8 +50,10 @@ fun DeveloperScreen(
                             DevDestination.TERMINAL, DevDestination.NETWORK, DevDestination.SENSOR_TEST -> open(door.destination.route)
                             else -> onAdminTools()
                         }
-                    }, divider = doorIndex < doors.lastIndex || index == devHubSections.lastIndex)
+                    }, leading = { GeoIconTile(GeoIcons.terminal) }, divider = doorIndex < doors.lastIndex)
                 }
+               }
+              }
             }
         }
     }

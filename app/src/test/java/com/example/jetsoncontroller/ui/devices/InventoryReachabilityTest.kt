@@ -15,7 +15,8 @@ class InventoryReachabilityTest {
         val graph = source("navigation/DeviceGraph.kt")
         val root = source("devices/DevicesHomeScreen.kt")
         val detail = source("devices/DeviceDetailScreen.kt")
-        assertTrue(root.contains("DeviceIdentity(current.deviceName, connection, onClick = onOpenDevice"))
+        assertTrue(root.contains("GeoDevicePhotoCard(current.deviceName, connection.label, connection.tone,"))
+        assertTrue(root.contains("onClick = onOpenDevice"))
         assertTrue(graph.contains("onOpenDevice = { navController.navigateSingle(Routes.DEVICE_DETAIL) }"))
         listOf("상태", "센서", "연결", "데이터", "관리").forEach {
             assertTrue("Missing device-detail section: $it", detail.contains("GeoSection(\"$it\""))
@@ -23,8 +24,8 @@ class InventoryReachabilityTest {
         assertTrue(detail.contains("GeoSection(\"이 \$deviceWord\""))
         assertTrue(detail.contains("note = \"이 \${deviceWord}에 저장된 인증 정보만 지웁니다.\""))
         assertTrue(detail.contains("forget -> \"이 \${deviceWord}에 저장된 인증 정보만 지웁니다."))
-        assertTrue(detail.contains("GeoPropertyList(listOf(\"연결 방법\", \"장치 Wi-Fi\"))"))
-        assertTrue(detail.contains("onClick = onNetwork"))
+        assertTrue(detail.contains("GeoRow(\"연결 방법\", { sheet = true }"))
+        assertTrue(detail.contains("GeoRow(\"장치 Wi-Fi\", onNetwork"))
         val homes = mapOf(
             "4/5/79" to "DeviceSensorRows(", "6/117/118" to "ConnectMethodSheet(",
             "7/96" to "GeoConfirmDialog(", "120" to "onForget?.invoke()"

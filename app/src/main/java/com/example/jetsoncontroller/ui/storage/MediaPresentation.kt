@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -50,11 +52,7 @@ internal fun localTimeOrDateLabel(
 
 @Composable
 internal fun MediaFilters(selected: String, onSelected: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    GeoPickerField("유형", selected, { open = true })
-    if (open) GeoSheet("유형", { open = false }) {
-        mediaCategories.forEach { name -> GeoRadioRow(name, selected == name, { onSelected(name); open = false }) }
-    }
+    GeoFilters(mediaCategories, mediaCategories.indexOf(selected).coerceAtLeast(0), { onSelected(mediaCategories[it]) })
 }
 
 internal fun mediaIcon(entry: RemoteFileEntry) = when {
@@ -88,6 +86,6 @@ internal fun MediaThumbnail(entry: RemoteFileEntry, sourceKey: String,
         }
     }
     val current = bitmap
-    if (current != null) Image(current.asImageBitmap(), entry.name, Modifier.size(48.dp), contentScale = ContentScale.Crop)
-    else Icon(mediaIcon(entry), null, Modifier.size(24.dp), tint = LocalGeoColors.current.textSecondary)
+    if (current != null) Image(current.asImageBitmap(), entry.name, Modifier.size(40.dp).clip(GeoShape.iconTile), contentScale = ContentScale.Crop)
+    else GeoIconTile(mediaIcon(entry))
 }

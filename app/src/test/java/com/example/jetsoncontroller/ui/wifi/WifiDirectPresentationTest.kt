@@ -4,6 +4,7 @@ import android.net.wifi.p2p.WifiP2pDevice
 import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiDirectState
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -35,6 +36,7 @@ class WifiDirectPresentationTest {
         assertEquals(DirectStage.READY, directStage(joined.copy(apiStatus = WifiDirectApiStatus.READY), true))
         assertNotEquals(DirectStage.READY, directStage(idle.copy(apiStatus = WifiDirectApiStatus.READY), true))
         assertEquals("장치 확인 중", peerStatusLabel(WifiP2pDevice.CONNECTED))
+        assertEquals(Tone.PENDING, peerStatusTone(WifiP2pDevice.CONNECTED))
         assertEquals("연결됨", peerStatusLabel(WifiP2pDevice.CONNECTED, authenticated = true))
     }
 
@@ -67,6 +69,8 @@ class WifiDirectPresentationTest {
         assertEquals("연결 승인 대기 중", peerStatusLabel(WifiP2pDevice.INVITED))
         assertEquals("연결 가능", peerStatusLabel(WifiP2pDevice.AVAILABLE))
         assertEquals("이전 연결 실패", peerStatusLabel(WifiP2pDevice.FAILED))
+        assertEquals(Tone.WARNING, peerStatusTone(WifiP2pDevice.FAILED))
+        assertEquals(Tone.INFO, peerStatusTone(WifiP2pDevice.AVAILABLE))
         assertEquals("현재 연결할 수 없음", peerStatusLabel(WifiP2pDevice.UNAVAILABLE))
         assertEquals("상태 확인 중", peerStatusLabel(-1))
         assertEquals("휴대폰의 위치 서비스를 켠 뒤 다시 찾으세요.", directFailureText("위치 서비스"))

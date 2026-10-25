@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.pipelines
 
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -121,7 +122,7 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
     }) {
         DevIdentity(label, deviceName)
         DevFeedback(state.message, state.needsReview)
-        if (state.busy) DevText("확인 중")
+        if (state.busy) DevLoading()
         GeoButton("장치 설정 다시 불러오기", { confirmReload = true }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = enabled)
         GeoSection("센서", first = true, modifier = Modifier.padding(top = 24.dp)) {
             for ((key, name) in listOf("camera" to "카메라", "gnss" to "위치(GNSS)", "imu" to "움직임(IMU)")) {

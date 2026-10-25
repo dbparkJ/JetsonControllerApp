@@ -47,6 +47,10 @@ import com.example.jetsoncontroller.ui.components.geo.GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoStateBlock
 import com.example.jetsoncontroller.ui.components.geo.GeoStateContent
 import com.example.jetsoncontroller.ui.components.geo.GeoStateKind
+import com.example.jetsoncontroller.ui.components.geo.GeoIconTile
+import com.example.jetsoncontroller.ui.components.geo.GeoSkeleton
+import com.example.jetsoncontroller.ui.components.geo.GeoSkeletonKind
+import com.example.jetsoncontroller.ui.storage.R7Card
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
@@ -114,20 +118,20 @@ fun AlertCenterScreen(
         )
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            Modifier.fillMaxWidth().background(LocalGeoColors.current.topBar).heightIn(min = 56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            GeoIconButton(GeoIcons.back, "뒤로", onBack)
+            GeoIconButton(GeoIcons.back, "뒤로", onBack, chrome = true)
             Text(
                 "알림",
                 Modifier.weight(1f).padding(start = 12.dp),
-                color = LocalGeoColors.current.text,
+                color = LocalGeoColors.current.onTopBar,
                 style = LocalGeoType.current.title
             )
             Box {
-                GeoIconButton(GeoIcons.more, "알림 옵션", { menuOpen = true })
+                GeoIconButton(GeoIcons.more, "알림 옵션", { menuOpen = true }, chrome = true)
                 GeoMenu(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
@@ -147,16 +151,9 @@ fun AlertCenterScreen(
         when {
             !state.isLoaded -> Box(
                 Modifier.fillMaxWidth().weight(1f),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.TopCenter
             ) {
-                GeoStateBlock(
-                    GeoStateContent(
-                        kind = GeoStateKind.MISSING,
-                        title = "알림을 불러오는 중",
-                        explanation = "저장된 알림을 확인하고 있습니다."
-                    ),
-                    modifier = Modifier.padding(horizontal = 24.dp)
-                )
+                GeoSkeleton("알림을 불러오는 중", Modifier.padding(24.dp), kind = GeoSkeletonKind.Rows)
             }
             state.alerts.isEmpty() -> Box(
                 Modifier.fillMaxWidth().weight(1f),
@@ -176,12 +173,12 @@ fun AlertCenterScreen(
                 val groups = state.alerts.groupBy { alertDayLabel(it.createdAtEpochMillis, now) }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().weight(1f),
-                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp)
+                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 40.dp)
                 ) {
                     groups.entries.forEachIndexed { index, (label, alerts) ->
                         item(key = "day-$label") {
                             GeoSection(label, first = index == 0) {
-                                Column(Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     alerts.forEach { alert ->
                                         AlertRow(
                                             alert = alert,
@@ -208,20 +205,21 @@ private fun AlertRow(
     onDelete: () -> Unit
 ) {
     val icon = alertIcon(alert.severity)
+    R7Card {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 88.dp).padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        Modifier.fillMaxWidth().heightIn(min = 88.dp),
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp),
-            tint = alertColor(alert.severity))
+        GeoIconTile(icon, tone = if (alert.severity == AlertSeverity.ERROR) Tone.ERROR else null)
         Column(
             Modifier.weight(1f).clickable(role = Role.Button, onClick = onClick)
-                .padding(vertical = 8.dp)
+                .padding(vertical = 4.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     alert.title,
+                    modifier = Modifier.weight(1f),
                     color = LocalGeoColors.current.text,
                     style = LocalGeoType.current.titleSm.copy(
                         fontWeight = if (alert.read) FontWeight.Medium else FontWeight.SemiBold
@@ -242,12 +240,8 @@ private fun AlertRow(
                 style = LocalGeoType.current.caption
             )
         }
-        GeoButton(
-            label = "삭제",
-            onClick = onDelete,
-            modifier = Modifier.widthIn(min = 56.dp, max = 72.dp),
-            style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.End
-        )
+        GeoIconButton(GeoIcons.trash, "${alert.title} 삭제", onDelete)
+    }
     }
 }
 
@@ -256,12 +250,4 @@ private fun alertIcon(severity: AlertSeverity) = when (severity) {
     AlertSeverity.SUCCESS -> GeoIcons.success
     AlertSeverity.WARNING -> GeoIcons.warning
     AlertSeverity.ERROR -> GeoIcons.danger
-}
-
-@Composable
-private fun alertColor(severity: AlertSeverity) = when (severity) {
-    AlertSeverity.INFO -> LocalGeoColors.current.info
-    AlertSeverity.SUCCESS -> LocalGeoColors.current.success
-    AlertSeverity.WARNING -> LocalGeoColors.current.warning
-    AlertSeverity.ERROR -> LocalGeoColors.current.danger
 }

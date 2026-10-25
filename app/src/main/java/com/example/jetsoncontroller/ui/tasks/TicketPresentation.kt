@@ -172,6 +172,28 @@ internal data class TicketPassiveReadiness(
     val remedyLabel: String? = null
 )
 
+internal data class WorkReadinessRow(val label: String, val value: String, val status: String, val tone: Tone)
+
+/** Passive readings never claim that the explicit start preflight has passed. */
+internal fun ticketReadinessRows(readiness: TicketPassiveReadiness): List<WorkReadinessRow> = buildList {
+    add(WorkReadinessRow("연결", readiness.connection,
+        if (readiness.controlAvailable) "연결됨" else "미연결",
+        if (readiness.controlAvailable) Tone.SUCCESS else Tone.WARNING))
+    add(WorkReadinessRow("저장 공간", readiness.storage, "점검 전", Tone.UNKNOWN))
+    add(WorkReadinessRow("위치 품질", readiness.position,
+        readiness.position.takeUnless { it == "위치 미확인" } ?: "미확인", when (readiness.position) {
+        "정밀 위치" -> Tone.SUCCESS
+        "대략 위치", "위치 없음" -> Tone.WARNING
+        else -> Tone.UNKNOWN
+    }))
+    add(WorkReadinessRow("카메라", readiness.camera, readiness.camera, when (readiness.camera) {
+        "수신 중", "연결됨" -> Tone.SUCCESS
+        "지연", "끊김" -> Tone.WARNING
+        else -> Tone.UNKNOWN
+    }))
+    readiness.relay?.let { add(WorkReadinessRow("보정 정보 중계", it, it, Tone.UNKNOWN)) }
+}
+
 internal fun ticketPassiveReadiness(
     deviceName: String,
     status: JetsonStatus?,

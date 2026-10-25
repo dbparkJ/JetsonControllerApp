@@ -25,6 +25,7 @@ import com.example.jetsoncontroller.ui.navigation.AppNavigationState
 import com.example.jetsoncontroller.ui.navigation.Routes
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
 
 // The graph owner can adopt the complete first-run actions without changing the legacy signature.
 @Composable
@@ -50,7 +51,7 @@ fun FirstDeviceOnboardingScreen(
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
     val gutter = LocalGeoWindow.current.gutterDp.dp
-    Column(Modifier.fillMaxSize().background(colors.surface)) {
+    Column(Modifier.fillMaxSize().background(colors.canvas)) {
         // GeoAppShell owns system insets. A first-run scene has no back title bar.
         if (onOpenSettings != null) {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), horizontalArrangement = Arrangement.End) {
@@ -83,8 +84,10 @@ fun FirstDeviceOnboardingScreen(
                 Text("장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다.", style = type.body, color = colors.textSecondary)
                 Spacer(Modifier.height(8.dp))
                 GeoSection("등록에 필요한 권한", first = true, modifier = Modifier.padding(top = 24.dp)) {
+                  WorkSurfaceCard {
                     PermissionRow(GeoIcons.camera, "카메라", "QR 코드를 읽습니다.")
-                    PermissionRow(GeoIcons.bluetooth, "블루투스", "가까운 장치를 찾아 인증합니다.")
+                    PermissionRow(GeoIcons.bluetooth, "블루투스", "가까운 장치를 찾아 인증합니다.", divider = false)
+                  }
                 }
                 inlineAction()
             }
@@ -94,17 +97,16 @@ fun FirstDeviceOnboardingScreen(
 }
 
 @Composable
-private fun PermissionRow(icon: ImageVector, title: String, explanation: String) {
+private fun PermissionRow(icon: ImageVector, title: String, explanation: String, divider: Boolean = true) {
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
-    Column {
-        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Icon(icon, null, Modifier.size(24.dp), tint = colors.textSecondary)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = type.titleSm, color = colors.text)
-                Text(explanation, style = type.caption, color = colors.textSecondary)
-            }
+    Row(Modifier.fillMaxWidth().heightIn(min = 80.dp)
+        .then(if (divider) Modifier.contentDivider() else Modifier).padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+        GeoIconTile(icon)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = type.titleSm, color = colors.text)
+            Text(explanation, style = type.supporting, color = colors.textSecondary)
         }
-        Spacer(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
     }
 }

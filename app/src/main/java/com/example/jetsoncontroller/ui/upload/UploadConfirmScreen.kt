@@ -1,5 +1,7 @@
-﻿package com.example.jetsoncontroller.ui.upload
+package com.example.jetsoncontroller.ui.upload
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import com.example.jetsoncontroller.ui.model.Tone
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -73,12 +75,14 @@ fun UploadConfirmScreen(
                         ?: path.substringAfterLast('/').ifBlank { "수집 자료" },
                         listOfNotNull(linkedRun?.contextSnapshot?.surveyProjectLabel, summary?.folderName).joinToString(" · "))
                     GeoSection("보낼 자료", first = true, note = "장치 원본은 그대로 보관됩니다.") {
+                        if (isCalculatingSource) GeoSkeleton("보낼 자료를 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
                         GeoFactRow("파일", Formats.itemCount(summary?.filesTotal?.toLong()), numeric = true)
                         GeoFactRow("용량", Formats.size(summary?.bytesTotal), numeric = true)
                         GeoFactRow("보내는 장치", deviceName)
                         linkedRun?.let { run -> GeoFactRow("수집", Formats.time(run.startedAt.toTransferInstant())) }
                     }
                     GeoSection("받는 서버") {
+                        if (isLoading) GeoSkeleton("받는 서버를 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
                         when (targets.size) {
                             0 -> {
                                 GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "받을 서버가 없습니다",

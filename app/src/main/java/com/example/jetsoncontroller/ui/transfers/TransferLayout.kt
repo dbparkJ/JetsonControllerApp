@@ -34,7 +34,7 @@ internal fun TransferPage(
     val chrome = LocalGeoChrome.current
     val density = LocalDensity.current
     var headerDp by remember { mutableFloatStateOf(0f) }
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.canvas)) {
         GeoTopBar(Modifier.onSizeChanged { headerDp = it.height / density.density }) {
             if (header != null) header() else
             Row(Modifier.fillMaxWidth().heightIn(min = if (onBack == null) 64.dp else 56.dp)
@@ -81,12 +81,17 @@ internal fun TransferRootHeader(deviceName: String, onDevicePicker: () -> Unit, 
 internal val transferGutter: androidx.compose.ui.unit.Dp
     @Composable get() = LocalGeoWindow.current.gutterDp.dp
 
+private val EmptyTransferBadge: @Composable () -> Unit = {}
+
 @Composable
-internal fun TransferHeading(title: String, meta: String? = null, badge: @Composable () -> Unit = {}) {
+internal fun TransferHeading(title: String, meta: String? = null, badge: @Composable () -> Unit = EmptyTransferBadge) {
+    val line = with(LocalDensity.current) { LocalGeoType.current.boardTitle.lineHeight.toDp() }
     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, Modifier.semantics { heading() }, style = LocalGeoType.current.boardTitle,
-            color = LocalGeoColors.current.text)
-        badge()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+            Text(title, Modifier.weight(1f).semantics { heading() }, style = LocalGeoType.current.boardTitle,
+                color = LocalGeoColors.current.text)
+            if (badge !== EmptyTransferBadge) Box(Modifier.width(88.dp).heightIn(min = line), contentAlignment = Alignment.CenterEnd) { badge() }
+        }
         meta?.let { Text(it, style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary) }
     }
 }

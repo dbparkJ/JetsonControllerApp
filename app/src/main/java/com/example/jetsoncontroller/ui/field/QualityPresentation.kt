@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.*
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.GeoShape
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
+import com.example.jetsoncontroller.ui.tasks.WorkSummaryCard
+import com.example.jetsoncontroller.ui.tasks.WorkFigureValue
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.model.Tone
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -217,41 +222,77 @@ internal fun RunQualityEvidence(
     val presentation = runQualityPresentation(quality)
     val detailSlices = qualityDetailSlices(presentation)
     val detailProblems = qualityDetailProblems(quality)
+    val precision = precisionMetricLabel(quality)
     val colors = LocalGeoColors.current
     val window = LocalGeoWindow.current
     var showDetails by remember(quality) { mutableStateOf(false) }
     val openerFocus = remember { FocusRequester() }
     if (showDetails) {
+      CompositionLocalProvider(LocalGeoColors provides colors.copy(surface = colors.canvas)) {
         GeoSheet(title, { showDetails = false },
             modifier = if (window.compactHeight) Modifier else Modifier.heightIn(max = window.heightDp.dp * .9f),
-            kind = GeoSheetKind.INFO, subtitle = subtitle,
-            openerFocusRequester = openerFocus) {
-            if (detailSlices.isEmpty()) {
-                GeoInlineNote(presentation.detail)
-            } else {
-                detailSlices.forEach { slice ->
-                    GeoFactRow(slice.label, qualityDurationLabel(slice.durationMillis), numeric = true)
+            kind = GeoSheetKind.FORM, subtitle = subtitle,
+            openerFocusRequester = openerFocus,
+            footer = { CompositionLocalProvider(LocalGeoColors provides colors) {
+                GeoButton("닫기", { showDetails = false }, Modifier.fillMaxWidth(), actionArea = true)
+            } }) {
+          CompositionLocalProvider(LocalGeoColors provides colors) {
+            WorkSummaryCard {
+                val summaryColors = LocalGeoColors.current
+                Text(if (precision != "미확인") "정밀 위치 · 관찰한 시간 기준" else "위치 품질",
+                    style = LocalGeoType.current.supporting, color = summaryColors.text)
+                if (precision != "미확인") WorkFigureValue(precision, large = true)
+                else Text(presentation.headline, style = LocalGeoType.current.workTitle, color = summaryColors.text)
+                PrecisionBar(presentation.slices)
+            }
+            WorkSurfaceCard(Modifier.padding(top = 20.dp)) {
+                GeoPropertyList(listOf("관찰한 시간", "관찰하지 못한 시간")) {
+                    GeoFactRow("관찰한 시간", quality?.rtkObservedDurationMillis?.let(::qualityDurationLabel) ?: "미확인", numeric = true)
+                    GeoFactRow("관찰하지 못한 시간", quality?.rtkUnknownDurationMillis?.let(::qualityDurationLabel) ?: "미확인", numeric = true)
                 }
-                Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary)
+                Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
+            GeoSection("위치 품질별 시간") {
+                if (detailSlices.isEmpty()) GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                    "위치 품질 미확인", presentation.detail))
+                else WorkSurfaceCard {
+                    GeoRowList(GeoRowTrailing.Status) {
+                        detailSlices.forEachIndexed { index, slice ->
+                            GeoPreparationStatusRow(slice.label, null, qualityDurationLabel(slice.durationMillis), Tone.UNKNOWN,
+                                icon = when (slice.band) {
+                                    LocationQualityBand.PRECISE, LocationQualityBand.APPROXIMATE -> GeoIcons.myLocation
+                                    LocationQualityBand.NONE -> GeoIcons.warning
+                                    else -> GeoIcons.unknown
+                                }, numericValue = true, divider = index < detailSlices.lastIndex)
+                        }
+                    }
+                }
             }
             if (detailProblems.isNotEmpty()) GeoSection("문제 구간") {
-                detailProblems.forEach { problem ->
-                    Column(Modifier.fillMaxWidth().contentDivider().padding(vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(qualityProblemLabel(problem), style = LocalGeoType.current.titleSm, color = colors.text)
-                        Text(qualityProblemTimeLabel(problem), style = LocalGeoType.current.caption, color = colors.textSecondary)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    detailProblems.forEach { problem ->
+                        Column(Modifier.fillMaxWidth().background(colors.warningSoft, GeoShape.card).padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(qualityProblemLabel(problem), style = LocalGeoType.current.titleSm, color = colors.text)
+                            Text(qualityProblemTimeLabel(problem), style = LocalGeoType.current.supporting, color = colors.textSecondary)
+                        }
                     }
                 }
             }
             zoneObservation?.let {
                 GeoSection("수집 구역") {
+                  WorkSurfaceCard {
                     GeoFactRow("구역 밖 기록", "${it.excursions}회 · ${qualityDurationLabel(it.outsideMillis)}")
                     GeoFactRow("관찰하지 못한 시간", qualityDurationLabel(it.unobservedMillis))
                     Text("구역 밖 기록은 관찰한 시간 기준입니다.", style = LocalGeoType.current.caption,
                         color = colors.textSecondary)
+                  }
                 }
             }
+          }
         }
+      }
     }
     if (compact) {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -260,7 +301,8 @@ internal fun RunQualityEvidence(
             Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary)
         }
     } else {
-        GeoRow("위치 품질 자세히", { showDetails = true },
+        GeoRow("위치 품질 자세히", { showDetails = true }, meta = presentation.headline,
+            leading = { GeoIconTile(GeoIcons.myLocation) }, divider = false,
             modifier = modifier.focusRequester(openerFocus))
     }
 }
@@ -273,7 +315,7 @@ internal fun PrecisionBar(slices: List<PrecisionSlice>) {
         slices.filter { it.durationMillis > 0L }.forEach { slice ->
             Box(
                 Modifier.weight(slice.durationMillis.toFloat() / denominator.toFloat()).height(8.dp)
-                    .background(qualityBandColor(slice.band, colors.primary, colors.warning, colors.neutral, colors.danger))
+                    .background(qualityBandColor(slice.band, colors.success, colors.warning, colors.neutral, colors.danger))
             )
         }
     }

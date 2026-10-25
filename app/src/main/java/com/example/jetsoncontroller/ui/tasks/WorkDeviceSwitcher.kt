@@ -10,10 +10,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.GeoIcons
 import com.example.jetsoncontroller.ui.components.geo.GeoBadge
-import com.example.jetsoncontroller.ui.components.geo.GeoRadioRow
+import com.example.jetsoncontroller.ui.components.geo.GeoRow
+import com.example.jetsoncontroller.ui.components.geo.GeoRowList
+import com.example.jetsoncontroller.ui.components.geo.GeoRowTrailing
+import com.example.jetsoncontroller.ui.components.geo.GeoIconTile
 import com.example.jetsoncontroller.ui.components.geo.contentTarget
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -40,9 +46,15 @@ internal fun WorkDeviceSwitcher(name: String, tone: Tone, onClick: () -> Unit, m
     }
 }
 
-/** The choice sheet paints the selected fill edge to edge; the state badge follows the name. */
+/** Selection and connection state use separate, stable columns. */
 @Composable
 internal fun WorkDeviceChoiceRow(name: String, selected: Boolean, onClick: () -> Unit,
     word: String, tone: Tone, detail: String?) {
-    GeoRadioRow(name, selected, onClick, description = detail, badge = { GeoBadge(word, tone) })
+    val colors = LocalGeoColors.current
+    GeoRowList(GeoRowTrailing.Status) {
+        GeoRow(name, onClick, Modifier.background(if (selected) colors.primaryTint else colors.surface)
+            .semantics { this.selected = selected; role = Role.RadioButton }, meta = detail,
+            leading = { GeoIconTile(GeoIcons.tabDevice, selected = selected) },
+            badge = { GeoBadge(word, tone) })
+    }
 }

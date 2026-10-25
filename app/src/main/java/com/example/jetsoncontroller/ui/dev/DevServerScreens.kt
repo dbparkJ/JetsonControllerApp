@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dev
 
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,7 +25,7 @@ internal fun DevServerProfilesScreen(state: DirectServerUiState, onBack: () -> U
     onEdit: (String?) -> Unit, onConnect: (String) -> Unit) {
     DevPage("서버 프로필", onBack, actions = { GeoIconButton(GeoIcons.add, "프로필 추가", { onEdit(null) }, chrome = true) }) {
         if (state.profiles.isEmpty()) DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 설정하세요.", "프로필 추가", { onEdit(null) })
-        else GeoSection("프로필", first = true) {
+        else GeoSection("프로필", first = true, trailingColumn = GeoRowTrailing.None) {
             state.profiles.forEach { stored ->
                 DevAddressRow(stored.profile.displayName, stored.profile.baseUrl, { onEdit(stored.profile.profileId) })
             }
@@ -61,16 +62,16 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
             disabledReason = "서버 요청이 끝난 뒤 삭제할 수 있습니다.")
     }
     DevPage(if (profile == null) "서버 프로필 추가" else "서버 프로필 수정", { token = ""; onBack() }, footer = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (profile != null) GeoButton("이 프로필로 연결", { token = ""; onConnect(profile.profileId) },
-                Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary, enabled = !busy)
-            GeoButton("암호화해 저장", {
+        GeoButtonActions(buildList {
+            if (profile != null) add(GeoButtonAction("이 프로필로 연결", { token = ""; onConnect(profile.profileId) },
+                style = GeoButtonStyle.Secondary, enabled = !busy))
+            add(GeoButtonAction("암호화해 저장", {
                 val credential = secret.consume()
                 candidate?.let { onSave(it, credential) }
-            }, Modifier.fillMaxWidth(), enabled = candidate != null && validProfileToken(token) && !busy,
-                busy = busy, busyLabel = "저장 중", actionArea = true,
-                disabledReason = "프로필 정보와 관리자에게 받은 직원 토큰을 입력하세요.")
-        }
+            }, enabled = candidate != null && validProfileToken(token) && !busy,
+                busy = busy, busyLabel = "저장 중",
+                disabledReason = "프로필 정보와 관리자에게 받은 직원 토큰을 입력하세요."))
+        })
     }) {
         if (profile != null) GeoFactRow("프로필 ID", id)
         else GeoTextField(id, { id = it.lowercase().take(64) }, "프로필 ID")
@@ -134,7 +135,7 @@ internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit
             if (content == ServerTrashContent.EMPTY) DevEmpty("서버 휴지통이 비어 있습니다", "휴지통으로 옮긴 수신 결과가 여기에 표시됩니다.")
             if (content == ServerTrashContent.ERROR) DevEmpty("서버 휴지통을 불러오지 못했습니다", "서버 연결을 확인하고 다시 시도하세요.", "다시 시도", onRefresh)
             if (!state.trashEmptySupported && state.capabilities != null) DevText("이 서버에서는 휴지통 비우기를 지원하지 않습니다.")
-            if (busy) DevText("확인 중")
+            if (busy) DevLoading()
             DevFeedback(state.message, state.messageIsError)
             GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !busy)
         }

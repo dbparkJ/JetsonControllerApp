@@ -16,7 +16,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -26,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Offset
@@ -44,6 +42,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.GeoFixedColors
+import com.example.jetsoncontroller.ui.theme.GeoPalette
+import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -77,8 +78,8 @@ fun QrScannerScreen(
         if (accepted) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         accepted
     }
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        PairingTopBar("QR 코드 스캔", onBack)
+    Column(Modifier.fillMaxSize().background(GeoFixedColors.mediaStage)) {
+        ScannerTopBar(onBack)
         Box(Modifier.weight(1f)) {
             when {
                 showManualEntry -> ScannerStage(PairingScannerFrame.image)
@@ -128,12 +129,21 @@ fun QrScannerScreen(
 
 @Composable
 internal fun FrozenPairingScanner(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        PairingTopBar("QR 코드 스캔", onBack)
+    Column(Modifier.fillMaxSize().background(GeoFixedColors.mediaStage)) {
+        ScannerTopBar(onBack)
         Box(Modifier.weight(1f)) { ScannerStage(PairingScannerFrame.image) }
         MediaControls {
             GeoButton("코드 직접 입력", onBack, Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary)
         }
+    }
+}
+
+@Composable
+private fun ScannerTopBar(onBack: () -> Unit) {
+    val colors = LocalGeoColors.current
+    CompositionLocalProvider(LocalGeoColors provides colors.copy(topBar = GeoFixedColors.mediaStage,
+        onTopBar = GeoFixedColors.mediaText, onTopBarIcon = GeoFixedColors.mediaText)) {
+        PairingTopBar("QR 코드 스캔", onBack)
     }
 }
 
@@ -151,16 +161,16 @@ internal fun PairingTopBar(title: String, onBack: () -> Unit) {
 private fun MediaControls(content: @Composable () -> Unit) {
     val colors = LocalGeoColors.current
     CompositionLocalProvider(LocalGeoColors provides colors.copy(
-        text = Color.White, textSecondary = Color.White, borderStrong = Color.White,
-        focusHalo = Color.White, primary = Color.White, fieldPressed = Color.White.copy(alpha = 0.12f)
+        text = GeoFixedColors.mediaText, textSecondary = GeoFixedColors.mediaText, borderStrong = GeoFixedColors.mediaText,
+        focusHalo = GeoFixedColors.mediaText, primary = GeoFixedColors.mediaText, fieldPressed = GeoPalette.GRAPHITE.colors.fieldPressed
     )) {
-        Box(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 24.dp, vertical = 16.dp)) { content() }
+        Box(Modifier.fillMaxWidth().background(GeoFixedColors.mediaStage).padding(horizontal = 24.dp, vertical = 12.dp)) { content() }
     }
 }
 
 @Composable
 private fun ScannerStage(image: ImageBitmap? = null, error: String? = null) {
-    Box(Modifier.fillMaxSize().background(Color(0xFF2B2D30))) {
+    Box(Modifier.fillMaxSize().background(GeoPalette.GRAPHITE.colors.sunken)) {
         if (image != null) Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         ScannerFrameOverlay(error)
     }
@@ -172,8 +182,8 @@ private fun CameraPermissionContent(onRequestPermission: () -> Unit) {
     var requested by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 56.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("카메라 권한이 꺼져 있습니다", style = LocalGeoType.current.stateTitle, color = Color.White)
-        Text("QR 코드를 읽으려면 카메라 권한이 필요합니다.", style = LocalGeoType.current.body, color = Color.White)
+        Text("카메라 권한이 꺼져 있습니다", style = LocalGeoType.current.stateTitle, color = GeoFixedColors.mediaText)
+        Text("QR 코드를 읽으려면 카메라 권한이 필요합니다.", style = LocalGeoType.current.body, color = GeoFixedColors.mediaText)
         if (requested) {
             GeoButton("설정에서 허용", {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
@@ -252,10 +262,10 @@ private fun CameraScannerContent(
         // The overlay is transparent while the live preview is running.
         ScannerFrameOverlay(errorMessage?.let { INVALID_PAIRING_CODE } ?: cameraError)
         if (camera?.cameraInfo?.hasFlashUnit() == true) {
-            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(10.dp))) {
+            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).background(GeoFixedColors.mediaPlate, GeoShape.badge)) {
                 val colors = LocalGeoColors.current
                 CompositionLocalProvider(LocalGeoColors provides colors.copy(
-                    textSecondary = Color.White, primary = Color.White, fieldPressed = Color.White.copy(alpha = 0.12f)
+                    textSecondary = GeoFixedColors.mediaText, primary = GeoFixedColors.mediaText, fieldPressed = GeoPalette.GRAPHITE.colors.fieldPressed
                 )) {
                     GeoIconButton(if (torchEnabled) GeoIcons.torchOff else GeoIcons.torch,
                         if (torchEnabled) "손전등 끄기" else "손전등 켜기", {
@@ -280,14 +290,14 @@ private fun ScannerFrameOverlay(error: String?) {
                 for (right in listOf(false, true)) for (bottom in listOf(false, true)) {
                     val x = if (right) size.width - stroke / 2 else stroke / 2
                     val y = if (bottom) size.height - stroke / 2 else stroke / 2
-                    drawLine(Color.White, Offset(x, y), Offset(x + if (right) -edge else edge, y), stroke)
-                    drawLine(Color.White, Offset(x, y), Offset(x, y + if (bottom) -edge else edge), stroke)
+                    drawLine(GeoFixedColors.mediaText, Offset(x, y), Offset(x + if (right) -edge else edge, y), stroke)
+                    drawLine(GeoFixedColors.mediaText, Offset(x, y), Offset(x, y + if (bottom) -edge else edge), stroke)
                 }
             }
             Spacer(Modifier.height(16.dp))
             Text(error ?: "장치 본체의 QR 코드를 사각형 안에 맞추세요.",
-                Modifier.background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
-                color = Color.White, style = LocalGeoType.current.body, textAlign = TextAlign.Center)
+                Modifier.background(GeoFixedColors.mediaPlate, GeoShape.badge).padding(horizontal = 12.dp, vertical = 8.dp),
+                color = GeoFixedColors.mediaText, style = LocalGeoType.current.body, textAlign = TextAlign.Center)
         }
     }
 }

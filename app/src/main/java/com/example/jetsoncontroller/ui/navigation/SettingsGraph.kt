@@ -1,9 +1,16 @@
 package com.example.jetsoncontroller.ui.navigation
 
 import androidx.compose.runtime.State
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import com.example.jetsoncontroller.ui.settings.ServerConnectionViewModel
+import com.example.jetsoncontroller.ui.settings.serverConnectionWord
+import com.example.jetsoncontroller.ui.settings.serverConnectionTone
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.example.jetsoncontroller.ui.*
@@ -13,11 +20,35 @@ internal const val SETTINGS_SERVER_ROUTE = "settings/server"
 private const val SETTINGS_ABOUT_ROUTE = "settings/about"
 private const val SETTINGS_HELP_ROUTE = "settings/help"
 
+/** Home and detail share checked status within the owning tab and credential scope. */
+@Composable
+private fun settingsServerViewModel(state: AppNavigationState, entry: NavBackStackEntry): ServerConnectionViewModel {
+    val profile = state.directServerState.profiles.firstOrNull {
+        it.profile.profileId == state.directServerState.selectedProfileId
+    }
+    val owner = remember(entry) {
+        state.navController.getBackStackEntry(requireNotNull(entry.destination.parent?.route))
+    }
+    return viewModel(
+        viewModelStoreOwner = owner,
+        key = "settings-server:${profile?.profile?.profileId}:${profile?.credentialRevision}",
+        factory = ServerConnectionViewModel.Factory(state.fieldContext)
+    )
+}
+
 internal fun NavGraphBuilder.settingsGraph(state: State<AppNavigationState>, includeRoot: Boolean = false) {
     if (includeRoot) {
-        composable(Routes.SETTINGS) {
+        composable(Routes.SETTINGS) { entry ->
             with(state.value) {
                 StatusPollingLifecycleEffect(dashboardViewModel)
+                val connectionViewModel = settingsServerViewModel(state.value, entry)
+                val connectionState by connectionViewModel.uiState.collectAsState()
+                val profile = directServerState.profiles.firstOrNull {
+                    it.profile.profileId == directServerState.selectedProfileId
+                }
+                LaunchedEffect(profile?.profile?.profileId, profile?.credentialRevision) {
+                    profile?.let { connectionViewModel.check(it.profile) }
+                }
                 // Keyed per entry, not through a shared SaveableStateHolder (see Routes.DATA).
                 androidx.compose.runtime.key(selectedDeviceId) {
                     com.example.jetsoncontroller.ui.settings.SettingsHubScreen(
@@ -42,9 +73,9 @@ internal fun NavGraphBuilder.settingsGraph(state: State<AppNavigationState>, inc
                         onServerConnection = { navController.navigateSingle(SETTINGS_SERVER_ROUTE) },
                         onAbout = { navController.navigateSingle(SETTINGS_ABOUT_ROUTE) },
                         onHelp = { navController.navigateSingle(SETTINGS_HELP_ROUTE) },
-                        serverProfileName = directServerState.profiles.firstOrNull {
-                            it.profile.profileId == directServerState.selectedProfileId
-                        }?.profile?.displayName,
+                        serverProfileName = profile?.profile?.displayName,
+                        serverStatusWord = serverConnectionWord(connectionState.status),
+                        serverStatusTone = serverConnectionTone(connectionState.status),
                         alertSettings = alertSettings,
                         notificationPermissionGranted = notificationPermissionGranted,
                         onRequestNotificationPermission = onRequestNotificationPermission
@@ -103,14 +134,9 @@ internal fun NavGraphBuilder.settingsGraph(state: State<AppNavigationState>, inc
             )
         }
 
-        composable(SETTINGS_SERVER_ROUTE) {
+        composable(SETTINGS_SERVER_ROUTE) { entry ->
             val current = state.value
-            val viewModel: com.example.jetsoncontroller.ui.settings.ServerConnectionViewModel =
-                viewModel(
-                    factory = com.example.jetsoncontroller.ui.settings.ServerConnectionViewModel.Factory(
-                        current.fieldContext
-                    )
-                )
+            val viewModel = settingsServerViewModel(current, entry)
             val connectionState by viewModel.uiState.collectAsState()
             val profile = current.directServerState.profiles.firstOrNull {
                 it.profile.profileId == current.directServerState.selectedProfileId

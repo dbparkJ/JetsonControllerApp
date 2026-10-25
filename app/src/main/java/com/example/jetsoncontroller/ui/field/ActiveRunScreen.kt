@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -40,10 +41,16 @@ import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.sensors.SensorActivity
 import com.example.jetsoncontroller.ui.sensors.sensorPresentations
 import com.example.jetsoncontroller.ui.theme.*
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
+import com.example.jetsoncontroller.ui.tasks.WorkSummaryCard
+import com.example.jetsoncontroller.ui.tasks.WorkFigureValue
+import com.example.jetsoncontroller.ui.tasks.ticketPassiveReadiness
 import com.example.jetsoncontroller.ui.zone.runPresentation
 import kotlinx.coroutines.delay
 
 private val SystemElapsedRealtimeMillis: () -> Long = { System.nanoTime() / 1_000_000L }
+
+internal const val WorkStopRequestKey = "work.stop.request"
 
 /** Phase 6 supplies observations from the run's bound geometry. No geometry is assumed here. */
 internal data class RunZonePresentation(
@@ -72,6 +79,10 @@ internal fun ActiveRunRoute(
     val zoneOutput = com.example.jetsoncontroller.ui.map.LocalGeoMapZoneOutput.current
     val monitoredZone = if (zoneOutput.outsideCount != null) zoneOutput.runPresentation(state.selectedDeviceName) else zone
     val survey = state.surveyRunState
+    val stopRequestHandle = state.navController.currentBackStackEntry?.savedStateHandle
+    val stopRequest = stopRequestHandle?.getStateFlow<ArrayList<String>?>(WorkStopRequestKey, null)
+        ?.collectAsStateWithLifecycle()?.value
+    val requestedStopTarget = stopRequest?.takeIf { it.size == 3 }?.let { StopTarget(it[0], it[1], it[2]) }
     val deviceId = state.selectedDeviceId ?: survey.deviceId
     val active = survey.activeRun?.takeIf { it.deviceId.equals(deviceId, true) }
     val latest = survey.latestRun?.takeIf { it.deviceId.equals(deviceId, true) }
@@ -86,6 +97,9 @@ internal fun ActiveRunRoute(
         SensorActivity.CONNECTED, SensorActivity.WAITING -> SensorState.WAITING
     }
     val relay = state.pipelineState.mobileRtkRelay.takeIf { it.pipelineId == (active ?: latest)?.pipelineId && it.pipelineId != null }
+    val position = if (dashboard.statusFreshness == StatusFreshness.CURRENT) ticketPassiveReadiness(
+        state.selectedDeviceName, dashboard.status, dashboard.isOnline, connection.label, java.time.Instant.now()
+    ).position else "위치 미확인"
     ActiveRunScreen(
         deviceName = state.selectedDeviceName, connectionLabel = connection.label, connectionTone = connection.tone,
         run = active, latestRun = latest, deviceScopeKey = deviceId ?: state.selectedDeviceName,
@@ -97,6 +111,8 @@ internal fun ActiveRunRoute(
         sensorSummary = null, storageSummary = null,
         projectLabel = survey.selectedProject?.label, sectionLabel = survey.selectedSection?.label,
         stopInProgress = survey.operation == "stop",
+        requestedStopTarget = requestedStopTarget,
+        onStopRequestHandled = { stopRequestHandle?.set<ArrayList<String>?>(WorkStopRequestKey, null) },
         online = dashboard.isOnline,
         stopAvailable = state.fullControlConnected && matchingStopTarget(active, state.pipelineState.pipelines) != null,
         pendingStart = survey.pendingStart != null, unconfirmedRunId = survey.unconfirmedRunId,
@@ -133,11 +149,17 @@ internal fun ActiveRunRoute(
                 else -> CorrectionRelayState.OFF
             }
         },
-        mapCard = mapCard, zone = monitoredZone
+        mapCard = mapCard, zone = monitoredZone,
+        positionLabel = position, positionTone = when (position) {
+            "정밀 위치" -> Tone.SUCCESS
+            "대략 위치", "위치 없음" -> Tone.WARNING
+            else -> Tone.UNKNOWN
+        }
     )
 }
 
 /** The shell owns system insets. Legacy callbacks remain usable until the focused graph is wired. */
+@OptIn(ExperimentalLayoutApi::class)
 @Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun ActiveRunScreen(
@@ -182,7 +204,11 @@ internal fun ActiveRunScreen(
     onStopTarget: ((StopTarget) -> Unit)? = null,
     onOpenResultTarget: ((StopTarget) -> Unit)? = null,
     projectLabel: String? = null,
-    sectionLabel: String? = null
+    sectionLabel: String? = null,
+    positionLabel: String? = null,
+    positionTone: Tone = Tone.UNKNOWN,
+    requestedStopTarget: StopTarget? = null,
+    onStopRequestHandled: () -> Unit = {}
 ) {
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
@@ -245,6 +271,13 @@ internal fun ActiveRunScreen(
         flow = next.flow
         next.command?.let { target -> latestTargetStop?.invoke(target) ?: latestStop() }
     }
+    LaunchedEffect(requestedStopTarget) {
+        if (requestedStopTarget != null) {
+            flow = reduceRunStop(flow, RunStopEvent.REQUEST, latestRunInput, latestOnline,
+                latestStopAvailable, latestAwaiting, latestBusy, requestedTarget = requestedStopTarget).flow
+            onStopRequestHandled()
+        }
+    }
     BackHandler(onBack = onBack)
 
     if (relayInfo && correctionRelay != null) {
@@ -269,7 +302,7 @@ internal fun ActiveRunScreen(
         )
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(colors.surface)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(colors.canvas)) {
         var ownChromeDp by remember { mutableFloatStateOf(0f) }
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.onSizeChanged { ownChromeDp = it.height / density.density }) {
@@ -297,7 +330,7 @@ internal fun ActiveRunScreen(
             ) { inlineAction ->
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = GeoSpace.scrollEnd)) {
                     item {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = window.gutterDp.dp).padding(top = GeoSpace.space8)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = window.gutterDp.dp).padding(top = 16.dp)) {
                             RunHeading(observedRun, deviceName, state, projectLabel, sectionLabel)
                             Spacer(Modifier.height(GeoSpace.detailSection))
                             val note = when (state) {
@@ -314,49 +347,41 @@ internal fun ActiveRunScreen(
                                 GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR)
                                 Spacer(Modifier.height(GeoSpace.section))
                             }
-                            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                val split = (window.compactHeight || window.twoPane) &&
-                                    maxWidth >= (560f * density.fontScale.coerceAtLeast(1f)).dp + GeoSpace.section
-                                val map: @Composable () -> Unit = {
-                                    Box(Modifier.fillMaxWidth()) {
-                                        mapCard()
-                                        zone.badge?.let { label ->
-                                            GeoBadge(label, zone.tone,
-                                                Modifier.align(Alignment.TopStart).padding(GeoSpace.overlayInset),
-                                                variant = GeoBadgeVariant.ON_MAP)
-                                        }
-                                    }
-                                }
-                                val metrics: @Composable () -> Unit = {
-                                    Column {
-                                        GeoFigureGrid(figures)
-                                        Text("마지막 확인 $observedLabel", Modifier.padding(top = GeoSpace.space4),
-                                            color = colors.textSecondary, style = type.caption)
-                                    }
-                                }
-                                if (split) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.section)) {
-                                        Box(Modifier.weight(1f)) { map() }
-                                        Box(Modifier.weight(1f)) { metrics() }
-                                    }
-                                } else {
-                                    Column {
-                                        map()
-                                        Spacer(Modifier.height(GeoSpace.section))
-                                        metrics()
-                                    }
-                                }
+                            ActiveRunClockCard(figures.take(2))
+                            FlowRow(Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                positionLabel?.let { GeoBadge(it, positionTone, variant = GeoBadgeVariant.INLINE) }
+                                zone.badge?.let { GeoBadge(it, zone.tone, variant = GeoBadgeVariant.INLINE) }
                             }
+                            mapCard()
+                            Text("마지막 확인 $observedLabel", Modifier.padding(top = 8.dp),
+                                color = colors.textSecondary, style = type.caption)
                             if (observedRun != null && !awaitingStart) {
                                 Spacer(Modifier.height(GeoSpace.section))
-                                GeoRow("카메라 영상", onCamera,
+                                WorkSurfaceCard {
+                                  GeoRowList(GeoRowTrailing.Status) {
+                                    GeoRow("카메라 영상", onCamera,
                                     enabled = online && observedRun.active && !stopping,
                                     disabledReason = "장치의 수집 상태가 확인되면 영상을 볼 수 있습니다.",
+                                    leading = { GeoIconTile(GeoIcons.camera) }, divider = correctionRelay != null,
                                     badge = cameraStateLabel?.let { label -> { GeoBadge(label, cameraStateTone) } })
-                                GeoRow("지도 크게 보기", onMap)
-                                correctionRelay?.let { relay ->
-                                    GeoRow("보정 정보 중계", { if (onCorrectionRelay != null) onCorrectionRelay() else relayInfo = true },
-                                        badge = { GeoBadge(relay.word, relay.tone) })
+                                    correctionRelay?.let { relay ->
+                                        GeoRow("보정 정보 중계", { if (onCorrectionRelay != null) onCorrectionRelay() else relayInfo = true },
+                                            leading = { GeoIconTile(GeoIcons.link) }, divider = false,
+                                            badge = { GeoBadge(relay.word, relay.tone) })
+                                    }
+                                  }
+                                }
+                                Column(Modifier.padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    figures.drop(2).forEach { figure ->
+                                        val shown = figurePresentation(figure)
+                                        Text("${figure.label} ${shown.value}", color = colors.textSecondary, style = type.supporting)
+                                        shown.detail?.let { Text(it, color = colors.textSecondary, style = type.caption) }
+                                    }
+                                    Text("관찰한 시간 기준", color = colors.textSecondary, style = type.caption)
+                                }
+                                GeoRowList(GeoRowTrailing.None) {
+                                    GeoRow("지도 크게 보기", onMap, leading = { GeoIconTile(GeoIcons.fitZone) }, divider = false)
                                 }
                             }
                         }
@@ -364,6 +389,35 @@ internal fun ActiveRunScreen(
                     item { inlineAction() }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ActiveRunClockCard(figures: List<GeoFigure>) {
+    WorkSummaryCard {
+        val colors = LocalGeoColors.current
+        val type = LocalGeoType.current
+        val elapsed = figures.firstOrNull()?.let(::figurePresentation)
+        Text("경과 시간", color = colors.text, style = type.supporting)
+        Text(elapsed?.value ?: "미확인", color = colors.text,
+            style = if (elapsed?.unknown == false) type.clock else type.workTitle)
+        elapsed?.detail?.let { Text(it, color = colors.text, style = type.caption) }
+        figures.getOrNull(1)?.let { figure ->
+            val shown = figurePresentation(figure)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(figure.label, color = colors.text, style = type.supporting)
+                        WorkFigureValue(shown.value, shown.unknown)
+                    }
+                } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(figure.label, color = colors.text, style = type.supporting)
+                    WorkFigureValue(shown.value, shown.unknown)
+                }
+            }
+            shown.detail?.let { Text(it, color = colors.text, style = type.caption) }
         }
     }
 }
@@ -402,7 +456,7 @@ private fun RunHeading(
     }
     val meta = listOfNotNull(deviceName, project,
         section?.takeIf { title != it }).joinToString(" · ")
-    Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.space4)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, Modifier.semantics { heading() }, style = type.boardTitle, color = c.text)
         Text(meta, style = type.caption, color = c.textSecondary)
     }
@@ -426,20 +480,15 @@ private fun RunActionArea(
         (state == ActiveRunState.COLLECTING && zone.tone == Tone.WARNING)
     val pending = state == ActiveRunState.STOP_CHECKING
     Column(verticalArrangement = Arrangement.spacedBy(GeoSpace.space4)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(GeoSpace.captionIconGap), verticalAlignment = Alignment.Top) {
-            Icon(if (warning) GeoIcons.warning else if (pending) GeoIcons.pending else GeoIcons.success,
-                null, Modifier.padding(top = GeoSpace.space2).size(16.dp),
-                tint = if (warning) c.warning else if (pending) c.pending else c.success)
-            Text(readiness, color = c.textSecondary, style = LocalGeoType.current.body)
-        }
+        GeoReadinessLine(readiness, if (warning) Tone.WARNING else if (pending) Tone.PENDING else Tone.SUCCESS)
         when (state) {
-            ActiveRunState.START_CHECKING -> GeoButton("시작 결과 확인", onCheckStart,
+            ActiveRunState.START_CHECKING -> GeoButton("시작 결과 확인", onCheckStart, Modifier.fillMaxWidth(),
                 enabled = online, actionArea = true, disabledReason = "연결되면 시작 결과를 확인할 수 있습니다.")
-            ActiveRunState.UNKNOWN -> GeoButton("상태 다시 확인", onRefresh, actionArea = true)
-            ActiveRunState.ENDED -> GeoButton("결과 보기", onResult, actionArea = true)
+            ActiveRunState.UNKNOWN -> GeoButton("상태 다시 확인", onRefresh, Modifier.fillMaxWidth(), actionArea = true)
+            ActiveRunState.ENDED -> GeoButton("결과 보기", onResult, Modifier.fillMaxWidth(), actionArea = true)
             else -> GeoButton("수집 종료", onRequestStop,
                 Modifier.fillMaxWidth().focusRequester(stopFocus).testTag("request-stop"),
-                style = GeoButtonStyle.DangerOutline,
+                style = GeoButtonStyle.DangerFilled, icon = GeoIcons.stop,
                 enabled = state == ActiveRunState.COLLECTING || state == ActiveRunState.STOP_CHECKING,
                 busy = state == ActiveRunState.STOP_CHECKING, busyLabel = "종료하는 중", actionArea = true)
         }

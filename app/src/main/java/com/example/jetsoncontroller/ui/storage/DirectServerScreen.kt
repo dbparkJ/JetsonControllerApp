@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.storage
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -25,6 +27,7 @@ import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.GeoFixedColors
 import kotlinx.coroutines.*
 import java.time.Instant
 import java.util.Locale
@@ -72,9 +75,7 @@ internal fun DirectServerScreen(
     }
     var candidate by remember(state.selectedProfileId, state.section) { mutableStateOf<ServerTrashTarget?>(null) }
     var menu by remember(state.selectedProfileId, state.selectedJob?.sessionId) { mutableStateOf(false) }
-    var sectionPicker by remember { mutableStateOf(false) }
     val menuOpener = remember { FocusRequester() }
-    val sectionOpener = remember { FocusRequester() }
     val trash = state.section == DirectServerSection.TRASH
     val canMutate = directServerRoleCanMutate(state.capabilities?.employee?.role)
     candidate?.let { target ->
@@ -87,12 +88,8 @@ internal fun DirectServerScreen(
     }
     state.receipt?.let { receipt -> ReceiptDialog(receipt, profile?.displayName.orEmpty(), onBack,
         developerModeEnabled, showTechnicalInfo) }
-    if (sectionPicker) GeoSheet("서버", { sectionPicker = false }, openerFocusRequester = sectionOpener) {
-        GeoRadioRow("수신 결과", !trash, { onSection(DirectServerSection.DATA); sectionPicker = false })
-        GeoRadioRow("휴지통", trash, { onSection(DirectServerSection.TRASH); sectionPicker = false })
-    }
     state.preview?.let { preview ->
-        StoragePage(preview.fileName, onBack, media = true) { PreviewPane(preview, Modifier.fillMaxSize()) }
+        StoragePage("파일 미리보기", onBack, media = true) { PreviewPane(preview, Modifier.fillMaxSize()) }
         return
     }
     StoragePage("서버 수신 결과", onBack, actions = {
@@ -119,12 +116,10 @@ internal fun DirectServerScreen(
                             Column(Modifier.padding(horizontal = storageGutter)) {
                                 StorageFreshness(state.refreshedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
                                     ?: state.cachedAtEpochMillis, refresh, profile?.displayName ?: "서버")
-                                GeoSegmented("서버", listOf("수신 결과", "휴지통"), if (trash) 1 else 0,
-                                    { onSection(if (it == 0) DirectServerSection.DATA else DirectServerSection.TRASH) },
-                                    { sectionPicker = true }, Modifier.focusRequester(sectionOpener))
+                                GeoFilters(listOf("수신 결과", "휴지통"), if (trash) 1 else 0,
+                                    { onSection(if (it == 0) DirectServerSection.DATA else DirectServerSection.TRASH) })
                             }
                         }
-                        if (state.isConnecting || state.isLoading) GeoProgress()
                         state.message?.let { message ->
                             GeoInlineNote(if (!state.messageIsError || message == UNKNOWN_SERVER_MUTATION) message
                                 else if (state.jobsSource == ServerJobsSource.CACHE) "서버에 연결하지 못해 마지막으로 본 수신 결과를 표시합니다."
@@ -172,12 +167,17 @@ private fun JobsList(state: DirectServerUiState, onRefresh: () -> Unit, onJob: (
     onLoadMore: () -> Unit, modifier: Modifier) {
     StorageRefresh(state.isLoading, !state.isConnecting, onRefresh, modifier) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
+            if (state.isLoading || state.isConnecting) item { GeoSkeleton("수신 결과를 불러오는 중", kind = GeoSkeletonKind.Rows) }
             items(state.jobs, key = { it.sessionId }) { job ->
                 val status = serverJobState(job.state)
+                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                GeoRowList(GeoRowTrailing.Status) {
                 GeoRow(job.sourceName, { onJob(job) },
                     meta = if (job.state == "UPLOADING") "${Formats.size(job.receivedBytes)} / ${Formats.size(job.totalBytes)}"
                         else "${browserDay(job.completedAt ?: job.updatedAt)} 수신 · ${Formats.size(job.totalBytes)}",
-                    badge = { GeoBadge(status.word, status.tone) })
+                    badge = { GeoBadge(status.word, status.tone) }, leading = { GeoIconTile(GeoIcons.folder) }, divider = false)
+                }
+                }
             }
             if (state.nextOffset != null) item {
                 GeoButton("이전 수신 결과 더 불러오기", onLoadMore, Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary,
@@ -214,13 +214,19 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
                 GeoFactRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)
                 if (job.state == "COMPLETED") GeoRow("서버 수신 영수증", { onReceipt(job) })
             }
-            GeoSection(if (state.currentPath.isBlank()) "파일" else "파일 / ${state.currentPath.substringAfterLast('/')}") {}
+            com.example.jetsoncontroller.ui.components.geo.GeoSection(if (state.currentPath.isBlank()) "파일" else "파일 / ${state.currentPath.substringAfterLast('/')}") {}
+            if (state.isLoading) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
             if (state.filesTruncated) GeoInlineNote("파일 목록 일부만 표시됩니다. 하위 폴더에서 다시 확인하세요.")
         }
         items(state.files, key = { it.relativePath }) { file ->
             val directory = file.type.equals("directory", true)
+            R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+            GeoRowList(GeoRowTrailing.Status) {
             GeoRow(breakableFileName(file.name), { if (directory) onDirectory(file) else onFile(file) },
-                meta = if (directory) "폴더" else serverFileCategory(file.name), value = file.sizeBytes?.let(Formats::size))
+                meta = if (directory) "폴더" else serverFileCategory(file.name), value = file.sizeBytes?.let(Formats::size),
+                leading = { GeoIconTile(if (directory) GeoIcons.folder else GeoIcons.file) }, divider = false)
+            }
+            }
         }
         if (state.files.isEmpty() && !state.isLoading && state.message == null) item {
             GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 폴더에 파일이 없습니다", "다른 폴더를 선택하세요."))
@@ -248,16 +254,20 @@ private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> U
     StorageRefresh(state.isLoading, !state.isConnecting, onRefresh) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
             item {
+                if (state.isLoading || state.isConnecting) GeoSkeleton("휴지통을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
                 Text(serverTrashCount(state.trash.size, state.trashTotal), style = LocalGeoType.current.body,
                     color = LocalGeoColors.current.textSecondary)
                 if (developer && onDeveloperTrash != null) GeoRow("개발자 도구에서 비우기", onDeveloperTrash)
             }
             items(state.trash, key = { it.sessionId }) { job ->
                 val restorable = serverTrashCanRestore(job)
+                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
                 GeoActionRow(job.sourceName, if (restorable) "서버 작업 복원" else serverTrashStatus(job), { detail = job },
                     { onRestore(job.sessionId) }, meta = "${Formats.itemCount(job.fileCount.toLong())} · ${Formats.size(job.totalBytes)}",
+                    leading = { GeoIconTile(GeoIcons.trash) }, divider = false,
                     actionEnabled = canMutate && restorable && !state.isLoading && !state.isConnecting,
                     disabledReason = if (!restorable) serverTrashStatus(job) else "서버 연결과 복원 권한을 확인하세요.")
+                }
             }
             if (state.trash.isEmpty() && !state.isLoading && state.message == null) item {
                 GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다", "서버 휴지통으로 옮긴 수신 결과가 여기에 표시됩니다."))
@@ -289,7 +299,8 @@ private fun PreviewPane(preview: DirectServerPreview, modifier: Modifier) {
         preview.mediaType?.startsWith("image/") == true || serverFileCategory(preview.fileName) == "이미지" -> {
             val bitmap = remember(preview.bytes) { decodePreviewBitmap(preview.bytes) }
             if (bitmap != null) ZoomableImagePreview(preview.fileName, bitmap.asImageBitmap(),
-                remember(preview.bytes) { previewImageDimensions(preview.bytes) }) else UnsupportedServerPreview(modifier)
+                remember(preview.bytes) { previewImageDimensions(preview.bytes) },
+                listOf("크기" to Formats.size(preview.bytes.size.toLong()))) else UnsupportedServerPreview(modifier)
         }
         text != null -> FilePreview(RemoteFileContent(preview.fileName, preview.mediaType.orEmpty(), preview.bytes))
         else -> UnsupportedServerPreview(modifier)
@@ -369,11 +380,11 @@ private fun VideoPreview(preview: DirectServerPreview, modifier: Modifier) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); video?.stopPlayback(); video = null }
     }
-    Box(modifier.background(Color.Black)) {
+    Box(modifier.background(GeoFixedColors.mediaStage)) {
         when {
             failed -> Column(Modifier.align(Alignment.Center).padding(storageGutter), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("영상 미리 보기를 준비하지 못했습니다. 다시 시도하세요.",
-                    style = LocalGeoType.current.body, color = Color.White)
+                style = LocalGeoType.current.body, color = GeoFixedColors.mediaText)
                 GeoButton("다시 시도", { retry += 1 }, Modifier.fillMaxWidth())
             }
             file != null -> key(preview, retry, file) {

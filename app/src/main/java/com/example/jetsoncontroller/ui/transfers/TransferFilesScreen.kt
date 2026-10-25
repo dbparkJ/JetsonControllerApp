@@ -1,5 +1,6 @@
-﻿package com.example.jetsoncontroller.ui.transfers
+package com.example.jetsoncontroller.ui.transfers
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +14,8 @@ import com.example.jetsoncontroller.model.UploadSourceSummary
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.ui.storage.DeviceStorageUiState
 import com.example.jetsoncontroller.ui.storage.breakableFileName
+import com.example.jetsoncontroller.ui.storage.R7FileSelectionRow
+import com.example.jetsoncontroller.ui.storage.StoragePage
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.model.Formats
@@ -44,18 +47,17 @@ internal fun TransferFilesScreen(
     var targetId by rememberSaveable(state.deviceId) { mutableStateOf<String?>(null) }
     var search by rememberSaveable(state.deviceId) { mutableStateOf("") }
     var type by rememberSaveable { mutableIntStateOf(0) }
-    var picker by remember { mutableStateOf(false) }
     state.preview?.let { preview ->
-        TransferPage(preview.name, onBack) { com.example.jetsoncontroller.ui.storage.FilePreview(preview) }
+        StoragePage("파일 미리보기", onBack, media = true) {
+            com.example.jetsoncontroller.ui.storage.FilePreview(preview, state.deviceName,
+                state.entries.firstOrNull { it.name == preview.name })
+        }
         return
     }
     val types = listOf("전체", "이미지", "영상", "센서", "로그")
     val root = state.currentRoot?.id
     val selection = summary?.takeIf { it.rootId == root && it.relativePath == selectedPath }
     val target = targets.firstOrNull { it.id == targetId } ?: targets.firstOrNull()
-    if (picker) GeoSheet("유형", { picker = false }) {
-        types.forEachIndexed { i, label -> GeoRadioRow(label, type == i, { type = i; picker = false }) }
-    }
     TransferPage("파일 보내기", onBack) {
         GeoActionArea(visibilityKey = "${state.deviceId}:$selectedPath", action = {
             if (selectedPath != null) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,6 +70,7 @@ internal fun TransferFilesScreen(
                     targets.size == 1 -> GeoFactRow("받는 서버", target?.let(::transferTargetLabel).orEmpty())
                     else -> targets.forEach { row -> GeoRadioRow(transferTargetLabel(row), row.id == target?.id, { targetId = row.id }) }
                 }
+                Text("장치 원본은 그대로 보관됩니다.", style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
                 if (!sendEnabled) GeoButton("장치 Wi-Fi 설정", onRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 GeoButton("전송 시작", {
                     if (root != null && selectedPath != null && target != null) onStart(root, selectedPath!!, target.id)
@@ -82,9 +85,9 @@ internal fun TransferFilesScreen(
                     GeoRow(if (state.currentPath.isBlank()) "수집 자료" else "수집 자료 / ${state.currentPath}", onParent)
                     GeoTextField(search, { search = it }, "이름으로 찾기", modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(16.dp))
-                    GeoPickerField("유형", types[type], { picker = true })
+                    GeoFilters(types, type, { type = it })
                     Spacer(Modifier.height(24.dp))
-                    if (state.isLoading) GeoProgress()
+                    if (state.isLoading) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
                     if (!state.controlAvailable) GeoStateBlock(GeoStateContent(GeoStateKind.OFFLINE,
                         "장치에 연결해야 합니다", disabledReason, "연결 방법"), onAction = onRemedy)
                     (error ?: state.error)?.let { GeoInlineNote("파일을 확인하지 못했습니다. 다시 시도하세요.",
@@ -95,16 +98,14 @@ internal fun TransferFilesScreen(
                 entries.groupBy { com.example.jetsoncontroller.ui.upload.transferLogDay(it.modifiedAt) }.entries.forEachIndexed { groupIndex, (day, group) ->
                 item(key = "day:$day") { GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {} }
                 items(group, key = { it.relativePath }) { entry ->
-                    Column {
-                        GeoRadioRow(breakableFileName(entry.name), selectedPath == entry.relativePath, {
+                    R7FileSelectionRow(entry, selectedPath == entry.relativePath, {
                             selectedPath = entry.relativePath
                             if (root != null) onSelect(root, entry.relativePath)
-                        }, description = entry.sizeBytes?.let(Formats::size), enabled = state.controlAvailable,
-                            disabledReason = disabledReason)
-                        if (entry.type == com.example.jetsoncontroller.model.RemoteEntryType.DIRECTORY) {
-                            GeoButton("폴더 열기", { onDirectory(entry) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
-                        } else GeoButton("미리 보기", { onFilePreview(entry) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
-                    }
+                        }, onOpen = {
+                            if (entry.type == com.example.jetsoncontroller.model.RemoteEntryType.DIRECTORY) onDirectory(entry)
+                            else onFilePreview(entry)
+                        }, enabled = state.controlAvailable, disabledReason = disabledReason,
+                        modifier = Modifier.padding(bottom = 8.dp))
                 }
                 }
                 if (entries.isEmpty() && !state.isLoading && state.controlAvailable) item {

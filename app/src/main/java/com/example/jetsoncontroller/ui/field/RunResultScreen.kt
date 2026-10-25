@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -33,6 +34,8 @@ import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
+import com.example.jetsoncontroller.ui.tasks.WorkFigureCards
 
 @Suppress("UNUSED_PARAMETER") // Retain the graph signature until its owner wires the new seams.
 @Composable
@@ -189,19 +192,20 @@ internal fun RunResultScreen(
                             Text("${resultTime(run.finishedAt)} 종료 · ${resultDuration(run)} · $deviceName",
                                 style = LocalGeoType.current.caption, color = c.textSecondary)
                             Spacer(Modifier.height(24.dp))
-                            if (LocalGeoWindow.current.compactHeight) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    GeoReceipt(chain.receipt, Modifier.weight(1f))
-                                    Column(Modifier.weight(1f)) { mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(run, historyEntry, historyState, observedZone, zoneRevisionChanged) }
+                            WorkSurfaceCard {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Text("수집 영수증", Modifier.weight(1f), style = LocalGeoType.current.sectionTitle, color = c.text)
+                                    Text("4단계", style = LocalGeoType.current.caption, color = c.textSecondary)
                                 }
-                            } else GeoReceipt(chain.receipt)
-                            Spacer(Modifier.height(24.dp))
-                            ResultMetrics(run, observedZone)
-                            if (!LocalGeoWindow.current.compactHeight) {
-                                // Without a zone or trail the card draws nothing, so it carries its own 24 dp gap.
-                                mapCard?.let { Spacer(Modifier.height(24.dp)); it() }
-                                    ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(run, historyEntry, historyState, observedZone,
-                                        zoneRevisionChanged, Modifier.padding(top = 24.dp))
+                                GeoReceipt(chain.receipt, Modifier.padding(top = 16.dp))
+                            }
+                            GeoSection("수집 기록") {
+                                ResultMetrics(run, observedZone)
+                            }
+                            ResultMapSection(listOf(run.deviceId, run.runId)) {
+                                mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(
+                                    run, historyEntry, historyState, observedZone, zoneRevisionChanged)
                             }
                             observedZone?.let {
                                 Text("구역 밖 기록 ${it.excursions}회 · ${qualityDurationLabel(it.outsideMillis)} · 관찰하지 못한 시간 ${qualityDurationLabel(it.unobservedMillis)}",
@@ -209,13 +213,17 @@ internal fun RunResultScreen(
                                 Text("관찰한 시간 기준", color = c.textSecondary, style = LocalGeoType.current.caption)
                             }
                             if (zoneRevisionChanged) GeoInlineNote("수집 구역이 바뀌었습니다. 이 수집은 시작할 때의 구역으로 표시합니다.")
-                            Column(Modifier.padding(top = 24.dp)) {
+                            GeoSection("저장과 품질") {
+                              WorkSurfaceCard {
+                               GeoRowList(GeoRowTrailing.None) {
                                 ResultFolderRow(runFolderDisplayName(run.output.path, run.startedAt, run.runId, run.output.manifest?.runId), onOpenFiles,
                                     enabled = online && runOutputStored(run),
                                     disabledReason = if (!online) "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다." else "장치 저장 결과를 확인한 뒤 폴더를 볼 수 있습니다.")
+                                RunQualityEvidence(run.quality, zoneObservation = observedZone,
+                                    subtitle = "${run.contextSnapshot.surveySectionLabel} · ${resultDuration(run)}")
+                               }
+                              }
                             }
-                            RunQualityEvidence(run.quality, zoneObservation = observedZone,
-                                subtitle = "${run.contextSnapshot.surveySectionLabel} · ${resultDuration(run)}")
                             FieldTechnicalInfo(run.runId, buildList {
                                 add(GeoTechnicalValue("수집 ID", run.runId))
                                 add(GeoTechnicalValue("경로", "${run.output.rootId}/${run.output.path}"))
@@ -239,16 +247,27 @@ internal fun RunResultScreen(
     }
 }
 
+/** Keep the adapter mounted while it loads; absent geometry leaves no empty section heading. */
+@Composable
+private fun ResultMapSection(identity: Any, content: @Composable () -> Unit) {
+    var hasContent by remember(identity) { mutableStateOf(true) }
+    Column {
+        if (hasContent) GeoSection("수집 경로") {}
+        Box(Modifier.fillMaxWidth().onSizeChanged { hasContent = it.height > 0 }) { content() }
+    }
+}
+
 @Composable
 private fun ResultFolderRow(folder: String?, onOpen: () -> Unit, enabled: Boolean, disabledReason: String) {
-    GeoPropertyRow("저장 폴더", folder ?: "미확인", onClick = onOpen, enabled = enabled, disabledReason = disabledReason)
+    GeoRow("저장 폴더", onOpen, meta = folder ?: "미확인", leading = { GeoIconTile(GeoIcons.folder) },
+        enabled = enabled, disabledReason = "${folder ?: "미확인"} · $disabledReason")
 }
 
 @Composable
 private fun ResultMetrics(run: PipelineRun, observation: ResultZoneObservation?) {
     val telemetry = verifiedRunTelemetry(run)
     val manifest = run.output.manifest?.takeIf { runOutputStored(run) }
-    GeoFigureGrid(listOf(
+    WorkFigureCards(listOf(
         GeoFigure("수집 시간", resultDuration(run)),
         GeoFigure("수집 용량", Formats.size(telemetry?.collectedBytes ?: manifest?.bytesTotal)),
         GeoFigure("정밀 위치", precisionMetricLabel(run.quality)),

@@ -1,10 +1,8 @@
 package com.example.jetsoncontroller.ui.map
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,8 +35,9 @@ import com.example.jetsoncontroller.ui.components.geo.GeoBadge
 import com.example.jetsoncontroller.ui.components.geo.GeoBadgeVariant
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.LocalGeoPalette
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.GeoShape
+import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -62,7 +61,6 @@ fun GeoMapCard(
         (mode != GeoMapMode.ROUTE || data.trail.isEmpty())) return
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
-    val palette = LocalGeoPalette.current
     val rootView = LocalView.current.rootView
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var visible by remember { mutableStateOf(false) }
@@ -84,8 +82,8 @@ fun GeoMapCard(
         trail = if (mode == GeoMapMode.ZONE) emptyList() else data.trail)
     Column(modifier.fillMaxWidth().clickable(onClickLabel = "지도 크게 보기", onClick = onOpen)
         .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick("지도 크게 보기") { onOpen(); true } }) {
-        val shape = RoundedCornerShape(10.dp)
-        Box(Modifier.fillMaxWidth().height(mapCardHeight(mode, compactHeight).dp).clip(shape).background(c.sunken)
+        val shape = GeoShape.card
+        Box(Modifier.fillMaxWidth().height(mapCardHeight(mode, compactHeight).dp).geoCardShadow(shape).clip(shape).background(c.sunken)
             .onGloballyPositioned {
                 val bounds = it.boundsInWindow()
                 visible = it.isAttached && bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.right > 0 &&
@@ -97,8 +95,7 @@ fun GeoMapCard(
             if (loading) Text("지도를 불러오는 중입니다", Modifier.align(Alignment.Center).background(c.mapPlate).padding(8.dp),
                 style = type.body, color = c.textSecondary)
             badge?.let { GeoBadge(it.first, it.second, Modifier.align(Alignment.TopStart).padding(12.dp), GeoBadgeVariant.ON_MAP) }
-            Box(Modifier.matchParentSize().border(1.dp, if (palette.highContrast) c.borderStrong else c.border, shape)
-                .clickable(onClick = onOpen))
+            Box(Modifier.matchParentSize().clickable(onClick = onOpen))
         }
         Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
             if (summary.isNotEmpty()) Text(summary, color = c.textSecondary, style = type.caption)

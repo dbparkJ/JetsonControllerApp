@@ -1,5 +1,7 @@
-﻿package com.example.jetsoncontroller.ui.upload
+package com.example.jetsoncontroller.ui.upload
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
@@ -58,7 +60,8 @@ fun UploadProgressScreen(
     onFixedAction: ((TransferActionTarget, TransferMutation) -> Unit)? = null,
     ongoingRun: @Composable () -> Unit = {},
     reportFailed: Boolean = false,
-    ticketReportTargetKey: String? = null
+    ticketReportTargetKey: String? = null,
+    sourceReceipt: GeoReceiptState? = null
 ) {
     val c = LocalGeoColors.current
     val t = LocalGeoType.current
@@ -124,7 +127,7 @@ fun UploadProgressScreen(
             disabledReason = reportMessage ?: "보고 대상을 다시 확인하세요.")
     }
     Box(Modifier.fillMaxSize()) {
-        TransferPage("전송", onBack, actions = {
+        TransferPage("전송 상세", onBack, actions = {
             if (job != null && isDeletableUploadJob(job)) Box {
                 GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
                 GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
@@ -135,8 +138,8 @@ fun UploadProgressScreen(
         }) {
             if (job == null || actions == null) {
                 Column(Modifier.padding(transferGutter)) {
-                    if (isLoading) GeoProgress()
-                    GeoStateBlock(GeoStateContent(if (error == null) GeoStateKind.EMPTY else GeoStateKind.ERROR,
+                    if (isLoading) GeoSkeleton("전송을 확인하고 있습니다", kind = GeoSkeletonKind.Rows)
+                    else GeoStateBlock(GeoStateContent(if (error == null) GeoStateKind.EMPTY else GeoStateKind.ERROR,
                         if (error == null) "전송을 확인하고 있습니다" else "전송을 확인하지 못했습니다",
                         error ?: "전송 정보가 도착하면 표시됩니다."), fullScreen = true)
                 }
@@ -151,14 +154,9 @@ fun UploadProgressScreen(
                 }
                 val primaryReason = if (actions.primary == TransferDetailAction.REPORT) reportMessage
                     ?: "완료 보고를 확인하고 있습니다." else serverMutationDisabledReason ?: "장치 연결을 확인하세요."
-                val serverMeta = when {
-                    job.state == UploadJobState.FAILED -> "연결이 끊겨 멈췄습니다."
-                    receipt?.matched == false -> "서버에 받은 내용이 보낸 내용과 일치하지 않습니다."
-                    receipt?.matched == true -> "내용 일치 · ${Formats.itemCount((receipt.filesTotal ?: job.filesTotal)?.toLong())} · ${Formats.size(receipt.bytesTotal ?: job.bytesTotal)}"
-                    job.state == UploadJobState.COMPLETED -> "보내기는 끝났고 서버 수신을 확인하고 있습니다."
-                    job.state == UploadJobState.CANCELLED -> "전송을 취소했습니다."
-                    else -> "보내기가 끝나면 서버 수신을 확인합니다."
-                }
+                val receiptState = uploadReceiptState(job, verification, sourceReceipt, linkedToTicket,
+                    ticketTitle, reported, reportPending, reportFailed, reportMessage)
+                val serverMeta = receiptState.server.meta.orEmpty()
                 GeoActionArea(visibilityKey = "$deviceId:${job.id}:${actions.primary}", action = {
                     if (actions.primary != TransferDetailAction.NONE) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         GeoReadinessLine(when (actions.primary) {
@@ -210,16 +208,16 @@ fun UploadProgressScreen(
                                 Spacer(Modifier.height(24.dp))
                             }
                             GeoSection("처리 상태", first = true) {
-                                GeoReceipt(GeoReceiptState(
-                                    collection = if (job.context != null) GeoReceiptItem("종료", Tone.UNKNOWN, done = true) else GeoReceiptItem(),
-                                    storage = if (job.context != null) GeoReceiptItem("저장 확인", Tone.SUCCESS, done = true) else GeoReceiptItem(),
-                                    server = GeoReceiptItem(actions.word, actions.tone, serverMeta, receipt?.matched == true),
-                                    report = GeoReceiptItem(when { reported -> "보고됨"; reportPending -> "보고 대기"; reportFailed -> "보고 실패"; else -> "보고 전" },
-                                        when { reported -> Tone.SUCCESS; reportPending -> Tone.PENDING; reportFailed -> Tone.WARNING; else -> Tone.UNKNOWN },
-                                        reportMessage ?: if (linkedToTicket && receipt?.matched == true)
-                                            "${ticketTitle ?: "수집 구간"} · 완료를 보고하세요."
-                                        else "서버 수신을 확인한 뒤 보고할 수 있습니다.", reported)
-                                ))
+                                GeoReceipt(receiptState)
+                            }
+                            GeoSection("수신 증거") {
+                                GeoPropertyList(listOf("받는 서버", "파일", "용량", "검증 시각", "상태")) {
+                                    GeoFactRow("받는 서버", targetLabel ?: "받는 서버")
+                                    GeoFactRow("파일", Formats.itemCount(receipt?.filesTotal?.toLong()), numeric = true)
+                                    GeoFactRow("용량", Formats.size(receipt?.bytesTotal), numeric = true)
+                                    GeoFactRow("검증 시각", Formats.time(receipt?.verifiedAt?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }))
+                                    GeoFactRow("상태", serverMeta)
+                                }
                             }
                             if (job.state == UploadJobState.COMPLETED) GeoSection("관리", danger = true,
                                 note = "서버와 다시 대조한 뒤 장치 원본을 휴지통으로 옮길 수 있습니다.") {

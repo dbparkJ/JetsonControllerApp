@@ -31,6 +31,7 @@ import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
@@ -57,7 +58,6 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
     statusStrip: @Composable () -> Unit = {}
 ) {
     var tab by rememberSaveable(state.deviceId) { mutableIntStateOf(0) }
-    var showFilter by rememberSaveable(state.deviceId) { mutableStateOf(false) }
     var revealedRunId by rememberSaveable(state.deviceId) { mutableStateOf<String?>(null) }
     val filterFocus = remember { FocusRequester() }
     val options = listOf("전체", "진행 중", "완료")
@@ -69,9 +69,6 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
     LaunchedEffect(revealedRunId, state.deviceId, state.online, state.deletingRunId, state.runs) {
         val revealed = state.runs.firstOrNull { it.id == revealedRunId }
         if (revealed == null || !state.online || state.deletingRunId != null || revealed.isActiveRun()) revealedRunId = null
-    }
-    if (showFilter) GeoSheet("보기", { showFilter = false }, openerFocusRequester = filterFocus) {
-        options.forEachIndexed { index, label -> GeoRow(label, { tab = index; showFilter = false }) }
     }
     val log = state.log
     if (developerModeEnabled && log != null) {
@@ -89,8 +86,7 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
             }, contentPadding = PaddingValues(horizontal = LocalGeoWindow.current.gutterDp.dp,
                 vertical = 16.dp)) {
                 item {
-                    GeoSegmented("보기", options, tab, { tab = it }, { showFilter = true },
-                        modifier = Modifier.focusRequester(filterFocus), showLabel = false)
+                    GeoFilters(options, tab, { tab = it }, modifier = Modifier.focusRequester(filterFocus))
                     state.error?.let { GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR,
                         actionLabel = "다시 시도", onAction = onRefresh) }
                     if (!state.online && state.runs.isNotEmpty()) GeoInlineNote(
@@ -100,10 +96,15 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                         FieldTechnicalInfo("history-error", listOf(GeoTechnicalValue("오류", it)), true, state.online, null)
                     }
                 }
+                if (state.loading && state.runs.isEmpty()) item {
+                    GeoSkeleton("수집 기록을 불러오는 중", Modifier.padding(top = 24.dp), kind = GeoSkeletonKind.Rows)
+                }
                 val groups = runs.groupBy { historyDayLabel(it.startedAt) }
                 groups.entries.forEachIndexed { groupIndex, (day, dayRuns) ->
                     item(key = "day-$day") {
                         GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {
+                          WorkSurfaceCard {
+                           GeoRowList(GeoRowTrailing.None) {
                             dayRuns.forEachIndexed { index, run ->
                                 key(state.deviceId, run.id) {
                                     val canDelete = state.online && state.deletingRunId == null && !run.isActiveRun()
@@ -112,12 +113,14 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                                         { reveal -> revealedRunId = run.id.takeIf { reveal } }, trash) {
                                         HistoryRecordRow(run, historyReceipt(run, uploadJobs),
                                             onOpen = { onOpenResult(run) }, onTrash = trash, canDelete = canDelete,
-                                            divider = index < dayRuns.lastIndex || groupIndex == groups.size - 1,
+                                            divider = index < dayRuns.lastIndex,
                                             disabledReason = if (!state.online) "장치에 연결한 뒤 기록을 휴지통으로 옮길 수 있습니다."
                                                 else "수집 중이거나 다른 기록을 처리하고 있습니다.")
                                     }
                                 }
                             }
+                           }
+                          }
                         }
                     }
                 }
@@ -165,17 +168,10 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
     val colors = LocalGeoColors.current
     Row(Modifier.fillMaxWidth().background(colors.surface).then(if (divider) Modifier.contentDivider() else Modifier),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(Modifier.weight(1f).contentTarget(onClick = onOpen).semantics(mergeDescendants = true) {
-            contentDescription = "${historyRecordTitle(run)}, 상세 보기"
-        }.padding(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(historyRecordTitle(run), style = LocalGeoType.current.titleSm,
-                color = colors.text)
-            Text(historyRecordMeta(run),
-                style = LocalGeoType.current.caption, color = colors.textSecondary)
-            GeoReceiptLine(receipt)
-        }
-        Box {
+        GeoRow(historyRecordTitle(run), onOpen, Modifier.weight(1f), meta = historyRecordMeta(run),
+            leading = { GeoIconTile(GeoIcons.restore) }, divider = false,
+            extra = { GeoReceiptLine(receipt) })
+        Box(Modifier.padding(top = 4.dp)) {
             GeoIconButton(GeoIcons.more, "${historyRecordTitle(run)} 메뉴", { menu = true },
                 modifier = Modifier.focusRequester(menuFocus))
             GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("휴지통으로 이동", onTrash,
@@ -258,8 +254,12 @@ internal fun historyReceipt(run: TaskRun, jobs: List<UploadJob>): GeoReceiptStat
         exact.any { it.state == UploadJobState.COMPLETED } -> GeoReceiptItem("수신 미확인", Tone.PENDING)
         else -> GeoReceiptItem()
     }
-    return GeoReceiptState(GeoReceiptItem(cells[0].value, cells[0].tone),
-        GeoReceiptItem(cells[1].value, cells[1].tone), server)
+    val ended = !run.isActiveRun() && (run.finishedAt != null || run.state.uppercase(Locale.ROOT) in setOf("COMPLETED", "STOPPED", "FAILED"))
+    val output = run.output
+    val stored = !run.isActiveRun() && canonicalHistoryRunId(run) != null &&
+        output != null && output.rootId.isNotBlank() && output.path.isNotBlank()
+    return GeoReceiptState(GeoReceiptItem(cells[0].value, cells[0].tone, done = ended),
+        GeoReceiptItem(cells[1].value, cells[1].tone, done = stored), server)
 }
 
 @Composable

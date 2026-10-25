@@ -150,11 +150,16 @@ fun GeoQuickActions(actions: List<GeoQuickAction>, modifier: Modifier = Modifier
 @Composable
 fun GeoQuickTile(action: GeoQuickAction, modifier: Modifier = Modifier) {
     val c = LocalGeoColors.current
-    Column(modifier.heightIn(min = 100.dp).geoCardShadow(GeoShape.control).clip(GeoShape.control)
-        .background(c.surface).contentTarget(onClick = action.onClick).padding(horizontal = 4.dp, vertical = 8.dp)
+    Column(modifier.widthIn(min = 48.dp).heightIn(min = 88.dp)
+        .contentTarget(onClick = action.onClick)
         .semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        GeoIconTile(action.icon, selected = action.selected)
+        Box(Modifier.size(40.dp).geoCardShadow(GeoShape.iconTile)
+            .background(if (action.selected) c.primaryTint else c.surface, GeoShape.iconTile),
+            contentAlignment = Alignment.Center) {
+            Icon(action.icon, null, Modifier.size(24.dp),
+                tint = if (action.selected) c.primaryTintText else c.textSecondary)
+        }
         Text(action.label, style = LocalGeoType.current.caption, color = c.textSecondary,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }

@@ -65,6 +65,20 @@ internal fun deviceFigureItems(live: JetsonStatus?, snapshot: DeviceSnapshot?): 
     )
 }
 
+/** The photo card keeps four separate metrics from the same live reading or snapshot. */
+internal fun devicePhotoFigures(live: JetsonStatus?, snapshot: DeviceSnapshot?): List<GeoFigure> {
+    val figures = deviceFigureItems(live, snapshot)
+    val stored = snapshot?.withValidMetrics()
+    val stale = live == null && stored != null
+    val cpu = if (live != null) live.cpuPercent.takeIf { live.metricIsValid("cpuPercent") } else stored?.cpuPercent
+    val gpu = if (live != null) live.gpuPercent.takeIf { live.metricIsValid("gpuPercent") } else stored?.gpuPercent
+    return listOf(
+        figures[1], figures[0],
+        GeoFigure("CPU", cpu?.toString(), unit = "%", stale = stale),
+        GeoFigure("GPU", gpu?.toString(), unit = "%", stale = stale)
+    )
+}
+
 internal data class DeviceHealthItem(
     val key: String,
     val title: String,

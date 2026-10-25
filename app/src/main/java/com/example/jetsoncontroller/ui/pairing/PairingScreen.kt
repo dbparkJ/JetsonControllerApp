@@ -50,8 +50,8 @@ fun PairingScreen(
         val colors = LocalGeoColors.current
         val type = LocalGeoType.current
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Image(painterResource(R.drawable.geo_device), null, Modifier.size(72.dp, 64.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(state.displayDeviceName ?: "장치", style = type.deviceName, color = colors.text)
                 Text(maskedPairingCode(state.pairingInfo), style = type.caption, color = colors.textSecondary)
             }
@@ -64,8 +64,7 @@ fun PairingScreen(
                     Text("가까운 장치를 찾으려면 블루투스 권한이 필요합니다.", style = type.body, color = colors.textSecondary)
                 }
                 PairingPhase.ERROR -> {
-                    Text("등록하지 못했습니다", style = type.stateTitle, color = colors.text)
-                    Text(pairingFailureText(state.errorMessage), style = type.body, color = colors.textSecondary)
+                    GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "등록하지 못했습니다", pairingFailureText(state.errorMessage)))
                     GeoButton("다시 스캔", onCancel, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 else -> {

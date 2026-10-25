@@ -8,6 +8,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DeviceFigurePresentationTest {
+    @Test fun `photo card separates storage temperature CPU and GPU from one reading`() {
+        val live = JetsonStatus(storageTotalBytes = 1_000_000_000_000L, storageAvailableBytes = 512_000_000_000L,
+            temperatureC = 49f, cpuPercent = 0, gpuPercent = 48)
+        val figures = devicePhotoFigures(live, null)
+        assertEquals(listOf("저장 여유", "온도", "CPU", "GPU"), figures.map { it.label })
+        assertEquals("512\u00a0GB", figures[0].value)
+        assertEquals("49°C", figures[1].value)
+        assertEquals("0", figures[2].value)
+        assertEquals("48", figures[3].value)
+        assertEquals(listOf("%", "%"), figures.drop(2).map { it.unit })
+        assertTrue(figures.none { it.stale })
+    }
+
+    @Test fun `invalid live CPU and GPU cannot borrow cached photo card values`() {
+        val live = JetsonStatus(cpuPercent = 32, gpuPercent = 48,
+            metricValidity = mapOf("cpuPercent" to MetricValidity("unavailable"),
+                "gpuPercent" to MetricValidity("unavailable")))
+        val stored = DeviceSnapshot("A", "GEO-X-1", 10L, cpuPercent = 21, gpuPercent = 35)
+        val current = devicePhotoFigures(live, stored).drop(2)
+        assertTrue(current.all { it.value == null && !it.stale })
+        val cached = devicePhotoFigures(null, stored).drop(2)
+        assertEquals(listOf("21", "35"), cached.map { it.value })
+        assertTrue(cached.all { it.stale })
+        assertEquals("마지막 값 기준", figurePresentation(cached.first()).detail)
+    }
+
     @Test fun `storage shows available bytes first and retains a valid zero`() {
         val status = JetsonStatus(storageTotalBytes = 1_000_000_000_000L, storageAvailableBytes = 512_000_000_000L,
             storagePercent = 43, cpuPercent = 0, gpuPercent = 0)

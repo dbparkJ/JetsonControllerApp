@@ -27,6 +27,7 @@ import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoChrome
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
 
 /** Legacy entries stay keyed by TaskRun.id, including their original pipeline/log target. */
 @Composable
@@ -68,7 +69,8 @@ internal fun HistoryEntryScreen(
                     color = c.textSecondary, style = LocalGeoType.current.caption)
                 Spacer(Modifier.height(24.dp))
                 resultMessage?.let { GeoInlineNote(it) }
-                GeoPropertyList(listOf("시작", "작업", "결과", "저장 폴더")) {
+                WorkSurfaceCard {
+                 GeoPropertyList(listOf("시작", "작업", "결과", "저장 폴더")) {
                     GeoFactRow("시작", resultTime(entry.startedAt))
                     GeoFactRow("작업", entry.label)
                     GeoFactRow("결과", historyRunPresentation(entry, online, false).first.removePrefix("결과 "))
@@ -79,6 +81,8 @@ internal fun HistoryEntryScreen(
                             disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                     }
                 }
+                }
+                Spacer(Modifier.height(24.dp))
                 mapCard()
                 FieldTechnicalInfo(
                     identity = entry.id,
@@ -108,7 +112,7 @@ internal fun FieldTechnicalInfo(
     if (!developerModeEnabled || !showTechnicalInfo) return
     var expanded by rememberSaveable(identity) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
-    Column(Modifier.padding(top = 28.dp)) {
+    WorkSurfaceCard(Modifier.padding(top = 24.dp)) {
         GeoRow("기술 정보", { expanded = !expanded }, value = if (expanded) "접기" else "펼치기")
         if (expanded) {
             values.forEach { value ->
@@ -162,7 +166,7 @@ internal fun FieldDetailFrame(
     var menu by rememberSaveable(title) { mutableStateOf(false) }
     val menuFocus = remember { FocusRequester() }
     LaunchedEffect(onTrash, trashEnabled) { if (onTrash == null || !trashEnabled) menu = false }
-    Scaffold(containerColor = colors.surface, contentWindowInsets = WindowInsets(0),
+    Scaffold(containerColor = colors.canvas, contentWindowInsets = WindowInsets(0),
         snackbarHost = snackbar,
         topBar = {
             Column(Modifier.fillMaxWidth().onSizeChanged { topDp = it.height / density.density }) {

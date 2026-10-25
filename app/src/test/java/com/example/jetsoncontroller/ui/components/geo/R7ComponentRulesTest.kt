@@ -26,6 +26,14 @@ class R7ComponentRulesTest {
         assertEquals(4, GeoReceiptState().rows().size)
     }
 
+    @Test fun `inapplicable report keeps a neutral word and hollow dot even with stale completion`() {
+        listOf(false, true).forEach { done ->
+            val item = GeoReceiptItem("해당 없음", Tone.SUCCESS, done = done)
+            assertEquals(Tone.UNKNOWN, receiptTone(GeoReceiptStep.REPORT, item))
+            assertFalse(receiptDone(GeoReceiptStep.REPORT, item))
+        }
+    }
+
     @Test fun `quick actions reflow from five to two then one column`() {
         assertEquals(5, quickActionColumns(1.49f))
         assertEquals(2, quickActionColumns(1.5f))

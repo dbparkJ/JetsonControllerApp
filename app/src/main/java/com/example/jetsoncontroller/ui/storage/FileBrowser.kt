@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.storage
 
+import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -65,15 +66,12 @@ internal fun FileBrowser(
     var selecting by rememberSaveable(location) { mutableStateOf(false) }
     var selectedPath by rememberSaveable(location) { mutableStateOf<String?>(null) }
     var targetId by rememberSaveable(entryPoint, state.deviceId) { mutableStateOf<String?>(null) }
-    var picker by remember(location) { mutableStateOf(false) }
     var menu by remember(location) { mutableStateOf(false) }
     var deletion by remember(location) { mutableStateOf<DataDeletionSnapshot?>(null) }
-    val pickerOpener = remember { FocusRequester() }
     val menuOpener = remember { FocusRequester() }
     val root = state.currentRoot?.id
     val selected = state.entries.firstOrNull { it.relativePath == selectedPath }
     val entries = remember(state.entries, query, category) { browserEntries(state.entries, query, category) }
-    val sizeColumns = browserSizeColumns(entries)
     val sendPath = selectedPath ?: state.currentPath.takeIf { it.isNotBlank() && send != null }
     val latestSend by rememberUpdatedState(send)
     LaunchedEffect(state.deviceId, root, sendPath, send != null) {
@@ -84,11 +82,6 @@ internal fun FileBrowser(
     }
     BackHandler(enabled = state.preview != null || state.currentPath.isNotBlank() || selecting) {
         if (selecting && state.preview == null) { selecting = false; selectedPath = null } else onBack()
-    }
-    if (picker) GeoSheet("유형", { picker = false }, openerFocusRequester = pickerOpener) {
-        mediaCategories.forEach { name ->
-            GeoRadioRow(name, category == name, { category = name; picker = false })
-        }
     }
     deletion?.let { snapshot ->
         GeoConfirmDialog("${storageObjectName(snapshot.entry.name)} 휴지통으로 옮길까요?",
@@ -103,7 +96,9 @@ internal fun FileBrowser(
             openerFocusRequester = menuOpener)
     }
     state.preview?.let { preview ->
-        StoragePage(preview.name, onBack, media = true) { FilePreview(preview) }
+        StoragePage("파일 미리보기", onBack, media = true) {
+            FilePreview(preview, state.deviceName, state.entries.firstOrNull { it.name == preview.name })
+        }
         return
     }
     StoragePage(if (send == null) "장치 파일" else "파일 보내기", onBack, actions = {
@@ -163,7 +158,8 @@ internal fun FileBrowser(
                                 GeoTextField(query, { query = it }, "검색", Modifier.testTag("file-search"))
                                 Spacer(Modifier.height(12.dp))
                             }
-                            GeoPickerField("유형", category, { picker = true }, Modifier.focusRequester(pickerOpener))
+                            MediaFilters(category) { category = it }
+                            if (state.isLoading) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
                             if (state.isDeleting) GeoProgress()
                         }
                         val failure = error ?: state.error
@@ -179,21 +175,22 @@ internal fun FileBrowser(
                                 val directory = entry.type == RemoteEntryType.DIRECTORY
                                 val divider = index < group.lastIndex || groupIndex == days.size - 1
                                 val select = { selectedPath = if (selectedPath == entry.relativePath) null else entry.relativePath }
-                                if (selecting) GeoRadioRow(breakableFileName(entry.name), selectedPath == entry.relativePath, select,
-                                    description = entry.sizeBytes?.let(Formats::size), enabled = state.controlAvailable,
-                                    disabledReason = "장치에 연결되면 쓸 수 있습니다.")
-                                else if (send != null && !directory) GeoActionRow(breakableFileName(entry.name), "선택",
-                                    { if (state.controlAvailable) onFile(entry) else onConnection() }, select,
-                                    meta = mediaCategory(entry), actionEnabled = state.controlAvailable,
-                                    disabledReason = "장치에 연결되면 쓸 수 있습니다.", divider = divider)
-                                else GeoRow(breakableFileName(entry.name), {
+                                if (selecting || (send != null && !directory)) R7FileSelectionRow(entry,
+                                    selectedPath == entry.relativePath, select,
+                                    onOpen = { if (directory) onDirectory(entry) else onFile(entry) },
+                                    enabled = state.controlAvailable, disabledReason = "장치에 연결되면 쓸 수 있습니다.",
+                                    modifier = Modifier.padding(bottom = 8.dp))
+                                else R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                                GeoRowList(GeoRowTrailing.Status) {
+                                GeoRow(breakableFileName(entry.name), {
                                     if (!state.controlAvailable) onConnection()
                                     else if (directory) onDirectory(entry) else onFile(entry)
                                 },
-                                    meta = if (directory) "폴더" else mediaCategory(entry), divider = divider,
-                                    badge = if (entry.sizeBytes != null) ({ BrowserSizeValue(entry.sizeBytes, sizeColumns) }) else null,
-                                    leading = { Icon(if (directory) GeoIcons.folder else mediaIcon(entry), null,
-                                        Modifier.size(24.dp), tint = LocalGeoColors.current.textSecondary) })
+                                    meta = if (directory) "폴더" else mediaCategory(entry), divider = false,
+                                    value = entry.sizeBytes?.let(Formats::size),
+                                    leading = { GeoIconTile(if (directory) GeoIcons.folder else mediaIcon(entry)) })
+                                }
+                                }
                             }
                         }
                         if (entries.isEmpty() && !state.isLoading && failure == null) item {
@@ -214,33 +211,6 @@ internal fun FileBrowser(
                     onUndo.takeIf { state.undoTrashId != null })
             }
         }
-    }
-}
-
-@Composable
-private fun browserSizeColumns(entries: List<RemoteFileEntry>): Pair<Dp, Dp> {
-    val measurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val style = LocalGeoType.current.body.copy(fontFeatureSettings = "tnum")
-    return remember(entries, density, style, measurer) {
-        val sizes = entries.mapNotNull { it.sizeBytes?.let(Formats::size) }
-        fun width(unit: Boolean): Dp = with(density) {
-            (sizes.maxOfOrNull { size -> measurer.measure(AnnotatedString(
-                if (unit) size.substringAfterLast(' ', "") else size.substringBeforeLast(' ')), style).size.width } ?: 0).toDp()
-        }
-        width(false) to width(true)
-    }
-}
-
-@Composable
-private fun BrowserSizeValue(bytes: Long, columns: Pair<Dp, Dp>) {
-    val size = Formats.size(bytes)
-    val style = LocalGeoType.current.body.copy(fontFeatureSettings = "tnum")
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(size.substringBeforeLast(' '), Modifier.width(columns.first), style = style,
-            color = LocalGeoColors.current.textSecondary, textAlign = TextAlign.End)
-        Text(size.substringAfterLast(' ', ""), Modifier.width(columns.second), style = style,
-            color = LocalGeoColors.current.textSecondary)
     }
 }
 

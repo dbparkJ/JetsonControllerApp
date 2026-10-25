@@ -18,6 +18,11 @@ import java.util.Locale
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoDeviceStripState
+import com.example.jetsoncontroller.ui.components.geo.GeoFigure
+import com.example.jetsoncontroller.ui.components.geo.GeoReceiptItem
+import com.example.jetsoncontroller.ui.components.geo.GeoReceiptState
+import com.example.jetsoncontroller.ui.field.historyReceipt
+import com.example.jetsoncontroller.ui.field.verifiedRunTelemetry
 import com.example.jetsoncontroller.ui.field.FieldStageInput
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.model.NextAction
@@ -92,7 +97,9 @@ internal data class PinnedSurveyState(
 
 internal data class ActiveRunState(
     val title: String,
-    val caption: String
+    val caption: String,
+    val section: String? = null,
+    val project: String? = null
 )
 
 internal data class RecentRunState(
@@ -100,7 +107,8 @@ internal data class RecentRunState(
     val title: String,
     val meta: String,
     val cells: List<RunReceiptCell>,
-    val report: CompletionReportState? = null
+    val report: CompletionReportState? = null,
+    val receipt: GeoReceiptState = GeoReceiptState()
 )
 
 internal data class OtherTaskState(
@@ -125,7 +133,12 @@ internal data class TasksHomeUiState(
     val deviceStrip: GeoDeviceStripState? = null,
     val connectionTone: Tone = Tone.UNKNOWN,
     /** Replaces the empty states of 최근 수집 and 장치 작업 while the device has not answered yet. */
-    val deviceListsNote: String? = null
+    val deviceListsNote: String? = null,
+    val deviceFigures: List<GeoFigure> = emptyList(),
+    val checkingDevice: Boolean = false,
+    val activeClock: String? = null,
+    val activeBytes: String? = null,
+    val activePosition: String? = null
 )
 
 internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
@@ -153,7 +166,9 @@ internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
         activeRun = activeRun?.let { run ->
             ActiveRunState(
                 title = run.contextSnapshot.surveyProjectLabel + " · " + run.contextSnapshot.surveySectionLabel,
-                caption = "수집 중 · $deviceName"
+                caption = "수집 중 · $deviceName",
+                section = run.contextSnapshot.surveySectionLabel,
+                project = run.contextSnapshot.surveyProjectLabel
             )
         },
         recent = recent,
@@ -176,7 +191,44 @@ internal fun buildTasksHomeUiState(input: TasksHomeInput): TasksHomeUiState {
         deviceStrip = workDeviceStrip(input),
         connectionTone = workRootConnectionTone(input.connectionTone, input.deviceReachable, input.checkingDevice,
             input.basicConnection, input.permissionMissing, input.credentialsRejected),
-        deviceListsNote = deviceListsNote(input)
+        deviceListsNote = deviceListsNote(input),
+        deviceFigures = workDeviceFigures(input),
+        checkingDevice = input.checkingDevice,
+        activeClock = activeRun?.startedAt?.let(::parseInstantOrNull)?.let {
+            Formats.clock(Duration.between(it, input.now).coerceAtLeast(Duration.ZERO))
+        },
+        activeBytes = verifiedRunTelemetry(activeRun)?.collectedBytes?.let(Formats::size),
+        activePosition = activeRun?.let {
+            ticketPassiveReadiness(deviceName, input.status, input.connected, input.connectionWord, input.now).position
+        }
+    )
+}
+
+/** All four readings share the selected device, observation time and validity evidence. */
+internal fun workDeviceFigures(input: TasksHomeInput): List<GeoFigure> {
+    val status = input.status.takeUnless { input.checkingDevice }
+    val stale = !input.deviceReachable || status?.collectedAtEpochMillis?.let {
+        input.now.toEpochMilli() - it > 15_000L
+    } != false
+    fun metric(name: String): Boolean = status != null && status.metricIsValid(name) &&
+        (status.collectedAtEpochMillis != null || status.metricValidity[name]?.validity == "valid")
+    val storageValid = status != null && status.storageTotalBytes > 0L && metric("storageTotalBytes") &&
+        metric("storageAvailableBytes") && status.storageAvailableBytes >= 0L
+    val storageExceeded = status?.takeIf { storageValid && metric("storagePercent") &&
+        it.storagePercent >= input.storageWarningPercent }?.let { "사용률 ${input.storageWarningPercent}%" }
+    val temperatureValid = status != null && metric("temperatureC") && status.temperatureC.isFinite() &&
+        (status.temperatureC != 0f || status.metricValidity["temperatureC"]?.validity == "valid")
+    return listOf(
+        GeoFigure("저장 여유", status?.storageAvailableBytes?.takeIf { storageValid }?.let(Formats::size),
+            valid = storageValid, stale = stale, exceededThreshold = storageExceeded),
+        GeoFigure("온도", status?.temperatureC?.takeIf { temperatureValid }?.let { Formats.temperature(it.toDouble()) },
+            valid = temperatureValid, stale = stale,
+            exceededThreshold = status?.temperatureC?.takeIf { temperatureValid && it >= input.temperatureWarningC }
+                ?.let { "${input.temperatureWarningC}°C" }),
+        GeoFigure("CPU", status?.cpuPercent?.takeIf { metric("cpuPercent") && it in 0..100 }?.let { Formats.percent(it.toDouble()) },
+            stale = stale),
+        GeoFigure("GPU", status?.gpuPercent?.takeIf { metric("gpuPercent") && it in 0..100 }?.let { Formats.percent(it.toDouble()) },
+            stale = stale)
     )
 }
 
@@ -362,7 +414,10 @@ private fun recentRunState(run: TaskRun, input: TasksHomeInput): RecentRunState 
                 context.surveySectionId == run.contextSnapshot?.surveySectionId &&
                 job.rootId == output.rootId && job.relativePath.trim('/') == output.path.trim('/')
         }.map(::workUploadWithMatchingReceipt)),
-        report = input.reportStates[run.runId ?: run.id]
+        report = input.reportStates[run.runId ?: run.id],
+        receipt = historyReceipt(run, input.uploadJobs).copy(report = input.reportStates[run.runId ?: run.id]?.let {
+            GeoReceiptItem(it.word, it.tone, done = it == CompletionReportState.REPORTED)
+        } ?: GeoReceiptItem(word = "보고 전"))
     )
 }
 

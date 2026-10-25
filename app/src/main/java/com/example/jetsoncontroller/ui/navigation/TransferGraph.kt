@@ -434,9 +434,10 @@ private fun TransferDetailDestination(state: State<AppNavigationState>, entry: N
             sameDevice && it.id == targetJobId
         }
         val job = observed ?: cachedJob
-        val run = uploadState.transferRun?.takeIf { sameDevice && it.runId == job?.context?.runId }
-            ?: runResultState.run?.takeIf { it.runId == job?.context?.runId && it.deviceId.equals(targetDevice, true) }
-            ?: cachedRun
+        val run = listOfNotNull(
+            uploadState.transferRun.takeIf { sameDevice }, runResultState.run, cachedRun,
+            surveyRunState.latestRun
+        ).firstOrNull { com.example.jetsoncontroller.ui.upload.uploadSourceReceipt(it, job, targetDevice) != null }
         SideEffect {
             if (observed != null) { cachedJob = observed; entry.savedStateHandle["detailJob"] = gson.toJson(observed) }
             if (run != null) { cachedRun = run; entry.savedStateHandle["detailRun"] = gson.toJson(run) }
@@ -458,6 +459,7 @@ private fun TransferDetailDestination(state: State<AppNavigationState>, entry: N
         val reportFailed = reportDelivery == TicketReportDeliveryState.FAILED
         UploadProgressScreen(
             job = job, verification = job?.verification,
+            sourceReceipt = com.example.jetsoncontroller.ui.upload.uploadSourceReceipt(run, job, targetDevice),
             isLoading = sameDevice && uploadState.isLoading,
             message = if (sameDevice) uploadState.message else null,
             error = if (sameDevice) uploadState.error else null,

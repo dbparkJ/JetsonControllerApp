@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.alerts.AlertSettings
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
-import com.example.jetsoncontroller.ui.components.geo.GeoSection
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoStateBlock
 import com.example.jetsoncontroller.ui.components.geo.GeoStateContent
 import com.example.jetsoncontroller.ui.components.geo.GeoStateKind
@@ -45,7 +45,7 @@ fun AlertSettingsScreen(
     developerModeEnabled: Boolean = false,
     onBack: () -> Unit = {}
 ) {
-    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
         SettingsPageHeader("알림 기준", onBack)
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),

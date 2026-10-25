@@ -22,13 +22,23 @@ internal data class PreparationTelemetry(
 
 internal data class PreparationReadiness(val label: String, val value: String, val tone: Tone)
 
+internal fun preparationStatusWord(row: PreparationReadiness): String = when {
+    row.label == "저장 공간" -> "점검 전"
+    row.value == "위치 미확인" -> "미확인"
+    row.value.length <= 6 -> row.value
+    row.tone == Tone.SUCCESS -> "확인됨"
+    row.tone == Tone.PENDING -> "확인 중"
+    row.tone == Tone.WARNING || row.tone == Tone.ERROR -> "확인 필요"
+    else -> "미확인"
+}
+
 internal fun optionalStartChecks(state: SurveyRunUiState): List<GeoStartCheck> =
     if (state.operation in setOf("create_context", "preflight")) emptyList() else state.preflight?.checks?.sensors.orEmpty()
         .filter { it.requirement != "REQUIRED" && !it.state.isPassedCheck() }.map {
             GeoStartCheck(when (it.sensor.lowercase()) {
                 "camera" -> "카메라"
-                "gnss" -> "위치(GNSS)"
-                "imu" -> "움직임(IMU)"
+                "gnss" -> "위치 품질"
+                "imu" -> "관성 센서"
                 else -> "센서"
             }, GeoStartPhase.FAILED, "선택 센서 · 미확인", "선택 센서의 수신 상태를 확인하세요.")
         }
@@ -117,8 +127,8 @@ internal fun startSheetState(
         val passed = sensor.state.isPassedCheck()
         val label = when (sensor.sensor.lowercase()) {
             "camera" -> "카메라"
-            "gnss" -> "위치(GNSS)"
-            "imu" -> "움직임(IMU)"
+            "gnss" -> "위치 품질"
+            "imu" -> "관성 센서"
             else -> "센서"
         }
         // Optional warnings are rendered separately, outside S8's required-check gate.

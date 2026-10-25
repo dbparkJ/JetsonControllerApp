@@ -35,12 +35,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.BuildConfig
 import com.example.jetsoncontroller.ui.components.geo.GeoFactRow
-import com.example.jetsoncontroller.ui.components.geo.GeoSection
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoSnackbar
 import com.example.jetsoncontroller.ui.components.geo.showGeoSnackbar
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
+import com.example.jetsoncontroller.ui.storage.R7Card
 import kotlinx.coroutines.launch
 
 @Composable
@@ -58,7 +59,7 @@ fun SettingsAboutScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
         SettingsPageHeader("앱 정보", onBack)
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -66,6 +67,7 @@ fun SettingsAboutScreen(
               Text("앱 정보", style = LocalGeoType.current.boardTitle, color = LocalGeoColors.current.text,
                   modifier = Modifier.semantics { heading() })
               Spacer(Modifier.height(24.dp))
+              R7Card {
               GeoPropertyList(listOf("앱 이름", "버전", "글꼴")) {
                 GeoFactRow("앱 이름", "GEO-X")
                 GeoPropertyRow("버전", BuildConfig.VERSION_NAME,
@@ -89,6 +91,7 @@ fun SettingsAboutScreen(
                 )
                 GeoFactRow("글꼴", "Pretendard (SIL OFL)")
               }
+              }
             }
             GeoSnackbar(
                 snackbarHostState,
@@ -100,7 +103,7 @@ fun SettingsAboutScreen(
 
 @Composable
 fun SettingsHelpScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
+    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
         SettingsPageHeader("도움말", onBack)
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),

@@ -22,6 +22,7 @@ import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoChrome
 import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
+import com.example.jetsoncontroller.ui.devices.DeviceSurface
 import com.example.jetsoncontroller.ui.devices.deviceTransportLabel
 import com.example.jetsoncontroller.ui.devices.rememberDeviceOverlayHost
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -65,7 +66,7 @@ fun NetworkSettingsScreen(
         focus.clearFocus()
         confirmation = state.applyTarget()
     }
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.canvas)) {
         DeviceTitleBar("장치 Wi-Fi", onBack, modifier = Modifier.onSizeChanged { titleHeight = it.height / density.density }) {
             Box {
                 GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
@@ -92,58 +93,63 @@ fun NetworkSettingsScreen(
                     Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = 16.dp)) {
                         Text(deviceName, style = type.caption, color = c.textSecondary)
                         GeoSection("현재 네트워크", first = true, modifier = Modifier.padding(top = 24.dp)) {
-                            GeoFactRow(state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "연결된 Wi-Fi 없음",
-                                if (connected && state.wifiConnected) "연결됨" else "미확인",
-                                Modifier.testTag("wifi-access-point-${state.currentWifiSsid}").semantics { disabled() })
-                            if (connected && state.sameWifi) Text("$deviceName · 휴대폰과 같은 네트워크",
-                                style = type.caption, color = c.textSecondary)
+                            DeviceSurface {
+                                GeoFactRow(state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "연결된 Wi-Fi 없음",
+                                    if (connected && state.wifiConnected) "연결됨" else "미확인",
+                                    Modifier.testTag("wifi-access-point-${state.currentWifiSsid}").semantics { disabled() })
+                                if (connected && state.sameWifi) Text("$deviceName · 휴대폰과 같은 네트워크",
+                                    style = type.caption, color = c.textSecondary)
+                            }
                         }
                         GeoSection("주변 네트워크", actionLabel = if (wifiScanPermissionGranted) "다시 검색" else null,
                             onAction = if (wifiScanPermissionGranted) onScanAccessPoints else null) {
-                            if (!wifiScanPermissionGranted) {
-                                GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "위치 권한이 꺼져 있습니다",
-                                    "주변 네트워크를 찾으려면 위치 권한이 필요합니다.", "권한 허용"),
-                                    onAction = onRequestWifiScanPermission)
-                            } else {
-                                if (state.scanningAccessPoints) Text("주변 네트워크를 찾고 있습니다.", style = type.body, color = c.textSecondary)
-                                state.accessPointError?.let {
-                                    GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "네트워크를 찾지 못했습니다",
-                                        "연결을 확인하고 다시 시도하세요.", "다시 시도"), onAction = onScanAccessPoints)
-                                }
-                                if (!state.scanningAccessPoints && state.accessPointError == null && state.accessPoints.isEmpty()) {
-                                    Text("주변 네트워크가 없습니다.", style = type.body, color = c.textSecondary)
-                                }
-                                Column(Modifier.selectableGroup()) {
-                                    state.accessPoints.filterNot { state.isCurrentJetsonWifi(it.ssid) }.forEach { accessPoint ->
-                                        val expanded = !manual && accessPoint.ssid == state.selectedAccessPointSsid
-                                        GeoRadioRow(accessPoint.ssid, expanded, {
-                                            manual = false
-                                            onSelectAccessPoint(accessPoint)
-                                        }, enabled = connected && !state.sending && accessPoint.provisionable,
-                                            disabledReason = if (!accessPoint.provisionable) "이 네트워크의 인증 방식은 지원하지 않습니다."
-                                                else "연결되면 쓸 수 있습니다.")
-                                        if (expanded && accessPoint.requiresPassword) {
-                                            GeoTextField(state.password, onPasswordChange, "비밀번호",
-                                                Modifier.testTag("wifi-selected-network-form").padding(start = 36.dp, bottom = 16.dp), password = true,
-                                                helper = "대소문자를 구분합니다.", enabled = connected && !state.sending,
-                                                disabledReason = "연결되면 쓸 수 있습니다.")
+                            DeviceSurface {
+                                if (!wifiScanPermissionGranted) {
+                                    GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "위치 권한이 꺼져 있습니다",
+                                        "주변 네트워크를 찾으려면 위치 권한이 필요합니다.", "권한 허용"),
+                                        onAction = onRequestWifiScanPermission)
+                                } else {
+                                    if (state.scanningAccessPoints) GeoSkeleton("주변 네트워크를 찾고 있습니다.", kind = GeoSkeletonKind.Rows)
+                                    state.accessPointError?.let {
+                                        GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "네트워크를 찾지 못했습니다",
+                                            "연결을 확인하고 다시 시도하세요.", "다시 시도"), onAction = onScanAccessPoints)
+                                    }
+                                    if (!state.scanningAccessPoints && state.accessPointError == null && state.accessPoints.isEmpty()) {
+                                        Text("주변 네트워크가 없습니다.", style = type.body, color = c.textSecondary)
+                                    }
+                                    Column(Modifier.selectableGroup()) {
+                                        state.accessPoints.filterNot { state.isCurrentJetsonWifi(it.ssid) }.forEach { accessPoint ->
+                                            val expanded = !manual && accessPoint.ssid == state.selectedAccessPointSsid
+                                            GeoRadioRow(accessPoint.ssid, expanded, {
+                                                manual = false
+                                                onSelectAccessPoint(accessPoint)
+                                            }, enabled = connected && !state.sending && accessPoint.provisionable,
+                                                disabledReason = if (!accessPoint.provisionable) "이 네트워크의 인증 방식은 지원하지 않습니다."
+                                                    else "연결되면 쓸 수 있습니다.")
+                                            if (expanded && accessPoint.requiresPassword) {
+                                                GeoTextField(state.password, onPasswordChange, "비밀번호",
+                                                    Modifier.testTag("wifi-selected-network-form").padding(start = 36.dp, bottom = 16.dp), password = true,
+                                                    helper = "대소문자를 구분합니다.", enabled = connected && !state.sending,
+                                                    disabledReason = "연결되면 쓸 수 있습니다.")
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            GeoRow("숨겨진 네트워크 추가", {
-                                manual = !manual
-                                if (manual) { onSsidChange(""); onPasswordChange(""); onHiddenChange(true) }
-                            }, enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.")
-                            if (manual) {
-                                GeoTextField(state.ssid, onSsidChange, "네트워크 이름", enabled = connected && !state.sending,
-                                    disabledReason = "연결되면 쓸 수 있습니다.")
-                                Spacer(Modifier.height(12.dp))
-                                GeoTextField(state.password, onPasswordChange, "비밀번호", password = true,
-                                    helper = "비밀번호가 없는 네트워크는 비워 두세요.", enabled = connected && !state.sending,
-                                    disabledReason = "연결되면 쓸 수 있습니다.")
-                                GeoSwitchRow("숨겨진 네트워크", state.hidden, onHiddenChange,
-                                    enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.")
+                                GeoRow("숨겨진 네트워크 추가", {
+                                    manual = !manual
+                                    if (manual) { onSsidChange(""); onPasswordChange(""); onHiddenChange(true) }
+                                }, leading = { GeoIconTile(GeoIcons.wifi) }, enabled = connected && !state.sending,
+                                    disabledReason = "연결되면 쓸 수 있습니다.", divider = false)
+                                if (manual) {
+                                    GeoTextField(state.ssid, onSsidChange, "네트워크 이름", enabled = connected && !state.sending,
+                                        disabledReason = "연결되면 쓸 수 있습니다.")
+                                    Spacer(Modifier.height(12.dp))
+                                    GeoTextField(state.password, onPasswordChange, "비밀번호", password = true,
+                                        helper = "비밀번호가 없는 네트워크는 비워 두세요.", enabled = connected && !state.sending,
+                                        disabledReason = "연결되면 쓸 수 있습니다.")
+                                    GeoSwitchRow("숨겨진 네트워크", state.hidden, onHiddenChange,
+                                        enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.")
+                                }
                             }
                         }
                         state.message?.let {

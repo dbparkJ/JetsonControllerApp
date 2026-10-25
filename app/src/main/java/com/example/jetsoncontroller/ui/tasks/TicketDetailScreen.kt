@@ -45,7 +45,7 @@ internal fun TicketDetailScreen(
     val gutter = LocalGeoWindow.current.gutterDp.dp
     val availability = ticketStartAvailability(role, ticket)
     val reason = availability.reason ?: readiness.blockedReason
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.canvas)) {
         WorkDetailHeader("수집 구간", onBack)
         ongoingRun()
         GeoActionArea(visibilityKey = "${ticket.rowId}:${readiness.deviceName}", action = {
@@ -60,32 +60,39 @@ internal fun TicketDetailScreen(
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = gutter, end = gutter, top = 16.dp, bottom = 40.dp)) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(ticket.title, style = type.boardTitle, color = c.text, modifier = Modifier.semantics { heading() })
-                        GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket))
-                        GeoBadge(readiness.deviceName, Tone.INFO, variant = GeoBadgeVariant.TAG)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                            Text(ticket.title, style = type.boardTitle, color = c.text,
+                                modifier = Modifier.weight(1f).semantics { heading() })
+                            Box(Modifier.height(with(LocalDensity.current) { type.boardTitle.lineHeight.toDp() }),
+                                contentAlignment = Alignment.Center) { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) }
+                        }
                         Text(listOfNotNull(ticket.project?.takeIf(String::isNotBlank),
-                            "마감 ${ticketDueLabel(ticket.dueDate)}").joinToString(" · "), style = type.caption, color = c.textSecondary)
+                            readiness.deviceName).joinToString(" · "), style = type.supporting, color = c.textSecondary)
                     }
                 }
+                item { Box(Modifier.padding(top = 24.dp)) { mapCard() } }
                 item {
-                    GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp)) {
+                    GeoSection("정보") {
+                      WorkSurfaceCard {
                       GeoPropertyList(listOf("담당", "마감", "GEO& Work 보고", "수집 작업")) {
                         GeoFactRow("담당", ticket.assignees.orEmpty().filter(String::isNotBlank).joinToString().ifBlank { "미지정" })
                         GeoFactRow("마감", ticketDueLabel(ticket.dueDate))
                         GeoPropertyRow("GEO& Work 보고", ticketReportWord(ticket).word, tone = ticketReportWord(ticket).tone)
                         GeoPropertyRow("수집 작업", taskLabel, onClick = onSelectTask)
                       }
+                      }
                     }
                 }
-                item { Box(Modifier.padding(top = 24.dp)) { mapCard() } }
                 item {
                     GeoSection("준비 상태") {
-                      GeoPropertyList(listOf("연결", "저장 공간", "위치 품질", "카메라", "보정 정보 중계")) {
-                        GeoFactRow("연결", readiness.connection)
-                        GeoFactRow("저장 공간", readiness.storage)
-                        GeoFactRow("위치 품질", readiness.position)
-                        GeoFactRow("카메라", readiness.camera)
-                        readiness.relay?.let { GeoFactRow("보정 정보 중계", it) }
+                      WorkSurfaceCard {
+                        GeoRowList(GeoRowTrailing.Status) {
+                            val rows = ticketReadinessRows(readiness)
+                            rows.forEachIndexed { index, row ->
+                                GeoPreparationStatusRow(row.label, row.value, row.status, row.tone,
+                                    divider = index < rows.lastIndex)
+                            }
+                        }
                       }
                     }
                 }
@@ -121,7 +128,7 @@ internal fun WorkTaskDetailScreen(
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
     val gutter = LocalGeoWindow.current.gutterDp.dp
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.canvas)) {
         WorkDetailHeader("작업", onBack)
         ongoingRun()
         GeoActionArea(pipeline.id, action = {
@@ -135,10 +142,11 @@ internal fun WorkTaskDetailScreen(
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = gutter, end = gutter, top = 16.dp, bottom = 40.dp)) {
                 item {
                     Text(pipeline.label, style = type.boardTitle, color = c.text, modifier = Modifier.semantics { heading() })
-                    GeoBadge(readiness.deviceName, Tone.INFO, variant = GeoBadgeVariant.TAG)
+                    Text(readiness.deviceName, style = type.supporting, color = c.textSecondary, modifier = Modifier.padding(top = 4.dp))
                 }
                 item {
                     GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp)) {
+                      WorkSurfaceCard {
                       val rows = taskDetailRows(pipeline, readiness.controlAvailable, lastRun = lastRun)
                       GeoPropertyList(rows.map { it.label }) {
                         rows.forEach { row ->
@@ -153,6 +161,7 @@ internal fun WorkTaskDetailScreen(
                                 runFolderDisplayName(row.value, lastRun?.startedAt, lastRun?.runId, lastRun?.output?.manifest?.runId) ?: "미확인"
                                 else row.value)
                         }
+                      }
                       }
                     }
                 }
@@ -170,7 +179,7 @@ private fun WorkBadgeFact(label: String, value: String, tone: Tone) {
 @Composable
 internal fun WorkMissingScreen(ticket: Boolean, onBack: () -> Unit, onWork: () -> Unit) {
     val c = LocalGeoColors.current
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.canvas)) {
         WorkDetailHeader(if (ticket) "수집 구간" else "작업", onBack)
         GeoStateBlock(GeoStateContent(GeoStateKind.MISSING,
             if (ticket) "수집 구간을 찾을 수 없습니다" else "작업 정보를 찾을 수 없습니다",

@@ -38,6 +38,13 @@ internal fun peerStatusLabel(status: Int, authenticated: Boolean = false): Strin
     else -> "상태 확인 중"
 }
 
+internal fun peerStatusTone(status: Int): com.example.jetsoncontroller.ui.model.Tone = when (status) {
+    WifiP2pDevice.CONNECTED, WifiP2pDevice.INVITED -> com.example.jetsoncontroller.ui.model.Tone.PENDING
+    WifiP2pDevice.AVAILABLE -> com.example.jetsoncontroller.ui.model.Tone.INFO
+    WifiP2pDevice.FAILED -> com.example.jetsoncontroller.ui.model.Tone.WARNING
+    else -> com.example.jetsoncontroller.ui.model.Tone.UNKNOWN
+}
+
 internal fun canConnectDirectPeer(state: WifiDirectState, permissionGranted: Boolean, address: String): Boolean =
     directStage(state, permissionGranted) in setOf(DirectStage.PEERS, DirectStage.DISCOVERING) &&
         state.peers.any { it.deviceAddress == address && it.status in setOf(WifiP2pDevice.AVAILABLE, WifiP2pDevice.FAILED) }

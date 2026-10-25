@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.dev
 
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -78,7 +79,7 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
     DevIdentity(state.deviceName, "${Formats.temperature(temperature)} · ${Formats.freshness(state.statusAgeSeconds?.let(java.time.Duration::ofSeconds))}",
         status = connection.word, tone = connection.tone)
     when (fanPageState(state)) {
-        FanPageState.CHECKING -> DevText("확인 중", secondary = true)
+        FanPageState.CHECKING -> DevLoading()
         FanPageState.OFFLINE -> {
             DevEmpty("팬 상태를 확인할 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 사용할 수 있습니다.")
             GeoButton("다시 시도", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = false,

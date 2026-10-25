@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.pipelines
 
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -12,6 +13,7 @@ import com.example.jetsoncontroller.ui.dev.*
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.storage.R7Card
 
 @Composable
 fun PipelineListScreen(
@@ -51,14 +53,29 @@ fun PipelineListScreen(
         actions = { if (detailId == null && developerModeEnabled) GeoIconButton(GeoIcons.add, "작업 등록", onAdd, chrome = true) }, footer = footer) {
         DevFeedback(state.error, true)
         DevFeedback(state.message)
-        if (state.isLoading) DevText("확인 중")
+        if (state.isLoading) DevLoading()
         if (detailId == null) {
             if (state.pipelines.isEmpty() && !state.isLoading) DevEmpty("이 장치에 등록된 작업이 없습니다.", "작업 등록은 관리자에게 요청하세요.")
             state.pipelines.forEach { item ->
-                GeoRow(item.label, { onDetails(item) }, meta = taskStateLabel(item, fresh, state.pendingActions[item.id]))
+                val status = taskStateLabel(item, fresh, state.pendingActions[item.id])
+                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                    GeoRowList(GeoRowTrailing.Status) {
+                        GeoRow(item.label, { onDetails(item) }, meta = status,
+                            leading = { GeoIconTile(GeoIcons.tabWork) }, divider = false,
+                            badge = { GeoBadge(if (!fresh) "미확인" else status.substringBefore(" · "), when {
+                                !fresh -> Tone.UNKNOWN
+                                item.id in state.pendingActions -> Tone.PENDING
+                                item.state == PipelineState.FAILED -> Tone.ERROR
+                                item.state == PipelineState.RUNNING -> Tone.INFO
+                                else -> Tone.UNKNOWN
+                            }) })
+                    }
+                }
             }
             GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !state.isLoading)
-            if (developerModeEnabled) GeoRow("작업 이력", onHistory)
+            if (developerModeEnabled) R7Card(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                GeoRow("작업 이력", onHistory, leading = { GeoIconTile(GeoIcons.log) }, divider = false)
+            }
         } else if (pipeline == null) DevEmpty("작업을 찾을 수 없습니다", "장치의 작업 목록을 다시 확인하세요.", "다시 시도", onRefresh)
         else {
             DevIdentity(pipeline.label, "$deviceName · 마지막 실행 ${devTimestamp(pipeline.execution?.startedAt)}",
@@ -78,16 +95,18 @@ fun PipelineListScreen(
                     { onControl(pipeline, if (it) "enable" else "disable") }, enabled = available,
                     disabledReason = "장치의 현재 상태를 확인한 뒤 바꿀 수 있습니다.")
             }
-            GeoSection("설정과 기록") {
-                GeoRow("실행 로그", { onLogs(pipeline) })
+            GeoSection("설정과 기록", trailingColumn = GeoRowTrailing.Status) {
+                GeoRow("실행 로그", { onLogs(pipeline) }, leading = { GeoIconTile(GeoIcons.log) })
                 if (developerModeEnabled) {
-                    GeoRow("작업 설정", { onConfig(pipeline) })
-                    GeoRow("수집 정책", { onPolicy(pipeline) })
+                    GeoRow("작업 설정", { onConfig(pipeline) }, leading = { GeoIconTile(GeoIcons.tabSettings) })
+                    GeoRow("수집 정책", { onPolicy(pipeline) }, leading = { GeoIconTile(GeoIcons.file) })
                 }
-                GeoRow("저장 결과", { onOutput(pipeline) }, value = pipeline.outputPath,
+                GeoRow("저장 결과", { onOutput(pipeline) }, meta = pipeline.outputPath,
+                    leading = { GeoIconTile(GeoIcons.folder) },
                     enabled = pipeline.outputRootId != null && pipeline.outputPath != null,
                     disabledReason = "저장 결과 위치가 없습니다.")
-                GeoRow("보정 정보 중계", onRelay, value = if (state.mobileRtkRelay.active) "중계 중" else "꺼짐")
+                GeoRow("보정 정보 중계", onRelay, leading = { GeoIconTile(GeoIcons.link) }, divider = false,
+                    badge = { GeoBadge(if (state.mobileRtkRelay.active) "중계 중" else "꺼짐", if (state.mobileRtkRelay.active) Tone.INFO else Tone.UNKNOWN) })
             }
             GeoTechInfo(listOf(GeoTechnicalValue("실행 ID", pipeline.execution?.runId.orEmpty()),
                 GeoTechnicalValue("로그 ID", pipeline.execution?.logId.orEmpty()), GeoTechnicalValue("실행 파일", pipeline.entrypoint),
@@ -114,7 +133,7 @@ fun PipelineEditorScreen(state: PipelineUiState, onBack: () -> Unit, onPick: (Pi
         GeoSection("실행 소스") {
             GeoPickerField("작업 폴더", selectionLabel(state.draft.repositoryRoot, state.draft.repositoryPath),
                 { onPick(PipelinePickerTarget.REPOSITORY) }, enabled = !state.isLoading, disabledReason = "등록하고 있습니다.")
-            if (state.isDiscoveringFolder) DevText("확인 중")
+            if (state.isDiscoveringFolder) DevLoading()
             state.discoveredFolder?.let {
                 DevText("작업 폴더에서 실행 정보를 찾았습니다.")
                 DevText("${it.pipelineId} · ${it.entrypoint} · ${it.config}", mono = true)
@@ -144,17 +163,21 @@ fun PipelinePickerScreen(roots: List<RemoteRoot>, state: PipelinePickerState, on
                 style = GeoButtonStyle.Tertiary, icon = GeoIcons.folder, enabled = !state.isLoading)
             if (state.currentPath.isNotBlank()) GeoButton(state.currentPath, onBack, Modifier.weight(1f), style = GeoButtonStyle.Tertiary)
         }
-        if (state.isLoading) DevText("확인 중")
+        if (state.isLoading) DevLoading()
         if (state.error != null) DevEmpty("폴더를 불러오지 못했습니다", state.error, "다시 시도", onRefresh)
-        if (state.root == null) roots.forEach { root -> GeoRow(root.label, { onRootClick(root) }, enabled = !state.isLoading,
-            disabledReason = "폴더를 확인하고 있습니다.") }
+        if (state.root == null) roots.forEach { root ->
+            R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                GeoRow(root.label, { onRootClick(root) }, enabled = !state.isLoading,
+                    leading = { GeoIconTile(GeoIcons.folder) }, divider = false, disabledReason = "폴더를 확인하고 있습니다.")
+            }
+        }
         else {
-            GeoSection("폴더", first = true, modifier = Modifier.padding(top = 24.dp), count = "${visible.size}개") {
+            GeoSection("폴더", first = true, modifier = Modifier.padding(top = 24.dp), count = "${visible.size}개",
+                trailingColumn = GeoRowTrailing.None) {
                 visible.forEach { entry -> GeoRow(com.example.jetsoncontroller.ui.storage.breakableFileName(entry.name), {
                     if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry)
                 }, enabled = !state.isLoading, disabledReason = "폴더를 확인하고 있습니다.",
-                    leading = { androidx.compose.material3.Icon(if (entry.type == RemoteEntryType.DIRECTORY) GeoIcons.folder else GeoIcons.file,
-                        null, Modifier.size(24.dp), tint = com.example.jetsoncontroller.ui.theme.LocalGeoColors.current.textSecondary) }) }
+                    leading = { GeoIconTile(if (entry.type == RemoteEntryType.DIRECTORY) GeoIcons.folder else GeoIcons.file) }) }
             }
         }
         if (!state.isLoading && state.error == null && (if (state.root == null) roots.isEmpty() else visible.isEmpty()))
@@ -205,7 +228,7 @@ fun PipelineLogScreen(state: PipelineUiState, onBack: () -> Unit, onRefresh: () 
                         "$deviceName 실행 로그를 불러올 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 실행 로그를 불러올 수 있습니다."), fullScreen = true)
                     PipelineDetailContent.ERROR -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
                         "실행 로그를 불러오지 못했습니다", "장치 연결을 확인하고 다시 시도하세요.", "다시 시도"), fullScreen = true, onAction = onRefresh)
-                    PipelineDetailContent.LOADING -> DevText("확인 중")
+                    PipelineDetailContent.LOADING -> DevLoading()
                     else -> if (state.logFiles.isEmpty()) DevEmpty("저장된 실행 로그가 없습니다", "작업을 시작하면 실행마다 로그가 따로 남습니다.")
                         else DevEmpty("로그 내용이 없습니다", "선택한 실행에서는 아직 결과가 기록되지 않았습니다.")
                 }
@@ -246,7 +269,7 @@ fun PipelineConfigScreen(state: PipelineUiState, onBack: () -> Unit, onValueChan
             "$deviceName 설정을 불러올 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 작업 설정을 불러올 수 있습니다."), fullScreen = true)
         else if (content == PipelineDetailContent.ERROR) GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
             "작업 설정을 불러오지 못했습니다", "장치 연결을 확인하고 다시 시도하세요.", "다시 시도"), fullScreen = true, onAction = onReload)
-        else if (content == PipelineDetailContent.LOADING) DevText("확인 중")
+        else if (content == PipelineDetailContent.LOADING) DevLoading()
         else if (content == PipelineDetailContent.EMPTY) DevEmpty("바꿀 수 있는 설정 값이 없습니다",
             "이 작업의 설정 파일에는 앱에서 바꿀 수 있는 키와 값이 없습니다.")
         else GeoSection("설정 값", first = true, modifier = Modifier.padding(top = 24.dp)) {

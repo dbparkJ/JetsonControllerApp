@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.storage
 
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -23,7 +24,6 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
     var picker by remember(state.deviceId) { mutableStateOf(false) }
     var pending by remember(state.deviceId, state.controlAvailable, state.selectedTarget?.id) { mutableStateOf<UploadLibrarySession?>(null) }
     var category by rememberSaveable(state.deviceId, state.selectedSession?.sessionId, state.currentPath) { mutableStateOf("전체") }
-    var filterPicker by remember { mutableStateOf(false) }
     val technical by rememberTechnicalInfo()
     pending?.let { frozen ->
         GeoConfirmDialog("서버 데이터를 삭제할까요?", "선택한 수신 결과를 서버에서 영구 삭제합니다. 되돌릴 수 없습니다.", "영구 삭제",
@@ -40,13 +40,10 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
                 { picker = false; onTargetSelected(target) }, description = target.baseUrl) }
         }
     }
-    if (filterPicker) GeoSheet("파일 유형", { filterPicker = false }) {
-        listOf("전체", "이미지", "영상", "센서", "로그").forEach { label ->
-            GeoRadioRow(label, label == category, { filterPicker = false; category = label })
-        }
-    }
     if (state.preview != null) {
-        DevFrame(state.preview.name, onBack) { FilePreview(state.preview) }
+        StoragePage("파일 미리보기", onBack, media = true) {
+            FilePreview(state.preview, deviceName, state.entries.firstOrNull { it.name == state.preview.name })
+        }
         return
     }
     DevPage("장치 경유 서버 조회", onBack, overlay = {
@@ -59,11 +56,14 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
             Spacer(Modifier.height(12.dp))
             DevText("${deviceName}을 거쳐 조회합니다. 이 화면에서는 지울 수 없습니다.", secondary = true)
             DevFeedback(state.error, true)
-            if (state.isLoading || state.isDeleting) DevText("확인 중")
-            if (state.selectedSession == null) GeoSection("수신 결과", first = true, modifier = Modifier.padding(top = 24.dp), count = "${state.sessions.size}개") {
+            if (state.isLoading) GeoSkeleton("확인 중", kind = GeoSkeletonKind.Rows)
+            if (state.isDeleting) GeoProgress()
+            if (state.selectedSession == null) GeoSection("수신 결과", first = true, modifier = Modifier.padding(top = 24.dp), count = "${state.sessions.size}개",
+                trailingColumn = GeoRowTrailing.None) {
                 state.sessions.forEach { session ->
                     GeoRow(proxySessionTitle(session.displayFolderName, session.completedAt ?: session.createdAt), { onSessionClick(session) },
-                        meta = listOfNotNull(devTimestamp(session.completedAt ?: session.createdAt), Formats.size(session.totalBytes)).joinToString(" · "))
+                        meta = listOfNotNull(devTimestamp(session.completedAt ?: session.createdAt), Formats.size(session.totalBytes)).joinToString(" · "),
+                        leading = { GeoIconTile(GeoIcons.folder) })
                     if (deletionEnabled) GeoButton("영구 삭제", { pending = session }, style = GeoButtonStyle.DangerOutline, enabled = !state.isDeleting)
                 }
                 if (state.sessions.isEmpty() && !state.isLoading && state.error == null) DevEmpty("수신 결과가 없습니다", "이 서버에 전송한 자료가 여기에 표시됩니다.")
@@ -71,8 +71,8 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
             } else {
                 DevIdentity(proxySessionTitle(state.selectedSession.displayFolderName, state.selectedSession.completedAt ?: state.selectedSession.createdAt),
                     state.currentPath.ifEmpty { "맨 위" })
-                GeoPickerField("파일 유형", category, { filterPicker = true })
-                GeoSection("파일", first = true, modifier = Modifier.padding(top = 24.dp)) {
+                MediaFilters(category) { category = it }
+                GeoSection("파일", first = true, modifier = Modifier.padding(top = 24.dp), trailingColumn = GeoRowTrailing.None) {
                     val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
                     visible.forEach { entry -> GeoRow(breakableFileName(entry.name),
                         { if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry) },

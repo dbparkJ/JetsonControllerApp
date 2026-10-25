@@ -37,7 +37,7 @@ data class GeoReceiptState(
         GeoReceiptStep.SERVER to server, GeoReceiptStep.REPORT to report
     )
 
-    fun firstIncomplete(): GeoReceiptStep? = rows().firstOrNull { !it.second.done }?.first
+    fun firstIncomplete(): GeoReceiptStep? = rows().firstOrNull { !receiptDone(it.first, it.second) }?.first
 }
 
 @Composable
@@ -58,8 +58,12 @@ fun GeoReceiptLine(state: GeoReceiptState, modifier: Modifier = Modifier) {
     ReceiptTrack(state, modifier)
 }
 
+internal fun receiptDone(step: GeoReceiptStep, item: GeoReceiptItem): Boolean =
+    item.done && !(step == GeoReceiptStep.REPORT && item.word == "해당 없음")
+
 internal fun receiptTone(step: GeoReceiptStep, item: GeoReceiptItem): Tone = when {
-    item.done -> Tone.SUCCESS
+    step == GeoReceiptStep.REPORT && item.word == "해당 없음" -> Tone.UNKNOWN
+    receiptDone(step, item) -> Tone.SUCCESS
     step == GeoReceiptStep.REPORT && item.word == "보고 전" -> Tone.UNKNOWN
     else -> Tone.PENDING
 }
@@ -72,11 +76,11 @@ private fun ReceiptTrack(state: GeoReceiptState, modifier: Modifier = Modifier) 
         Canvas(Modifier.fillMaxWidth().height(12.dp)) {
             val cellWidth = size.width / 4f
             val radius = 6.dp.toPx()
-            rows.forEachIndexed { index, (_, item) ->
+            rows.forEachIndexed { index, (step, item) ->
                 val x = cellWidth * (index + .5f)
                 if (index < 3) drawLine(colors.borderStrong,
                     Offset(x + radius, center.y), Offset(x + cellWidth - radius, center.y), 1.dp.toPx())
-                if (item.done) drawCircle(colors.success, radius, Offset(x, center.y))
+                if (receiptDone(step, item)) drawCircle(colors.success, radius, Offset(x, center.y))
                 else drawCircle(colors.borderStrong, radius - .5.dp.toPx(), Offset(x, center.y), style = Stroke(1.dp.toPx()))
             }
         }

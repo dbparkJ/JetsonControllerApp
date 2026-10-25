@@ -22,6 +22,7 @@ import com.example.jetsoncontroller.data.network.WifiDirectState
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.pairing.PairingTopBar
+import com.example.jetsoncontroller.ui.devices.DeviceSurface
 import com.example.jetsoncontroller.ui.model.localDeviceWord
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -52,7 +53,7 @@ fun WifiDirectScreen(
         if (stage !in setOf(DirectStage.PEERS, DirectStage.DISCOVERING) ||
             state.peers.none { it.deviceAddress == pendingAddress }) pendingAddress = null
     }
-    Column(Modifier.fillMaxSize().background(colors.surface)) {
+    Column(Modifier.fillMaxSize().background(colors.canvas)) {
         PairingTopBar("직접 연결", onBack)
         LazyColumn(contentPadding = PaddingValues(start = gutter, end = gutter, top = 24.dp, bottom = 28.dp)) {
             if (stage != DirectStage.UNSUPPORTED) item {
@@ -112,8 +113,10 @@ fun WifiDirectScreen(
                         GeoSection("주변 장치", first = true, count = if (state.discovering) "검색 중" else null,
                             actionLabel = if (!state.discovering && state.peers.isNotEmpty()) "다시 찾기" else null,
                             onAction = onDiscoveryClick) {
-                            if (state.discovering) GeoProgress()
-                            if (state.peers.isEmpty()) DirectState(
+                            if (state.discovering) DeviceSurface {
+                                GeoSkeleton("장치를 찾고 있습니다", kind = GeoSkeletonKind.Rows)
+                            }
+                            if (state.peers.isEmpty() && !state.discovering) DirectState(
                                 if (state.discovering) "장치를 찾고 있습니다" else "찾은 장치가 없습니다",
                                 if (state.discovering) "찾은 장치가 여기에 표시됩니다." else "장치 전원과 거리를 확인하세요.",
                                 actionLabel = if (state.discovering) null else "다시 찾기", onAction = onDiscoveryClick
@@ -124,10 +127,16 @@ fun WifiDirectScreen(
                         val requester = remember(peer.deviceAddress) { FocusRequester() }
                         val enabled = canConnectDirectPeer(state, permissionGranted, peer.deviceAddress)
                         val status = peerStatusLabel(peer.status)
-                        GeoRow(peerDisplayName(peer), { opener = requester; pendingAddress = peer.deviceAddress },
-                            modifier = Modifier.focusRequester(requester),
-                            meta = status, leading = { Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp)) },
-                            enabled = enabled, disabledReason = status)
+                        DeviceSurface {
+                            GeoRowList(GeoRowTrailing.Status) {
+                                GeoRow(peerDisplayName(peer), { opener = requester; pendingAddress = peer.deviceAddress },
+                                    modifier = Modifier.focusRequester(requester),
+                                    badge = { GeoBadge(status, peerStatusTone(peer.status)) },
+                                    leading = { Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp)) },
+                                    enabled = enabled, disabledReason = status, divider = false)
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
                     }
                 }
             }

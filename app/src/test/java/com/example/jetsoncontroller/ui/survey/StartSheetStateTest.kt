@@ -22,7 +22,7 @@ class StartSheetStateTest {
             val sheet = present(ready().copy(operation = operation))
             assertEquals(GeoStartPhase.CHECKING, sheet.phase)
             assertTrue(sheet.checks.all { it.phase == GeoStartPhase.CHECKING })
-            assertEquals(listOf("연결", "장치 시간", "저장 공간", "카메라", "위치(GNSS)"), sheet.checks.map { it.label })
+            assertEquals(listOf("연결", "장치 시간", "저장 공간", "카메라", "위치 품질"), sheet.checks.map { it.label })
             val rules = startSheetRules(sheet)
             assertTrue(rules.busy)
             assertFalse(rules.canStart)
@@ -68,7 +68,7 @@ class StartSheetStateTest {
             sensors = listOf(PreflightSensorCheck("camera", "REQUIRED", "LOST", detail = "INTERNAL_CODE"),
                 PreflightSensorCheck("gnss", "REQUIRED", "STALE", detail = "raw hardware error")))))
         val sheet = present(state)
-        val failures = sheet.checks.filter { it.label in listOf("카메라", "위치(GNSS)") }
+        val failures = sheet.checks.filter { it.label in listOf("카메라", "위치 품질") }
         assertEquals(2, failures.size)
         assertTrue(failures.all { it.phase == GeoStartPhase.FAILED && it.reason == "센서 수신 상태를 확인하세요." })
         assertFalse(startSheetRules(sheet).canStart)
@@ -93,7 +93,7 @@ class StartSheetStateTest {
             checked.checks.sensors + PreflightSensorCheck("imu", "OPTIONAL", "STALE"))))
         assertTrue(startSheetRules(present(optional)).canStart)
         val warning = optionalStartChecks(optional).single()
-        assertEquals("움직임(IMU)", warning.label)
+        assertEquals("관성 센서", warning.label)
         assertEquals(GeoStartPhase.FAILED, warning.phase)
         assertEquals("선택 센서 · 미확인", warning.value)
     }

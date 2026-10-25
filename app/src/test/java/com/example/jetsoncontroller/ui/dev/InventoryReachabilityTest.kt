@@ -41,7 +41,9 @@ class InventoryReachabilityTest {
         }
         assertTrue(source("dev/DevFanScreen.kt").contains("GeoSliderRow("))
         assertTrue(source("dev/DevDeviceTools.kt").contains("onCamera"))
-        assertTrue(source("tasks/TasksHomeScreen.kt").contains("GeoFocusBlock("))
-        assertTrue(source("devices/DevicesHomeScreen.kt").contains("GeoFigureGrid("))
+        assertTrue(source("tasks/TasksHomeScreen.kt").contains("GeoWorkCard("))
+        val devicesHome = source("devices/DevicesHomeScreen.kt")
+        assertTrue(devicesHome.contains("GeoDevicePhotoCard("))
+        assertTrue(devicesHome.contains("figures = devicePhotoFigures("))
     }
 }

@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.example.jetsoncontroller.ui.components.geo.GeoIcons
 import com.example.jetsoncontroller.ui.components.geo.GeoRadioRow
-import com.example.jetsoncontroller.ui.components.geo.GeoSection
+import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoSegmented
 import com.example.jetsoncontroller.ui.components.geo.GeoSheet
 import com.example.jetsoncontroller.ui.components.geo.GeoSnackbar
@@ -125,7 +125,7 @@ fun ThemeScreen(onBack: () -> Unit) {
         if (!store.setMode(mode)) scope.launch { snackbar.showGeoSnackbar("화면 테마를 저장하지 못했습니다.") }
     }
 
-    Box(Modifier.fillMaxSize().background(colors.surface)) {
+    Box(Modifier.fillMaxSize().background(colors.canvas)) {
         Column(Modifier.fillMaxSize()) {
             GeoThemeTopBar(onBack)
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)

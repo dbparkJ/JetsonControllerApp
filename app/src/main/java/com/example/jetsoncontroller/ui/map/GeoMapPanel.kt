@@ -47,7 +47,8 @@ fun GeoMapPanel(
     phoneMessage: String? = null,
     phoneRemedy: Pair<String, () -> Unit>? = null,
     developerMode: Boolean = false,
-    onPeekHeight: (Int) -> Unit = {}
+    onPeekHeight: (Int) -> Unit = {},
+    deviceName: String = "장치"
 ) {
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
@@ -80,22 +81,30 @@ fun GeoMapPanel(
         Column(Modifier.fillMaxWidth().onSizeChanged {
             if (!expanded) onPeekHeight(with(density) { it.height.toDp().value.toInt() })
         }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Box(Modifier.align(Alignment.Center).size(32.dp, 4.dp).background(c.borderStrong, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
+            Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(32.dp, 4.dp).background(c.borderStrong, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                Text(deviceName, Modifier.weight(1f).padding(top = 10.dp), style = type.deviceName, color = c.text)
                 GeoIconButton(if (expanded) GeoIcons.collapsePanel else GeoIcons.expandPanel,
                     if (expanded) "패널 접기" else "패널 펼치기", onToggle,
-                    Modifier.align(Alignment.CenterEnd).semantics { stateDescription = if (expanded) "펼쳐짐" else "접힘" })
+                    Modifier.semantics { stateDescription = if (expanded) "펼쳐짐" else "접힘" })
             }
             val badge = zoneBadge(mode, data)
             if (badge != null) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    GeoBadge(badge.first, badge.second)
+                    GeoBadge(badge.first, badge.second, variant = GeoBadgeVariant.INLINE)
                     Text(presentation.headline, style = type.body, color = c.text)
                 }
             } else if (mode == GeoMapMode.ZONE) {
                 Text(mapPositionSentence(data), style = type.body, color = c.text)
             } else Text(presentation.headline, style = type.body, color = c.text)
             data.geometry?.summary?.takeIf { it.isNotEmpty() }?.let { Text(it, style = type.caption, color = c.textSecondary) }
+            GeoFactRow("좌표", Formats.coordinate(data.device?.latitude, data.device?.longitude))
+            GeoFactRow("마지막 위치", mapSampleTime(gnss.lastSampleAtEpochMillis))
+            GeoSwitchRow("휴대폰 위치 표시", phoneShown, onPhoneShown)
+            phoneMessage?.let { GeoInlineNote(it) }
+            phoneRemedy?.let { GeoButton(it.first, it.second, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
             if (mode == GeoMapMode.RUN) {
                 Text("수집 중 · ${runElapsed ?: "미확인"}", style = type.body, color = c.text)
                 stopError?.let { GeoInlineNote(it) }
@@ -112,13 +121,8 @@ fun GeoMapPanel(
             }
             GeoSection("범례", first = true, modifier = Modifier.padding(top = 24.dp)) { GeoMapLegend() }
             GeoSection("장치 위치") {
-                GeoFactRow("좌표", Formats.coordinate(data.device?.latitude, data.device?.longitude))
                 GeoFactRow("위성", gnss.satellites?.let { "${it}개" } ?: "미확인")
                 GeoFactRow("고도", gnss.altitudeM?.takeIf { it.isFinite() }?.let { "${String.format(Locale.US, "%.1f", it)} m" } ?: "미확인")
-                GeoFactRow("마지막 위치", mapSampleTime(gnss.lastSampleAtEpochMillis))
-                GeoSwitchRow("휴대폰 위치 표시", phoneShown, onPhoneShown)
-                phoneMessage?.let { GeoInlineNote(it) }
-                phoneRemedy?.let { GeoButton(it.first, it.second, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
                 Text(presentation.detail, style = type.caption, color = c.textSecondary)
                 GeoRow("위치 품질 자세히", { qualityDetails = true }, modifier = Modifier.focusRequester(qualityFocus))
             }
