@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
 import com.example.jetsoncontroller.ui.theme.GeoShape
+import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.foundation.background
@@ -42,9 +43,9 @@ fun GeoMenu(
     if (expanded) RestoreOverlayFocus(openerFocusRequester)
     DropdownMenu(
         expanded, onDismissRequest,
-        modifier = modifier.widthIn(min = 200.dp, max = 280.dp),
+        modifier = modifier.widthIn(min = 200.dp, max = 280.dp).geoCardShadow(),
         shape = GeoShape.card, containerColor = t.surface,
-        tonalElevation = 0.dp, shadowElevation = 16.dp
+        tonalElevation = 0.dp, shadowElevation = 0.dp
     ) {
         val normal = items.filterNot { it.destructive }
         val destructive = items.filter { it.destructive }

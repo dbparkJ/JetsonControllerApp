@@ -5,7 +5,6 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,8 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -25,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.ui.components.geo.GeoButton
 import com.example.jetsoncontroller.ui.components.geo.GeonLoader
+import com.example.jetsoncontroller.ui.components.GeoWordmark
 import com.example.jetsoncontroller.ui.theme.*
 import kotlinx.coroutines.delay
 
@@ -104,18 +103,22 @@ fun StartupLoadingScene(modifier: Modifier = Modifier, reducedMotion: Boolean = 
             view.announceForAccessibility("장치 정보를 불러오는 중입니다")
         }
     }
-    StartupSceneColumn(modifier.drawWithContent {
-        visible = true
-        drawContent()
-    }.clearAndSetSemantics {
-        contentDescription = "장치 정보를 불러오는 중입니다"
-    }) {
-        GeonLoader(size = 88.dp, reducedMotion = reducedMotion)
-        Spacer(Modifier.height(20.dp))
-        Text("GEO-X", style = LocalGeoType.current.title, color = LocalGeoColors.current.text)
-        Spacer(Modifier.height(8.dp))
-        Text("장치 정보를 불러오는 중입니다.", style = LocalGeoType.current.body,
-            color = LocalGeoColors.current.textSecondary, textAlign = TextAlign.Center)
+    Column(modifier.fillMaxSize().background(LocalGeoColors.current.surface)
+        .windowInsetsPadding(WindowInsets.safeDrawing)) {
+        StartupSceneColumn(Modifier.weight(1f).fillMaxWidth().drawWithContent {
+            visible = true
+            drawContent()
+        }.clearAndSetSemantics {
+            contentDescription = "장치 정보를 불러오는 중입니다"
+        }) {
+            GeonLoader(size = 128.dp, reducedMotion = reducedMotion)
+            Spacer(Modifier.height(32.dp))
+            Text("GEO-X", style = LocalGeoType.current.brandTitle, color = LocalGeoColors.current.text)
+            Spacer(Modifier.height(12.dp))
+            Text("장치 정보를 불러오는 중입니다.", style = LocalGeoType.current.body,
+                color = LocalGeoColors.current.textSecondary, textAlign = TextAlign.Center)
+        }
+        GeoWordmark(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 32.dp).width(88.dp))
     }
 }
 
@@ -123,26 +126,25 @@ fun StartupLoadingScene(modifier: Modifier = Modifier, reducedMotion: Boolean = 
 fun StartupErrorScene(cause: Throwable, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
-    StartupSceneColumn(modifier) {
+    StartupSceneColumn(modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
         Image(painterResource(R.drawable.geo_symbol), contentDescription = null,
-            modifier = Modifier.size(56.dp), alpha = 0.45f,
-            colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }))
-        Spacer(Modifier.height(20.dp))
-        Text("장치 정보를 불러오지 못했습니다", style = type.title, color = colors.text,
+            modifier = Modifier.size(72.dp), alpha = 0.28f)
+        Spacer(Modifier.height(28.dp))
+        Text("장치 정보를\n불러오지 못했습니다", style = type.workTitle, color = colors.text,
             textAlign = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
-        Text(restoreFailureWords(cause), modifier = Modifier.widthIn(max = 360.dp),
-            style = type.body, color = colors.textSecondary, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(16.dp))
+        Text(restoreFailureWords(cause), modifier = Modifier.fillMaxWidth(),
+            style = type.caption.copy(lineHeight = 24.sp, letterSpacing = (-0.25).sp),
+            color = colors.textSecondary, textAlign = TextAlign.Center)
         Spacer(Modifier.height(24.dp))
-        GeoButton("다시 시도", onRetry, Modifier.widthIn(max = 240.dp).fillMaxWidth().heightIn(min = 52.dp),
+        GeoButton("다시 시도", onRetry, Modifier.fillMaxWidth().heightIn(min = 56.dp),
             actionArea = true)
     }
 }
 
 @Composable
 private fun StartupSceneColumn(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
-    BoxWithConstraints(modifier.fillMaxSize().background(LocalGeoColors.current.surface)
-        .windowInsetsPadding(WindowInsets.safeDrawing)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(LocalGeoColors.current.surface)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .heightIn(min = maxHeight).padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

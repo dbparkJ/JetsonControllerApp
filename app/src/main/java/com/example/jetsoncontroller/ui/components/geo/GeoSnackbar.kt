@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
 import com.example.jetsoncontroller.ui.theme.GeoShape
+import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import androidx.compose.foundation.Canvas
@@ -88,8 +89,9 @@ private fun OverlaySnackbar(data: SnackbarData, modifier: Modifier) {
     val measure = rememberTextMeasurer()
     val buttonStyle = LocalGeoType.current.button
     Surface(
-        modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-        shape = GeoShape.card, color = LocalGeoColors.current.inverse, contentColor = color, shadowElevation = 16.dp
+        modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().geoCardShadow()
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        shape = GeoShape.card, color = LocalGeoColors.current.inverse, contentColor = color, shadowElevation = 0.dp
     ) {
         BoxWithConstraints(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
             val density = LocalDensity.current

@@ -1,31 +1,26 @@
 package com.example.jetsoncontroller.ui.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.imageResource
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
-import com.example.jetsoncontroller.ui.dashboard.*
-import com.example.jetsoncontroller.ui.theme.GeoSpace
-import com.example.jetsoncontroller.ui.theme.GeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoDarkTheme
+import com.example.jetsoncontroller.ui.theme.LocalGeoPalette
 
 /**
  * The GEO& corporate mark.
@@ -50,5 +45,18 @@ fun GeoLogo(modifier: Modifier = Modifier, backgroundColor: Color = MaterialThem
         }
         part(0, 0, 290, 338)
         part(310, 0, 690, 260)
+    }
+}
+
+/** Only x310–1000 / y0–260 of the original logo; no tagline or symbol. */
+@Composable
+fun GeoWordmark(modifier: Modifier = Modifier) {
+    val resources = LocalContext.current.resources
+    val logo = remember(resources) { ImageBitmap.imageResource(resources, R.drawable.geo_wordmark) }
+    val tint = if (LocalGeoPalette.current.isDark) ColorFilter.tint(LocalGeoColors.current.text) else null
+    Canvas(modifier.widthIn(min = 88.dp).aspectRatio(690f / 260f)
+        .semantics { contentDescription = "GEO& 로고" }) {
+        drawImage(logo,
+            dstSize = IntSize(size.width.toInt(), size.height.toInt()), colorFilter = tint)
     }
 }

@@ -72,28 +72,27 @@ class LoaderTimingTest {
     }
 
     @Test
-    fun `loader cycle and keyframes match the source with opposite wave directions`() {
+    fun `loader reveals linearly then holds and fades over 2400 ms`() {
         assertEquals(2_400, GeoMotion.loaderCycle)
-        val start = loaderFrame(88f, 0f)
-        assertEquals(70f, start.period, 0.001f)
-        assertEquals(106f, start.maskHeight, 0.001f)
-        assertEquals(-12f, start.top, 0.001f)
-        assertEquals(0f, start.mainX, 0.001f)
-        assertEquals(88f, start.mainY, 0.001f)
-        assertEquals(35f, start.secondX, 0.001f)
-        assertEquals(80.96f, start.secondY, 0.001f)
-        val secondAtTop = loaderFrame(88f, 0.66f)
-        assertEquals(175f, secondAtTop.secondX, 0.001f)
-        assertEquals(-24f, secondAtTop.secondY, 0.001f)
-        assertEquals(0.32f, secondAtTop.secondAlpha, 0.001f)
-        assertTrue(secondAtTop.mainY > -12f)
-        val mainAtTop = loaderFrame(88f, 0.72f)
-        assertEquals(-210f, mainAtTop.mainX, 0.001f)
-        assertEquals(-12f, mainAtTop.mainY, 0.001f)
-        assertEquals(1f, loaderFrame(88f, 0.88f).mainAlpha, 0.001f)
-        assertEquals(-176f, loaderFrame(88f, 0.74f).shineX, 0.001f)
-        assertEquals(0f, loaderFrame(88f, 0.96f).shineX, 0.001f)
-        assertEquals(0f, loaderFrame(88f, 1f).mainAlpha, 0.001f)
-        assertEquals(0f, loaderFrame(88f, 1f).secondAlpha, 0.001f)
+        val start = loaderFrame(128f, 0f)
+        assertEquals(0f, start.reveal, .001f)
+        assertEquals(128f, start.clipTop, .001f)
+        assertEquals(1f, start.foregroundAlpha, .001f)
+        assertEquals(64f, loaderFrame(128f, .35f).clipTop, .001f)
+        assertEquals(1f, loaderFrame(128f, .7f).reveal, .001f)
+        assertEquals(1f, loaderFrame(128f, .9f).foregroundAlpha, .001f)
+        assertEquals(.5f, loaderFrame(128f, .95f).foregroundAlpha, .001f)
+        assertEquals(0f, loaderFrame(128f, 1f).foregroundAlpha, .001f)
+    }
+
+    @Test
+    fun `reduced motion is a complete static symbol at every fraction`() {
+        val still = loaderFrame(128f, 0f, reducedMotion = true)
+        assertEquals(1f, still.reveal, 0f)
+        assertEquals(1f, still.foregroundAlpha, 0f)
+        assertEquals(0f, still.clipTop, 0f)
+        listOf(-1f, 0f, .25f, .7f, .95f, 1f, 2f).forEach { fraction ->
+            assertEquals(still, loaderFrame(128f, fraction, reducedMotion = true))
+        }
     }
 }

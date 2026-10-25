@@ -8,8 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,7 +42,7 @@ internal val GeoControlShape = GeoShape.control
 
 @Composable
 internal fun geoButtonTextStyle(): TextStyle = MaterialTheme.typography.labelLarge.copy(
-    fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp
+    fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp
 )
 
 @Composable
@@ -107,7 +105,8 @@ fun GeoButton(
     disabledReason: String? = null,
     actionArea: Boolean = false,
     contentColor: Color? = null,
-    edge: GeoButtonEdge = GeoButtonEdge.None
+    edge: GeoButtonEdge = GeoButtonEdge.None,
+    containerColor: Color? = null
 ) {
     require(!busy || !busyLabel.isNullOrBlank()) { "Busy buttons require a present-progressive label" }
     val c = LocalGeoColors.current
@@ -118,8 +117,9 @@ fun GeoButton(
     val danger = style == GeoButtonStyle.DangerFilled || style == GeoButtonStyle.DangerOutline
     val fill = when {
         !enabled -> c.disabledFill
+        containerColor != null -> containerColor
+        danger -> c.dangerSoft
         style == GeoButtonStyle.Primary -> if (pressed) c.primaryPressed else c.primary
-        style == GeoButtonStyle.DangerFilled -> if (pressed) c.dangerPressed else c.danger
         pressed && contentColor != null -> contentColor.copy(alpha = .12f)
         pressed -> c.fieldPressed
         style == GeoButtonStyle.Secondary -> c.surface
@@ -128,14 +128,14 @@ fun GeoButton(
     val content = when {
         !enabled -> c.disabledText
         contentColor != null -> contentColor
-        filled -> if (danger) c.onDanger else c.onPrimary
         danger -> c.danger
+        filled -> c.onPrimary
         style == GeoButtonStyle.Tertiary -> c.primary
         else -> c.text
     }
     val border = when (style) {
         GeoButtonStyle.Secondary -> BorderStroke(1.dp, if (enabled) c.borderControl else c.disabledText)
-        GeoButtonStyle.DangerOutline -> BorderStroke(1.dp, if (enabled) c.danger else c.disabledText)
+        GeoButtonStyle.DangerOutline, GeoButtonStyle.DangerFilled -> BorderStroke(1.dp, if (enabled) c.dangerBorder else c.disabledText)
         else -> null
     }
     // The cap comes first so a caller's fillMaxWidth() fills up to 560 dp instead of overriding it.
@@ -144,7 +144,7 @@ fun GeoButton(
             Modifier
                 .then(tertiaryEdgeOffset(style, edge))
                 .then(if (style == GeoButtonStyle.Tertiary && !actionArea) Modifier.width(IntrinsicSize.Max) else Modifier)
-                .heightIn(min = if (filled && actionArea) 52.dp else 48.dp)
+                .heightIn(min = if (filled || actionArea) 56.dp else 48.dp)
                 .defaultMinSize(minWidth = 48.dp)
                 .onFocusChanged { focused = it.isFocused }
                 .geoFocusRing(GeoControlShape, focused, tint = contentColor)
@@ -194,8 +194,8 @@ fun GeoIconButton(
         Box(
             Modifier.size(48.dp)
                 .onFocusChanged { focused = it.isFocused }
-                .geoFocusRing(CircleShape, focused, chrome)
-                .clip(CircleShape)
+                .geoFocusRing(GeoControlShape, focused, chrome)
+                .clip(GeoControlShape)
                 .background(if (!enabled) c.disabledFill else if (pressed) c.fieldPressed else Color.Transparent)
                 .clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
                 .semantics { this.contentDescription = contentDescription },
@@ -239,7 +239,7 @@ internal fun geoActionsFit(
     if (usable < 0) return false
     return when (layout) {
         GeoActionLayout.EqualShares -> requiredWidths.all { it.toLong() * requiredWidths.size <= usable }
-        GeoActionLayout.Dialog -> requiredWidths.sumOf { it.toLong() } <= usable
+        GeoActionLayout.Dialog -> requiredWidths.all { it.toLong() * requiredWidths.size <= usable }
     }
 }
 
@@ -278,9 +278,8 @@ fun GeoButtonActions(
         }
         if (row) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                actions.forEachIndexed { index, item ->
-                    action(item, if (layout == GeoActionLayout.EqualShares) Modifier.weight(1f)
-                    else with(density) { Modifier.width(widths[index].toDp()) })
+                actions.forEach { item ->
+                    action(item, Modifier.weight(1f))
                 }
             }
         } else {

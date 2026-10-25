@@ -2,6 +2,8 @@ package com.example.jetsoncontroller.ui.components.geo
 
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.GeoShape
+import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListState
@@ -104,8 +106,8 @@ private suspend fun scrollToLogEnd(state: LazyListState, lastIndex: Int) {
 
 @Composable
 private fun LatestLogAction(modifier: Modifier, onClick: () -> Unit) {
-    androidx.compose.material3.Surface(modifier, color = LocalGeoColors.current.surface,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp), shadowElevation = 1.dp) {
+    androidx.compose.material3.Surface(modifier.geoCardShadow(), color = LocalGeoColors.current.surface,
+        shape = GeoShape.card, shadowElevation = 0.dp) {
         GeoButton("최신 로그", onClick, style = GeoButtonStyle.Tertiary)
     }
 }

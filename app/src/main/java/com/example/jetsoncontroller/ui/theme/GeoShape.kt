@@ -7,18 +7,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** R4 radii with the existing R3 strokes and focus geometry. */
+/** R7 radii; only filters use the pill shape. */
 object GeoShape {
-    val sm = 6.dp
-    val md = 8.dp
-    val lg = 10.dp
-    val xl = 14.dp
-    val xxl = 14.dp
+    val sm = 8.dp
+    val md = 12.dp
+    val lg = 16.dp
+    val xl = 16.dp
+    val xxl = 24.dp
     val pillRadius = 999.dp
 
-    val tag = RoundedCornerShape(4.dp)
-    val segmentedTrack = RoundedCornerShape(8.dp)
-    val segmentedThumb = RoundedCornerShape(4.dp)
+    val tag = RoundedCornerShape(sm)
+    val badge = tag
+    val iconTile = RoundedCornerShape(md)
+    val segmentedTrack = RoundedCornerShape(md)
+    val segmentedThumb = RoundedCornerShape(sm)
     val checkbox = RoundedCornerShape(sm)
     val control = RoundedCornerShape(md)
     val card = RoundedCornerShape(lg)
@@ -36,32 +38,20 @@ object GeoShape {
     val focusHalo = 4.dp
 }
 
-/** Shadows supplement borders; body content has no elevation or tonal tint. */
+/** One R7 shadow. Compatibility entry points all return the same geometry. */
 object GeoElevation {
     val none = 0.dp
-    val small = 2.dp
+    val small = 16.dp
     val large = 16.dp
-    const val darkOutlineAlpha = 0.10f
-
-    fun shadowSmall(palette: GeoPalette): GeoShadow = if (palette.isDark) {
-        GeoShadow(Color.White.copy(alpha = 0.07f))
-    } else {
-        GeoShadow(navy.copy(alpha = 0.06f), navy.copy(alpha = 0.06f), 1.dp, 2.dp)
-    }
-
-    fun shadowLarge(palette: GeoPalette): GeoShadow = if (palette.isDark) {
-        GeoShadow(Color.White.copy(alpha = darkOutlineAlpha), Color.Black.copy(alpha = 0.45f), 16.dp, 40.dp)
-    } else {
-        GeoShadow(navy.copy(alpha = 0.06f), navy.copy(alpha = 0.18f), 20.dp, 48.dp)
-    }
-
-    fun shadowSwitch(palette: GeoPalette) = GeoShadow(
+    const val darkOutlineAlpha = 0f
+    fun shadow(palette: GeoPalette) = GeoShadow(
         outline = Color.Transparent,
-        color = if (palette.isDark) Color.Black.copy(alpha = 0.5f) else navy.copy(alpha = 0.25f),
-        offsetY = 1.dp, blur = 2.dp
+        color = palette.colors.text.copy(alpha = 0.06f),
+        offsetY = 4.dp, blur = 16.dp, outlineWidth = 0.dp
     )
-
-    private val navy = Color(0xFF121A3D)
+    fun shadowSmall(palette: GeoPalette) = shadow(palette)
+    fun shadowLarge(palette: GeoPalette) = shadow(palette)
+    fun shadowSwitch(palette: GeoPalette) = shadow(palette)
 }
 
 /** KIT shadow geometry, for components that draw a shadow beyond platform elevation. */

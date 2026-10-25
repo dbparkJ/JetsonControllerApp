@@ -19,9 +19,9 @@ class WindowClassTest {
     fun `gutters come from the pane after the rail and safe drawing`() {
         assertEquals(802f, geoWindow(882f, 412f, 1f).paneWidthDp, 0f)
         assertEquals(24f, paneGutter(390f), 0f)
-        assertEquals(20f, paneGutter(389f), 0f)
-        assertEquals(20f, paneGutter(340f), 0f)
-        assertEquals(16f, paneGutter(339f), 0f)
+        assertEquals(24f, paneGutter(389f), 0f)
+        assertEquals(24f, paneGutter(340f), 0f)
+        assertEquals(24f, paneGutter(339f), 0f)
         assertEquals(320f, geoWindow(320f, 640f, 2f).paneWidthDp, 0f)
     }
 

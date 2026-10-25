@@ -19,7 +19,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 internal data class GeoSectionRule(val divider: Boolean, val beforeLineDp: Int, val afterLineDp: Int)
 
 internal fun geoSectionRule(first: Boolean, danger: Boolean): GeoSectionRule =
-    if (first) GeoSectionRule(false, 0, 0) else GeoSectionRule(true, if (danger) 24 else 16, 16)
+    if (first) GeoSectionRule(false, 0, 0) else GeoSectionRule(false, 24, 0)
 
 /** Parents place sections consecutively; only this component owns the section gap. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -41,8 +41,8 @@ fun GeoSection(
     val measurer = rememberTextMeasurer()
     val rule = geoSectionRule(first, danger)
     Column(modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(rule.beforeLineDp.dp))
         if (rule.divider) {
-            Spacer(Modifier.height(rule.beforeLineDp.dp))
             HorizontalDivider(thickness = 1.dp, color = colors.sectionDivider)
             Spacer(Modifier.height(rule.afterLineDp.dp))
         }
@@ -77,7 +77,7 @@ fun GeoSection(
             }
         }
         note?.let { Text(it, color = colors.textSecondary, style = LocalGeoType.current.caption) }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
         content()
     }
 }

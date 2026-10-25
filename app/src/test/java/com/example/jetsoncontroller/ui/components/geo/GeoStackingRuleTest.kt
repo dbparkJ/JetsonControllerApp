@@ -22,10 +22,10 @@ class GeoStackingRuleTest {
     }
 
     @Test
-    fun `dialog actions use natural widths`() {
-        assertTrue(geoActionsFit(364, listOf(48, 300), 8, GeoActionLayout.Dialog))
-        assertTrue(geoActionsFit(356, listOf(48, 300), 8, GeoActionLayout.Dialog))
-        assertFalse(geoActionsFit(355, listOf(48, 300), 8, GeoActionLayout.Dialog))
+    fun `dialog pairs also use equal widths`() {
+        assertFalse(geoActionsFit(364, listOf(48, 300), 8, GeoActionLayout.Dialog))
+        assertTrue(geoActionsFit(608, listOf(48, 300), 8, GeoActionLayout.Dialog))
+        assertFalse(geoActionsFit(607, listOf(48, 300), 8, GeoActionLayout.Dialog))
     }
 
     @Test

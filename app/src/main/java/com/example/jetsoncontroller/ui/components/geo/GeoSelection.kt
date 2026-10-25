@@ -6,6 +6,8 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -25,7 +27,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -47,7 +48,48 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import com.example.jetsoncontroller.ui.theme.GeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import kotlin.math.roundToInt
+
+/** Stable text metrics and padding in both states: selection changes only colours. */
+@Composable
+fun GeoFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val c = LocalGeoColors.current
+    var focused by remember { mutableStateOf(false) }
+    Box(modifier.height(48.dp).widthIn(min = 48.dp)
+        .onFocusChanged { focused = it.isFocused }
+        .geoFocusRing(GeoShape.pill, focused)
+        .background(if (selected) c.primary else c.surface, GeoShape.pill)
+        .selectable(selected, enabled = enabled, role = Role.Tab, onClick = onClick)
+        .padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        Text(label, style = LocalGeoType.current.filter,
+            color = if (!enabled) c.disabledText else if (selected) c.onPrimary else c.textSecondary,
+            maxLines = 1, softWrap = false)
+    }
+}
+
+/** One scrolling row at the content start; never place these in a FlowRow. */
+@Composable
+fun GeoFilters(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    require(options.isEmpty() || selectedIndex in options.indices)
+    Row(modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEachIndexed { index, label ->
+            GeoFilterChip(label, index == selectedIndex, { onSelect(index) })
+        }
+    }
+}
 
 @Composable
 fun GeoSwitchRow(
@@ -70,7 +112,7 @@ fun GeoSwitchRow(
         Box(Modifier.size(52.dp, 32.dp).geoFocusRing(CircleShape, focused)
             .background(if (!enabled) c.disabledFill else if (checked) c.primary else c.switchTrackOff, CircleShape)
             .padding(4.dp)) {
-            Box(Modifier.offset(x = position).size(24.dp).shadow(1.dp, CircleShape)
+            Box(Modifier.offset(x = position).size(24.dp)
                 .background(if (!enabled) c.disabledText else if (checked) c.switchThumbOn else c.switchThumbOff, CircleShape))
         }
     }

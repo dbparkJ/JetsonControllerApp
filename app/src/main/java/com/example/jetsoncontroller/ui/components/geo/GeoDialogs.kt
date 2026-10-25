@@ -2,8 +2,9 @@ package com.example.jetsoncontroller.ui.components.geo
 
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
+import com.example.jetsoncontroller.ui.theme.GeoShape
+import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -94,9 +95,10 @@ private fun OverlayDialog(
                 val gutter = overlayGutter(maxWidth.value).dp
                 Box(Modifier.fillMaxSize().padding(gutter), contentAlignment = Alignment.Center) {
                     Surface(
-                        modifier.widthIn(min = 280.dp, max = 560.dp).fillMaxWidth().semantics { paneTitle = title },
-                        shape = RoundedCornerShape(14.dp), color = t.surface, contentColor = t.text,
-                        shadowElevation = 16.dp
+                        modifier.widthIn(min = 280.dp, max = 560.dp).fillMaxWidth()
+                            .geoCardShadow().semantics { paneTitle = title },
+                        shape = GeoShape.card, color = t.surface, contentColor = t.text,
+                        shadowElevation = 0.dp
                     ) {
                         Column(Modifier.padding(24.dp)) {
                             OverlayViewport(

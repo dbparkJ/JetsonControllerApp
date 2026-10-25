@@ -8,24 +8,24 @@ import org.junit.Test
 
 class FigureGridRulesTest {
     @Test
-    fun `two columns require two 132 dp cells and the 16 dp gap`() {
-        assertEquals(1, figureGridColumns(279f, 1f))
-        assertEquals(2, figureGridColumns(280f, 1f))
-        assertEquals(2, figureGridColumns(364f, 1.3f))
+    fun `R7 uses four equal columns at the design width`() {
+        assertEquals(2, figureGridColumns(311f, 1f))
+        assertEquals(4, figureGridColumns(312f, 1f))
+        assertEquals(4, figureGridColumns(364f, 1.3f))
     }
 
     @Test
-    fun `large text always uses one column including a wide pane`() {
-        assertEquals(2, figureGridColumns(720f, 1.49f))
-        assertEquals(1, figureGridColumns(720f, 1.5f))
+    fun `large text uses two then one column including a wide pane`() {
+        assertEquals(4, figureGridColumns(720f, 1.49f))
+        assertEquals(2, figureGridColumns(720f, 1.5f))
         assertEquals(1, figureGridColumns(720f, 2f))
     }
 
     @Test
     fun `contained padding is deducted exactly once before choosing columns`() {
         assertEquals(2, figureGridColumns(280f, 1f, contained = false))
-        assertEquals(1, figureGridColumns(311f, 1f, contained = true))
-        assertEquals(2, figureGridColumns(312f, 1f, contained = true))
+        assertEquals(2, figureGridColumns(343f, 1f, contained = true))
+        assertEquals(4, figureGridColumns(344f, 1f, contained = true))
     }
 
     @Test

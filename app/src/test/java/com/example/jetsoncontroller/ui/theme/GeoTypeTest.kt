@@ -10,51 +10,52 @@ import org.junit.Test
 
 class GeoTypeTest {
     @Test
-    fun `reading roles match the R4 size line weight and tracking`() {
+    fun `reading roles match the R7 size line weight and tracking`() {
         val t = GeoType.standard
-        assertRole(t.count, 12, 16, 600)
-        assertRole(t.caption, 13, 20, 400, -0.003f)
+        assertRole(t.count, 13, 20, 600)
+        assertRole(t.caption, 13, 20, 500)
         assertRole(t.label, 14, 20, 500)
-        assertRole(t.body, 15, 24, 400, -0.003f)
-        assertRole(t.titleSm, 16, 24, 500, -0.003f)
-        assertRole(t.title, 18, 26, 600, -0.015f)
-        assertRole(t.boardTitle, 24, 32, 700, -0.015f)
-        assertRole(t.heading, 24, 32, 700, -0.025f)
-        assertRole(t.button, 16, 20, 600)
+        assertRole(t.body, 16, 24, 400)
+        assertRole(t.titleSm, 16, 24, 600)
+        assertRole(t.title, 18, 28, 700)
+        assertRole(t.boardTitle, 24, 32, 700)
+        assertRole(t.heading, 24, 32, 700)
+        assertRole(t.button, 16, 24, 600)
         assertRole(t.input, 16, 24, 400)
         assertRole(t.mono, 13, 20, 400, monospace = true)
         assertEquals(FontWeight.SemiBold, t.badge.fontWeight)
-        assertRole(t.sectionTitle, 18, 26, 700, -0.015f)
-        assertRole(t.deviceName, 18, 26, 700, -0.015f)
-        assertRole(t.propertyLabel, 15, 22, 500)
+        assertRole(t.sectionTitle, 18, 28, 700)
+        assertRole(t.deviceName, 18, 28, 700)
+        assertRole(t.propertyLabel, 14, 20, 500)
         assertRole(t.propertyValue, 16, 24, 400)
-        assertRole(t.emptyTitle, 15, 24, 400, -0.003f)
-        assertRole(t.inlineStatus, 14, 20, 600)
-        assertRole(t.stateTitle, 16, 24, 600, -0.003f)
-        assertRole(t.focusTitle, 16, 24, 600, -0.003f)
-        assertEquals(t.label, t.tag)
+        assertRole(t.emptyTitle, 16, 24, 400)
+        assertRole(t.inlineStatus, 14, 20, 500)
+        assertRole(t.stateTitle, 16, 24, 600)
+        assertRole(t.focusTitle, 22, 32, 700)
+        assertEquals(t.badge, t.tag)
         assertEquals(FontWeight.SemiBold, t.tab.fontWeight)
         assertEquals(FontWeight.Bold, t.tabSelected.fontWeight)
         assertEquals("tnum", t.figure.fontFeatureSettings)
+        assertRole(t.brandTitle, 32, 40, 700)
+        assertRole(t.workTitle, 22, 32, 700)
+        assertRole(t.figure, 28, 36, 700, -1f / 28f)
+        assertRole(t.clock, 40, 48, 700)
+        assertRole(t.filter, 13, 20, 600)
+        assertRole(t.unit, 13, 20, 500)
     }
 
     @Test
-    fun `high contrast raises only the four specified reading weights`() {
+    fun `all palettes keep R7 reading weights and material mappings`() {
         val standard = GeoType.standard
         val high = GeoType.forPalette(GeoPalette.HIGH_CONTRAST)
-        assertEquals(standard.copy(
-            caption = standard.caption.copy(fontWeight = FontWeight.Medium),
-            label = standard.label.copy(fontWeight = FontWeight.SemiBold),
-            body = standard.body.copy(fontWeight = FontWeight.Medium),
-            titleSm = standard.titleSm.copy(fontWeight = FontWeight.SemiBold)
-        ), high)
+        assertEquals(standard, high)
         GeoPalette.entries.filterNot { it.highContrast }.forEach {
             assertSame(standard, GeoType.forPalette(it))
         }
-        assertEquals(FontWeight.SemiBold, high.propertyLabel.fontWeight)
-        assertEquals(FontWeight.Medium, high.propertyValue.fontWeight)
-        assertEquals(FontWeight.Medium, high.emptyTitle.fontWeight)
-        assertEquals(FontWeight.SemiBold, high.focusTitle.fontWeight)
+        assertEquals(FontWeight.Medium, high.propertyLabel.fontWeight)
+        assertEquals(FontWeight.Normal, high.propertyValue.fontWeight)
+        assertEquals(FontWeight.Normal, high.emptyTitle.fontWeight)
+        assertEquals(FontWeight.Bold, high.focusTitle.fontWeight)
         assertEquals(standard.sectionTitle, high.sectionTitle)
         assertEquals(standard.deviceName, high.deviceName)
         assertEquals(standard.inlineStatus, high.inlineStatus)

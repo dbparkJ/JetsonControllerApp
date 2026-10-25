@@ -10,11 +10,11 @@ class GeoSectionRulesTest {
         }
     }
 
-    @Test fun `subsequent sections leave 16 dp on either side of their line`() {
-        assertEquals(GeoSectionRule(true, 16, 16), geoSectionRule(first = false, danger = false))
+    @Test fun `subsequent sections use 24 dp without a repeated border`() {
+        assertEquals(GeoSectionRule(false, 24, 0), geoSectionRule(first = false, danger = false))
     }
 
-    @Test fun `danger adds eight dp before the line and keeps the heading gap`() {
-        assertEquals(GeoSectionRule(true, 24, 16), geoSectionRule(first = false, danger = true))
+    @Test fun `danger preserves the same section rhythm`() {
+        assertEquals(GeoSectionRule(false, 24, 0), geoSectionRule(first = false, danger = true))
     }
 }

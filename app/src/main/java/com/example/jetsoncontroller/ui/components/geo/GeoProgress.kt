@@ -101,7 +101,8 @@ fun GeoProgress(
 fun GeoSkeleton(
     loading: Boolean,
     modifier: Modifier = Modifier,
-    rows: Int = 3
+    rows: Int = 3,
+    loadingText: String = "불러오는 중"
 ) {
     require(rows > 0)
     var visible by remember(loading) { mutableStateOf(false) }
@@ -112,13 +113,5 @@ fun GeoSkeleton(
         }
     }
     if (!loading || !visible) return
-    val c = LocalGeoColors.current
-    Column(modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "불러오는 중" }) {
-        repeat(rows) {
-            Column(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Spacer(Modifier.fillMaxWidth(0.72f).height(16.dp).background(c.sunken, RoundedCornerShape(6.dp)))
-                Spacer(Modifier.fillMaxWidth(0.45f).height(16.dp).background(c.sunken, RoundedCornerShape(6.dp)))
-            }
-        }
-    }
+    GeoSkeleton(loadingText, modifier, kind = GeoSkeletonKind.Rows, rowCount = rows)
 }

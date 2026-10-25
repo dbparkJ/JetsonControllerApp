@@ -6,24 +6,27 @@ import org.junit.Test
 
 class AdaptiveThemeTest {
     @Test
-    fun `gutters follow measured pane width at both boundaries`() {
-        listOf(0f to 16f, 339.99f to 16f, 340f to 20f, 389.99f to 20f, 390f to 24f, 840f to 24f).forEach { (width, gutter) ->
+    fun `R7 gutters remain 24 dp at every pane width`() {
+        listOf(0f to 24f, 339.99f to 24f, 340f to 24f, 389.99f to 24f, 390f to 24f, 840f to 24f).forEach { (width, gutter) ->
             assertEquals(gutter, GeoSpace.gutterForPane(width).value, 0f)
         }
     }
 
     @Test
     fun `spacing shapes and minimums match the new scale`() {
-        assertEquals(listOf(2f, 4f, 6f, 8f, 10f, 12f, 14f, 16f, 20f, 24f, 28f, 32f, 40f, 56f), listOf(
+        assertEquals(listOf(4f, 8f, 12f, 16f, 20f, 24f, 28f, 32f, 36f, 40f, 44f, 48f, 52f, 56f), listOf(
             GeoSpace.space1, GeoSpace.space2, GeoSpace.space3, GeoSpace.space4, GeoSpace.space5, GeoSpace.space6,
             GeoSpace.space7, GeoSpace.space8, GeoSpace.space9, GeoSpace.space10, GeoSpace.space11, GeoSpace.space12,
             GeoSpace.space13, GeoSpace.space14
         ).map { it.value })
-        assertEquals(listOf(6f, 8f, 10f, 14f, 14f, 999f), listOf(
+        assertEquals(listOf(8f, 12f, 16f, 16f, 24f, 999f), listOf(
             GeoShape.sm, GeoShape.md, GeoShape.lg, GeoShape.xl, GeoShape.xxl, GeoShape.pillRadius
         ).map { it.value })
         assertEquals(48f, GeoSize.minTouchTarget.value, 0f)
-        assertEquals(52f, GeoSize.primaryAction.value, 0f)
+        assertEquals(56f, GeoSize.primaryAction.value, 0f)
+        assertEquals(16f, AppSpacing.cardInset.value, 0f)
+        assertEquals(24f, AppSpacing.sectionGap.value, 0f)
+        assertEquals(12f, AppSpacing.titleGap.value, 0f)
     }
 
     @Test
@@ -58,15 +61,17 @@ class AdaptiveThemeTest {
     }
 
     @Test
-    fun `dark overlays use white outlines and content has no elevation`() {
+    fun `every palette uses one text six percent shadow with no outline`() {
         assertEquals(0f, GeoElevation.none.value, 0f)
-        val light = GeoElevation.shadowLarge(GeoPalette.STANDARD)
-        val dark = GeoElevation.shadowLarge(GeoPalette.GRAPHITE)
-        assertEquals(20f, light.offsetY.value, 0f)
-        assertEquals(48f, light.blur.value, 0f)
-        assertEquals(16f, dark.offsetY.value, 0f)
-        assertEquals(40f, dark.blur.value, 0f)
-        assertEquals(0.10f, dark.outline.alpha, 0.005f)
-        assertEquals(0.07f, GeoElevation.shadowSmall(GeoPalette.GRAPHITE).outline.alpha, 0.005f)
+        GeoPalette.entries.forEach { palette ->
+            val shadow = GeoElevation.shadow(palette)
+            assertEquals(4f, shadow.offsetY.value, 0f)
+            assertEquals(16f, shadow.blur.value, 0f)
+            assertEquals(palette.colors.text.copy(alpha = .06f), shadow.color)
+            assertEquals(0f, shadow.outline.alpha, 0f)
+            assertEquals(shadow, GeoElevation.shadowSmall(palette))
+            assertEquals(shadow, GeoElevation.shadowLarge(palette))
+            assertEquals(shadow, GeoElevation.shadowSwitch(palette))
+        }
     }
 }

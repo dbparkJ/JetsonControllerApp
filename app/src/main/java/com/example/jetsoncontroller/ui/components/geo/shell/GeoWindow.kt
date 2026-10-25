@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
+import com.example.jetsoncontroller.ui.theme.GeoSpace
 
 enum class GeoWidthClass { COMPACT, MEDIUM, EXPANDED }
 
@@ -46,11 +47,7 @@ fun geoWindow(widthDp: Float, heightDp: Float, fontScale: Float, navigationVisib
     )
 }
 
-fun paneGutter(paneWidthDp: Float): Float = when {
-    paneWidthDp >= 390f -> 24f
-    paneWidthDp >= 340f -> 20f
-    else -> 16f
-}
+fun paneGutter(paneWidthDp: Float): Float = GeoSpace.gutterForPane(paneWidthDp).value
 
 val LocalGeoWindow = staticCompositionLocalOf { geoWindow(412f, 882f, 1f) }
 
