@@ -3,6 +3,7 @@ package com.example.jetsoncontroller.ui.map
 import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.model.RoutePoint
 import com.example.jetsoncontroller.model.GnssSensorStatus
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.theme.GeoPalette
 import com.google.gson.JsonParser
 import org.junit.Assert.*
@@ -118,16 +119,28 @@ class MapStateTest {
         assertNull(zoneBadge(GeoMapMode.RUN, GeoMapData(geometry = geometry(false), zone = GeoMapZoneSnapshot(GeoZoneState.INSIDE))))
     }
 
-    @Test fun ticketOutsideUsesCaptionAndRunOutsideUsesBadge() {
+    @Test fun ticketAndRunOutsideUseModeSpecificBadgesAndKeepCaption() {
         val data = GeoMapData(geometry = geometry(), device = GeoMapPosition(37.0, 127.0), zone = GeoMapZoneSnapshot(GeoZoneState.OUTSIDE, 350.0))
-        assertNull(zoneBadge(GeoMapMode.ZONE, data))
-        assertEquals("구역 밖 · 350\u00A0m", zoneBadge(GeoMapMode.RUN, data)?.first)
+        assertEquals("구역 밖" to Tone.WARNING, zoneBadge(GeoMapMode.ZONE, data))
+        assertEquals("구역 밖 · 350\u00A0m" to Tone.WARNING, zoneBadge(GeoMapMode.RUN, data))
         assertEquals("장치가 구역에서 350\u00A0m 떨어져 있습니다.", mapPositionSentence(data))
         assertEquals("경로 1.2\u00A0km · 폭 20\u00A0m · 영역 1곳 · 지점 1곳", data.geometry!!.summary)
         assertNull(zoneBadge(GeoMapMode.ROUTE, data))
         assertEquals("장치가 구역 안에 있습니다.", mapPositionSentence(data.copy(zone = GeoMapZoneSnapshot(GeoZoneState.INSIDE))))
         assertEquals("장치가 구역 경계 근처에 있습니다.", mapPositionSentence(data.copy(zone = GeoMapZoneSnapshot(GeoZoneState.NEAR))))
         assertEquals("장치 위치를 확인할 수 없습니다.", mapPositionSentence(data.copy(deviceStale = true)))
+    }
+
+    @Test fun resultAndLocationNeverShowZoneBadges() {
+        listOf(GeoMapMode.ROUTE, GeoMapMode.LOCATION).forEach { mode ->
+            GeoZoneState.entries.forEach { state ->
+                listOf(false, true).forEach { stale ->
+                    val data = GeoMapData(geometry = geometry(), device = GeoMapPosition(37.0, 127.0),
+                        deviceStale = stale, zone = GeoMapZoneSnapshot(state, 350.0))
+                    assertNull("$mode / $state / stale=$stale", zoneBadge(mode, data))
+                }
+            }
+        }
     }
 
     @Test fun resultDoesNotInventObservationsOrRoundAwaySeconds() {
@@ -190,15 +203,18 @@ class MapStateTest {
         assertNull(GeoMapMode.fromParameter("unknown"))
     }
 
-    @Test fun stalePositionUsesSampleAgeOnTheDeviceClockAndSuppressesInsideBadge() {
+    @Test fun stalePositionUsesSampleAgeOnTheDeviceClockAndReplacesInsideBadgeWithUnknown() {
         val gnss = GnssSensorStatus(connected = true, lastSampleAtEpochMillis = 1_000L)
         assertFalse(mapDeviceStale(gnss, true, true, 11_000L))
         assertTrue(mapDeviceStale(gnss, true, true, 11_001L))
         assertTrue(mapDeviceStale(gnss, false, true, 2_000L))
         assertTrue(mapDeviceStale(gnss, true, false, 2_000L))
         assertTrue(mapDeviceStale(gnss.copy(lastSampleAtEpochMillis = null), true, true, 2_000L))
-        val stale = GeoMapData(geometry = geometry(), deviceStale = true, zone = GeoMapZoneSnapshot(GeoZoneState.INSIDE))
-        assertEquals("위치 미확인", zoneBadge(GeoMapMode.RUN, stale)?.first)
-        assertNull(zoneBadge(GeoMapMode.ZONE, stale))
+        val fresh = GeoMapData(geometry = geometry(), device = GeoMapPosition(37.0, 127.0),
+            zone = GeoMapZoneSnapshot(GeoZoneState.INSIDE))
+        listOf(GeoMapMode.ZONE, GeoMapMode.RUN).forEach { mode ->
+            assertEquals("구역 안" to Tone.SUCCESS, zoneBadge(mode, fresh))
+            assertEquals("위치 미확인" to Tone.UNKNOWN, zoneBadge(mode, fresh.copy(deviceStale = true)))
+        }
     }
 }

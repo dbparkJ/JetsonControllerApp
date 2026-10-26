@@ -38,12 +38,14 @@ internal fun TicketDetailScreen(
     onRemedy: () -> Unit = {},
     startOpener: FocusRequester = remember { FocusRequester() },
     ongoingRun: @Composable () -> Unit = {},
-    mapCard: @Composable () -> Unit = { com.example.jetsoncontroller.ui.map.GeoTicketMapCard(ticket, readiness.deviceName) }
+    mapCard: @Composable () -> Unit = { com.example.jetsoncontroller.ui.map.GeoTicketMapCard(ticket, readiness.deviceName) },
+    syncLabel: String? = null
 ) {
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
     val gutter = LocalGeoWindow.current.gutterDp.dp
     val availability = ticketStartAvailability(role, ticket)
+    val hasMap = remember(ticket) { ticketHasMap(ticket) }
     val reason = availability.reason ?: readiness.blockedReason
     Column(Modifier.fillMaxSize().background(c.canvas)) {
         WorkDetailHeader("수집 구간", onBack)
@@ -68,9 +70,12 @@ internal fun TicketDetailScreen(
                         }
                         Text(listOfNotNull(ticket.project?.takeIf(String::isNotBlank),
                             readiness.deviceName).joinToString(" · "), style = type.supporting, color = c.textSecondary)
+                        syncLabel?.let { Text(it, style = type.caption, color = c.textSecondary) }
                     }
                 }
-                item { Box(Modifier.padding(top = 24.dp)) { mapCard() } }
+                if (hasMap) item(key = "zone-map") {
+                    Box(Modifier.padding(top = 24.dp)) { mapCard() }
+                }
                 item {
                     GeoSection("정보") {
                       WorkSurfaceCard {

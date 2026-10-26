@@ -80,7 +80,8 @@ fun GeoStartSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     openerFocusRequester: FocusRequester? = null,
-    optionalChecks: List<GeoStartCheck> = emptyList()
+    optionalChecks: List<GeoStartCheck> = emptyList(),
+    mapPreview: (@Composable () -> Unit)? = null
 ) {
     val rules = startSheetRules(state)
     val t = LocalGeoColors.current
@@ -110,6 +111,10 @@ fun GeoStartSheet(
         }
     ) {
       CompositionLocalProvider(LocalGeoColors provides t) {
+        mapPreview?.let {
+            it()
+            Spacer(Modifier.height(16.dp))
+        }
         if (state.ticketLinked) {
             Text("${state.sectionName} · ${state.projectName} · ${state.deviceName}", color = t.textSecondary, style = LocalGeoType.current.supporting)
             Spacer(Modifier.height(12.dp))

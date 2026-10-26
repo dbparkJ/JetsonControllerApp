@@ -287,10 +287,11 @@ internal fun SurveyStartSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     openerFocusRequester: FocusRequester? = null,
-    optionalChecks: List<GeoStartCheck> = emptyList()
+    optionalChecks: List<GeoStartCheck> = emptyList(),
+    mapPreview: (@Composable () -> Unit)? = null
 ) {
     GeoStartSheet(state, onStart, onRecheck, onDismissRequest, modifier, openerFocusRequester,
-        optionalChecks = optionalChecks)
+        optionalChecks = optionalChecks, mapPreview = mapPreview)
 }
 
 internal fun preparationActionReason(state: SurveyRunUiState): String = when {

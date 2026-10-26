@@ -17,6 +17,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import com.example.jetsoncontroller.ui.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
@@ -92,13 +93,16 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
         val profile = directServerState.selectedProfileId
         val credential = directServerState.profiles.firstOrNull { it.profile.profileId == profile }?.credentialRevision
         val owner = LocalLifecycleOwner.current
+        val visibleEntry by navController.currentBackStackEntryAsState()
+        // In two-pane mode the root and detail share a lifecycle; the detail owns ticket polling.
+        TicketRefreshEffect(serverTicketViewModel, profile, selectedDeviceId, credential,
+            enabled = visibleEntry?.destination?.route != Routes.TICKET_DETAIL)
         var now by remember { mutableStateOf(Instant.now()) }
         LaunchedEffect(profile, credential, selectedDeviceId, owner) {
             owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (true) {
                     now = Instant.now()
-                    if (profile != null && selectedDeviceId != null) serverTicketViewModel.refresh(profile, selectedDeviceId)
-                    delay(60_000)
+                    delay(TicketRefreshIntervalMillis)
                 }
             }
         }
@@ -271,7 +275,7 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
         val deviceId = rememberSaveable(entry.id) { selectedDeviceId.orEmpty() }
         val profileId = rememberSaveable(entry.id) { serverTicketState.profileId.orEmpty() }
         val deviceName = rememberSaveable(entry.id) { selectedRegisteredDeviceName ?: UnnamedDeviceLabel }
-        val credential = rememberSaveable(entry.id) { mutableStateOf(serverTicketState.credentialRevision) }.value
+        val savedCredential = rememberSaveable(entry.id) { mutableStateOf(serverTicketState.credentialRevision) }.value
         val gson = remember { com.google.gson.Gson() }
         val saved = remember(entry) {
             val json = entry.savedStateHandle.get<String>("work.ticket")
@@ -282,7 +286,9 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
         }
         val currentScope = selectedDeviceId.equals(deviceId, true) && directServerState.selectedProfileId == profileId
         val liveList = serverTicketState.takeIf { it.profileId == profileId && it.deviceId.equals(deviceId, true) }
-        val ticket = saved
+        val credential = liveList?.credentialRevision ?: savedCredential
+        TicketRefreshEffect(serverTicketViewModel, profileId, deviceId, credential, enabled = currentScope)
+        val ticket = displayedTicket(saved, liveList?.tickets.orEmpty(), rowId)
         if (ticket == null || (liveList != null && !liveList.isLoading && !liveList.isCached && liveList.lastSyncedAt != null &&
                 liveList.tickets.none { it.rowId == rowId })) {
             WorkMissingScreen(true, { navController.popBackStack() }, { navigateToWorkRoot(navController) })
@@ -301,17 +307,21 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
         var previousPreflight by remember { mutableStateOf<String?>(null) }
         var preflightLaunched by remember { mutableStateOf(false) }
         var preparationFailure by remember { mutableStateOf<String?>(null) }
+        val validationKey = remember(ticket) { ticket.validationKey() }
+        var checkedKey by remember(entry.id) { mutableStateOf(validationKey) }
         val latestRequested = rememberUpdatedState(requested)
         val snackbars = remember { androidx.compose.material3.SnackbarHostState() }
         val opener = remember { FocusRequester() }
         val target = pipelineId?.let { WorkTicketTarget(deviceId, profileId, rowId, ticket.revision, it,
-            ticket.zoneRevision, ticket.zoneHash) }
+            validationKey.geometryRevision, validationKey.geometryHash) }
         val survey = surveyRunState
-        val liveTicket = liveList?.tickets?.firstOrNull { it.rowId == rowId }
-        val changed = liveTicket != null && (liveTicket.revision != ticket.revision ||
-            liveTicket.zoneRevision != ticket.zoneRevision || liveTicket.zoneHash != ticket.zoneHash)
+        val changed = checkedKey != validationKey
         val activeScope = currentScope && survey.deviceId.equals(deviceId, true) && survey.pipelineId == pipelineId
-        LaunchedEffect(deviceId, profileId, rowId, pipelineId, currentScope) {
+        val hasMap = remember(ticket) { ticketHasMap(ticket) }
+        val mapData = if (hasMap) com.example.jetsoncontroller.ui.map.rememberTicketMapData(ticket, deviceId)
+            else com.example.jetsoncontroller.ui.map.GeoMapData()
+        val mapGnss = if (currentScope) deviceDashboardState.status.gnssSensor else com.example.jetsoncontroller.model.GnssSensorStatus()
+        LaunchedEffect(deviceId, profileId, rowId, pipelineId, currentScope, ticket, credential) {
             if (!currentScope || deviceId.isBlank() || profileId.isBlank()) return@LaunchedEffect
             serverTicketViewModel.prepareTicket(profileId, deviceId, pipelineId, ticket, fieldState.runs) {
                 if (!state.value.latestSelectedDeviceId.equals(deviceId, true) || state.value.latestTicketProfileId != profileId) return@prepareTicket
@@ -321,7 +331,7 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
             }
         }
         LaunchedEffect(currentScope, survey.deviceId, survey.pipelineId, survey.restoringLocalState,
-            survey.operation, ticket.revision, pipelineId) {
+            survey.operation, validationKey, credential, pipelineId) {
             if (!activeScope || survey.contextLocked || survey.operation != null || survey.restoringLocalState) return@LaunchedEffect
             val existing = survey.preparationDraft
             val draft = ticketDraft(ticket, deviceId, profileId, credential, pipelineId, existing, System.currentTimeMillis())
@@ -347,11 +357,15 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
                 if (wasOpen) snackbars.showSnackbar("장치를 바꿔서 열려 있던 확인 창을 닫았습니다.")
             }
         }
-        LaunchedEffect(requested, requestEpoch, activeScope, survey.operation, survey.selectedSection, survey.isLoading, survey.restoringLocalState) {
+        LaunchedEffect(requested, requestEpoch, activeScope, survey.operation, survey.selectedSection,
+            survey.isLoading, survey.restoringLocalState, survey.preparationDraft, changed) {
             if (!requested || preflightLaunched || !activeScope || survey.restoringLocalState || survey.isLoading || survey.operation != null) return@LaunchedEffect
             val draft = survey.preparationDraft
-            if (survey.canPreflight && !changed && draft?.ticketRowId == rowId &&
-                draft.ticketRevision == ticket.revision && draft.serverProfileId == profileId) {
+            // Wait for the draft effect to invalidate the old preflight and import the latest zone.
+            if (changed || draft == null || draft.ticketRowId != rowId || draft.ticketRevision != ticket.revision ||
+                draft.geometryRevision != validationKey.geometryRevision || draft.geometryHash != validationKey.geometryHash ||
+                draft.serverProfileId != profileId || draft.credentialRevision != credential) return@LaunchedEffect
+            if (survey.canPreflight) {
                 preflightLaunched = true
                 surveyRunViewModel.runPreflight()
             } else {
@@ -359,11 +373,15 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
             }
         }
         val beginCheck = {
+            checkedKey = validationKey
             preparationFailure = null
             preflightLaunched = false
             previousPreflight = surveyRunViewModel.uiState.value.preflight?.preflightId
             requestEpoch++
             requested = true
+        }
+        LaunchedEffect(requested, validationKey) {
+            if (requested && changed) beginCheck()
         }
         if (choice && currentScope) TaskChoiceSheet(pipelineState, deviceId, deviceName, ticket.title,
             onSelect = { task ->
@@ -409,17 +427,26 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
                 if (currentScope) openConnectionMethods(navController)
                 else deviceState.registeredDevices.firstOrNull { it.deviceId.equals(deviceId, true) }?.let(connectRegisteredDevice)
             }, startOpener = opener,
-            ongoingRun = { WorkOngoingStrip(state.value, deviceId, deviceName) })
+            ongoingRun = { WorkOngoingStrip(state.value, deviceId, deviceName) },
+            mapCard = { com.example.jetsoncontroller.ui.map.GeoMapCardWithDestination(
+                com.example.jetsoncontroller.ui.map.GeoMapMode.ZONE, mapData, mapGnss) },
+            syncLabel = liveList?.let { ticketSyncLabel(it, Instant.now()) })
         GeoSnackbar(snackbars, Modifier.align(Alignment.BottomCenter))
         }
         val immutableStart = remember(survey.preflight?.preflightId) { surveyRunViewModel.startTarget() }
         if (requested && currentScope) {
-            val checking = preparationFailure == null && (!preflightLaunched || survey.operation in setOf("create_context", "preflight") || survey.isLoading)
+            val checking = preparationFailure == null && (changed || !preflightLaunched ||
+                survey.operation in setOf("create_context", "preflight") || survey.isLoading ||
+                survey.preparationDraft?.geometryRevision != validationKey.geometryRevision ||
+                survey.preparationDraft?.geometryHash != validationKey.geometryHash ||
+                survey.preparationDraft?.ticketRevision != ticket.revision)
             val checkedSurvey = survey.takeUnless { it.preflight?.preflightId == previousPreflight } ?: survey.copy(preflight = null)
             SurveyStartSheet(ticketStartSheet(ticket, deviceName, checkedSurvey, checking, changed,
                 preparationFailure ?: survey.error,
                 { navController.navigateSingle(Routes.STORAGE) }, { openConnectionMethods(navController) },
-                onSensors = { navController.navigateSingle(Routes.DEVICE_DETAIL) }),
+                onSensors = { navController.navigateSingle(Routes.DEVICE_DETAIL) }).copy(
+                    zoneLine = com.example.jetsoncontroller.ui.map.zoneBadge(com.example.jetsoncontroller.ui.map.GeoMapMode.ZONE, mapData)?.first ?: "위치 미확인",
+                    insideZone = com.example.jetsoncontroller.ui.map.zoneBadge(com.example.jetsoncontroller.ui.map.GeoMapMode.ZONE, mapData)?.first == "구역 안"),
                 onStart = {
                     val bound = target
                     val start = immutableStart
@@ -439,14 +466,10 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
                             }
                         }
                     }
-                }, onRecheck = {
-                    if (changed) {
-                        requested = false
-                        serverTicketViewModel.refresh(profileId, deviceId)
-                        navController.popBackStack()
-                    } else beginCheck()
-                }, onDismissRequest = { requested = false }, openerFocusRequester = opener,
-                optionalChecks = optionalStartChecks(checkedSurvey))
+                }, onRecheck = { beginCheck() }, onDismissRequest = { requested = false }, openerFocusRequester = opener,
+                optionalChecks = optionalStartChecks(checkedSurvey),
+                mapPreview = if (hasMap) ({ com.example.jetsoncontroller.ui.map.GeoMapCardWithDestination(
+                    com.example.jetsoncontroller.ui.map.GeoMapMode.ZONE, mapData, mapGnss) }) else null)
         }
     }
 }

@@ -77,6 +77,36 @@ class StartRevalidationTest {
     }
 
     @Test
+    fun `updated zone clears the successful check and requires preflight for the new revision`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val source = FakeSource()
+        val viewModel = SurveyRunViewModel(source, MemoryPersistence(selectedState()))
+        advanceUntilIdle()
+        val draft = PreparationDraft("device", "profile", "row", "r4", "pipe",
+            PreparationSelection.Existing("project", 1), PreparationSelection.Existing("section", 1),
+            geometryRevision = "g1", geometryHash = "hash", credentialRevision = "credentials")
+        viewModel.setPreparationDraft(draft)
+        advanceUntilIdle()
+        viewModel.runPreflight()
+        advanceUntilIdle()
+        val old = requireNotNull(viewModel.startTarget())
+        viewModel.setPreparationDraft(requireNotNull(viewModel.uiState.value.preparationDraft)
+            .copy(geometryRevision = "g2", geometryHash = "new-hash"))
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.preflight)
+        assertNull(viewModel.startTarget())
+        assertEquals(TicketChangedMessage, startRevalidationError(old, viewModel.uiState.value,
+            System.currentTimeMillis(), System.nanoTime() / 1_000_000))
+        viewModel.runPreflight()
+        advanceUntilIdle()
+        assertEquals(2, source.preflightCalls)
+        val updated = requireNotNull(viewModel.startTarget())
+        assertEquals("g2", updated.draft.geometryRevision)
+        assertEquals("new-hash", updated.draft.geometryHash)
+        assertTrue(source.starts.isEmpty())
+    }
+
+    @Test
     fun `task precedes preflight and preparation only saves creation decisions with retry ids`() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val source = FakeSource()

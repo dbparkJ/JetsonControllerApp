@@ -125,9 +125,11 @@ private fun displayGeometry(ticket: ServerTicket): GeoMapGeometry {
             features += mapFeature(value, kind)
         }
         ticket.features?.let {
-            val collection = it.asJsonObject
-            require(collection.get("type")?.asString == "FeatureCollection")
-            collection.getAsJsonArray("features").forEach { feature ->
+            val collection = if (it.isJsonArray) it.asJsonArray else it.asJsonObject.let { objectValue ->
+                require(objectValue.get("type")?.asString == "FeatureCollection")
+                objectValue.getAsJsonArray("features")
+            }
+            collection.forEach { feature ->
                 val f = feature.asJsonObject
                 require(f.get("type")?.asString == "Feature")
                 geometry(f.getAsJsonObject("geometry"), false)
@@ -178,13 +180,13 @@ internal fun mapDeviceStale(gnss: GnssSensorStatus, online: Boolean, telemetryFr
 }
 
 internal fun zoneBadge(mode: GeoMapMode, data: GeoMapData): Pair<String, Tone>? {
-    if (data.geometry?.hasRange != true || mode != GeoMapMode.RUN) return null
+    if (data.geometry?.hasRange != true || mode !in setOf(GeoMapMode.RUN, GeoMapMode.ZONE)) return null
     return when (if (data.deviceStale) GeoZoneState.UNKNOWN else data.zone.state) {
         GeoZoneState.INSIDE -> "구역 안" to Tone.SUCCESS
         GeoZoneState.NEAR -> "경계 근처" to Tone.INFO
-        GeoZoneState.OUTSIDE -> if (mode == GeoMapMode.RUN) ("구역 밖" + (data.zone.distanceM?.let { " · ${Formats.distance(it)}" } ?: "")) to Tone.WARNING else null
-        GeoZoneState.CHECKING -> if (mode == GeoMapMode.RUN) "위치 확인 중" to Tone.UNKNOWN else null
-        GeoZoneState.UNKNOWN -> if (mode == GeoMapMode.RUN) "위치 미확인" to Tone.UNKNOWN else null
+        GeoZoneState.OUTSIDE -> ("구역 밖" + (data.zone.distanceM?.takeIf { mode == GeoMapMode.RUN }?.let { " · ${Formats.distance(it)}" } ?: "")) to Tone.WARNING
+        GeoZoneState.CHECKING -> "위치 확인 중" to Tone.UNKNOWN
+        GeoZoneState.UNKNOWN -> "위치 미확인" to Tone.UNKNOWN
     }
 }
 

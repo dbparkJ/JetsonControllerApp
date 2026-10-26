@@ -20,6 +20,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.jetsoncontroller.BuildConfig
 import com.example.jetsoncontroller.JetsonApplication
 import com.example.jetsoncontroller.data.server.ServerTicket
@@ -39,6 +40,7 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
@@ -96,6 +98,9 @@ fun GeoMapCard(
                 style = type.body, color = c.textSecondary)
             badge?.let { GeoBadge(it.first, it.second, Modifier.align(Alignment.TopStart).padding(12.dp), GeoBadgeVariant.ON_MAP) }
             Box(Modifier.matchParentSize().clickable(onClick = onOpen))
+            com.example.jetsoncontroller.ui.components.geo.GeoIconButton(
+                com.example.jetsoncontroller.ui.components.geo.GeoIcons.fitZone, "지도 크게 보기", onOpen,
+                Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp).background(c.mapPlate, GeoShape.control))
         }
         Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
             if (summary.isNotEmpty()) Text(summary, color = c.textSecondary, style = type.caption)
@@ -117,24 +122,45 @@ fun GeoMapCard(
 @Composable
 internal fun GeoTicketMapCard(ticket: ServerTicket, deviceName: String) {
     val context = LocalContext.current
+    val repository = (context.applicationContext as? JetsonApplication)?.repository
+    val registered = repository?.registeredDevices?.collectAsStateWithLifecycle()?.value.orEmpty()
+    val target = registered.singleOrNull { it.deviceName == deviceName }?.deviceId
+    val data = rememberTicketMapData(ticket, target)
+    GeoMapCardWithDestination(GeoMapMode.ZONE, data)
+}
+
+/** Detail and S8 share this snapshot, always bound to a device id rather than a display name. */
+@Composable
+internal fun rememberTicketMapData(ticket: ServerTicket, deviceId: String?): GeoMapData {
+    val context = LocalContext.current
     val root = context.noBackupFilesDir
     val repository = (context.applicationContext as? JetsonApplication)?.repository
     val status = repository?.status?.collectAsStateWithLifecycle()?.value
     val selected = repository?.selectedDeviceId?.collectAsStateWithLifecycle()?.value
-    val registered = repository?.registeredDevices?.collectAsStateWithLifecycle()?.value.orEmpty()
-    val target = remember(ticket.rowId, deviceName) { registered.firstOrNull { it.deviceName == deviceName }?.deviceId }
     val transport = repository?.transportState?.collectAsStateWithLifecycle()?.value as? TransportState.Connected
-    val current = target != null && target.equals(selected, true) && transport?.deviceId.equals(target, true)
+    val current = deviceId != null && deviceId.equals(selected, true) && transport?.deviceId.equals(deviceId, true)
     val gnss = status?.gnssSensor ?: GnssSensorStatus()
-    val inherited = LocalGeoMapData.current
     val geometry = remember(ticket) { mapGeometry(ticket) }
     LaunchedEffect(ticket) { withContext(Dispatchers.IO) { GeoMapRunStore(root).cache(ticket) } }
-    var checking by remember(ticket.rowId, geometry.hash) { mutableStateOf(com.example.jetsoncontroller.ui.zone.ZoneMonitorState()) }
+    var checking by remember(deviceId, ticket.rowId, geometry.revision, geometry.hash) {
+        mutableStateOf(com.example.jetsoncontroller.ui.zone.ZoneMonitorState())
+    }
     val contract = remember(ticket) { com.example.jetsoncontroller.data.zone.ZoneContract.fromTicket(ticket).contract }
-    LaunchedEffect(current, gnss, status?.collectedAtEpochMillis) {
-        checking = com.example.jetsoncontroller.ui.zone.ZoneMonitor.evaluate(contract?.range,
-            if (current) com.example.jetsoncontroller.ui.zone.ZoneSample.fromStatus(gnss) else null,
-            status?.collectedAtEpochMillis, checking, runActive = false).monitor
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val receivedAt = remember(status, current) { android.os.SystemClock.elapsedRealtime() }
+    var streamStale by remember(status, current) { mutableStateOf(false) }
+    LaunchedEffect(contract, current, status, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                val age = android.os.SystemClock.elapsedRealtime() - receivedAt
+                streamStale = age > com.example.jetsoncontroller.ui.zone.ZoneMonitor.STALE_AFTER_MILLIS
+                checking = com.example.jetsoncontroller.ui.zone.ZoneMonitor.evaluate(contract?.range,
+                    if (current && status?.sensorTelemetryFresh == true)
+                        com.example.jetsoncontroller.ui.zone.ZoneSample.fromStatus(gnss) else null,
+                    status?.collectedAtEpochMillis, checking, statusAgeMillis = age, runActive = false).monitor
+                delay(1_000)
+            }
+        }
     }
     val info = GeoMapZoneSnapshot(state = when (checking.state) {
         com.example.jetsoncontroller.ui.zone.ZoneState.INSIDE -> GeoZoneState.INSIDE
@@ -142,12 +168,11 @@ internal fun GeoTicketMapCard(ticket: ServerTicket, deviceName: String) {
         com.example.jetsoncontroller.ui.zone.ZoneState.NEAR_BOUNDARY -> GeoZoneState.NEAR
         else -> GeoZoneState.UNKNOWN
     }, distanceM = checking.signedDistanceM?.coerceAtLeast(0.0))
-    val data = inherited.copy(geometry = geometry, zone = info,
-        device = if (current) mapDevice(gnss) else inherited.device,
-        deviceStale = !current || mapDeviceStale(gnss, true, status?.sensorTelemetryFresh == true, status?.collectedAtEpochMillis),
-        lastPositionAtMillis = if (current) gnss.lastSampleAtEpochMillis else inherited.lastPositionAtMillis,
-        uncertaintyM = if (current) mapUncertainty(gnss) else inherited.uncertaintyM)
-    GeoMapCardWithDestination(GeoMapMode.ZONE, data, if (current) gnss else GnssSensorStatus())
+    return GeoMapData(geometry = geometry, zone = info,
+        device = if (current) mapDevice(gnss) else null,
+        deviceStale = !current || streamStale || mapDeviceStale(gnss, true, status?.sensorTelemetryFresh == true, status?.collectedAtEpochMillis),
+        lastPositionAtMillis = if (current) gnss.lastSampleAtEpochMillis else null,
+        uncertaintyM = if (current) mapUncertainty(gnss) else null)
 }
 
 @Composable

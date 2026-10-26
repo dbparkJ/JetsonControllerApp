@@ -217,8 +217,8 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
     private fun ticketCacheStatusCopy(timestamp: String): String? =
         formatTaskTime(timestamp)?.let { "마지막 동기화 $it" }
 
-    fun refresh(profileId: String, deviceId: String) {
-        if (profileId.isBlank() || deviceId.isBlank()) return
+    fun refresh(profileId: String, deviceId: String, showLoading: Boolean = true): Job? {
+        if (profileId.isBlank() || deviceId.isBlank()) return null
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             val previous = _uiState.value
@@ -263,7 +263,9 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                     isLoading = true
                 )
             }
-            _uiState.value = scoped.copy(isLoading = true, quietError = null)
+            // Keep existing rows and the pull-to-refresh indicator still during scheduled refreshes.
+            _uiState.value = scoped.copy(isLoading = showLoading || scoped.lastSyncedAt == null,
+                quietError = if (showLoading) null else scoped.quietError)
             try {
                 val connection = profiles.connection(profileId)
                     ?: throw IllegalStateException("Saved server profile is unavailable")
@@ -286,9 +288,10 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                 conflictMessages.keys.forEach(reportStore::markConflict)
                 val employeeRoles = current.employeeRoles + (profileId to capabilities.employee.role)
                 val syncedAt = Instant.now().toString()
+                val updatedTickets = reconcileTickets(current.tickets, responseTickets)
                 snapshotsByScope[scopeKey] = CachedTicketSnapshot(
                     credentialRevision = connection.credentialRevision,
-                    tickets = responseTickets,
+                    tickets = updatedTickets,
                     units = responseUnits.distinct(),
                     deviceUnit = response.deviceUnit,
                     selectedUnit = selected,
@@ -300,7 +303,7 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                     profileId = profileId,
                     deviceId = deviceId,
                     credentialRevision = connection.credentialRevision,
-                    tickets = responseTickets,
+                    tickets = updatedTickets,
                     units = responseUnits.distinct(),
                     deviceUnit = response.deviceUnit,
                     selectedUnit = selected,
@@ -347,6 +350,7 @@ internal class ServerTicketViewModel(context: Context) : ViewModel() {
                 retryPendingReports()
             }
         }
+        return refreshJob
     }
 
     fun prepareTicket(
