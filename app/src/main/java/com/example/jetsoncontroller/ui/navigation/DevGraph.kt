@@ -198,12 +198,17 @@ internal fun NavGraphBuilder.devGraph(state: State<AppNavigationState>) {
             { if (!state.value.surveyRunState.contextLocked) vm.save() }, vm::reload)
     }
     devDestination(DevDestination.RELAY.route, state, device = true) { app, _ ->
+        StatusPollingLifecycleEffect(app.dashboardViewModel)
         DevPage("보정 정보 중계", { app.navController.popBackStack() }) {
             val relay = app.pipelineState.mobileRtkRelay
             DevIdentity(app.selectedDeviceName)
             DevText(if (relay.active) "중계 등록됨" else "꺼짐")
             DevFeedback(relay.error, true)
             DevText("직접 연결 후 수집 전에도 중계를 준비합니다. 실제 보정 수신과 RTK FIX는 장치의 위치 상태에서 확인하세요.")
+            val dashboard = app.deviceDashboardState
+            GnssDiagnosticsSection(dashboard.status.gnssSensor,
+                fresh = dashboard.isOnline && dashboard.status.sensorTelemetryFresh &&
+                    dashboard.statusFreshness == com.example.jetsoncontroller.ui.dashboard.StatusFreshness.CURRENT)
         }
     }
 }

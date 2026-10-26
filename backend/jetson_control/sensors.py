@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import time
 from dataclasses import dataclass
@@ -208,6 +209,13 @@ class SensorBridgeStore:
             "previewUpdatedAtEpochMillis": _integer(camera_raw.get("previewUpdatedAtEpochMillis")),
             "previewError": _text(camera_raw.get("previewError")),
         }
+        rtcm_types = gnss_raw.get("rtcmMessageTypes")
+        rtcm_signals = gnss_raw.get("rtcmSignals")
+        rtcm_base_id = gnss_raw.get("rtcmBaseStationId")
+        rtcm_base_distance = gnss_raw.get("rtcmBaseDistanceM")
+        rtcm_base_distance = (
+            _number(rtcm_base_distance) if type(rtcm_base_distance) in (int, float) else None
+        )
         gnss = {
             "configured": _boolean(gnss_raw.get("configured")),
             "connected": fresh and _boolean(gnss_raw.get("connected")),
@@ -226,6 +234,27 @@ class SensorBridgeStore:
             "referenceStationId": _text(gnss_raw.get("referenceStationId"), 64),
             "ntripConnected": fresh and _boolean(gnss_raw.get("ntripConnected")),
             "ntripMountpoint": _text(gnss_raw.get("ntripMountpoint"), 128),
+            "ntripSelection": gnss_raw.get("ntripSelection")
+            if gnss_raw.get("ntripSelection") in ("client", "caster") else None,
+            "ntripError": _text(gnss_raw.get("ntripError")),
+            "rtcmLastAtEpochMillis": _integer(gnss_raw.get("rtcmLastAtEpochMillis"))
+            if type(gnss_raw.get("rtcmLastAtEpochMillis")) is int else None,
+            "rtcmMessageTypes": sorted({
+                _integer(value) for value in rtcm_types
+                if type(value) is int and 1 <= value <= 4095
+            })[:32] if isinstance(rtcm_types, list) else [],
+            "rtcmSignals": sorted({
+                value for value in rtcm_signals
+                if isinstance(value, str) and re.fullmatch(
+                    r"(GPS|GLO|GAL|SBS|QZS|BDS|IRN) ([1-9][A-Z]|\?[0-9]{1,2})", value
+                )
+            })[:48] if isinstance(rtcm_signals, list) else [],
+            "rtcmBaseStationId": _integer(rtcm_base_id)
+            if type(rtcm_base_id) is int and 0 <= rtcm_base_id <= 4095 else None,
+            "rtcmBaseDistanceM": rtcm_base_distance
+            if rtcm_base_distance is not None and rtcm_base_distance >= 0 else None,
+            "ntripLastGgaSentAtEpochMillis": _integer(gnss_raw.get("ntripLastGgaSentAtEpochMillis"))
+            if type(gnss_raw.get("ntripLastGgaSentAtEpochMillis")) is int else None,
             "rtcmBytes": max(0, _integer(gnss_raw.get("rtcmBytes")) or 0),
             "error": _text(gnss_raw.get("error")),
         }
