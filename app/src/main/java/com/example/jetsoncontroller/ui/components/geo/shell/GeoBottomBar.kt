@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
@@ -59,13 +61,15 @@ internal fun geoTabSelectedShapeColor(palette: GeoPalette, colors: GeoColors = p
     else colors.primaryTint
 
 @Composable
-internal fun ShellTabItem(tab: ShellTab, selected: Boolean, enabled: Boolean, onSelect: () -> Unit, modifier: Modifier) {
+internal fun ShellTabItem(tab: ShellTab, selected: Boolean, enabled: Boolean, onSelect: () -> Unit, modifier: Modifier,
+    attention: Boolean = false) {
     val colors = LocalGeoColors.current
     val palette = LocalGeoPalette.current
     val selectedFill = geoTabSelectedShapeColor(palette, colors)
     val shape = GeoShape.control
     Column(
-        modifier.heightIn(min = 64.dp).selectable(selected, enabled = enabled, role = Role.Tab, onClick = onSelect)
+        modifier.heightIn(min = 64.dp).semantics { if (attention) stateDescription = "확인할 알림 있음" }
+            .selectable(selected, enabled = enabled, role = Role.Tab, onClick = onSelect)
             .padding(horizontal = 4.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
     ) {
@@ -76,6 +80,8 @@ internal fun ShellTabItem(tab: ShellTab, selected: Boolean, enabled: Boolean, on
             Icon(if (selected) tab.filled(colors.navSelected, selectedFill) else tab.icon,
                 contentDescription = null, modifier = Modifier.size(24.dp),
                 tint = if (selected) Color.Unspecified else colors.navUnselected)
+            if (attention) Box(Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 8.dp)
+                .size(6.dp).background(colors.attention, RoundedCornerShape(3.dp)))
         }
         Spacer(Modifier.height(2.dp))
         Text(tab.label, style = if (selected) LocalGeoType.current.tabSelected else LocalGeoType.current.tab,
@@ -88,7 +94,8 @@ fun GeoBottomBar(
     selected: GeoTab,
     onSelect: (GeoTab) -> Unit,
     modifier: Modifier = Modifier,
-    enabledSections: Set<GeoTab> = GeoTab.entries.toSet()
+    enabledSections: Set<GeoTab> = GeoTab.entries.toSet(),
+    attentionSections: Set<GeoTab> = emptySet()
 ) {
     val colors = LocalGeoColors.current
     Surface(color = colors.nav, modifier = modifier.fillMaxWidth()) {
@@ -100,7 +107,7 @@ fun GeoBottomBar(
         }.selectableGroup().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))) {
             shellTabs.forEach { tab ->
                 ShellTabItem(tab, selected == tab.section, tab.section in enabledSections,
-                    { onSelect(tab.section) }, Modifier.weight(1f))
+                    { onSelect(tab.section) }, Modifier.weight(1f), tab.section in attentionSections)
             }
         }
     }

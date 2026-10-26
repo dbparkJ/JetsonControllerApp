@@ -24,7 +24,7 @@ import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -60,14 +60,23 @@ internal fun FileBrowser(
     ongoingRun: @Composable () -> Unit = {},
     onReconnect: () -> Unit = onConnection
 ) {
+    val wideSend = send != null && LocalGeoWindow.current.twoPane
     val location = "$entryPoint:${state.deviceId}:${state.currentRoot?.id}:${state.currentPath}"
+    val listScroll = rememberSaveable(location, saver = androidx.compose.foundation.lazy.LazyListState.Saver) {
+        androidx.compose.foundation.lazy.LazyListState()
+    }
+    val detailScroll = rememberSaveable(location, saver = androidx.compose.foundation.lazy.LazyListState.Saver) {
+        androidx.compose.foundation.lazy.LazyListState()
+    }
     var query by rememberSaveable(location) { mutableStateOf("") }
     var category by rememberSaveable(location) { mutableStateOf("전체") }
     var selecting by rememberSaveable(location) { mutableStateOf(false) }
     var selectedPath by rememberSaveable(location) { mutableStateOf<String?>(null) }
     var targetId by rememberSaveable(entryPoint, state.deviceId) { mutableStateOf<String?>(null) }
-    var menu by remember(location) { mutableStateOf(false) }
-    var deletion by remember(location) { mutableStateOf<DataDeletionSnapshot?>(null) }
+    var menu by rememberSaveable(location) { mutableStateOf(false) }
+    var deletion by rememberSaveable(location, stateSaver = geoSnapshotSaver(DataDeletionSnapshot::class.java)) {
+        mutableStateOf<DataDeletionSnapshot?>(null)
+    }
     val menuOpener = remember { FocusRequester() }
     val root = state.currentRoot?.id
     val selected = state.entries.firstOrNull { it.relativePath == selectedPath }
@@ -95,10 +104,14 @@ internal fun FileBrowser(
             confirmEnabled = snapshot.matches(state), disabledReason = "장치와 파일을 다시 확인하세요.",
             openerFocusRequester = menuOpener)
     }
-    state.preview?.let { preview ->
-        StoragePage("파일 미리보기", onBack, media = true) {
+    val previewContent by rememberUpdatedState<@Composable () -> Unit>({
+        state.preview?.let { preview ->
             FilePreview(preview, state.deviceName, state.entries.firstOrNull { it.name == preview.name })
         }
+    })
+    val preview = remember { movableContentOf { previewContent() } }
+    if (state.preview != null && !wideSend) {
+        StoragePage("파일 미리보기", onBack, media = true) { preview() }
         return
     }
     StoragePage(if (send == null) "장치 파일" else "파일 보내기", onBack, actions = {
@@ -117,8 +130,7 @@ internal fun FileBrowser(
         }
     }) {
         Box(Modifier.fillMaxSize()) {
-            GeoActionArea(visibilityKey = location to sendPath,
-                visible = send != null && sendPath != null && root != null, action = {
+            val review: @Composable () -> Unit = {
                 if (send != null && sendPath != null && root != null) {
                     val summary = send.summary?.takeIf { it.rootId == root && it.relativePath == sendPath }
                     val target = send.targets.firstOrNull { it.id == targetId } ?: send.targets.firstOrNull()
@@ -142,9 +154,12 @@ internal fun FileBrowser(
                             busy = send.calculating || send.sending, busyLabel = "확인 중", actionArea = true)
                     }
                 }
-            }) { inlineAction ->
+            }
+            val listing: @Composable (@Composable () -> Unit) -> Unit = { inlineAction ->
                 StorageRefresh(state.isLoading, state.controlAvailable && !state.isDeleting, onRefresh) {
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = storageGutter, vertical = 16.dp)) {
+                    LazyColumn(state = listScroll, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = storageGutter, end = storageGutter,
+                        top = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 24.dp else 16.dp,
+                        bottom = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 32.dp else 16.dp)) {
                         item { ongoingRun() }
                         if (!state.controlAvailable) item {
                             GeoInlineNote("${state.deviceName} 연결이 끊겼습니다. 마지막으로 본 목록입니다.",
@@ -177,10 +192,25 @@ internal fun FileBrowser(
                             itemsIndexed(group, key = { _, it -> it.relativePath }) { index, entry ->
                                 val directory = entry.type == RemoteEntryType.DIRECTORY
                                 val divider = index < group.lastIndex || groupIndex == days.size - 1
-                                val select = { selectedPath = if (selectedPath == entry.relativePath) null else entry.relativePath }
+                                val select = {
+                                    selectedPath = if (selectedPath == entry.relativePath) null else entry.relativePath
+                                    if (wideSend && selectedPath != null && !directory) {
+                                        if (state.preview != null) onBack()
+                                        onFile(entry)
+                                    }
+                                    else if (wideSend && selectedPath == null && state.preview != null) onBack()
+                                }
                                 if (selecting || (send != null && !directory)) R7FileSelectionRow(entry,
                                     selectedPath == entry.relativePath, select,
-                                    onOpen = { if (directory) onDirectory(entry) else onFile(entry) },
+                                    onOpen = {
+                                        if (directory) onDirectory(entry) else {
+                                            if (wideSend) {
+                                                selectedPath = entry.relativePath
+                                                if (state.preview != null) onBack()
+                                            }
+                                            onFile(entry)
+                                        }
+                                    },
                                     enabled = state.controlAvailable, disabledReason = "장치에 연결되면 쓸 수 있습니다.",
                                     modifier = Modifier.padding(bottom = 8.dp))
                                 else R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
@@ -209,6 +239,25 @@ internal fun FileBrowser(
                     }
                 }
             }
+            if (wideSend) {
+                GeoPaneLayout(singlePane = GeoPaneSelection.LIST,
+                    list = { listing({}) }, detail = {
+                        GeoActionArea(visibilityKey = location, visible = sendPath != null && root != null,
+                            action = review) { inlineAction ->
+                            LazyColumn(state = detailScroll, modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(top = 24.dp, bottom = 32.dp)) {
+                                if (state.preview != null) item(key = "preview") {
+                                    GeoSection("파일 미리보기", first = true) {
+                                        Box(Modifier.fillMaxWidth().height(400.dp)) { preview() }
+                                    }
+                                }
+                                if (state.isLoading) item { GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows) }
+                                item { inlineAction() }
+                            }
+                        }
+                    })
+            } else GeoActionArea(visibilityKey = location to sendPath,
+                visible = send != null && sendPath != null && root != null, action = review, body = listing)
             Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) {
                 GeoOperationMessageHost(state.message, onDismissMessage, "실행 취소".takeIf { state.undoTrashId != null },
                     onUndo.takeIf { state.undoTrashId != null })

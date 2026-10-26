@@ -126,7 +126,8 @@ fun GeoRow(
     val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
     BoxWithConstraints(modifier.fillMaxWidth().then(if (navigable) Modifier.contentTarget(enabled, onClick) else Modifier)
         .then(if (divider) Modifier.contentDivider() else Modifier).semantics(mergeDescendants = true) {}) {
-        val stacked = hasStatus && rowStatusStacks(maxWidth.value, density.fontScale, requiredWidth.value)
+        val tabletScale = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f && density.fontScale >= 1.3f && maxWidth < 480.dp
+        val stacked = hasStatus && (tabletScale || rowStatusStacks(maxWidth.value, density.fontScale, requiredWidth.value))
         val gap = if (hasStatus) 8.dp else 12.dp
         val hasMeta = !(if (enabled) meta else disabledReason).isNullOrBlank()
         val titleHeight = if (hasMeta) firstLine else maxOf(40.dp, firstLine)
@@ -202,7 +203,9 @@ fun GeoActionRow(
     val density = LocalDensity.current
     val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
     BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider(tone) else Modifier)) {
-        val stacked = density.fontScale >= 1.5f || maxWidth < 280.dp
+        val stacked = density.fontScale >= 1.5f || maxWidth < 280.dp ||
+            (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f &&
+                density.fontScale >= 1.3f && maxWidth < 480.dp)
         Column(Modifier.fillMaxWidth().padding(contentPadding).heightIn(min = 48.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Row(Modifier.weight(1f).contentTarget(onClick = onOpen)

@@ -57,6 +57,8 @@ fun SettingsHubScreen(
     serverStatusWord: String = "확인 전",
     serverStatusTone: Tone = Tone.UNKNOWN
 ) {
+    val tablet = LocalGeoWindow.current.widthDp >= 600f
+    val scroll = com.example.jetsoncontroller.ui.components.geo.shell.rememberGeoPaneListState("settings")
     var embeddedPage by rememberSaveable { mutableStateOf<String?>(null) }
     val appearance = if (LocalInspectionMode.current) Appearance() else rememberAppearance()
 
@@ -73,8 +75,9 @@ fun SettingsHubScreen(
         else -> Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
             DeviceTitleBar("설정", root = true)
             LazyColumn(
+                state = scroll,
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp)
+                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = if (tablet) 24.dp else 16.dp, bottom = if (tablet) 32.dp else 40.dp)
             ) {
                 item {
                     GeoSection("화면", first = true) {

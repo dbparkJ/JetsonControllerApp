@@ -150,6 +150,15 @@ internal fun AppNavHost(state: AppNavigationState, modifier: Modifier = Modifier
         }.getOrDefault(Routes.TASKS) // Restore-error scenes belong to the startup slice.
     }
     val firstWorkRoute = restoredEntry ?: return
+    val paneScrollStates = mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>()
+    primaryTabRoutes.forEach { root ->
+        listOf("devices", "transfers", "settings").forEach { pane ->
+            paneScrollStates["${tabGraphRoute(root)}:$pane"] = androidx.compose.foundation.lazy.rememberLazyListState()
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPaneScrollStates provides paneScrollStates
+    ) {
     NavHost(state.navController, startDestination = tabGraphRoute(Routes.TASKS), modifier = modifier) {
         primaryTabRoutes.forEach { root ->
             navigation(startDestination = if (root == Routes.TASKS) firstWorkRoute else root, route = tabGraphRoute(root)) {
@@ -161,6 +170,7 @@ internal fun AppNavHost(state: AppNavigationState, modifier: Modifier = Modifier
                 focusedRoutes(latest)
             }
         }
+    }
     }
     BackHandler(enabled = state.hasFocusedMediaPreview() || rootBackDestination(state.currentRoute) != null) {
         if (state.hasFocusedMediaPreview()) {

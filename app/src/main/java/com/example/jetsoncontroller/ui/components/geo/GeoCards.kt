@@ -69,12 +69,21 @@ fun GeoWorkCard(
             neutral = chosen.content, success = chosen.content, warning = chosen.content,
             danger = chosen.content, primary = chosen.content, pending = chosen.content)) {
             label?.let { Text(it, style = type.caption, color = chosen.content) }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val stackStatus = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f &&
+                    (LocalDensity.current.fontScale >= 1.3f || maxWidth < 280.dp)
+                if (stackStatus) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(title, style = type.workTitle, color = chosen.content)
+                    status?.let { GeoBadge(it, statusTone, variant = GeoBadgeVariant.INLINE) }
+                } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Text(title, Modifier.weight(1f), style = type.workTitle, color = chosen.content)
                 status?.let {
                     Box(Modifier.height(lineHeight), contentAlignment = Alignment.Center) {
                         GeoBadge(it, statusTone, variant = GeoBadgeVariant.INLINE)
                     }
+                }
+            }
                 }
             }
             meta?.let { Text(it, style = type.body, color = chosen.content) }
@@ -108,16 +117,23 @@ fun GeoDevicePhotoCard(
     Column(modifier.fillMaxWidth().geoCardShadow().clip(GeoShape.card).background(c.surface)
         .then(if (onClick == null) Modifier else Modifier.contentTarget(onClick = onClick))
         .padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
-            Image(painterResource(R.drawable.geo_device), null, Modifier.size(72.dp, 64.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                    Text(name, Modifier.weight(1f), style = type.deviceName, color = c.text)
-                    Box(Modifier.height(line), contentAlignment = Alignment.Center) {
-                        GeoBadge(status, statusTone, Modifier.width(statusWidth), minWidth = statusWidth)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f
+            val small = tablet && maxWidth < 312.dp
+            val stacked = tablet && (small || LocalDensity.current.fontScale >= 1.3f)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                Image(painterResource(R.drawable.geo_device), null,
+                    if (small) Modifier.size(56.dp) else Modifier.size(72.dp, 64.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                        Text(name, Modifier.weight(1f), style = type.deviceName, color = c.text)
+                        if (!stacked) Box(Modifier.height(line), contentAlignment = Alignment.Center) {
+                            GeoBadge(status, statusTone, Modifier.width(statusWidth), minWidth = statusWidth)
+                        }
                     }
+                    if (stacked) GeoBadge(status, statusTone, Modifier.widthIn(min = statusWidth), minWidth = statusWidth)
+                    Text(meta, style = type.supporting, color = c.textSecondary)
                 }
-                Text(meta, style = type.supporting, color = c.textSecondary)
             }
         }
         GeoFigureGrid(figures)
@@ -139,16 +155,23 @@ fun quickActionColumns(fontScale: Float): Int = when {
 
 @Composable
 fun GeoQuickActions(actions: List<GeoQuickAction>, modifier: Modifier = Modifier) {
-    val columns = quickActionColumns(LocalDensity.current.fontScale)
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        actions.chunked(columns).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { action -> GeoQuickTile(action, Modifier.weight(1f)) }
-                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f
+        val columns = if (tablet) tabletQuickActionColumns(maxWidth.value, LocalDensity.current.fontScale)
+            else quickActionColumns(LocalDensity.current.fontScale)
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            actions.chunked(columns).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { action -> GeoQuickTile(action, Modifier.weight(1f)) }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
     }
 }
+
+fun tabletQuickActionColumns(widthDp: Float, fontScale: Float): Int =
+    com.example.jetsoncontroller.ui.components.geo.shell.GeoTabletRules.quickColumns(widthDp, fontScale)
 
 @Composable
 fun GeoQuickTile(action: GeoQuickAction, modifier: Modifier = Modifier) {

@@ -103,9 +103,8 @@ fun StartupLoadingScene(modifier: Modifier = Modifier, reducedMotion: Boolean = 
             view.announceForAccessibility("장치 정보를 불러오는 중입니다")
         }
     }
-    Column(modifier.fillMaxSize().background(LocalGeoColors.current.surface)
-        .windowInsetsPadding(WindowInsets.safeDrawing)) {
-        StartupSceneColumn(Modifier.weight(1f).fillMaxWidth().drawWithContent {
+    val scene: @Composable (Modifier) -> Unit = { area ->
+        StartupSceneColumn(area.drawWithContent {
             visible = true
             drawContent()
         }.clearAndSetSemantics {
@@ -118,7 +117,16 @@ fun StartupLoadingScene(modifier: Modifier = Modifier, reducedMotion: Boolean = 
             Text("장치 정보를 불러오는 중입니다.", style = LocalGeoType.current.body,
                 color = LocalGeoColors.current.textSecondary, textAlign = TextAlign.Center)
         }
-        GeoWordmark(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 32.dp).width(88.dp))
+    }
+    BoxWithConstraints(modifier.fillMaxSize().background(LocalGeoColors.current.surface)
+        .windowInsetsPadding(WindowInsets.safeDrawing)) {
+        if (maxWidth >= 600.dp) {
+            scene(Modifier.fillMaxSize())
+            GeoWordmark(Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp).width(88.dp))
+        } else Column(Modifier.fillMaxSize()) {
+            scene(Modifier.weight(1f).fillMaxWidth())
+            GeoWordmark(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 32.dp).width(88.dp))
+        }
     }
 }
 

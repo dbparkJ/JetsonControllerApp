@@ -221,7 +221,12 @@ private val routesNeedingConnectionNotice = routesRequiringDeviceConnection + se
 )
 
 /** Routes whose composable uses GeoPaneLayout (workGraph); they span the whole two-pane window. */
-private val paneLayoutRoutes = setOf(Routes.WORK_BROWSE, Routes.TASKS, Routes.TICKET_DETAIL)
+private val paneLayoutRoutes = setOf(
+    Routes.WORK_BROWSE, Routes.TASKS, Routes.TICKET_DETAIL, Routes.ACTIVE_RUN,
+    Routes.DEVICES, Routes.DEVICE_BROWSE, Routes.DEVICE_DETAIL,
+    Routes.TRANSFERS, Routes.TRANSFER_BROWSE, Routes.UPLOAD_PROGRESS, Routes.DATA,
+    Routes.SETTINGS, Routes.THEME, Routes.ALERT_SETTINGS, "settings/about", "settings/help", "settings/server"
+)
 
 private val routesWithOwnConnectionStrip = setOf(Routes.DEVICE_DETAIL, Routes.ACTIVE_RUN, Routes.NETWORK_SETTINGS)
 
@@ -876,11 +881,21 @@ fun JetsonApp(
     NoticeDismissalProvider {
         GeoAppShell(
             selected = currentTab(navController),
-            navigationVisible = primaryNavigationVisible(currentRoute, focusedMedia = navigationState.hasFocusedMediaPreview()) &&
+            navigationVisible = primaryNavigationVisible(currentRoute) &&
                 deviceState.registeredDevices.isNotEmpty(),
             onSelect = onSectionSelected,
             mediaInsets = currentRoute in setOf(Routes.CAMERA_PREVIEW, Routes.QR_SCANNER) || navigationState.hasFocusedMediaPreview(),
-            paneLayout = currentRoute in paneLayoutRoutes
+            paneLayout = currentRoute in paneLayoutRoutes,
+            focusedMediaPreview = navigationState.hasFocusedMediaPreview(),
+            adaptivePreview = currentRoute == Routes.DATA,
+            tabletNavigationVisible = currentRoute == Routes.ACTIVE_RUN && deviceState.registeredDevices.isNotEmpty(),
+            attentionSections = alertCenterState.alerts.asSequence().filter {
+                !it.read && System.currentTimeMillis() - it.createdAtEpochMillis in 0..86_400_000L
+            }.mapNotNull { alert -> when (alert.destination) {
+                AlertDestination.DASHBOARD, AlertDestination.STORAGE, AlertDestination.SENSORS -> GeoTab.DEVICES
+                AlertDestination.UPLOAD_QUEUE -> GeoTab.TRANSFERS
+                else -> null
+            } }.toSet()
         ) {
             Column(Modifier.fillMaxSize()) {
                 if (!fullControlConnected) connectionNotice?.let { notice ->

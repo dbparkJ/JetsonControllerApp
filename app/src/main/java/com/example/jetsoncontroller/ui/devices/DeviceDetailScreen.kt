@@ -65,6 +65,7 @@ internal fun DeviceDetailScreen(
     bluetoothError: String? = null
 ) {
     val c = LocalGeoColors.current
+    val tablet = LocalGeoWindow.current.widthDp >= 600f
     val deviceWord = localDeviceWord()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -101,7 +102,7 @@ internal fun DeviceDetailScreen(
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = if (tablet) 32.dp else 40.dp)) {
             item {
                 GeoStatusStrip(listOfNotNull(
                     if (!online) GeoStatusStripState(GeoStripKind.DISCONNECTED, deviceName,
@@ -112,7 +113,7 @@ internal fun DeviceDetailScreen(
             }
             item {
                 Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp)) {
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(if (tablet) 24.dp else 16.dp))
                     GeoDevicePhotoCard(deviceName, connection.label, connection.tone,
                         meta = if (online) listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · ")
                             else lastSeenText?.let { "마지막 응답 $it" } ?: "현재 상태 미확인",
