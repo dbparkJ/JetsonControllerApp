@@ -105,8 +105,8 @@ fun PipelineListScreen(
                     leading = { GeoIconTile(GeoIcons.folder) },
                     enabled = pipeline.outputRootId != null && pipeline.outputPath != null,
                     disabledReason = "저장 결과 위치가 없습니다.")
-                GeoRow("?? ?? ??", onRelay, leading = { GeoIconTile(GeoIcons.link) }, divider = false,
-                    badge = { GeoBadge(if (state.mobileRtkRelay.active) "?? ???" else "??", if (state.mobileRtkRelay.active) Tone.INFO else Tone.UNKNOWN) })
+                GeoRow("보정 정보 중계", onRelay, leading = { GeoIconTile(GeoIcons.link) }, divider = false,
+                    badge = { GeoBadge(if (state.mobileRtkRelay.active) "중계 등록됨" else "꺼짐", if (state.mobileRtkRelay.active) Tone.INFO else Tone.UNKNOWN) })
             }
             GeoTechInfo(listOf(GeoTechnicalValue("실행 ID", pipeline.execution?.runId.orEmpty()),
                 GeoTechnicalValue("로그 ID", pipeline.execution?.logId.orEmpty()), GeoTechnicalValue("실행 파일", pipeline.entrypoint),

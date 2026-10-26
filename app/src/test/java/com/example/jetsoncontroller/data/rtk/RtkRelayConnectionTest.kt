@@ -557,8 +557,12 @@ class RtkRelayConnectionTest {
         val method = javaClass.declaredMethods.single { it.name == name }.apply { isAccessible = true }
         val actual = args.toMutableList()
         val sessionIndex = method.parameterTypes.indexOfFirst { it.simpleName == "RelaySession" }
-        if (sessionIndex >= 0 && actual.size < method.parameterCount) {
+        if (sessionIndex >= 0 && !method.parameterTypes[sessionIndex].isInstance(actual.getOrNull(sessionIndex))) {
             actual.add(sessionIndex, session())
+        }
+        val responseIndex = method.parameterTypes.indexOf(NtripCasterResponseTracker::class.java)
+        if (responseIndex >= 0 && actual.size < method.parameterCount) {
+            actual.add(responseIndex, NtripCasterResponseTracker())
         }
         method.invoke(this, *actual.toTypedArray())
     } catch (error: InvocationTargetException) {

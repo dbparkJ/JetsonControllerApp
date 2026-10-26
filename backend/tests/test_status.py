@@ -108,6 +108,45 @@ class StatusCollectorSensorTest(unittest.TestCase):
         self.assertEqual((camera["sensorOutputWidth"], camera["sensorOutputHeight"]), (1280, 800))
         self.assertEqual((camera["frameWidth"], camera["frameHeight"]), (1920, 1200))
 
+    def test_gnss_diagnostics_reach_status_api_with_safe_legacy_defaults(self) -> None:
+        now = 1_700_000_000.0
+        valid = {
+            "ntripSelection": "caster", "ntripError": "retry",
+            "rtcmLastAtEpochMillis": 1_699_999_997_000, "rtcmMessageTypes": [1005, 1077],
+            "rtcmSignals": ["BDS 5P", "GAL 7Q", "GPS 1C", "GPS 5Q", "SBS ?12"],
+            "rtcmBaseStationId": 123, "rtcmBaseDistanceM": 7400.0,
+            "ntripLastGgaSentAtEpochMillis": 1_699_999_998_000,
+        }
+        defaults = {key: [] if key in ("rtcmMessageTypes", "rtcmSignals") else None for key in valid}
+        malformed = {
+            "ntripSelection": "auto", "ntripError": [],
+            "rtcmLastAtEpochMillis": True, "rtcmMessageTypes": "1005",
+            "rtcmSignals": "GPS 5Q",
+            "rtcmBaseStationId": 4096, "rtcmBaseDistanceM": float("inf"),
+            "ntripLastGgaSentAtEpochMillis": "invalid",
+        }
+        for values, expected, age in ((valid, valid, 0), (malformed, defaults, 0), ({}, defaults, 0), (valid, valid, 10)):
+            with self.subTest(values=values, age=age):
+                self.write_status(int((now - age) * 1000))
+                path = self.root / "status.json"
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                raw["gnss"].update(values, ntripConnected=True)
+                path.write_text(json.dumps(raw), encoding="utf-8")
+                status = self.collect(now)
+                for key, value in expected.items():
+                    self.assertEqual(status["gnssSensor"][key], value)
+                self.assertEqual(status["gnssSensor"]["ntripConnected"], age == 0)
+                self.assertEqual(status["gnssSensor"]["fixType"], "rtk_float")
+
+    def test_gnss_rtcm_signals_are_sanitized_before_status_api(self) -> None:
+        now = 1_700_000_000.0
+        self.write_status(int(now * 1000))
+        path = self.root / "status.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["gnss"]["rtcmSignals"] = ["GPS 5Q", "SBS ?12", "GPS 1C", "GPS 5Q", "GAL 7q", True, None, {}]
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertEqual(self.collect(now)["gnssSensor"]["rtcmSignals"], ["GPS 1C", "GPS 5Q", "SBS ?12"])
+
     def test_camera_imu_is_exposed_as_running_with_sample_values(self) -> None:
         now = time.time()
         self.write_status(int(now * 1000))

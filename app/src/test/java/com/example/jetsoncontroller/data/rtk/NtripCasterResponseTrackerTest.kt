@@ -16,6 +16,181 @@ class NtripCasterResponseTrackerTest {
     private val icy = ascii("ICY 200 OK\r\n")
 
     @Test
+    fun `root requests accept fragmented source tables without counting correction or EOF errors`() {
+        val body = "STR;example\r\nENDSOURCETABLE\r\n"
+        val responses = listOf(
+            "SOURCETABLE 200 OK\r\n$body",
+            "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n$body",
+            "HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\nTransfer-Encoding: chunked\r\n\r\n" +
+                body.chunked(3).joinToString("") { "${it.length.toString(16)}\r\n$it\r\n" } + "0\r\n\r\n",
+            "HTTP/1.0 200 OK\r\n\r\n$body"
+        )
+        for (text in responses) {
+            val response = ascii(text) + frame
+            for (split in 0..response.size) {
+                val tracker = NtripCasterResponseTracker("/")
+                assertEquals(0L, tracker.accept(response, 0, split))
+                assertEquals(0L, tracker.accept(response, split, response.size - split))
+                assertEquals(0L, tracker.validatedBytes)
+                assertNull(tracker.error)
+                assertNull(tracker.endOfInput())
+            }
+        }
+    }
+
+    @Test
+    fun `root NTRIP 2 sourcetable content type completes only after its terminator`() {
+        val body = "STR;RTK-RTCM32;example\r\nENDSOURCETABLE"
+        val tracker = NtripCasterResponseTracker("/")
+        tracker.accept(ascii("HTTP/1.1 200 OK\r\nNtrip-Version: Ntrip/2.0\r\n" +
+            "Server: NTRIP Trimble Ntrip Caster 5.2\r\nContent-Type: gnss/sourcetable\r\n" +
+            "Content-Length: ${body.length}\r\n\r\n"))
+        assertNotNull(tracker.endOfInput())
+        tracker.accept(ascii(body))
+        assertNull(tracker.error)
+        assertNull(tracker.endOfInput())
+        assertEquals(0L, tracker.validatedBytes)
+    }
+
+    @Test
+    fun `root NTRIP 1 sourcetable status accepts real caster headers and records`() {
+        val tracker = NtripCasterResponseTracker("/")
+        val response = ascii("SOURCETABLE 200 OK\r\nServer: NTRIP GVRS_Caster 2.0/1.0\r\n" +
+            "Content-Type: text/plain;\r\n\r\nCAS;example\r\nNET;example\r\nSTR;example\r\nENDSOURCETABLE\r\n")
+        response.forEach { assertEquals(0L, tracker.accept(byteArrayOf(it))) }
+        assertNull(tracker.error)
+        assertNull(tracker.endOfInput())
+    }
+
+    @Test
+    fun `root unmarked HTTP and ICY responses require a source table record prefix`() {
+        for (status in listOf("HTTP/1.0 200 OK", "HTTP/1.1 200 OK", "ICY 200 OK")) {
+            for (prefix in listOf("STR;", "CAS;", "NET;")) {
+                val tracker = NtripCasterResponseTracker("/")
+                tracker.accept(ascii("$status\r\n\r\n${prefix}example\r\nENDSOURCETABLE"))
+                assertNull(tracker.error)
+                assertNull(tracker.endOfInput())
+                assertEquals(0L, tracker.validatedBytes)
+            }
+        }
+    }
+
+    @Test
+    fun `root HTML 200 and unmarked binary bodies are errors even with embedded terminators`() {
+        for (headers in listOf("", "Content-Type: text/html\r\n", "Content-Type: text/plain\r\n")) {
+            for (body in listOf(ascii("<html>private-response-marker\r\nENDSOURCETABLE\r\n</html>"), frame)) {
+                val tracker = NtripCasterResponseTracker("/")
+                tracker.accept(ascii("HTTP/1.1 200 OK\r\n$headers\r\n") + body)
+                assertEquals("NTRIP caster가 소스테이블 대신 다른 응답을 보냈습니다.", tracker.error)
+                assertEquals(tracker.error, tracker.endOfInput())
+                assertFalse(tracker.endOfInput().orEmpty().contains("private-response-marker"))
+                assertEquals(0L, tracker.validatedBytes)
+            }
+        }
+    }
+
+    @Test
+    fun `root 200 status immediately followed by EOF is always an error`() {
+        for (status in listOf("HTTP/1.1 200 OK", "ICY 200 OK", "SOURCETABLE 200 OK")) {
+            val tracker = NtripCasterResponseTracker("/")
+            tracker.accept(ascii("$status\r\n"))
+            assertNotNull(tracker.endOfInput())
+            assertEquals(0L, tracker.validatedBytes)
+        }
+    }
+
+    @Test
+    fun `root source tables without a complete terminator report truncated responses`() {
+        val marker = "ENDSOURCETABLE"
+        for (header in listOf("SOURCETABLE 200 OK\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\n\r\n")) {
+            for (length in 0 until marker.length) {
+                val tracker = NtripCasterResponseTracker("/")
+                tracker.accept(ascii(header + "STR;example\r\n" + marker.take(length)))
+                assertNull(tracker.error)
+                assertEquals("NTRIP caster 소스테이블 응답이 중간에 끊겼습니다.", tracker.endOfInput())
+            }
+        }
+    }
+
+    @Test
+    fun `root source table terminator survives every split between two reads`() {
+        val marker = "ENDSOURCETABLE"
+        for (split in 1 until marker.length) {
+            val tracker = NtripCasterResponseTracker("/")
+            tracker.accept(ascii("HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\n\r\n" +
+                "STR;example\r\n" + marker.take(split)))
+            assertNotNull(tracker.endOfInput())
+            tracker.accept(ascii(marker.drop(split)))
+            assertNull(tracker.error)
+            assertNull(tracker.endOfInput())
+        }
+    }
+
+    @Test
+    fun `root HTTP body boundaries cannot substitute for a source table terminator`() {
+        for (response in listOf(
+            "HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\nContent-Length: 0\r\n\r\nENDSOURCETABLE",
+            "HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\nContent-Length: 8\r\n\r\nSTR;ok\r\nENDSOURCETABLE",
+            "HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nENDSOURCETABLE"
+        )) {
+            val tracker = NtripCasterResponseTracker("/")
+            tracker.accept(ascii(response))
+            assertEquals("NTRIP caster 소스테이블 응답이 중간에 끊겼습니다.", tracker.endOfInput())
+        }
+    }
+
+    @Test
+    fun `root source table confirmation never hides protocol errors`() {
+        for (headers in listOf("Content-Encoding: gzip\r\n", "Content-Length: -1\r\n",
+            "Transfer-Encoding: chunked\r\nContent-Length: 10\r\n")) {
+            val tracker = NtripCasterResponseTracker("/")
+            tracker.accept(ascii("HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\n$headers\r\nENDSOURCETABLE"))
+            assertNotNull(tracker.error)
+            assertEquals(tracker.error, tracker.endOfInput())
+        }
+        val missingSeparator = NtripCasterResponseTracker("/")
+        missingSeparator.accept(ascii("HTTP/1.1 200 OK\r\nContent-Type: gnss/sourcetable\r\n" +
+            "STR;example\r\nENDSOURCETABLE\r\n"))
+        assertNotNull(missingSeparator.error)
+        assertEquals(missingSeparator.error, missingSeparator.endOfInput())
+    }
+
+    @Test
+    fun `root long source tables ignore embedded terminators and do not retain body lines`() {
+        val tracker = NtripCasterResponseTracker("/")
+        tracker.accept(ascii("HTTP/1.1 200 OK\r\n\r\nSTR;"))
+        val block = ascii("example ENDSOURCETABLE ".repeat(300))
+        repeat(100) { assertEquals(0L, tracker.accept(block)) }
+        assertNull(tracker.error)
+        assertEquals("NTRIP caster 소스테이블 응답이 중간에 끊겼습니다.", tracker.endOfInput())
+        tracker.accept(ascii("\r\nENDSOURCETABLE\r\n") + frame)
+        assertNull(tracker.error)
+        assertNull(tracker.endOfInput())
+        assertEquals(0L, tracker.validatedBytes)
+    }
+
+    @Test
+    fun `mountpoint requests still reject source table responses`() {
+        for (header in listOf("SOURCETABLE 200 OK\r\n", "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n")) {
+            val tracker = NtripCasterResponseTracker("/RTK-RTCM32")
+            assertEquals(0L, tracker.accept(ascii(header) + frame))
+            assertNotNull(tracker.error)
+            assertEquals(tracker.error, tracker.endOfInput())
+        }
+    }
+
+    @Test
+    fun `root request authentication failures and incomplete status still produce errors`() {
+        for (header in listOf("HTTP/1.1 401 Unauthorized\r\n", "SOURCETABLE 401 Unauthorized\r\n", "SOURCETABLE 200")) {
+            val tracker = NtripCasterResponseTracker("/")
+            tracker.accept(ascii(header))
+            assertNotNull(tracker.endOfInput())
+            assertEquals(0L, tracker.validatedBytes)
+        }
+    }
+
+    @Test
     fun `one hundred fragmented HTTP 401 retries never report a successful receive`() {
         var received = 0L
         repeat(100) {
@@ -48,7 +223,7 @@ class NtripCasterResponseTrackerTest {
             header.forEach { assertEquals(0L, tracker.accept(byteArrayOf(it))) }
             assertNull(tracker.error)
             assertEquals(0L, tracker.validatedBytes)
-            assertTrue(tracker.endOfInput().contains("유효한 RTCM3"))
+            assertTrue(tracker.endOfInput().orEmpty().contains("유효한 RTCM3"))
         }
     }
 
@@ -92,7 +267,7 @@ class NtripCasterResponseTrackerTest {
             val tracker = NtripCasterResponseTracker()
             assertEquals(0L, tracker.accept(http + frame.copyOf(length)))
             assertEquals(0L, tracker.validatedBytes)
-            assertTrue(tracker.endOfInput().contains("유효한 RTCM3"))
+            assertTrue(tracker.endOfInput().orEmpty().contains("유효한 RTCM3"))
         }
     }
 
@@ -246,7 +421,7 @@ class NtripCasterResponseTrackerTest {
         val tracker = NtripCasterResponseTracker()
         tracker.accept(response)
         assertArrayEquals(original, response)
-        assertFalse(tracker.endOfInput().contains("private-response-marker"))
+        assertFalse(tracker.endOfInput().orEmpty().contains("private-response-marker"))
     }
 
     private fun ascii(value: String) = value.toByteArray(Charsets.US_ASCII)

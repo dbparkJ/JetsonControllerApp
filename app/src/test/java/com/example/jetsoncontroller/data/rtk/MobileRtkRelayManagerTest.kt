@@ -9,7 +9,10 @@ import com.example.jetsoncontroller.data.network.WifiDirectManager
 import com.example.jetsoncontroller.model.MobileRtkRelayState
 import com.example.jetsoncontroller.model.MobileRtkRelayConfig
 import java.io.IOException
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.net.ServerSocket
+import java.net.Socket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,6 +24,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,6 +34,50 @@ import java.lang.reflect.InvocationTargetException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MobileRtkRelayManagerTest {
+    @Test
+    fun `root source table exchange forwards bytes without relay error or correction count`() = runTest {
+        for (header in listOf("SOURCETABLE 200 OK\r\n", "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n")) {
+            verifySourceTableExchange("/", header, expectedError = false)
+        }
+    }
+
+    @Test
+    fun `mountpoint source table exchange keeps relay error and original response bytes`() = runTest {
+        for (header in listOf("SOURCETABLE 200 OK\r\n", "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n")) {
+            verifySourceTableExchange("/RTK-RTCM32", header, expectedError = true)
+        }
+    }
+
+    private fun verifySourceTableExchange(path: String, header: String, expectedError: Boolean) {
+        val fixture = managerFixture(CoroutineScope(kotlinx.coroutines.SupervisorJob()))
+        val client = Mockito.mock(LocalApiClient::class.java)
+        val request = "GET $path HTTP/1.0\r\nHost: relay.local\r\n\r\n".toByteArray()
+        val response = (header + "STR;example\r\nENDSOURCETABLE\r\n").toByteArray() +
+            "d300133ed00003000000000000000000000000000000950a66".chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val sentRequest = ByteArrayOutputStream()
+        val sentResponse = ByteArrayOutputStream()
+        val local = Mockito.mock(Socket::class.java)
+        val remote = Mockito.mock(Socket::class.java)
+        Mockito.`when`(local.getInputStream()).thenReturn(ByteArrayInputStream(request))
+        Mockito.`when`(local.getOutputStream()).thenReturn(sentResponse)
+        Mockito.`when`(remote.getInputStream()).thenReturn(ByteArrayInputStream(response))
+        Mockito.`when`(remote.getOutputStream()).thenReturn(sentRequest)
+        ServerSocket().use { server ->
+            try {
+                fixture.activate(client, server)
+                val tracker = NtripCasterResponseTracker()
+                Mockito.mockStatic(android.util.Log::class.java).use {
+                    fixture.manager.call("forwardNtripRequest", local, remote, "caster.example", 2101, 1L, tracker)
+                    fixture.manager.call("copyCasterData", remote, local, 1L, fixture.manager.field<Any>("currentSession"), tracker)
+                }
+                assertArrayEquals(rewriteNtripHostHeader(request, "caster.example", 2101), sentRequest.toByteArray())
+                assertArrayEquals(response, sentResponse.toByteArray())
+                assertEquals(0L, fixture.state.value.bytesFromCaster)
+                assertEquals(expectedError, fixture.state.value.error != null)
+            } finally { fixture.scope.cancel() }
+        }
+    }
+
     @Test
     fun `new mobile lease waits for internet validation without rejecting normal network startup`() = runTest {
         val fixture = managerFixture(CoroutineScope(UnconfinedTestDispatcher(testScheduler)))

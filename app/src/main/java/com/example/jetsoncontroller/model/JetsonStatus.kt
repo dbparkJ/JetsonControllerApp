@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.model
 
+import com.google.gson.annotations.JsonAdapter
+
 data class JetsonStatus(
     val collectedAtEpochMillis: Long? = null,
     val metricValidity: Map<String, MetricValidity> = emptyMap(),
@@ -71,6 +73,22 @@ data class GnssSensorStatus(
     val referenceStationId: String? = null,
     val ntripConnected: Boolean = false,
     val ntripMountpoint: String? = null,
+    @field:JsonAdapter(NtripSelectionAdapter::class)
+    val ntripSelection: String? = null,
+    @field:JsonAdapter(NtripErrorAdapter::class)
+    val ntripError: String? = null,
+    @field:JsonAdapter(GnssDiagnosticTimestampAdapter::class)
+    val rtcmLastAtEpochMillis: Long? = null,
+    @field:JsonAdapter(RtcmMessageTypesAdapter::class, nullSafe = false)
+    val rtcmMessageTypes: List<Int> = emptyList(),
+    @field:JsonAdapter(RtcmSignalsAdapter::class, nullSafe = false)
+    val rtcmSignals: List<String> = emptyList(),
+    @field:JsonAdapter(RtcmBaseStationIdAdapter::class)
+    val rtcmBaseStationId: Int? = null,
+    @field:JsonAdapter(RtcmBaseDistanceAdapter::class)
+    val rtcmBaseDistanceM: Double? = null,
+    @field:JsonAdapter(GnssDiagnosticTimestampAdapter::class)
+    val ntripLastGgaSentAtEpochMillis: Long? = null,
     val rtcmBytes: Long = 0,
     val error: String? = null
 )

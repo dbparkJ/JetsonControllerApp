@@ -215,6 +215,19 @@ input:
 
 외부 파이프라인이 현재 센서 상태 형식을 게시하면 앱이 카메라 프리뷰와 GNSS를 표시할 수 있다. 정확한 필드와 원자적 파일 작성 방식은 `backend/jetson_control/sensors.py`의 `SensorBridgeStore` 및 `sensor_monitor.py`의 게시 코드를 기준으로 한다. GNSS에는 유효한 위·경도, `active`, `lastSampleAtEpochMillis`와 최신 상태 시간이 필요하다. 과거 샘플을 현재 시간처럼 재게시하면 경로 신뢰성을 잃는다. 실행기의 `RouteRecorder`는 2초마다 새 유효 GPS 샘플만 기록하며 수신 중단 구간을 나눈다.
 
+GNSS 기준국 진단은 `gnss` 객체의 선택 필드이며 상태 API의 `gnssSensor`로 전달된다. 키가 없거나 형식이 틀리면 null, 목록은 빈 목록으로 처리한다. 상태가 오래되면 `ntripConnected`는 false이며 아래 진단 값·시각은 유지한다. 앱은 시각으로 경과 시간을 표시한다.
+
+| 키 | 타입·검증 | 뜻 |
+|---|---|---|
+| `ntripSelection` | `"client"` / `"caster"` / null | 가까운 기준국 직접 선택 / 캐스터가 GGA로 자동 선택 |
+| `ntripError` | 문자열 / null, 기존 `error`와 같은 256자 제한 | 계정 정보를 포함하지 않는 NTRIP 클라이언트 마지막 오류 |
+| `rtcmLastAtEpochMillis` | 정수 / null | 마지막 유효 RTCM 프레임 시각(Unix epoch 밀리초) |
+| `rtcmMessageTypes` | 1~4095 정수 목록, 중복 제거·오름차순·최대 32개 | 최근 60초에 받은 RTCM 메시지 번호 |
+| `rtcmSignals` | 문자열 목록, 정규식 `^(GPS\|GLO\|GAL\|SBS\|QZS\|BDS\|IRN) ([1-9][A-Z]\|\?[0-9]{1,2})$`, 중복 제거·오름차순·최대 48개 | 최근 60초 MSM 신호 마스크의 위성군·RINEX 코드(예: `GPS 5Q`, `GAL 7Q`, `BDS 5P`), 미정의 signal ID는 `SBS ?12`; 레거시 1004/1012는 제외 |
+| `rtcmBaseStationId` | 0~4095 정수 / null | RTCM 1005/1006 기준국 ID |
+| `rtcmBaseDistanceM` | 0 이상 유한수 / null | rover–기준국 거리(m) |
+| `ntripLastGgaSentAtEpochMillis` | 정수 / null | 마지막 캐스터 GGA 송신 시각(Unix epoch 밀리초) |
+
 기존 카메라 캡처는 게시된 JPEG 프리뷰의 해상도로 저장된다. 고해상도 원본 촬영이나 검지 결과 오버레이가 필요하면 외부 파이프라인에서 해당 프레임을 게시하거나 버전이 명시된 별도 API를 정의하는 확장이다.
 
 ## 앱 연결 흐름

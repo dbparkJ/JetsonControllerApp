@@ -226,6 +226,112 @@ class SensorBridgeStoreTest(unittest.TestCase):
         self.assertFalse(status.gnss["ntripConnected"])
         self.assertEqual(status.gnss["latitude"], 37.5)
 
+    def gnss_status(self, values, *, heartbeat_age=0):
+        now = 1_700_000_000_000
+        self.write_status(now - heartbeat_age)
+        path = self.root / "status.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["gnss"].update(values)
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        return SensorBridgeStore(self.root, clock=lambda: now / 1000).status().gnss
+
+    def test_gnss_base_diagnostics_accept_current_contract(self) -> None:
+        for selection in ("client", "caster"):
+            with self.subTest(selection=selection):
+                values = {
+                    "ntripSelection": selection, "ntripError": "  retry\n  ",
+                    "rtcmLastAtEpochMillis": 1_699_999_997_000,
+                    "rtcmMessageTypes": [1077, 1005, 1005, 1004],
+                    "rtcmBaseStationId": 123, "rtcmBaseDistanceM": 7400.5,
+                    "ntripLastGgaSentAtEpochMillis": 1_699_999_998_000,
+                }
+                gnss = self.gnss_status(values)
+                for key, value in values.items():
+                    expected = {"ntripError": "retry", "rtcmMessageTypes": [1004, 1005, 1077]}.get(key, value)
+                    self.assertEqual(gnss[key], expected)
+                self.assertTrue(gnss["ntripConnected"])
+
+    def test_gnss_base_diagnostics_default_for_legacy_and_null_values(self) -> None:
+        keys = ("ntripSelection", "ntripError", "rtcmLastAtEpochMillis", "rtcmBaseStationId",
+                "rtcmBaseDistanceM", "ntripLastGgaSentAtEpochMillis", "rtcmMessageTypes")
+        for values in ({}, dict.fromkeys(keys)):
+            with self.subTest(values=values):
+                gnss = self.gnss_status(values)
+                for key in keys:
+                    self.assertEqual(gnss[key], [] if key == "rtcmMessageTypes" else None)
+                self.assertEqual(gnss["fixType"], "rtk_fixed")
+
+    def test_gnss_base_diagnostics_reject_wrong_types_and_ranges(self) -> None:
+        cases = {
+            "ntripSelection": ["auto", "CASTER", " client ", True, [], {}],
+            "ntripError": [42, False, [], {}, "\n\t"],
+            "rtcmLastAtEpochMillis": [True, "123", 123.5, [], {}],
+            "ntripLastGgaSentAtEpochMillis": [True, "123", 123.5, [], {}],
+            "rtcmBaseStationId": [-1, 4096, True, "123", 123.0, [], {}],
+            "rtcmBaseDistanceM": [-0.1, float("nan"), float("inf"), float("-inf"), True, "7400", [], {}],
+        }
+        for key, values in cases.items():
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    self.assertIsNone(self.gnss_status({key: value})[key])
+        for value in (True, "1005", 1005, {}, None):
+            with self.subTest(message_types=value):
+                self.assertEqual(self.gnss_status({"rtcmMessageTypes": value})["rtcmMessageTypes"], [])
+
+    def test_gnss_rtcm_types_filter_sort_deduplicate_and_limit(self) -> None:
+        values = [4095, 1, 1005, 1005, 0, 4096, -1, True, "1077", 1077.5, None, {}]
+        self.assertEqual(self.gnss_status({"rtcmMessageTypes": values})["rtcmMessageTypes"], [1, 1005, 4095])
+        values = list(range(4095, 0, -1)) * 2
+        self.assertEqual(self.gnss_status({"rtcmMessageTypes": values})["rtcmMessageTypes"], list(range(1, 33)))
+
+    def test_gnss_rtcm_signals_accept_all_constellations_and_unknown_ids(self) -> None:
+        values = ["GPS 1C", "GPS 5Q", "GAL 7Q", "BDS 5P", "GLO 2P", "QZS 5X",
+                  "SBS ?12", "IRN 9A", "SBS ?0", "SBS ?00", "SBS ?99"]
+        gnss = self.gnss_status({"rtcmSignals": list(reversed(values)) + values[:2]})
+        self.assertEqual(gnss["rtcmSignals"], sorted(values))
+        stale = self.gnss_status({"rtcmSignals": values}, heartbeat_age=5001)
+        self.assertEqual(stale["rtcmSignals"], sorted(values))
+        self.assertFalse(stale["ntripConnected"])
+
+    def test_gnss_rtcm_signals_reject_malformed_items_without_coercion(self) -> None:
+        invalid = [None, True, 5, 5.0, {}, [], "", "gps 1C", "XYZ 1C", "GPS 0C", "GPS 1c",
+                   "GPS 10C", "GPS 1CC", "GPS １C", "GPS  1C", "GPS\t1C", " GPS 1C",
+                   "GPS 1C ", "GPS 1C\n", "GPS ?", "GPS ?100", "GPS ?-1", "GPS ?１２"]
+        self.assertEqual(self.gnss_status({"rtcmSignals": invalid + ["GPS 1C", "SBS ?12"]})["rtcmSignals"],
+                         ["GPS 1C", "SBS ?12"])
+
+    def test_gnss_rtcm_signals_missing_null_and_non_lists_default_empty(self) -> None:
+        for values in ({}, {"rtcmSignals": None}, {"rtcmSignals": "GPS 5Q"},
+                       {"rtcmSignals": {"GPS 5Q": True}}, {"rtcmSignals": True},
+                       {"rtcmSignals": 5}, {"rtcmSignals": []}):
+            with self.subTest(values=values):
+                self.assertEqual(self.gnss_status(values)["rtcmSignals"], [])
+
+    def test_gnss_rtcm_signals_limit_after_deduplication_and_sorting(self) -> None:
+        values = [f"GPS {band}{code}" for band in range(1, 10) for code in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
+        self.assertEqual(self.gnss_status({"rtcmSignals": list(reversed(values)) * 2})["rtcmSignals"],
+                         sorted(values)[:48])
+
+    def test_gnss_diagnostic_boundaries_and_error_limit(self) -> None:
+        for station_id in (0, 4095):
+            self.assertEqual(self.gnss_status({"rtcmBaseStationId": station_id})["rtcmBaseStationId"], station_id)
+        self.assertEqual(self.gnss_status({"rtcmBaseDistanceM": 0})["rtcmBaseDistanceM"], 0.0)
+        gnss = self.gnss_status({"ntripError": "x" * 300, "error": "x" * 300})
+        self.assertEqual(gnss["ntripError"], gnss["error"])
+        self.assertEqual(len(gnss["ntripError"]), 256)
+
+    def test_stale_gnss_preserves_diagnostics_but_not_ntrip_connection(self) -> None:
+        values = {
+            "ntripSelection": "caster", "ntripError": "retry",
+            "rtcmLastAtEpochMillis": 1_699_999_997_000, "rtcmMessageTypes": [1005],
+            "rtcmBaseStationId": 0, "rtcmBaseDistanceM": 0,
+            "ntripLastGgaSentAtEpochMillis": 1_699_999_998_000,
+        }
+        gnss = self.gnss_status(values, heartbeat_age=5001)
+        self.assertFalse(gnss["ntripConnected"])
+        for key, value in values.items():
+            self.assertEqual(gnss[key], value)
+
     def test_rejects_preview_symlink(self) -> None:
         outside = self.root / "outside.jpg"
         outside.write_bytes(b"\xff\xd8secret\xff\xd9")

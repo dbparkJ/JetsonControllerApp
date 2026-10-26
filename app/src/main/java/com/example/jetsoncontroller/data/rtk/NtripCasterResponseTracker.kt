@@ -3,9 +3,21 @@ package com.example.jetsoncontroller.data.rtk
 /**
  * Observes a single caster response without changing the bytes relayed to the receiver.
  * Only complete, CRC24Q-verified RTCM3 frames count as received correction data.
- * Retains at most one bounded protocol line and one RTCM3 frame, never a response body.
+ * Retains bounded protocol/prefix buffers and one RTCM3 frame, never a full response body.
  */
-internal class NtripCasterResponseTracker {
+internal class NtripCasterResponseTracker(requestPath: String? = null) {
+    @Volatile private var requestPath: String? = requestPath
+    private var sourceTableResponse = false
+    private var sourceTableV1 = false
+    private var sourceTableComplete = false
+    private val sourceTablePrefix = StringBuilder(4)
+    private var sourceTableLineStart = true
+    private var sourceTableEndMatched = 0
+
+    fun setRequestPath(path: String?) {
+        requestPath = path
+    }
+
     var validatedBytes: Long = 0
         private set
     var error: String? = null
@@ -38,10 +50,12 @@ internal class NtripCasterResponseTracker {
     }
 
     /** A protocol error takes precedence over EOF; no response text is ever exposed. */
-    fun endOfInput(): String = error ?: if (validatedBytes == 0L) {
-        "NTRIP caster에서 유효한 RTCM3 데이터를 받기 전에 연결이 종료되었습니다."
-    } else {
-        "NTRIP caster 데이터 수신이 종료되었습니다."
+    fun endOfInput(): String? = error ?: when {
+        requestPath == "/" && !sourceTableResponse -> UNEXPECTED_SOURCE_TABLE_RESPONSE
+        requestPath == "/" && !sourceTableComplete -> "NTRIP caster 소스테이블 응답이 중간에 끊겼습니다."
+        requestPath == "/" -> null
+        validatedBytes == 0L -> "NTRIP caster에서 유효한 RTCM3 데이터를 받기 전에 연결이 종료되었습니다."
+        else -> "NTRIP caster 데이터 수신이 종료되었습니다."
     }
 
     private fun consume(value: Int) {
@@ -101,6 +115,12 @@ internal class NtripCasterResponseTracker {
     }
 
     private fun status(value: String) {
+        if (requestPath == "/" && SOURCE_TABLE_STATUS_LINE.matches(value)) {
+            sourceTableResponse = true
+            sourceTableV1 = true
+            phase = Phase.HEADERS
+            return
+        }
         if (value.startsWith("SOURCETABLE", ignoreCase = true)) {
             fail("NTRIP caster가 RTCM3 대신 SOURCETABLE을 반환했습니다. 마운트포인트를 확인하세요.")
             return
@@ -118,11 +138,18 @@ internal class NtripCasterResponseTracker {
                 else -> "NTRIP caster가 오류 응답을 반환했습니다 (HTTP $code)."
             })
         } else {
-            phase = if (match.groupValues[1] == "ICY") Phase.ICY_START else Phase.HEADERS
+            phase = if (match.groupValues[1] == "ICY" && requestPath != "/") Phase.ICY_START else Phase.HEADERS
         }
     }
 
     private fun header(value: String) {
+        // Some NTRIP v1 casters omit all headers and the separating empty line.
+        if (sourceTableV1 && (SOURCE_TABLE_PREFIXES.any(value::startsWith) || value == SOURCE_TABLE_END)) {
+            phase = Phase.BODY
+            value.forEach { sourceTablePayload(it.code) }
+            sourceTablePayload(10)
+            return
+        }
         if (value.isEmpty()) {
             if (chunked && contentLength != null) {
                 fail("NTRIP caster 응답의 데이터 길이 형식이 모호합니다.")
@@ -145,7 +172,9 @@ internal class NtripCasterResponseTracker {
         when (value.substring(0, colon).lowercase()) {
             "content-type" -> {
                 val type = field.substringBefore(';').trim().lowercase()
-                if (type.startsWith("text/") || listOf("html", "xml", "json", "sourcetable").any { it in type }) {
+                if (requestPath == "/") {
+                    if (type == "gnss/sourcetable") sourceTableResponse = true
+                } else if (type.startsWith("text/") || listOf("html", "xml", "json", "sourcetable").any { it in type }) {
                     fail("NTRIP caster가 RTCM3 데이터가 아닌 응답을 반환했습니다. 마운트포인트를 확인하세요.")
                 }
             }
@@ -179,6 +208,10 @@ internal class NtripCasterResponseTracker {
     }
 
     private fun payload(value: Int) {
+        if (requestPath == "/") {
+            sourceTablePayload(value)
+            return
+        }
         if (!bodyStarted) {
             bodyStarted = true
             // Do not search HTML/text error bodies for an accidentally embedded RTCM frame.
@@ -214,6 +247,28 @@ internal class NtripCasterResponseTracker {
         }
     }
 
+    private fun sourceTablePayload(value: Int) {
+        if (sourceTableComplete) return
+        if (!sourceTableResponse) {
+            sourceTablePrefix.append(value.toChar())
+            if (SOURCE_TABLE_PREFIXES.none { it.startsWith(sourceTablePrefix.toString()) }) {
+                fail(UNEXPECTED_SOURCE_TABLE_RESPONSE)
+                return
+            }
+            if (sourceTablePrefix.length == 4) sourceTableResponse = true
+        }
+        // Only match a terminator at the start of a body line, across reads and HTTP chunks.
+        if (sourceTableLineStart) {
+            if (value == SOURCE_TABLE_END[sourceTableEndMatched].code) {
+                if (++sourceTableEndMatched == SOURCE_TABLE_END.length) sourceTableComplete = true
+            } else sourceTableLineStart = false
+        }
+        if (value == 10) {
+            sourceTableLineStart = true
+            sourceTableEndMatched = 0
+        }
+    }
+
     private fun discardFramePrefix(size: Int) {
         frame.copyInto(frame, 0, size, frameSize)
         frameSize -= size
@@ -233,7 +288,11 @@ internal class NtripCasterResponseTracker {
         const val MAX_LINE_BYTES = 4096
         const val MAX_HEADER_BYTES = 16384
         const val MAX_FRAME_BYTES = 1023 + 6
+        const val UNEXPECTED_SOURCE_TABLE_RESPONSE = "NTRIP caster가 소스테이블 대신 다른 응답을 보냈습니다."
+        const val SOURCE_TABLE_END = "ENDSOURCETABLE"
+        val SOURCE_TABLE_PREFIXES = listOf("STR;", "CAS;", "NET;")
         val STATUS_LINE = Regex("(HTTP/1\\.[01]|ICY) ([0-9]{3})(?:[ \\t].*)?")
+        val SOURCE_TABLE_STATUS_LINE = Regex("SOURCETABLE 200(?:[ \\t].*)?", RegexOption.IGNORE_CASE)
 
         fun crc24q(bytes: ByteArray, length: Int): Int {
             var crc = 0
