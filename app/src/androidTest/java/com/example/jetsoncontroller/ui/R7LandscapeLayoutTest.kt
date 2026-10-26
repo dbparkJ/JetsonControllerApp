@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
@@ -13,15 +15,20 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.data.server.ServerTicketStatus
 import com.example.jetsoncontroller.model.CameraSensorStatus
+import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
+import com.example.jetsoncontroller.ui.devices.DevicesHomeScreen
+import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
+import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.sensors.*
 import com.example.jetsoncontroller.ui.settings.ThemeScreen
 import com.example.jetsoncontroller.ui.survey.SurveyRunUiState
 import com.example.jetsoncontroller.ui.tasks.*
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
+import com.example.jetsoncontroller.ui.theme.GeoPalette
 import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
 import org.junit.Assert.*
 import org.junit.Rule
@@ -30,6 +37,62 @@ import org.junit.Test
 /** Run on the supervisor's device; these fixtures never connect to a Jetson. */
 class R7LandscapeLayoutTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun deviceSelectionFillMatchesCardWidthWithoutMovingRowContentInAllPalettes() {
+        var palette by mutableStateOf(GeoPalette.STANDARD)
+        var rowCount by mutableIntStateOf(1)
+        var highlighted by mutableStateOf<String?>(null)
+        val devices = (0..2).map { RegisteredDevice("device-$it", "GEO-X-${it + 1}") }
+        compose.setContent {
+            Viewport(1280f, 776f, rail = true) {
+                JetsonControllerTheme(palette = palette) {
+                    GeoPaneLayout(list = {
+                        DevicesHomeScreen(registeredDevices = devices.take(rowCount),
+                            selectedDeviceId = devices.first().deviceId, highlightedDeviceId = highlighted,
+                            currentDashboard = DashboardUiState(isOnline = true, statusFreshness = StatusFreshness.CURRENT),
+                            snapshots = emptyMap(), availableDeviceIds = emptySet(),
+                            connectingDeviceId = null, connectFailedDeviceId = null,
+                            runActive = false, attention = null, unreadAlertCount = 0, nowEpochMillis = 1L,
+                            developerModeEnabled = false, onSectionSelected = {}, onAlertsClick = {}, onAddDevice = {},
+                            onServerFiles = {}, onOpenDevice = {}, onReconnect = {}, onStartCollection = {}, onViewRun = {},
+                            onSelectDevice = {}, onAttentionClick = {}, onSameNetwork = {}, onDirectConnect = {},
+                            onQrRegister = {}, onSaveDiagnostics = {})
+                    }, detail = {})
+                }
+            }
+        }
+        GeoPalette.entries.forEach { choice ->
+            listOf(1, 3).forEach { count ->
+                (0 until count).forEach { index ->
+                    compose.runOnIdle { palette = choice; rowCount = count; highlighted = null }
+                    val device = devices[index]
+                    val rowTag = "device-list-row-${device.deviceId}"
+                    val title = compose.onNodeWithText(device.deviceName, useUnmergedTree = true)
+                    val chevron = compose.onNode(hasTestTag("geo-row-chevron") and
+                        hasAnyAncestor(hasTestTag(rowTag)), useUnmergedTree = true)
+                    val titleBefore = title.fetchSemanticsNode().boundsInRoot
+                    val chevronBefore = chevron.fetchSemanticsNode().boundsInRoot
+                    compose.runOnIdle { highlighted = device.deviceId }
+                    compose.onNode(hasText(device.deviceName) and hasClickAction()).assertIsSelected()
+                    assertEquals(titleBefore, title.fetchSemanticsNode().boundsInRoot)
+                    assertEquals(chevronBefore, chevron.fetchSemanticsNode().boundsInRoot)
+
+                    val card = compose.onNodeWithTag("device-list-card", useUnmergedTree = true)
+                        .fetchSemanticsNode().boundsInRoot
+                    val row = compose.onNodeWithTag(rowTag, useUnmergedTree = true)
+                    val bounds = row.fetchSemanticsNode().boundsInRoot
+                    assertEquals(card.left, bounds.left, .5f)
+                    assertEquals(card.right, bounds.right, .5f)
+                    // Sample the painted edges at mid-height, away from the rounded corners and content.
+                    val pixels = row.captureToImage().toPixelMap()
+                    val expected = choice.colors.primaryTint.toArgb()
+                    assertEquals("${choice.name} row=$index left fill", expected, pixels[1, pixels.height / 2].toArgb())
+                    assertEquals("${choice.name} row=$index right fill", expected,
+                        pixels[pixels.width - 2, pixels.height / 2].toArgb())
+                }
+            }
+        }
+    }
 
     @Test fun exhibitionHomeShowsCoreActionsOnceAndAlignsManualButton() {
         var opened: String? = null

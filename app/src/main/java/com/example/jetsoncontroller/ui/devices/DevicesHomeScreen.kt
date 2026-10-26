@@ -8,6 +8,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.devices.DeviceSnapshot
 import com.example.jetsoncontroller.data.devices.deviceSnapshotKey
@@ -126,7 +127,7 @@ internal fun DevicesHomeScreen(
                         }
                         }
                         if (tablet) GeoSection("장치 목록", first = listPane) {
-                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                            DeviceSurface(modifier = Modifier.testTag("device-list-card"), contentPadding = PaddingValues(0.dp)) {
                                 GeoRowList(GeoRowTrailing.Status) {
                                     registeredDevices.forEachIndexed { index, device ->
                                         val isCurrent = sameDeviceTarget(device.deviceId, selectedDeviceId)
@@ -137,15 +138,16 @@ internal fun DevicesHomeScreen(
                                             available = device.deviceId.lowercase() in availableDeviceIds,
                                             connectFailed = sameDeviceTarget(device.deviceId, connectFailedDeviceId),
                                             lastSeenText = seen, localDeviceWord = localDeviceWord())
-                                        Box(Modifier.fillMaxWidth().background(
-                                            if (sameDeviceTarget(device.deviceId, highlightedDeviceId)) LocalGeoColors.current.primaryTint
-                                            else androidx.compose.ui.graphics.Color.Transparent)) {
-                                            GeoRow(device.deviceName, { if (isCurrent) onOpenDevice() else onSelectDevice(device) },
-                                                leading = { DevicePhoto(40.dp) },
-                                                badge = { GeoBadge(rowConnection.label, rowConnection.tone) },
-                                                meta = seen?.let { "마지막 응답 $it" } ?: rowConnection.detail,
-                                                divider = index < registeredDevices.lastIndex)
-                                        }
+                                        GeoPaneListRow(device.deviceName, { if (isCurrent) onOpenDevice() else onSelectDevice(device) },
+                                            selected = sameDeviceTarget(device.deviceId, highlightedDeviceId),
+                                            index = index, rowCount = registeredDevices.size,
+                                            nextSelected = registeredDevices.getOrNull(index + 1)?.let {
+                                                sameDeviceTarget(it.deviceId, highlightedDeviceId)
+                                            } == true,
+                                            modifier = Modifier.testTag("device-list-row-${device.deviceId}"),
+                                            leading = { DevicePhoto(40.dp) },
+                                            badge = { GeoBadge(rowConnection.label, rowConnection.tone) },
+                                            meta = seen?.let { "마지막 응답 $it" } ?: rowConnection.detail)
                                     }
                                 }
                             }
