@@ -3,7 +3,9 @@ package com.example.jetsoncontroller.ui.navigation
 import com.example.jetsoncontroller.ui.model.localDeviceWord
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
+import androidx.compose.runtime.*
+import androidx.navigation.NavBackStackEntry
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
@@ -23,172 +25,17 @@ import com.example.jetsoncontroller.ui.network.NetworkSettingsScreen
 
 internal fun NavGraphBuilder.deviceGraph(state: State<AppNavigationState>, includeRoot: Boolean = false) {
     (listOf(Routes.DEVICE_BROWSE) + if (includeRoot) listOf(Routes.DEVICES) else emptyList()).forEach { rootRoute ->
-        composable(rootRoute) {
-            with(state.value) {
-                StatusPollingLifecycleEffect(dashboardViewModel)
-
-                DevicesHomeScreen(
-                    registeredDevices = deviceState.registeredDevices,
-                    loadingDevices = deviceState.isLoading,
-                    selectedDeviceId = selectedDeviceId,
-                    currentDashboard = deviceDashboardState,
-                    snapshots = deviceSnapshots,
-                    availableDeviceIds = lanEndpoints.map { it.deviceId.lowercase() }.toSet(),
-                    connectingDeviceId = connectingLanDeviceId,
-                    connectFailedDeviceId = selectedDeviceId.takeIf { lanConnectionError != null },
-                    runActive = deviceRunActive,
-                    attention = deviceAttention,
-                    unreadAlertCount = alertCenterState.unreadCount,
-                    nowEpochMillis = System.currentTimeMillis(),
-                    developerModeEnabled = developerModeEnabled,
-                    onSectionSelected = onSectionSelected,
-                    onAlertsClick = { navController.navigateSingle(Routes.ALERTS) },
-                    localNetworkPermissionGranted = localNetworkPermissionGranted,
-                    onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
-                    onAddDevice = { navController.navigateSingle(Routes.ONBOARDING) },
-                    // A first registration is QR-only; the other thing a phone can do without a device
-                    // is read the receiving server's files.
-                    onServerFiles = { navController.navigateSingle(Routes.SERVER_STORAGE) },
-                    onOpenDevice = { navController.navigateSingle(Routes.DEVICE_DETAIL) },
-                    onReconnect = { currentRegisteredDevice?.let(connectRegisteredDevice) },
-                    onStartCollection = openSurveyPreparation,
-                    onViewRun = { navController.navigateSingle(Routes.ACTIVE_RUN) { launchSingleTop = true } },
-                    onSelectDevice = { device ->
-                        connectRegisteredDevice(device)
-                        navController.navigateSingle(Routes.DEVICE_DETAIL)
-                        navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetId", device.deviceId)
-                        navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetName", device.deviceName)
-                    },
-                    onAttentionClick = { navController.navigateSingle(Routes.TRANSFER_BROWSE) },
-                    onSameNetwork = {
-                        repository.startLanDiscovery()
-                        currentRegisteredDevice?.let(connectRegisteredDevice)
-                    },
-                    onDirectConnect = {
-                        selectedDeviceId?.let { deviceId ->
-                            repository.prepareManualWifiDirect(deviceId)
-                            navController.navigateSingle(Routes.WIFI_DIRECT)
-                        }
-                    },
-                    onQrRegister = { navController.navigateSingle(Routes.ONBOARDING) },
-                    onSaveDiagnostics = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.DIAGNOSTICS.route) },
-                    discoveredDevices = lanEndpoints,
-                    healthItems = deviceRootHealthItems(this),
-                    onHealthItem = { item ->
-                        navController.navigateSingle(when (item.kind) {
-                            DashboardHealthIssue.FAILED_UPLOAD -> Routes.TRANSFER_BROWSE
-                            DashboardHealthIssue.FAILED_PIPELINE -> Routes.WORK_BROWSE
-                            else -> Routes.DEVICE_DETAIL
-                        })
-                    },
-                    ongoingStrip = deviceOngoingStrip(this, selectedDeviceId, selectedDeviceName),
-                    onBluetooth = currentRegisteredDevice?.let { device -> { deviceViewModel.reconnect(device) } },
-                    bluetoothPermissionGranted = bluetoothPermissionGranted,
-                    onRequestBluetoothPermission = onRequestBluetoothPermission,
-                    bluetoothBusy = sameDeviceTarget(selectedDeviceId, deviceState.reconnectingDeviceId),
-                    bluetoothError = deviceState.reconnectError.takeIf { sameDeviceTarget(selectedDeviceId, deviceState.reconnectErrorDeviceId) }
-                )
-            }
+        composable(rootRoute) { entry ->
+            StatusPollingLifecycleEffect(state.value.dashboardViewModel)
+            GeoPaneLayout(singlePane = GeoPaneSelection.LIST,
+                list = { DeviceRootRoute(state, entry) }, detail = { DeviceDetailRoute(state, entry) })
         }
     }
+
         composable(Routes.DEVICE_DETAIL) { entry ->
-            val targetId = rememberSaveable(entry.id) {
-                entry.savedStateHandle.get<String>("deviceTargetId") ?: state.value.repository.selectedDeviceId.value.orEmpty()
-            }
-            val targetName = rememberSaveable(entry.id) {
-                entry.savedStateHandle.get<String>("deviceTargetName") ?: state.value.selectedDeviceName
-            }
-            with(state.value) {
-                StatusPollingLifecycleEffect(dashboardViewModel)
-                val selected = sameDeviceTarget(targetId, selectedDeviceId)
-                val targetDevice = deviceState.registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, targetId) }
-                val snapshot = deviceSnapshots[deviceSnapshotKey(targetId)]
-                val name = targetDevice?.deviceName ?: snapshot?.deviceName ?: targetName
-                val dashboard = if (selected) deviceDashboardState else DashboardUiState(deviceName = name)
-                val seen = snapshot?.lastSeenAtEpochMillis?.let { formatSeenAt(it, System.currentTimeMillis()) }
-                val reconnect = {
-                    state.value.let { latest ->
-                        latest.deviceState.registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, targetId) }?.let {
-                            latest.repository.startLanDiscovery()
-                            latest.connectRegisteredDevice(it)
-                        }
-                    }
-                }
-                DeviceDetailScreen(
-                    deviceName = name,
-                    initialConnectionMethods = entry.savedStateHandle.get<Boolean>("connectionMethodsRequested") == true,
-                    dashboard = dashboard,
-                    snapshot = snapshot,
-                    connection = deviceConnectionUi(dashboard.isOnline && dashboard.statusFreshness != StatusFreshness.UNKNOWN, dashboard.transportType,
-                        checking = sameDeviceTarget(targetId, connectingLanDeviceId) ||
-                            (dashboard.isOnline && dashboard.statusFreshness == StatusFreshness.UNKNOWN), lastSeenText = seen,
-                        localDeviceWord = localDeviceWord()),
-                    lastSeenText = seen,
-                    freshness = dashboard.statusAgeSeconds?.let { Formats.freshness(Duration.ofSeconds(it.coerceAtLeast(0))) },
-                    runActive = selected && devicePowerBlockedByCollection(this),
-                    developerModeEnabled = developerModeEnabled,
-                    onBack = { if (!navController.popBackStack()) navigateToDeviceRoot(navController) },
-                    onDisconnect = {
-                        val latest = state.value
-                        if (deviceTargetConnected(latest, targetId)) {
-                            latest.dashboardViewModel.disconnect()
-                            latest.pendingDashboardTransport = null
-                        }
-                    },
-                    onStartCollection = openSurveyPreparation,
-                    onViewRun = { if (deviceTargetSelected(state.value, targetId)) navController.navigateSingle(Routes.ACTIVE_RUN) },
-                    onCamera = { if (deviceTargetConnected(state.value, targetId)) navController.navigateSingle(Routes.CAMERA_PREVIEW) },
-                    onGnss = {
-                        if (deviceTargetSelected(state.value, targetId)) {
-                            requestedMapHistoryEntryId = null
-                            requestedMapActiveRunId = null
-                            navController.navigateSingle(Routes.GNSS_MAP)
-                        }
-                    },
-                    onSameNetwork = { reconnect() },
-                    onDirectConnect = {
-                        if (deviceTargetSelected(state.value, targetId)) {
-                            repository.prepareManualWifiDirect(targetId)
-                            navController.navigateSingle(Routes.WIFI_DIRECT)
-                        }
-                    },
-                    onQrRegister = { navController.navigateSingle(Routes.ONBOARDING) },
-                    onSaveDiagnostics = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.DIAGNOSTICS.route) },
-                    onNetwork = {
-                        if (deviceTargetConnected(state.value, targetId)) {
-                            navController.navigateSingle(Routes.NETWORK_SETTINGS)
-                            navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetId", targetId)
-                            navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetName", name)
-                        }
-                    },
-                    onFiles = { if (deviceTargetConnected(state.value, targetId)) navController.navigateSingle(Routes.STORAGE) },
-                    onReboot = { state.value.let { if (devicePowerAllowed(it, targetId)) it.dashboardViewModel.reboot() } },
-                    onShutdown = { state.value.let { if (devicePowerAllowed(it, targetId)) it.dashboardViewModel.shutdown() } },
-                    onPipelines = { navController.navigateSingle(Routes.PIPELINES) },
-                    onFan = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.FAN.route) },
-                    onDiagnostics = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.DIAGNOSTICS.route) },
-                    deviceId = targetId,
-                    selectedDeviceId = selectedDeviceId,
-                    onForget = targetDevice?.let { {
-                        state.value.let { latest ->
-                            // Forget is phone-local and may target a pinned, offline device.
-                            latest.deviceState.registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, targetId) }?.let {
-                                latest.deviceViewModel.forget(it)
-                                if (!latest.navController.popBackStack()) navigateToDeviceRoot(latest.navController)
-                            }
-                        }
-                    } },
-                    onTrash = { if (deviceTargetConnected(state.value, targetId)) navController.navigateSingle(Routes.LOCAL_TRASH) },
-                    trashCount = localTrashState.entries.size.takeIf { localTrashState.hasLoaded && sameDeviceTarget(localTrashState.deviceId, targetId) },
-                    onBluetooth = targetDevice?.takeIf { selected }?.let { device -> { deviceViewModel.reconnect(device) } },
-                    bluetoothPermissionGranted = bluetoothPermissionGranted,
-                    onRequestBluetoothPermission = onRequestBluetoothPermission,
-                    ongoingStrip = deviceOngoingStrip(this, targetId, name),
-                    onRefresh = { if (deviceTargetConnected(state.value, targetId)) dashboardViewModel.requestStatus() },
-                    bluetoothBusy = sameDeviceTarget(targetId, deviceState.reconnectingDeviceId),
-                    bluetoothError = deviceState.reconnectError.takeIf { sameDeviceTarget(targetId, deviceState.reconnectErrorDeviceId) }
-                )
-            }
+            StatusPollingLifecycleEffect(state.value.dashboardViewModel)
+            GeoPaneLayout(singlePane = GeoPaneSelection.DETAIL,
+                list = { DeviceRootRoute(state, entry) }, detail = { DeviceDetailRoute(state, entry) })
         }
 
         composable(Routes.ALERTS) {
@@ -224,12 +71,12 @@ internal fun NavGraphBuilder.deviceGraph(state: State<AppNavigationState>, inclu
         }
 
         composable(Routes.NETWORK_SETTINGS) { entry ->
-            val targetId = rememberSaveable(entry.id) {
-                entry.savedStateHandle.get<String>("deviceTargetId") ?: state.value.repository.selectedDeviceId.value.orEmpty()
-            }
-            val targetName = rememberSaveable(entry.id) {
-                entry.savedStateHandle.get<String>("deviceTargetName") ?: state.value.selectedDeviceName
-            }
+            val requestedTarget by entry.savedStateHandle.getStateFlow<String?>("deviceTargetId", null).collectAsState()
+            val pinnedTarget = rememberSaveable(entry.id) { state.value.repository.selectedDeviceId.value.orEmpty() }
+            val targetId = requestedTarget ?: if (entry.destination.route in setOf(Routes.DEVICES, Routes.DEVICE_BROWSE))
+                state.value.selectedDeviceId.orEmpty() else pinnedTarget
+            val requestedName by entry.savedStateHandle.getStateFlow<String?>("deviceTargetName", null).collectAsState()
+            val targetName = requestedName ?: rememberSaveable(entry.id) { state.value.selectedDeviceName }
             with(state.value) {
                 val matches = sameDeviceTarget(targetId, selectedDeviceId) && sameDeviceTarget(targetId, networkSettingsState.deviceId)
                 LaunchedEffect(wifiScanPermissionGranted, targetId, matches) {
@@ -301,4 +148,174 @@ private fun deviceRootHealthItems(state: AppNavigationState): List<DeviceHealthI
 internal fun openConnectionMethods(navController: androidx.navigation.NavHostController) {
     navController.navigateSingle(Routes.DEVICE_DETAIL)
     navController.currentBackStackEntry?.savedStateHandle?.set("connectionMethodsRequested", true)
+}
+
+@Composable
+private fun DeviceRootRoute(state: State<AppNavigationState>, entry: NavBackStackEntry) {
+    val highlightedTarget by entry.savedStateHandle.getStateFlow<String?>("deviceTargetId", null).collectAsState()
+    with(state.value) {
+
+        DevicesHomeScreen(
+            registeredDevices = deviceState.registeredDevices,
+            loadingDevices = deviceState.isLoading,
+            highlightedDeviceId = highlightedTarget ?: selectedDeviceId,
+            selectedDeviceId = selectedDeviceId,
+            currentDashboard = deviceDashboardState,
+            snapshots = deviceSnapshots,
+            availableDeviceIds = lanEndpoints.map { it.deviceId.lowercase() }.toSet(),
+            connectingDeviceId = connectingLanDeviceId,
+            connectFailedDeviceId = selectedDeviceId.takeIf { lanConnectionError != null },
+            runActive = deviceRunActive,
+            attention = deviceAttention,
+            unreadAlertCount = alertCenterState.unreadCount,
+            nowEpochMillis = System.currentTimeMillis(),
+            developerModeEnabled = developerModeEnabled,
+            onSectionSelected = onSectionSelected,
+            onAlertsClick = { navController.navigateSingle(Routes.ALERTS) },
+            localNetworkPermissionGranted = localNetworkPermissionGranted,
+            onRequestLocalNetworkPermission = onRequestLocalNetworkPermission,
+            onAddDevice = { navController.navigateSingle(Routes.ONBOARDING) },
+            // A first registration is QR-only; the other thing a phone can do without a device
+            // is read the receiving server's files.
+            onServerFiles = { navController.navigateSingle(Routes.SERVER_STORAGE) },
+            onOpenDevice = { navController.navigateSingle(Routes.DEVICE_DETAIL) },
+            onReconnect = { currentRegisteredDevice?.let(connectRegisteredDevice) },
+            onStartCollection = openSurveyPreparation,
+            onViewRun = { navController.navigateSingle(Routes.ACTIVE_RUN) { launchSingleTop = true } },
+            onSelectDevice = { device ->
+                connectRegisteredDevice(device)
+                navController.navigateSingle(Routes.DEVICE_DETAIL)
+                navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetId", device.deviceId)
+                navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetName", device.deviceName)
+            },
+            onAttentionClick = { navController.navigateSingle(Routes.TRANSFER_BROWSE) },
+            onSameNetwork = {
+                repository.startLanDiscovery()
+                currentRegisteredDevice?.let(connectRegisteredDevice)
+            },
+            onDirectConnect = {
+                selectedDeviceId?.let { deviceId ->
+                    repository.prepareManualWifiDirect(deviceId)
+                    navController.navigateSingle(Routes.WIFI_DIRECT)
+                }
+            },
+            onQrRegister = { navController.navigateSingle(Routes.ONBOARDING) },
+            onSaveDiagnostics = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.DIAGNOSTICS.route) },
+            discoveredDevices = lanEndpoints,
+            healthItems = deviceRootHealthItems(this),
+            onHealthItem = { item ->
+                navController.navigateSingle(when (item.kind) {
+                    DashboardHealthIssue.FAILED_UPLOAD -> Routes.TRANSFER_BROWSE
+                    DashboardHealthIssue.FAILED_PIPELINE -> Routes.WORK_BROWSE
+                    else -> Routes.DEVICE_DETAIL
+                })
+            },
+            ongoingStrip = deviceOngoingStrip(this, selectedDeviceId, selectedDeviceName),
+            onBluetooth = currentRegisteredDevice?.let { device -> { deviceViewModel.reconnect(device) } },
+            bluetoothPermissionGranted = bluetoothPermissionGranted,
+            onRequestBluetoothPermission = onRequestBluetoothPermission,
+            bluetoothBusy = sameDeviceTarget(selectedDeviceId, deviceState.reconnectingDeviceId),
+            bluetoothError = deviceState.reconnectError.takeIf { sameDeviceTarget(selectedDeviceId, deviceState.reconnectErrorDeviceId) }
+        )
+    }
+}
+
+@Composable
+private fun DeviceDetailRoute(state: State<AppNavigationState>, entry: NavBackStackEntry) {
+    val requestedTarget by entry.savedStateHandle.getStateFlow<String?>("deviceTargetId", null).collectAsState()
+    val pinnedTarget = rememberSaveable(entry.id) { state.value.repository.selectedDeviceId.value.orEmpty() }
+    val targetId = requestedTarget ?: if (entry.destination.route in setOf(Routes.DEVICES, Routes.DEVICE_BROWSE))
+        state.value.selectedDeviceId.orEmpty() else pinnedTarget
+    val requestedName by entry.savedStateHandle.getStateFlow<String?>("deviceTargetName", null).collectAsState()
+    val targetName = requestedName ?: rememberSaveable(entry.id) { state.value.selectedDeviceName }
+    with(state.value) {
+        val selected = sameDeviceTarget(targetId, selectedDeviceId)
+        val targetDevice = deviceState.registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, targetId) }
+        val snapshot = deviceSnapshots[deviceSnapshotKey(targetId)]
+        val name = targetDevice?.deviceName ?: snapshot?.deviceName ?: targetName
+        val dashboard = if (selected) deviceDashboardState else DashboardUiState(deviceName = name)
+        val seen = snapshot?.lastSeenAtEpochMillis?.let { formatSeenAt(it, System.currentTimeMillis()) }
+        val reconnect = {
+            state.value.let { latest ->
+                latest.deviceState.registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, targetId) }?.let {
+                    latest.repository.startLanDiscovery()
+                    latest.connectRegisteredDevice(it)
+                }
+            }
+        }
+        DeviceDetailScreen(
+            deviceName = name,
+            initialConnectionMethods = entry.savedStateHandle.get<Boolean>("connectionMethodsRequested") == true,
+            dashboard = dashboard,
+            snapshot = snapshot,
+            connection = deviceConnectionUi(dashboard.isOnline && dashboard.statusFreshness != StatusFreshness.UNKNOWN, dashboard.transportType,
+                checking = sameDeviceTarget(targetId, connectingLanDeviceId) ||
+                    (dashboard.isOnline && dashboard.statusFreshness == StatusFreshness.UNKNOWN), lastSeenText = seen,
+                localDeviceWord = localDeviceWord()),
+            lastSeenText = seen,
+            freshness = dashboard.statusAgeSeconds?.let { Formats.freshness(Duration.ofSeconds(it.coerceAtLeast(0))) },
+            runActive = selected && devicePowerBlockedByCollection(this),
+            developerModeEnabled = developerModeEnabled,
+            onBack = { if (!navController.popBackStack()) navigateToDeviceRoot(navController) },
+            onDisconnect = {
+                val latest = state.value
+                if (deviceTargetConnected(latest, targetId)) {
+                    latest.dashboardViewModel.disconnect()
+                    latest.pendingDashboardTransport = null
+                }
+            },
+            onStartCollection = openSurveyPreparation,
+            onViewRun = { if (deviceTargetSelected(state.value, targetId)) navController.navigateSingle(Routes.ACTIVE_RUN) },
+            onCamera = { if (deviceTargetConnected(state.value, targetId)) navController.navigateSingle(Routes.CAMERA_PREVIEW) },
+            onGnss = {
+                if (deviceTargetSelected(state.value, targetId)) {
+                    requestedMapHistoryEntryId = null
+                    requestedMapActiveRunId = null
+                    navController.navigateSingle(Routes.GNSS_MAP)
+                }
+            },
+            onSameNetwork = { reconnect() },
+            onDirectConnect = {
+                if (deviceTargetSelected(state.value, targetId)) {
+                    repository.prepareManualWifiDirect(targetId)
+                    navController.navigateSingle(Routes.WIFI_DIRECT)
+                }
+            },
+            onQrRegister = { navController.navigateSingle(Routes.ONBOARDING) },
+            onSaveDiagnostics = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.DIAGNOSTICS.route) },
+            onNetwork = {
+                if (deviceTargetConnected(state.value, targetId)) {
+                    navController.navigateSingle(Routes.NETWORK_SETTINGS)
+                    navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetId", targetId)
+                    navController.currentBackStackEntry?.savedStateHandle?.set("deviceTargetName", name)
+                }
+            },
+            onFiles = { if (deviceTargetConnected(state.value, targetId)) navController.navigateSingle(Routes.STORAGE) },
+            onReboot = { state.value.let { if (devicePowerAllowed(it, targetId)) it.dashboardViewModel.reboot() } },
+            onShutdown = { state.value.let { if (devicePowerAllowed(it, targetId)) it.dashboardViewModel.shutdown() } },
+            onPipelines = { navController.navigateSingle(Routes.PIPELINES) },
+            onFan = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.FAN.route) },
+            onDiagnostics = { navController.navigateSingle(com.example.jetsoncontroller.ui.dev.DevDestination.DIAGNOSTICS.route) },
+            deviceId = targetId,
+            selectedDeviceId = selectedDeviceId,
+            onForget = targetDevice?.let { {
+                state.value.let { latest ->
+                    // Forget is phone-local and may target a pinned, offline device.
+                    latest.deviceState.registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, targetId) }?.let {
+                        latest.deviceViewModel.forget(it)
+                        if (!latest.navController.popBackStack()) navigateToDeviceRoot(latest.navController)
+                    }
+                }
+            } },
+            onTrash = { if (deviceTargetConnected(state.value, targetId)) navController.navigateSingle(Routes.LOCAL_TRASH) },
+            trashCount = localTrashState.entries.size.takeIf { localTrashState.hasLoaded && sameDeviceTarget(localTrashState.deviceId, targetId) },
+            onBluetooth = targetDevice?.takeIf { selected }?.let { device -> { deviceViewModel.reconnect(device) } },
+            bluetoothPermissionGranted = bluetoothPermissionGranted,
+            onRequestBluetoothPermission = onRequestBluetoothPermission,
+            ongoingStrip = deviceOngoingStrip(this, targetId, name),
+            onRefresh = { if (deviceTargetConnected(state.value, targetId)) dashboardViewModel.requestStatus() },
+            bluetoothBusy = sameDeviceTarget(targetId, deviceState.reconnectingDeviceId),
+            bluetoothError = deviceState.reconnectError.takeIf { sameDeviceTarget(targetId, deviceState.reconnectErrorDeviceId) }
+        )
+    }
 }

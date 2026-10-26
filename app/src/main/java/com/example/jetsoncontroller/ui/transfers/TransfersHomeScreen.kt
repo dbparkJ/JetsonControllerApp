@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -51,9 +52,12 @@ internal fun TransfersHomeScreen(
     connectionTone: Tone = Tone.UNKNOWN
 ) {
     val c = LocalGeoColors.current
+    val tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f
     val t = LocalGeoType.current
-    val scroll = rememberLazyListState()
-    var cancel by remember { mutableStateOf<ActiveTransferState?>(null) }
+    val scroll = com.example.jetsoncontroller.ui.components.geo.shell.rememberGeoPaneListState("transfers")
+    var cancel by rememberSaveable(deviceId, stateSaver = geoSnapshotSaver(ActiveTransferState::class.java)) {
+        mutableStateOf<ActiveTransferState?>(null)
+    }
     // The first transfer group starts without a section divider.
     val firstSection = when {
         state.active.isNotEmpty() -> "보내는 중"
@@ -88,7 +92,7 @@ internal fun TransfersHomeScreen(
         }) { inlineAction ->
             LazyColumn(state = scroll, modifier = Modifier.fillMaxSize().semantics {
                 customActions = listOf(CustomAccessibilityAction("다시 확인") { onRefresh(); true })
-            }, contentPadding = PaddingValues(start = transferGutter, end = transferGutter, top = 16.dp, bottom = 40.dp)) {
+            }, contentPadding = PaddingValues(start = transferGutter, end = transferGutter, top = if (tablet) 24.dp else 16.dp, bottom = if (tablet) 32.dp else 40.dp)) {
                 item { ongoingRun() }
                 if (state.active.isNotEmpty()) item {
                     state.active.forEachIndexed { index, active ->

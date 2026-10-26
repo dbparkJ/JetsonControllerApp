@@ -64,8 +64,12 @@ internal fun DevicesHomeScreen(
     bluetoothError: String? = null,
     localNetworkPermissionGranted: Boolean = true,
     onRequestLocalNetworkPermission: () -> Unit = {},
-    loadingDevices: Boolean = false
+    loadingDevices: Boolean = false,
+    highlightedDeviceId: String? = selectedDeviceId
 ) {
+    val scroll = com.example.jetsoncontroller.ui.components.geo.shell.rememberGeoPaneListState("devices")
+    val tablet = LocalGeoWindow.current.widthDp >= 600f
+    val listPane = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane.current
     val current = registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, selectedDeviceId) }
     val online = current != null && currentDashboard.isOnline
     val fresh = online && currentDashboard.statusFreshness == StatusFreshness.CURRENT
@@ -92,10 +96,10 @@ internal fun DevicesHomeScreen(
             DeviceAlertButton(unreadAlertCount, onAlertsClick)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
+        LazyColumn(state = scroll, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = if (tablet) 32.dp else 40.dp)) {
             item { GeoStatusStrip(listOfNotNull(ongoingStrip)) }
             item {
-                Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = 16.dp)) {
+                Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = if (tablet) 24.dp else 16.dp)) {
                     if (!localNetworkPermissionGranted) com.example.jetsoncontroller.ui.pairing.LocalNetworkPermissionBlock(
                         current?.deviceName ?: "GEO-X", onRequestLocalNetworkPermission)
                     if (loadingDevices) {
@@ -106,6 +110,7 @@ internal fun DevicesHomeScreen(
                             onAction = onAddDevice)
                         GeoButton("장치 없이 서버 파일 보기", onServerFiles, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                     } else {
+                        if (!listPane) {
                         GeoDevicePhotoCard(current.deviceName, connection.label, connection.tone,
                             meta = if (online) listOfNotNull(deviceTransportLabel(currentDashboard.transportType),
                                 currentDashboard.statusAgeSeconds?.let { Formats.freshness(Duration.ofSeconds(it.coerceAtLeast(0))) }).joinToString(" · ")
@@ -117,6 +122,32 @@ internal fun DevicesHomeScreen(
                             GeoButtonActions(listOf(
                                 GeoButtonAction("다시 연결", onReconnect, GeoButtonStyle.Secondary),
                                 GeoButtonAction("연결 방법", { sheet = true }, GeoButtonStyle.Tertiary)))
+                        }
+                        }
+                        if (tablet) GeoSection("장치 목록", first = listPane) {
+                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                                GeoRowList(GeoRowTrailing.Status) {
+                                    registeredDevices.forEachIndexed { index, device ->
+                                        val isCurrent = sameDeviceTarget(device.deviceId, selectedDeviceId)
+                                        val seen = snapshots[deviceSnapshotKey(device.deviceId)]?.lastSeenAtEpochMillis
+                                            ?.let { formatSeenAt(it, nowEpochMillis) }
+                                        val rowConnection = if (isCurrent) connection else deviceConnectionUi(false, null,
+                                            checking = sameDeviceTarget(device.deviceId, connectingDeviceId),
+                                            available = device.deviceId.lowercase() in availableDeviceIds,
+                                            connectFailed = sameDeviceTarget(device.deviceId, connectFailedDeviceId),
+                                            lastSeenText = seen, localDeviceWord = localDeviceWord())
+                                        Box(Modifier.fillMaxWidth().background(
+                                            if (sameDeviceTarget(device.deviceId, highlightedDeviceId)) LocalGeoColors.current.primaryTint
+                                            else androidx.compose.ui.graphics.Color.Transparent)) {
+                                            GeoRow(device.deviceName, { if (isCurrent) onOpenDevice() else onSelectDevice(device) },
+                                                leading = { DevicePhoto(40.dp) },
+                                                badge = { GeoBadge(rowConnection.label, rowConnection.tone) },
+                                                meta = seen?.let { "마지막 응답 $it" } ?: rowConnection.detail,
+                                                divider = index < registeredDevices.lastIndex)
+                                        }
+                                    }
+                                }
+                            }
                         }
                         val attentionCount = visibleHealth.size + if (fallbackAttention == null) 0 else 1
                         GeoSection("확인할 일 · ${Formats.caseCount(attentionCount.toLong())}") {
@@ -135,7 +166,7 @@ internal fun DevicesHomeScreen(
                                 style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
                         }
                         val others = registeredDevices.filterNot { sameDeviceTarget(it.deviceId, current.deviceId) }
-                        if (others.isNotEmpty()) GeoSection("다른 장치") {
+                        if (!tablet && others.isNotEmpty()) GeoSection("다른 장치") {
                             DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                                 GeoRowList(GeoRowTrailing.Status) {
                                     others.forEachIndexed { index, device ->

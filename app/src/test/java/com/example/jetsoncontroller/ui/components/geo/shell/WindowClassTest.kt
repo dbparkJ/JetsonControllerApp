@@ -28,13 +28,13 @@ class WindowClassTest {
     @Test
     fun `two panes require expanded width measured minimums height and font scale`() {
         assertFalse(geoWindow(839f, 900f, 1f).twoPane)
-        assertFalse(geoWindow(848f, 900f, 1f).twoPane)
-        assertTrue(geoWindow(849f, 900f, 1f).twoPane)
+        assertFalse(geoWindow(871f, 900f, 1f).twoPane)
+        assertTrue(geoWindow(872f, 900f, 1f).twoPane)
         assertFalse(geoWindow(1200f, 479f, 1f).twoPane)
         assertTrue(geoWindow(1200f, 480f, 1f).twoPane)
         assertFalse(geoWindow(1200f, 900f, 1.5f).twoPane)
-        assertFalse(geoWindow(1064f, 900f, 1.3f).twoPane)
-        assertTrue(geoWindow(1065f, 900f, 1.3f).twoPane)
-        assertFalse(geoWindow(849f, 900f, 1.1f).twoPane)
+        assertFalse(geoWindow(1087f, 900f, 1.3f).twoPane)
+        assertTrue(geoWindow(1088f, 900f, 1.3f).twoPane)
+        assertFalse(geoWindow(872f, 900f, 1.1f).twoPane)
     }
 }

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -67,10 +69,22 @@ fun UploadProgressScreen(
     val t = LocalGeoType.current
     val actions = job?.let { transferDetailActions(it, verification, linkedToTicket, reported) }
     val fixedTarget = job?.let { transferActionTarget(deviceId, it) }
-    var confirmation by remember(deviceId, job?.id) { mutableStateOf<Pair<TransferActionTarget, TransferMutation>?>(null) }
-    var reportTarget by remember(deviceId, job?.id) { mutableStateOf<TransferActionTarget?>(null) }
-    var reportKey by remember(deviceId, job?.id) { mutableStateOf<String?>(null) }
-    var menu by remember(deviceId, job?.id) { mutableStateOf(false) }
+    val confirmationSaver = remember {
+        listSaver<Pair<TransferActionTarget, TransferMutation>?, String>(
+            save = { it?.let { (target, mutation) -> listOf(com.google.gson.Gson().toJson(target), mutation.name) } ?: emptyList() },
+            restore = { saved -> if (saved.size != 2) null else runCatching {
+                com.google.gson.Gson().fromJson(saved[0], TransferActionTarget::class.java) to TransferMutation.valueOf(saved[1])
+            }.getOrNull() }
+        )
+    }
+    var confirmation by rememberSaveable(deviceId, job?.id, stateSaver = confirmationSaver) {
+        mutableStateOf<Pair<TransferActionTarget, TransferMutation>?>(null)
+    }
+    var reportTarget by rememberSaveable(deviceId, job?.id, stateSaver = geoSnapshotSaver(TransferActionTarget::class.java)) {
+        mutableStateOf<TransferActionTarget?>(null)
+    }
+    var reportKey by rememberSaveable(deviceId, job?.id) { mutableStateOf<String?>(null) }
+    var menu by rememberSaveable(deviceId, job?.id) { mutableStateOf(false) }
     LaunchedEffect(currentDeviceId) {
         if (!deviceId.equals(currentDeviceId, true) && (confirmation != null || reportTarget != null)) {
             confirmation = null
@@ -188,7 +202,9 @@ fun UploadProgressScreen(
                             busyLabel = "확인 중", actionArea = true)
                     }
                 }) { inlineAction ->
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = transferGutter, end = transferGutter,
+                        top = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 24.dp else 16.dp,
+                        bottom = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 32.dp else 16.dp)) {
                         item { ongoingRun() }
                         item {
                             TransferHeading(transferSourceName(job), "$deviceName → ${targetLabel ?: "받는 서버"}",

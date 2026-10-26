@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.transfers.*
 import com.example.jetsoncontroller.model.UploadJob
 import com.example.jetsoncontroller.model.PipelineRun
@@ -196,127 +197,20 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
         }
 
 
-        composable(Routes.UPLOAD_PROGRESS) { entry -> TransferDetailDestination(state, entry) }
+        composable(Routes.UPLOAD_PROGRESS) { entry ->
+            GeoPaneLayout(singlePane = GeoPaneSelection.DETAIL,
+                list = { TransferRootRoute(state) }, detail = { TransferDetailDestination(state, entry) })
+        }
 
     (listOf(Routes.TRANSFER_BROWSE) + if (includeRoot) listOf(Routes.TRANSFERS) else emptyList()).forEach { rootRoute ->
-        composable(rootRoute) {
-            with(state.value) {
-                LaunchedEffect(selectedDeviceId, fullControlConnected) {
-                    if (fullControlConnected) uploadViewModel.loadQueue()
-                }
-                val transfersLifecycleOwner = LocalLifecycleOwner.current
-                val selectedServerCredentialRevision = directServerState.profiles.firstOrNull {
-                    it.profile.profileId == directServerState.selectedProfileId
-                }?.credentialRevision
-                LaunchedEffect(
-                    selectedDeviceId,
-                    directServerState.selectedProfileId,
-                    selectedServerCredentialRevision,
-                    transfersLifecycleOwner
-                ) {
-                    val deviceId = selectedDeviceId?.takeIf(String::isNotBlank)
-                    val profileId = directServerState.selectedProfileId?.takeIf(String::isNotBlank)
-                    if (deviceId != null && profileId != null) {
-                        transfersLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                            while (true) {
-                                directServerViewModel.refreshDeviceEventStatus(profileId, deviceId)
-                                delay(60_000L)
-                            }
-                        }
-                    }
-                }
-                val deviceEventStatus = directServerState.deviceEventStatuses.firstOrNull { snapshot ->
-                    snapshot.profileId == directServerState.selectedProfileId &&
-                        snapshot.deviceId.equals(selectedDeviceId, ignoreCase = true) &&
-                        directServerState.profiles.firstOrNull {
-                            it.profile.profileId == snapshot.profileId
-                        }?.credentialRevision == snapshot.credentialRevision
-                }?.status
-                val transfersState = com.example.jetsoncontroller.ui.transfers.buildTransfersHomeUiState(
-                    com.example.jetsoncontroller.ui.transfers.TransfersHomeInput(
-                        deviceName = selectedRegisteredDeviceName,
-                        transport = (transportState as? TransportState.Connected)
-                            ?.takeIf { it.deviceId.equals(selectedDeviceId, ignoreCase = true) }
-                            ?.type,
-                        upload = uploadState,
-                        runs = fieldState.runs,
-                        developerModeEnabled = developerModeEnabled,
-                        deviceEventStatus = deviceEventStatus
-                    )
-                )
-                var devicePicker by remember(selectedDeviceId) { mutableStateOf(false) }
-                if (devicePicker) GeoSheet("장치 선택", { devicePicker = false }) {
-                    deviceState.registeredDevices.forEach { device ->
-                        val current = device.deviceId.equals(selectedDeviceId, true)
-                        val snapshot = deviceSnapshots[device.deviceId.lowercase()]
-                        WorkDeviceChoiceRow(device.deviceName, current, {
-                            devicePicker = false
-                            if (!current) connectRegisteredDevice(device)
-                        }, word = if (current) {
-                            if (deviceDashboardState.isOnline && deviceDashboardState.transportType ==
-                                com.example.jetsoncontroller.data.transport.TransportType.BLE) "기본 연결" else selectedConnection.label
-                        } else "오프라인",
-                            tone = if (current) selectedConnection.tone else Tone.UNKNOWN,
-                            detail = if (current) null else snapshot?.lastSeenAtEpochMillis?.let {
-                                "마지막 응답 ${com.example.jetsoncontroller.ui.devices.formatSeenAt(it, System.currentTimeMillis())}"
-                            } ?: "마지막 응답 미확인")
-                    }
-                    GeoButton("장치 관리", { devicePicker = false; navigateToDeviceRoot(navController) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
-                }
-                val attention = uploadState.otherDeviceQueues.mapNotNull { (deviceId, jobs) ->
-                    val count = jobs.count { transferDetailActions(it).word in setOf("실패", "내용 불일치") }
-                    val device = deviceState.registeredDevices.firstOrNull { it.deviceId.equals(deviceId, true) }
-                    if (count == 0 || device == null) null else TransferDeviceAttention(deviceId, device.deviceName, count)
-                }
-                Box(Modifier.fillMaxSize()) {
-                TransfersHomeScreen(
-                    state = transfersState,
-                    deviceId = selectedDeviceId,
-                    deviceName = selectedDeviceName,
-                    readiness = when {
-                        fullControlConnected && !uploadState.controlAvailable -> "$selectedDeviceName · 확인 중"
-                        serverUploadEnabled && uploadState.controlAvailable && dashboardState.capabilities.uploads ->
-                            "$selectedDeviceName · 같은 네트워크 · 지금 보낼 수 있습니다."
-                        serverUploadEnabled && !dashboardState.capabilities.uploads -> "$selectedDeviceName · 장치 전송 지원 여부를 확인하세요."
-                        else -> "$selectedDeviceName · $serverUploadDisabledReason"
-                    },
-                    attention = attention,
-                    sendEnabled = serverUploadEnabled && uploadState.controlAvailable && dashboardState.capabilities.uploads,
-                    controlAvailable = fullControlConnected && uploadState.controlAvailable,
-                    onFixedCancel = { uploadViewModel.mutateTransfer(it, TransferMutation.CANCEL) },
-                    onDeviceConfirmationClosed = uploadViewModel::confirmationClosedForDeviceChange,
-                    onSelectDevice = { id -> deviceState.registeredDevices.firstOrNull { it.deviceId.equals(id, true) }
-                        ?.let(connectRegisteredDevice) },
-                    onDevicePicker = { devicePicker = true },
-                    connectionTone = workRootDeviceTone(),
-                    onAlerts = { navController.navigateSingle(Routes.ALERTS) },
-                    onRefresh = { uploadViewModel.refresh(); fieldToolsViewModel.refresh(retainLoaded = true) },
-                    refreshVisible = uploadState.error != null,
-                    onConnectionRemedy = { navController.navigateSingle(Routes.NETWORK_SETTINGS) },
-                    ongoingRun = { TransferOngoingRun(state.value) },
-                    onPickFiles = { navController.navigateSingle(requireNotNull(transferSendDestination(TransferSendEvent.PICK_FILES))) },
-                    onOpenServerFiles = { navController.navigateSingle(Routes.SERVER_STORAGE) { launchSingleTop = true } },
-                    onOpenTransfer = { jobId -> uploadJobById(jobId)?.let { job ->
-                        openTransferDetail(selectedDeviceId.orEmpty(), job)
-                    } },
-                    onCancelTransfer = { jobId -> uploadJobById(jobId)?.let { job ->
-                        selectedDeviceId?.let { uploadViewModel.mutateTransfer(transferActionTarget(it, job), TransferMutation.CANCEL) }
-                    } },
-                    onRetryTransfer = { jobId -> uploadJobById(jobId)?.let(uploadViewModel::retryJob) },
-                    onOpenRun = { runId -> fieldState.runs.firstOrNull {
-                        com.example.jetsoncontroller.ui.field.canonicalHistoryRunId(it) == runId && it.deviceId.equals(selectedDeviceId, true)
-                    }?.let { navController.navigateSingle(runResultRoute(runId, selectedDeviceId.orEmpty(), it.pipelineId, it.id)) } },
-                    onSendRun = { runId ->
-                        fieldState.runs.firstOrNull { com.example.jetsoncontroller.ui.field.canonicalHistoryRunId(it) == runId }
-                            ?.takeIf { it.deviceId.equals(selectedDeviceId, true) }?.let(::storedRunSendRoute)?.let { navController.navigateSingle(it) }
-                    },
-                    onOpenHistory = { navController.navigateSingle(requireNotNull(transferSendDestination(TransferSendEvent.OPEN_LOG))) }
-                )
-                Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) {
-                    com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost(uploadState.message, uploadViewModel::dismissMessage)
-                }
-                }
-            }
+        composable(rootRoute) { entry ->
+            GeoPaneLayout(singlePane = GeoPaneSelection.LIST,
+                list = { TransferRootRoute(state) }, detail = {
+                    val current = state.value
+                    val job = current.uploadState.queue.firstOrNull { it.verification?.matched == true }
+                        ?: current.uploadState.currentJob ?: current.uploadState.queue.firstOrNull()
+                    key(current.selectedDeviceId, job?.id) { TransferDetailDestination(state, entry, job) }
+                })
         }
     }
 
@@ -412,19 +306,28 @@ internal fun NavGraphBuilder.transferGraph(state: State<AppNavigationState>, inc
 }
 
 @Composable
-private fun TransferDetailDestination(state: State<AppNavigationState>, entry: NavBackStackEntry) {
+private fun TransferDetailDestination(state: State<AppNavigationState>, entry: NavBackStackEntry, initialJob: UploadJob? = null) {
     with(state.value) {
         val previous = navController.previousBackStackEntry?.savedStateHandle
-        val targetDevice = rememberSaveable { previous?.get<String>("pushedTransferDevice") ?: selectedDeviceId.orEmpty() }
-        val targetName = rememberSaveable { previous?.get<String>("pushedTransferName") ?: selectedDeviceName }
-        val targetJobId = rememberSaveable { mutableStateOf(previous?.get<String>("pushedTransferId") ?: uploadState.currentJob?.id) }.value
+        val requestedDevice by entry.savedStateHandle.getStateFlow<String?>("detailDevice", null).collectAsState()
+        val requestedName by entry.savedStateHandle.getStateFlow<String?>("detailName", null).collectAsState()
+        val requestedId by entry.savedStateHandle.getStateFlow<String?>("detailId", null).collectAsState()
+        val fallbackDevice = rememberSaveable { if (initialJob != null) selectedDeviceId.orEmpty()
+            else previous?.get<String>("pushedTransferDevice") ?: selectedDeviceId.orEmpty() }
+        val fallbackName = rememberSaveable { if (initialJob != null) selectedDeviceName
+            else previous?.get<String>("pushedTransferName") ?: selectedDeviceName }
+        val fallbackId = rememberSaveable { mutableStateOf(initialJob?.id ?: previous?.get<String>("pushedTransferId") ?: uploadState.currentJob?.id) }.value
+        val targetDevice = requestedDevice ?: fallbackDevice
+        val targetName = requestedName ?: fallbackName
+        val targetJobId = requestedId ?: fallbackId
         val gson = remember { Gson() }
-        var cachedJob by remember {
-            mutableStateOf((entry.savedStateHandle.get<String>("detailJob") ?: previous?.get<String>("pushedTransferJob"))
-                ?.let { runCatching { gson.fromJson(it, UploadJob::class.java) }.getOrNull() }
+        var cachedJob by remember(targetDevice, targetJobId) {
+            mutableStateOf((entry.savedStateHandle.get<String>("detailSeed") ?: entry.savedStateHandle.get<String>("detailJob") ?: previous?.get<String>("pushedTransferJob"))
+                ?.let { runCatching { gson.fromJson(it, UploadJob::class.java) }.getOrNull() }?.takeIf { it.id == targetJobId }
+                ?: initialJob?.takeIf { it.id == targetJobId }
                 ?: uploadState.currentJob?.takeIf { it.id == targetJobId })
         }
-        var cachedRun by remember { mutableStateOf(entry.savedStateHandle.get<String>("detailRun")
+        var cachedRun by remember(targetDevice, targetJobId) { mutableStateOf(entry.savedStateHandle.get<String>("detailRun")
             ?.let { runCatching { gson.fromJson(it, PipelineRun::class.java) }.getOrNull() }) }
         LaunchedEffect(targetDevice, targetJobId) {
             if (targetDevice.equals(selectedDeviceId, true)) cachedJob?.let(uploadViewModel::openJob)
@@ -442,7 +345,7 @@ private fun TransferDetailDestination(state: State<AppNavigationState>, entry: N
             if (observed != null) { cachedJob = observed; entry.savedStateHandle["detailJob"] = gson.toJson(observed) }
             if (run != null) { cachedRun = run; entry.savedStateHandle["detailRun"] = gson.toJson(run) }
         }
-        var receivingLabel by rememberSaveable { mutableStateOf(uploadState.targets.firstOrNull { it.id == job?.targetId }?.let(::transferTargetLabel)) }
+        var receivingLabel by rememberSaveable(targetDevice, targetJobId) { mutableStateOf(uploadState.targets.firstOrNull { it.id == job?.targetId }?.let(::transferTargetLabel)) }
         if (sameDevice) SideEffect { uploadState.targets.firstOrNull { it.id == job?.targetId }?.let(::transferTargetLabel)?.let { receivingLabel = it } }
         val reportRunId = job?.context?.takeIf { it.deviceId.equals(targetDevice, true) }?.runId
         val link = reportRunId?.let { serverTicketViewModel.linkForRun(it, targetDevice) }
@@ -526,4 +429,134 @@ internal fun AppNavigationState.openTransferDetail(deviceId: String, job: Upload
     }
     if (deviceId.equals(selectedDeviceId, true)) uploadViewModel.openJob(job)
     navController.navigateSingle(requireNotNull(transferSendDestination(TransferSendEvent.START_ACCEPTED)))
+    navController.currentBackStackEntry?.savedStateHandle?.let {
+        it["detailDevice"] = deviceId
+        it["detailName"] = deviceState.registeredDevices.firstOrNull { device -> device.deviceId.equals(deviceId, true) }
+            ?.deviceName ?: selectedDeviceName
+        it["detailSeed"] = Gson().toJson(job)
+        it["detailId"] = job.id
+    }
+}
+
+@Composable
+private fun TransferRootRoute(state: State<AppNavigationState>) {
+
+    with(state.value) {
+        LaunchedEffect(selectedDeviceId, fullControlConnected) {
+            if (fullControlConnected) uploadViewModel.loadQueue()
+        }
+        val transfersLifecycleOwner = LocalLifecycleOwner.current
+        val selectedServerCredentialRevision = directServerState.profiles.firstOrNull {
+            it.profile.profileId == directServerState.selectedProfileId
+        }?.credentialRevision
+        LaunchedEffect(
+            selectedDeviceId,
+            directServerState.selectedProfileId,
+            selectedServerCredentialRevision,
+            transfersLifecycleOwner
+        ) {
+            val deviceId = selectedDeviceId?.takeIf(String::isNotBlank)
+            val profileId = directServerState.selectedProfileId?.takeIf(String::isNotBlank)
+            if (deviceId != null && profileId != null) {
+                transfersLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    while (true) {
+                        directServerViewModel.refreshDeviceEventStatus(profileId, deviceId)
+                        delay(60_000L)
+                    }
+                }
+            }
+        }
+        val deviceEventStatus = directServerState.deviceEventStatuses.firstOrNull { snapshot ->
+            snapshot.profileId == directServerState.selectedProfileId &&
+                snapshot.deviceId.equals(selectedDeviceId, ignoreCase = true) &&
+                directServerState.profiles.firstOrNull {
+                    it.profile.profileId == snapshot.profileId
+                }?.credentialRevision == snapshot.credentialRevision
+        }?.status
+        val transfersState = com.example.jetsoncontroller.ui.transfers.buildTransfersHomeUiState(
+            com.example.jetsoncontroller.ui.transfers.TransfersHomeInput(
+                deviceName = selectedRegisteredDeviceName,
+                transport = (transportState as? TransportState.Connected)
+                    ?.takeIf { it.deviceId.equals(selectedDeviceId, ignoreCase = true) }
+                    ?.type,
+                upload = uploadState,
+                runs = fieldState.runs,
+                developerModeEnabled = developerModeEnabled,
+                deviceEventStatus = deviceEventStatus
+            )
+        )
+        var devicePicker by rememberSaveable(selectedDeviceId) { mutableStateOf(false) }
+        if (devicePicker) GeoSheet("장치 선택", { devicePicker = false }) {
+            deviceState.registeredDevices.forEach { device ->
+                val current = device.deviceId.equals(selectedDeviceId, true)
+                val snapshot = deviceSnapshots[device.deviceId.lowercase()]
+                WorkDeviceChoiceRow(device.deviceName, current, {
+                    devicePicker = false
+                    if (!current) connectRegisteredDevice(device)
+                }, word = if (current) {
+                    if (deviceDashboardState.isOnline && deviceDashboardState.transportType ==
+                        com.example.jetsoncontroller.data.transport.TransportType.BLE) "기본 연결" else selectedConnection.label
+                } else "오프라인",
+                    tone = if (current) selectedConnection.tone else Tone.UNKNOWN,
+                    detail = if (current) null else snapshot?.lastSeenAtEpochMillis?.let {
+                        "마지막 응답 ${com.example.jetsoncontroller.ui.devices.formatSeenAt(it, System.currentTimeMillis())}"
+                    } ?: "마지막 응답 미확인")
+            }
+            GeoButton("장치 관리", { devicePicker = false; navigateToDeviceRoot(navController) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+        }
+        val attention = uploadState.otherDeviceQueues.mapNotNull { (deviceId, jobs) ->
+            val count = jobs.count { transferDetailActions(it).word in setOf("실패", "내용 불일치") }
+            val device = deviceState.registeredDevices.firstOrNull { it.deviceId.equals(deviceId, true) }
+            if (count == 0 || device == null) null else TransferDeviceAttention(deviceId, device.deviceName, count)
+        }
+        Box(Modifier.fillMaxSize()) {
+        TransfersHomeScreen(
+            state = transfersState,
+            deviceId = selectedDeviceId,
+            deviceName = selectedDeviceName,
+            readiness = when {
+                fullControlConnected && !uploadState.controlAvailable -> "$selectedDeviceName · 확인 중"
+                serverUploadEnabled && uploadState.controlAvailable && dashboardState.capabilities.uploads ->
+                    "$selectedDeviceName · 같은 네트워크 · 지금 보낼 수 있습니다."
+                serverUploadEnabled && !dashboardState.capabilities.uploads -> "$selectedDeviceName · 장치 전송 지원 여부를 확인하세요."
+                else -> "$selectedDeviceName · $serverUploadDisabledReason"
+            },
+            attention = attention,
+            sendEnabled = serverUploadEnabled && uploadState.controlAvailable && dashboardState.capabilities.uploads,
+            controlAvailable = fullControlConnected && uploadState.controlAvailable,
+            onFixedCancel = { uploadViewModel.mutateTransfer(it, TransferMutation.CANCEL) },
+            onDeviceConfirmationClosed = uploadViewModel::confirmationClosedForDeviceChange,
+            onSelectDevice = { id -> deviceState.registeredDevices.firstOrNull { it.deviceId.equals(id, true) }
+                ?.let(connectRegisteredDevice) },
+            onDevicePicker = { devicePicker = true },
+            connectionTone = workRootDeviceTone(),
+            onAlerts = { navController.navigateSingle(Routes.ALERTS) },
+            onRefresh = { uploadViewModel.refresh(); fieldToolsViewModel.refresh(retainLoaded = true) },
+            refreshVisible = uploadState.error != null,
+            onConnectionRemedy = { navController.navigateSingle(Routes.NETWORK_SETTINGS) },
+            ongoingRun = { TransferOngoingRun(state.value) },
+            onPickFiles = { navController.navigateSingle(requireNotNull(transferSendDestination(TransferSendEvent.PICK_FILES))) },
+            onOpenServerFiles = { navController.navigateSingle(Routes.SERVER_STORAGE) { launchSingleTop = true } },
+            onOpenTransfer = { jobId -> uploadJobById(jobId)?.let { job ->
+                openTransferDetail(selectedDeviceId.orEmpty(), job)
+            } },
+            onCancelTransfer = { jobId -> uploadJobById(jobId)?.let { job ->
+                selectedDeviceId?.let { uploadViewModel.mutateTransfer(transferActionTarget(it, job), TransferMutation.CANCEL) }
+            } },
+            onRetryTransfer = { jobId -> uploadJobById(jobId)?.let(uploadViewModel::retryJob) },
+            onOpenRun = { runId -> fieldState.runs.firstOrNull {
+                com.example.jetsoncontroller.ui.field.canonicalHistoryRunId(it) == runId && it.deviceId.equals(selectedDeviceId, true)
+            }?.let { navController.navigateSingle(runResultRoute(runId, selectedDeviceId.orEmpty(), it.pipelineId, it.id)) } },
+            onSendRun = { runId ->
+                fieldState.runs.firstOrNull { com.example.jetsoncontroller.ui.field.canonicalHistoryRunId(it) == runId }
+                    ?.takeIf { it.deviceId.equals(selectedDeviceId, true) }?.let(::storedRunSendRoute)?.let { navController.navigateSingle(it) }
+            },
+            onOpenHistory = { navController.navigateSingle(requireNotNull(transferSendDestination(TransferSendEvent.OPEN_LOG))) }
+        )
+        Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) {
+            com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost(uploadState.message, uploadViewModel::dismissMessage)
+        }
+        }
+    }
+        
 }

@@ -45,6 +45,7 @@ import kotlinx.coroutines.withContext
 /** The monitor's host can provide its snapshot without a dependency on the parallel 6-C package. */
 val LocalGeoMapZoneOutput = staticCompositionLocalOf<GeoMapZoneOutput> { GeoMapZoneSnapshot() }
 val LocalGeoMapData = staticCompositionLocalOf { GeoMapData() }
+internal val LocalGeoMapCardHeight = staticCompositionLocalOf<Float?> { null }
 
 internal object GeoMapSessions {
     var fullMaps by mutableIntStateOf(0)
@@ -83,7 +84,7 @@ fun GeoMapCard(
     Column(modifier.fillMaxWidth().clickable(onClickLabel = "지도 크게 보기", onClick = onOpen)
         .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick("지도 크게 보기") { onOpen(); true } }) {
         val shape = GeoShape.card
-        Box(Modifier.fillMaxWidth().height(mapCardHeight(mode, compactHeight).dp).geoCardShadow(shape).clip(shape).background(c.sunken)
+        Box(Modifier.fillMaxWidth().height((LocalGeoMapCardHeight.current ?: mapCardHeight(mode, compactHeight).toFloat()).dp).geoCardShadow(shape).clip(shape).background(c.sunken)
             .onGloballyPositioned {
                 val bounds = it.boundsInWindow()
                 visible = it.isAttached && bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.right > 0 &&

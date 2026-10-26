@@ -107,7 +107,7 @@ fun ThemeScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var modePickerOpen by rememberSaveable { mutableStateOf(false) }
     val window = LocalGeoWindow.current
-    val gutter = GeoSpace.gutterForPane(window.paneWidthDp)
+    val gutter = window.gutterDp.dp
     GeoSystemBars(navigationBarUsesSurface = window.rail || modePickerOpen)
     BackHandler(onBack = onBack)
 
@@ -129,9 +129,9 @@ fun ThemeScreen(onBack: () -> Unit) {
         Column(Modifier.fillMaxSize()) {
             GeoThemeTopBar(onBack)
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)
-                .padding(horizontal = gutter).padding(top = 16.dp, bottom = GeoSpace.scrollEnd)) {
+                .padding(horizontal = gutter).padding(top = if (window.widthDp >= 600f) 24.dp else 16.dp, bottom = if (window.widthDp >= 600f) 32.dp else GeoSpace.scrollEnd)) {
                 GeoSection("미리 보기", first = true) { GeoThemePreview(state.previewPalette) }
-                GeoSection("모드") {
+                GeoSection("모드", first = window.widthDp >= 600f) {
                     GeoSegmented(
                         label = "모드",
                         options = ThemeMode.entries.map { it.label },
@@ -189,7 +189,20 @@ private fun GeoThemePaletteGroup(
     last: Boolean = true
 ) {
     GeoSection(label, note = caption) {
-        Column(Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = label }) {
+        if (LocalGeoWindow.current.widthDp >= 600f) BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = themeGridColumns(maxWidth.value, LocalDensity.current.fontScale)
+            Column(Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = label },
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                options.chunked(columns).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        row.forEach { option ->
+                            GeoThemePaletteTile(option, option.palette == selected, Modifier.weight(1f)) { onSelect(option.palette) }
+                        }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        } else Column(Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = label }) {
             options.forEachIndexed { index, option -> GeoThemePaletteRow(option, option.palette == selected,
                 divider = index < options.lastIndex || last) { onSelect(option.palette) } }
         }
@@ -313,5 +326,35 @@ private fun GeoThemePreview(palette: GeoPalette) {
                     if (index == 0) c.navSelected else c.navUnselected, if (index == 0) type.tabSelected else type.tab)
             }
         }
+    }
+}
+
+
+internal fun themeGridColumns(widthDp: Float, fontScale: Float): Int =
+    com.example.jetsoncontroller.ui.components.geo.shell.GeoTabletRules.themeColumns(widthDp, fontScale)
+
+@Composable
+private fun GeoThemePaletteTile(option: ThemePaletteOption, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val colors = LocalGeoColors.current
+    val type = LocalGeoType.current
+    val preview = option.palette.colors
+    val work = geoWorkCardColors(option.palette)
+    Column(modifier.clip(GeoShape.card).background(colors.surface)
+        .border(if (selected) 2.dp else 1.dp, if (selected) colors.primary else colors.border, GeoShape.card)
+        .selectable(selected, role = Role.RadioButton, onClick = onClick).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().clip(GeoShape.control).background(preview.canvas).clearAndSetSemantics {}) {
+            Box(Modifier.fillMaxWidth().height(8.dp).background(preview.topBar))
+            Column(Modifier.padding(8.dp).fillMaxWidth().background(work.background, GeoShape.control).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("작업", color = work.content, style = type.caption)
+                Box(Modifier.fillMaxWidth().background(work.action, GeoShape.control).padding(8.dp), contentAlignment = Alignment.Center) {
+                    Text("수집 시작", color = work.onAction, style = type.caption)
+                }
+            }
+        }
+        Text(option.label, color = colors.text, style = type.titleSm)
+        Text(option.description, color = colors.textSecondary, style = type.caption)
+        if (selected) Text("현재 적용", color = colors.primary, style = type.caption)
     }
 }

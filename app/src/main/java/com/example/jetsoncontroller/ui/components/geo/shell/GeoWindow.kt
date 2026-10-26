@@ -1,76 +1,74 @@
 package com.example.jetsoncontroller.ui.components.geo.shell
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlin.math.max
-import com.example.jetsoncontroller.ui.theme.GeoSpace
-
-enum class GeoWidthClass { COMPACT, MEDIUM, EXPANDED }
-
-data class GeoWindow(
-    val widthDp: Float,
-    val heightDp: Float,
-    val paneWidthDp: Float,
-    val widthClass: GeoWidthClass,
-    val compactHeight: Boolean,
-    val rail: Boolean,
-    val gutterDp: Float,
-    val twoPane: Boolean
-)
-
-/** Width is measured after horizontal safe drawing and before navigation chrome. */
-fun geoWindow(widthDp: Float, heightDp: Float, fontScale: Float, navigationVisible: Boolean = true): GeoWindow {
-    val widthClass = when {
-        widthDp < 600f -> GeoWidthClass.COMPACT
-        widthDp < 840f -> GeoWidthClass.MEDIUM
-        else -> GeoWidthClass.EXPANDED
-    }
-    val rail = navigationVisible && widthDp >= 600f
-    val pane = (widthDp - if (rail) 80f else 0f).coerceAtLeast(0f)
-    val gutter = paneGutter(pane)
-    val scale = max(1f, fontScale)
-    return GeoWindow(
-        widthDp, heightDp, pane, widthClass, heightDp < 480f, rail, gutter,
-        widthClass == GeoWidthClass.EXPANDED && heightDp >= 480f && fontScale < 1.5f &&
-            pane >= 320f * scale + 1f + 400f * scale + 2f * gutter
-    )
-}
-
-fun paneGutter(paneWidthDp: Float): Float = GeoSpace.gutterForPane(paneWidthDp).value
 
 val LocalGeoWindow = staticCompositionLocalOf { geoWindow(412f, 882f, 1f) }
 
-/** Screens opt into list/detail without treating two arbitrary columns as two panes. */
+val LocalGeoPane = staticCompositionLocalOf { false }
+
+/** Owns the outer gutter once. Child pages retain their own scroll and action area. */
 @Composable
 fun GeoPaneLayout(
     modifier: Modifier = Modifier,
+    policy: GeoPanePolicy = GeoPanePolicy.LIST_DETAIL,
+    singlePane: GeoPaneSelection = GeoPaneSelection.BOTH,
+    detailFill: Boolean = false,
     list: @Composable () -> Unit,
     detail: @Composable () -> Unit
 ) {
     val window = LocalGeoWindow.current
-    val gutter = window.gutterDp.dp
-    if (window.twoPane) {
-        Row(modifier.fillMaxWidth().padding(horizontal = gutter), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-            Box(Modifier.weight(4f)) { list() }
-            Box(Modifier.weight(5f)) { detail() }
+    val widths = geoPaneWidths(window, policy)
+    val visiblePanes = geoVisiblePanes(widths != null, singlePane)
+    var hadTwoPanes by rememberSaveable { mutableStateOf(false) }
+    var previousListWidth by rememberSaveable { mutableFloatStateOf(400f) }
+    if (widths != null) SideEffect { hadTwoPanes = true; previousListWidth = widths.listDp }
+    val currentList by rememberUpdatedState(list)
+    val currentDetail by rememberUpdatedState(detail)
+    val listContent = remember { movableContentOf { currentList() } }
+    val detailContent = remember { movableContentOf { currentDetail() } }
+    if (widths != null) {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Row(Modifier.widthIn(max = 1560.dp).fillMaxSize().padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                GeoPane(Modifier.width(widths.listDp.dp).fillMaxHeight(), listContent)
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+                    GeoPane((if (detailFill) Modifier else Modifier.widthIn(max = 720.dp)).fillMaxSize(), detailContent)
+                }
+            }
         }
     } else {
         Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = gutter)) {
-                list()
-                detail()
+            Column(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+                if (GeoPaneSelection.LIST in visiblePanes) listContent()
+                if (GeoPaneSelection.DETAIL in visiblePanes) detailContent()
+            }
+            // A confirmation opened in the list is still a window-level overlay after narrowing.
+            // Keep its movable owner and saved scroll alive without a visible or touchable list.
+            if (singlePane == GeoPaneSelection.DETAIL && hadTwoPanes) {
+                Box(Modifier.size(0.dp).clipToBounds().clearAndSetSemantics {}) {
+                    GeoPane(Modifier.requiredSize(previousListWidth.dp, window.heightDp.dp), listContent)
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun GeoPane(modifier: Modifier, content: @Composable () -> Unit) {
+    val window = LocalGeoWindow.current
+    val chrome = LocalGeoChrome.current
+    BoxWithConstraints(modifier) {
+        CompositionLocalProvider(
+            LocalGeoPane provides true,
+            LocalGeoWindow provides window.copy(paneWidthDp = maxWidth.value, gutterDp = 0f, twoPane = false),
+            LocalGeoChrome provides GeoChromeMeasurements(maxHeight.value, imeDp = chrome.imeDp)
+        ) { content() }
     }
 }

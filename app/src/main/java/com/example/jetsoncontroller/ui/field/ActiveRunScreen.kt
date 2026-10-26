@@ -25,7 +25,9 @@ import com.example.jetsoncontroller.model.PipelineRun
 import com.example.jetsoncontroller.model.StopTarget
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
+import com.example.jetsoncontroller.ui.components.geo.shell.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoChrome
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.model.CorrectionRelayState
@@ -220,7 +222,7 @@ internal fun ActiveRunScreen(
     val awaitingStart = pendingStart || unconfirmedRunId != null
     var flow by rememberSaveable(deviceScopeKey, stateSaver = RunStopFlowSaver) { mutableStateOf(RunStopFlow()) }
     val stopFocus = remember { FocusRequester() }
-    var relayInfo by remember(deviceScopeKey) { mutableStateOf(false) }
+    var relayInfo by rememberSaveable(deviceScopeKey) { mutableStateOf(false) }
     val openResult by rememberUpdatedState(onOpenResult)
     val openTargetResult by rememberUpdatedState(onOpenResultTarget)
     val telemetry = verifiedRunTelemetry(observedRun)
@@ -302,6 +304,9 @@ internal fun ActiveRunScreen(
         )
     }
 
+    val controlScroll = androidx.compose.foundation.lazy.rememberLazyListState()
+    val currentMap by rememberUpdatedState(mapCard)
+    val map = remember { movableContentOf { currentMap() } }
     BoxWithConstraints(Modifier.fillMaxSize().background(colors.canvas)) {
         var ownChromeDp by remember { mutableFloatStateOf(0f) }
         Column(Modifier.fillMaxSize()) {
@@ -314,9 +319,11 @@ internal fun ActiveRunScreen(
                 ) else null
                 GeoStatusStrip(listOfNotNull(disconnected, zone.strip?.takeIf { !awaitingStart && observedRun?.active == true }))
             }
+            GeoPaneLayout(policy = GeoPanePolicy.ACTIVE_RUN, singlePane = GeoPaneSelection.LIST,
+                detailFill = true, list = {
             GeoActionArea(
                 visibilityKey = deviceScopeKey,
-                chrome = chrome.copy(
+                chrome = if (window.twoPane) LocalGeoChrome.current else chrome.copy(
                     viewportDp = chrome.viewportDp.takeIf { it > 0f } ?: this@BoxWithConstraints.maxHeight.value,
                     topDp = chrome.topDp + ownChromeDp
                 ),
@@ -328,9 +335,9 @@ internal fun ActiveRunScreen(
                         onResult = { observedRun?.let { openTargetResult?.invoke(runTarget(it)) ?: openResult() } })
                 }
             ) { inlineAction ->
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = GeoSpace.scrollEnd)) {
+                LazyColumn(state = controlScroll, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = GeoSpace.scrollEnd)) {
                     item {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = window.gutterDp.dp).padding(top = 16.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = if (window.twoPane) 0.dp else window.gutterDp.dp).padding(top = if (window.widthDp >= 600f) 24.dp else 16.dp)) {
                             RunHeading(observedRun, deviceName, state, projectLabel, sectionLabel)
                             Spacer(Modifier.height(GeoSpace.detailSection))
                             val note = when (state) {
@@ -353,7 +360,10 @@ internal fun ActiveRunScreen(
                                 positionLabel?.let { GeoBadge(it, positionTone, variant = GeoBadgeVariant.INLINE) }
                                 zone.badge?.let { GeoBadge(it, zone.tone, variant = GeoBadgeVariant.INLINE) }
                             }
-                            mapCard()
+                            if (!window.twoPane) CompositionLocalProvider(
+                                com.example.jetsoncontroller.ui.map.LocalGeoMapCardHeight provides
+                                    (if (window.widthDp >= 600f) 400f else null)
+                            ) { map() }
                             Text("마지막 확인 $observedLabel", Modifier.padding(top = 8.dp),
                                 color = colors.textSecondary, style = type.caption)
                             if (observedRun != null && !awaitingStart) {
@@ -389,6 +399,14 @@ internal fun ActiveRunScreen(
                     item { inlineAction() }
                 }
             }
+                }, detail = {
+                    BoxWithConstraints(Modifier.fillMaxSize().padding(vertical = 24.dp)) {
+                        val mapHeight = (maxHeight.value - 112f).coerceAtLeast(240f)
+                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                            CompositionLocalProvider(com.example.jetsoncontroller.ui.map.LocalGeoMapCardHeight provides mapHeight) { map() }
+                        }
+                    }
+                })
         }
     }
 }

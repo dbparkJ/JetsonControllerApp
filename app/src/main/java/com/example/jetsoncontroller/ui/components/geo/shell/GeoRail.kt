@@ -16,7 +16,8 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 
 @Composable
-fun GeoRail(selected: GeoTab, onSelect: (GeoTab) -> Unit, modifier: Modifier = Modifier) {
+fun GeoRail(selected: GeoTab, onSelect: (GeoTab) -> Unit, modifier: Modifier = Modifier,
+    attentionSections: Set<GeoTab> = emptySet()) {
     Surface(color = LocalGeoColors.current.nav, modifier = modifier.width(80.dp).fillMaxHeight()) {
         Column(
             Modifier.selectableGroup().verticalScroll(rememberScrollState()),
@@ -24,7 +25,7 @@ fun GeoRail(selected: GeoTab, onSelect: (GeoTab) -> Unit, modifier: Modifier = M
         ) {
             shellTabs.forEach { tab ->
                 ShellTabItem(tab, selected == tab.section, true,
-                    { onSelect(tab.section) }, Modifier.fillMaxWidth())
+                    { onSelect(tab.section) }, Modifier.fillMaxWidth(), tab.section in attentionSections)
             }
         }
     }

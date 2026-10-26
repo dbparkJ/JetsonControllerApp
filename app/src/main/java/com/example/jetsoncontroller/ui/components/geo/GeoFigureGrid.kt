@@ -54,11 +54,11 @@ data class GeoFigurePresentation(
     val staleDetail: String?
 )
 
-fun figureGridColumns(availableWidthDp: Float, fontScale: Float, contained: Boolean = false): Int {
+fun figureGridColumns(availableWidthDp: Float, fontScale: Float, contained: Boolean = false, tablet: Boolean = false): Int {
     val contentWidth = availableWidthDp - if (contained) 32f else 0f
     return when {
         fontScale >= 2f || contentWidth < 200f -> 1
-        fontScale >= 1.5f || contentWidth < 312f -> 2
+        fontScale >= (if (tablet) 1.3f else 1.5f) || contentWidth < 312f -> 2
         else -> 4
     }
 }
@@ -78,7 +78,8 @@ fun figurePresentation(figure: GeoFigure): GeoFigurePresentation {
 @Composable
 fun GeoFigureGrid(figures: List<GeoFigure>, modifier: Modifier = Modifier, contained: Boolean = false) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        val columns = figureGridColumns(maxWidth.value, LocalDensity.current.fontScale, contained)
+        val columns = figureGridColumns(maxWidth.value, LocalDensity.current.fontScale, contained,
+            tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f)
         Column(Modifier.fillMaxWidth().then(if (contained) Modifier.padding(16.dp) else Modifier),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             figures.chunked(columns).forEach { row ->

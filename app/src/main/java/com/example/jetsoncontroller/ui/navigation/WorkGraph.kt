@@ -493,14 +493,12 @@ private fun WorkOngoingStrip(state: AppNavigationState, deviceId: String, name: 
 internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, includeRoot: Boolean = false) {
     (listOf(Routes.WORK_BROWSE) + if (includeRoot) listOf(Routes.TASKS) else emptyList()).forEach { route ->
         composable(route) {
-            if (LocalGeoWindow.current.twoPane) GeoPaneLayout(list = { WorkRootRoute(state) }, detail = {
-                GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "수집 구간을 고르세요", "목록에서 수집 구간을 고르면 준비 상태를 볼 수 있습니다."), fullScreen = true)
-            }) else WorkRootRoute(state)
+            WorkRootRoute(state)
         }
     }
     composable(Routes.TICKET_DETAIL, arguments = listOf(navArgument("rowId") { type = NavType.StringType })) { entry ->
-        if (LocalGeoWindow.current.twoPane) GeoPaneLayout(list = { WorkRootRoute(state) }, detail = { WorkTicketRoute(state, entry) })
-        else WorkTicketRoute(state, entry)
+        GeoPaneLayout(singlePane = com.example.jetsoncontroller.ui.components.geo.shell.GeoPaneSelection.DETAIL,
+            list = { WorkRootRoute(state) }, detail = { WorkTicketRoute(state, entry) })
     }
     composable(Routes.TASK_DETAIL, arguments = listOf(navArgument("pipelineId") { type = NavType.StringType })) { entry ->
         WorkTaskRoute(state, entry)

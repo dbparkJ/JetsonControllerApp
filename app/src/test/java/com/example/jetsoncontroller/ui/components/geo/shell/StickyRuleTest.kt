@@ -37,4 +37,9 @@ class StickyRuleTest {
         assertEquals(156f, retainedActionHeight(height, 108f), 0f)
         assertEquals(84f, retainedActionHeight(0f, 84f), 0f)
     }
+    @Test
+    fun `tablet actions move inline for IME even with a tall remaining viewport`() {
+        assertFalse(stickyAction(1333f, 64f, 0f, 300f, 108f, inlineForIme = true))
+        assertTrue(stickyAction(1333f, 64f, 48f, 0f, 108f, inlineForIme = true))
+    }
 }

@@ -10,20 +10,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import kotlin.math.max
-
-fun stickyAction(
-    viewportDp: Float,
-    topChromeDp: Float,
-    bottomChromeDp: Float,
-    imeDp: Float,
-    actionDp: Float,
-    scene: Boolean = false,
-    compactHeight: Boolean = viewportDp < 480f
-): Boolean = scene || (!compactHeight &&
-    viewportDp - topChromeDp - bottomChromeDp - imeDp - actionDp >= 280f)
-
-fun retainedActionHeight(previousDp: Float, measuredDp: Float): Float = max(previousDp, measuredDp)
 
 /** The body places inlineAction last in its own scroll container (including LazyColumn). */
 @Composable
@@ -41,9 +27,9 @@ fun GeoActionArea(
         var largestDp by remember { mutableFloatStateOf(0f) }
         val latestAction = rememberUpdatedState(action)
         val colors by rememberUpdatedState(LocalGeoColors.current)
-        val gutter by rememberUpdatedState(LocalGeoWindow.current.gutterDp.dp)
+        val gutter by rememberUpdatedState(if (LocalGeoPane.current) 16.dp else LocalGeoWindow.current.gutterDp.dp)
         val sticky = stickyAction(chrome.viewportDp, chrome.topDp, chrome.bottomDp, chrome.imeDp,
-            largestDp, scene, LocalGeoWindow.current.compactHeight)
+            largestDp, scene, LocalGeoWindow.current.compactHeight, inlineForIme = LocalGeoWindow.current.widthDp >= 600f)
         // KIT §3.12: a pinned action area carries a 1 dp border hairline on top; inline it has none.
         val pinned by rememberUpdatedState(sticky)
         val actionContent = remember {
