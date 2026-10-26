@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 import stat
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, Mapping, Optional, Tuple
 
@@ -114,7 +116,7 @@ class SystemTimeSynchronizer:
 
     def synchronize(self, mobile_time_epoch_millis: int) -> Dict[str, object]:
         requested = self._validate_mobile_time(mobile_time_epoch_millis)
-        with self._lock:
+        with self._lock, self._boot_lock():
             self._validate_marker_directory()
             previous = read_time_sync_marker(
                 self.marker_path,
@@ -178,6 +180,21 @@ class SystemTimeSynchronizer:
             }
             self._write_marker(marker)
             return self.status()
+
+    @contextmanager
+    def _boot_lock(self):
+        # BLE and HTTP are separate processes sharing the same boot-local marker.
+        # Lock the trusted runtime directory before reading or changing the clock.
+        parent = self._validate_marker_directory()
+        descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            metadata = os.fstat(descriptor)
+            if metadata.st_uid != self.marker_owner_uid or metadata.st_mode & 0o022:
+                raise TimeSyncError("Time synchronization runtime directory is unsafe")
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(descriptor)
 
     @classmethod
     def _validate_mobile_time(cls, value: int) -> int:

@@ -1,7 +1,9 @@
 import os
+import multiprocessing
 import subprocess
 import tempfile
 import unittest
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +16,21 @@ from jetson_control.system_control import (
     TimeSyncError,
     read_time_sync_marker,
 )
+
+
+def synchronize_in_process(marker, current, calls, barrier):
+    requested = 1_792_728_600_000
+
+    def run(command, **kwargs):
+        with calls.get_lock():
+            calls.value += 1
+        time.sleep(0.05)
+        current.value = requested / 1000
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    sync = SystemTimeSynchronizer(marker, run=run, clock=lambda: current.value)
+    barrier.wait(timeout=5)
+    sync.synchronize(requested)
 
 
 class FakeFanSystemctl:
@@ -38,6 +55,26 @@ class FakeFanSystemctl:
 
 
 class SystemTimeSynchronizerTest(unittest.TestCase):
+    def test_ble_and_http_processes_only_set_the_boot_clock_once(self) -> None:
+        context = multiprocessing.get_context("fork")
+        current = context.Value("d", 308.506335)
+        calls = context.Value("i", 0)
+        barrier = context.Barrier(2)
+        processes = [context.Process(target=synchronize_in_process,
+                     args=(self.marker, current, calls, barrier)) for _ in range(2)]
+        try:
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(timeout=10)
+                self.assertEqual(process.exitcode, 0)
+            self.assertEqual(calls.value, 1)
+        finally:
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+                    process.join()
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

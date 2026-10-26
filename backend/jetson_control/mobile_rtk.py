@@ -7,13 +7,16 @@ import stat
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from .config import validate_config_id
 
 
 MOBILE_RTK_RELAY_SCHEMA_VERSION = 1
 MOBILE_RTK_RELAY_LEASE_MILLIS = 30_000
+DEFAULT_MOBILE_RTK_RELAY = Path(os.environ.get(
+    "JETSON_CONTROL_MOBILE_RTK_RELAY", "/run/jetson-control/mobile-rtk-relay.json"
+))
 
 RTK_FIX_FIXED = "FIXED"
 RTK_FIX_FLOAT = "FLOAT"
@@ -171,6 +174,8 @@ class MobileRtkRelayRegistry:
         expires_at = value.get("expiresAtEpochMillis")
         if (
             address.version != 4
+            or address.is_unspecified
+            or address.is_multicast
             or isinstance(port, bool)
             or not isinstance(port, int)
             or not 1024 <= port <= 65535
@@ -211,3 +216,23 @@ class MobileRtkRelayRegistry:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
+
+
+def mobile_rtk_relay_environment(
+    pipeline_id: str,
+    path: Path = DEFAULT_MOBILE_RTK_RELAY,
+    *,
+    expected_owner_uid: int = 0,
+    clock_millis: Callable[[], int] = lambda: int(time.time() * 1000),
+) -> Dict[str, str]:
+    relay = MobileRtkRelayRegistry(
+        path, clock_millis=clock_millis, owner_uid=expected_owner_uid,
+    ).read()
+    if relay is None or relay["pipelineId"] != pipeline_id:
+        return {}
+    # Lease heartbeats must not change the runtime identity.
+    return {
+        "NTRIP_HOST": str(relay["relayHost"]),
+        "NTRIP_PORT": str(relay["relayPort"]),
+        "JETSON_PIPELINE_MOBILE_RTK_RELAY": "1",
+    }

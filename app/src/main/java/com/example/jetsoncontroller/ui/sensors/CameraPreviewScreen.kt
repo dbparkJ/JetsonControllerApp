@@ -57,7 +57,7 @@ fun CameraPreviewScreen(
         while (true) { value = System.currentTimeMillis(); delay(1_000) }
     }
     val stage = cameraStageState(telemetryFresh && (camera.active || state.targetConnected), state.frame != null,
-        state.updatedAtEpochMillis, now, state.error != null)
+        state.updatedAtEpochMillis, now, state.error != null, checkedAt = state.checkedAtEpochMillis)
     val canCapture = state.targetStillCurrent() && cameraCaptureEnabled(stage, captureBusy, saveDevice, saveMobile)
     val captureNow = {
         val currentStage = cameraStageState(telemetryFresh && (camera.active || state.targetConnected),

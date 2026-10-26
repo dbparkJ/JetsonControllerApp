@@ -1,9 +1,10 @@
+import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from jetson_control.mobile_rtk import MobileRtkRelayRegistry
+from jetson_control.mobile_rtk import MobileRtkRelayRegistry, mobile_rtk_relay_environment
 
 
 class MobileRtkRelayRegistryTest(unittest.TestCase):
@@ -57,6 +58,54 @@ class MobileRtkRelayRegistryTest(unittest.TestCase):
         for host, port in invalid_routes:
             with self.subTest(host=host, port=port), self.assertRaises(ValueError):
                 self.registry.register("capture", host, port)
+
+    def environment(self, pipeline_id="capture"):
+        return mobile_rtk_relay_environment(
+            pipeline_id, self.path, expected_owner_uid=os.getuid(),
+            clock_millis=lambda: self.now,
+        )
+
+    def test_environment_tracks_endpoint_but_ignores_heartbeat_expiry_extension(self) -> None:
+        self.registry.register("capture", "192.168.49.71", 32101)
+        initial = self.environment()
+        self.now += 1000
+        self.registry.register("capture", "192.168.49.71", 32101)
+        self.assertEqual(self.environment(), initial)
+        self.registry.register("capture", "192.168.49.72", 32102)
+        self.assertNotEqual(self.environment(), initial)
+        self.assertEqual(self.environment("other"), {})
+        self.now += 30_000
+        self.assertEqual(self.environment(), {})
+        self.registry.register("capture", "192.168.49.71", 32101)
+        self.registry.unregister("capture")
+        self.assertEqual(self.environment(), {})
+
+    def test_environment_reuses_registry_trust_and_route_validation(self) -> None:
+        self.registry.register("capture", "192.168.49.71", 32101)
+        self.path.chmod(0o666)
+        self.assertEqual(self.environment(), {})
+        self.path.chmod(0o644)
+        self.assertEqual(mobile_rtk_relay_environment(
+            "capture", self.path, expected_owner_uid=os.getuid() + 1,
+            clock_millis=lambda: self.now,
+        ), {})
+        original = self.path.read_text()
+        for host in ("0.0.0.0", "224.0.0.1", "::1", "bad-host"):
+            with self.subTest(host=host):
+                value = json.loads(original)
+                value["relayHost"] = host
+                self.path.write_text(json.dumps(value))
+                self.assertEqual(self.environment(), {})
+
+    def test_environment_rejects_symlink_and_malformed_marker(self) -> None:
+        self.registry.register("capture", "192.168.49.71", 32101)
+        target = self.path.with_name("target.json")
+        self.path.rename(target)
+        self.path.symlink_to(target)
+        self.assertEqual(self.environment(), {})
+        self.path.unlink()
+        self.path.write_text("{broken")
+        self.assertEqual(self.environment(), {})
 
 
 if __name__ == "__main__":

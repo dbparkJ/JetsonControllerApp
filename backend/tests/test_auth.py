@@ -17,6 +17,25 @@ def device_config() -> DeviceConfig:
 
 
 class RequestAuthenticatorTest(unittest.TestCase):
+    def test_external_wall_clock_jump_does_not_expire_replay_cache(self) -> None:
+        config = device_config()
+        wall, mono = [308], [289]
+        auth = RequestAuthenticator(config, boot_nonce="boot", clock=lambda: wall[0], monotonic=lambda: mono[0])
+
+        def verify(nonce):
+            stamp = str(wall[0])
+            signature = sign_request(config.bootstrap_secret, config.device_id, "boot", nonce, stamp, "GET", "/v1/status")
+            return auth.verify(config.device_id, nonce, stamp, "GET", "/v1/status", b"", signature)
+
+        self.assertTrue(verify("request-clock-1"))
+        wall[0] = 1_792_728_600
+        mono[0] += 1
+        self.assertFalse(verify("request-clock-1"))
+        self.assertTrue(verify("request-clock-2"))
+        mono[0] += 241
+        wall[0] += 241
+        self.assertTrue(verify("request-clock-1"))
+
     def test_accepts_valid_signature_once(self) -> None:
         config = device_config()
         auth = RequestAuthenticator(

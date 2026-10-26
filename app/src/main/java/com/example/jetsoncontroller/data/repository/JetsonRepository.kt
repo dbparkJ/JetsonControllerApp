@@ -17,6 +17,7 @@ import com.example.jetsoncontroller.data.network.JetsonResponseSignatureExceptio
 import com.example.jetsoncontroller.data.network.JetsonUnsignedServerErrorException
 import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
 import com.example.jetsoncontroller.data.network.WifiDirectManager
+import com.example.jetsoncontroller.data.network.WifiDirectApiStatus
 import com.example.jetsoncontroller.data.network.WifiDirectPeer
 import com.example.jetsoncontroller.data.network.WifiAccessPointScanner
 import com.example.jetsoncontroller.data.rtk.MobileRtkRelayManager
@@ -31,9 +32,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -78,6 +83,7 @@ class JetsonRepository(
     private val wifiAccessPointScanner = WifiAccessPointScanner(context)
     private val lanDiscoveryManager = LanDiscoveryManager(context)
     private val transportCoordinator = TransportCoordinator()
+    private val pipelineControlMutex = Mutex()
     private val consecutiveIpStatusFailures = AtomicInteger(0)
     private val explicitDisconnectRequested = AtomicBoolean(false)
     private val explicitWifiDirectRequested = AtomicBoolean(false)
@@ -161,6 +167,7 @@ class JetsonRepository(
     private val automaticConnectivityEnabled = MutableStateFlow(false)
     private val localNetworkPermissionGranted = MutableStateFlow(false)
     private val nearbyWifiPermissionGranted = MutableStateFlow(false)
+    private val mobileRtkMonitoringPaused = MutableStateFlow(false)
     private val bluetoothPermissionGranted = MutableStateFlow(false)
     private val preferredAutomaticDeviceId = MutableStateFlow<String?>(null)
     val selectedDeviceId: StateFlow<String?> = preferredAutomaticDeviceId.asStateFlow()
@@ -169,6 +176,7 @@ class JetsonRepository(
     private var automaticDirectFallbackJob: Job? = null
     private var automaticBleReconnectJob: Job? = null
     private var wifiDirectApiProbeJob: Job? = null
+    private var wifiDirectBootstrapJob: Job? = null
     private val wifiProvisioningHandoff = MutableStateFlow(false)
     private var wifiProvisioningHandoffJob: Job? = null
 
@@ -187,7 +195,68 @@ class JetsonRepository(
 
     val transportState = transportCoordinator.state
 
+    private data class RtkMonitoringSession(
+        val client: LocalApiClient,
+        val deviceId: String,
+        val host: String
+    )
+    private var retainedRtkMonitoringSession: RtkMonitoringSession? = null
+
     init {
+        scope.launch {
+            val permissions = combine(localNetworkPermissionGranted, nearbyWifiPermissionGranted, mobileRtkMonitoringPaused) {
+                    local, nearby, paused ->
+                local && nearby && !paused
+            }
+            combine(transportState, capabilities, wifiDirectState, selectedDeviceId, permissions) {
+                    transport, caps, direct, selected, permitted ->
+                val connected = transport as? TransportState.Connected
+                val client = activeIpClient
+                val session = when {
+                    !permitted || selected == null || !direct.connected || direct.groupOwnerAddress == null -> null
+                    connected == null -> retainedRtkMonitoringSession?.takeIf {
+                        it.deviceId.equals(selected, ignoreCase = true) && it.host == direct.groupOwnerAddress
+                    }
+                    caps.mobileRtkRelay && connected.type == TransportType.WIFI_DIRECT &&
+                        selected.equals(connected.deviceId, ignoreCase = true) && client != null ->
+                        RtkMonitoringSession(client, selected, direct.groupOwnerAddress)
+                    else -> null
+                }
+                retainedRtkMonitoringSession = session
+                session
+            }.distinctUntilChanged().collectLatest { session ->
+                session ?: return@collectLatest
+                try {
+                    var prepared = false
+                    while (true) {
+                        pipelineControlMutex.withLock {
+                            ensureRtkMonitoringSession(session)
+                            if ((!prepared || !mobileRtkRelayState.value.active) &&
+                                activeIpClient === session.client &&
+                                (transportState.value as? TransportState.Connected)?.type == TransportType.WIFI_DIRECT) {
+                                // Use the existing pipeline list/config API; no acquisition is started.
+                                val pipelines = session.client.getPipelines().getOrNull().orEmpty()
+                                ensureRtkMonitoringSession(session)
+                                val currentPipeline = mobileRtkRelayState.value.pipelineId
+                                for (pipeline in pipelines.sortedBy { it.id != currentPipeline }) {
+                                    val config = session.client.getMobileRtkRelayConfig(pipeline.id).getOrNull()
+                                    ensureRtkMonitoringSession(session)
+                                    if (config?.available != true) continue
+                                    val result = mobileRtkRelayManager.prepareForMonitoring(pipeline.id, session.client)
+                                    ensureRtkMonitoringSession(session)
+                                    prepared = result.getOrNull() is MobileRtkRelayManager.Preparation.Ready
+                                    // A cellular/permission failure must not repeat once per pipeline.
+                                    break
+                                }
+                            }
+                        }
+                        delay(RTK_MONITOR_RETRY_INTERVAL_MILLIS)
+                    }
+                } finally {
+                    withContext(NonCancellable) { mobileRtkRelayManager.stopIfOwnedBy(session.client) }
+                }
+            }
+        }
         scope.launch {
             mobileRtkRelayManager.state.map { Triple(it.active, it.preparing, it.error != null) }
                 .distinctUntilChanged().collect { (active, preparing, errorPresent) ->
@@ -275,7 +344,8 @@ class JetsonRepository(
         scope.launch {
             wifiDirectProbeSignals(
                 wifiDirectManager.state,
-                _connectingLanDeviceId
+                _connectingLanDeviceId,
+                transportCoordinator.state
             ).collectLatest { (connected, host, lanConnectionPending) ->
                     if (connected && host != null) {
                         if (shouldDisconnectAutomaticDirect(
@@ -313,7 +383,9 @@ class JetsonRepository(
                         if (
                             automaticConnectivityEnabled.value &&
                             !qrPairingActive.value &&
-                            expectedDeviceId != null
+                            expectedDeviceId != null &&
+                            registeredDevices.value.any { it.deviceId.equals(expectedDeviceId, ignoreCase = true) } &&
+                            credentialStore.getSecret(expectedDeviceId) != null
                         ) {
                             pendingWifiDirectTargetDeviceId = expectedDeviceId
                             probeWifiDirectApi(host, expectedDeviceId)
@@ -389,7 +461,10 @@ class JetsonRepository(
                 automaticTargetDeviceId(preferred, registered)
             }
             val automaticDirectAllowed = combine(
-                automaticConnectivityEnabled,
+                combine(automaticConnectivityEnabled, nearbyWifiPermissionGranted, bluetoothPermissionGranted) {
+                        enabled, nearby, bluetooth ->
+                    enabled && (explicitWifiDirectRequested.get() || (nearby && bluetooth))
+                },
                 automaticDirectFallbackReady,
                 qrPairingActive,
                 wifiProvisioningHandoff,
@@ -409,19 +484,27 @@ class JetsonRepository(
                     !enabled || targetDeviceId == null ||
                     pendingLanDeviceId != null ||
                     !allowsAutomaticDirectFallback(transport) ||
-                    direct.connected || direct.cleaningUp || direct.connectingPeerAddress != null
+                    direct.connected || direct.cleaningUp || direct.connectingPeerAddress != null ||
+                    direct.bootstrapPeer != null
                 ) {
                     return@combine null
                 }
-                chooseAutomaticWifiDirectPeer(direct.peers, targetDeviceId)
+                chooseAutomaticWifiDirectPeer(direct.peers, targetDeviceId, registeredDevices.value)
             }.collect { peer ->
+                // Preparation is busy UI state, not a revoked automatic policy.
+                if (wifiDirectBootstrapJob?.isActive == true &&
+                    !explicitWifiDirectRequested.get() && !wifiDirectBootstrapAllowed(explicitRequest = false)) {
+                    wifiDirectBootstrapJob?.cancel()
+                    wifiDirectBootstrapJob = null
+                    pendingWifiDirectTargetDeviceId = null
+                    wifiDirectManager.clearBootstrap()
+                }
                 peer ?: return@collect
-                scanner.stopScan()
                 pendingWifiDirectTargetDeviceId = automaticTargetDeviceId(
                     preferredAutomaticDeviceId.value,
                     registeredDevices.value
                 ) ?: return@collect
-                wifiDirectManager.connect(peer)
+                connectPreparedWifiDirect(peer, pendingWifiDirectTargetDeviceId)
             }
         }
 
@@ -438,6 +521,19 @@ class JetsonRepository(
                 }
             }
         }
+    }
+
+    private suspend fun ensureRtkMonitoringSession(session: RtkMonitoringSession) {
+        currentCoroutineContext().ensureActive()
+        val connected = transportState.value as? TransportState.Connected
+        if (retainedRtkMonitoringSession != session ||
+            (connected != null && (activeIpClient !== session.client || connected.type != TransportType.WIFI_DIRECT ||
+                !session.deviceId.equals(connected.deviceId, ignoreCase = true) || !capabilities.value.mobileRtkRelay)) ||
+            !session.deviceId.equals(selectedDeviceId.value, ignoreCase = true) ||
+            !wifiDirectState.value.connected || wifiDirectState.value.groupOwnerAddress != session.host ||
+            !localNetworkPermissionGranted.value || !nearbyWifiPermissionGranted.value ||
+            mobileRtkMonitoringPaused.value
+        ) throw CancellationException("RTK 중계 대상 연결이 변경되었습니다.")
     }
 
     private suspend fun probeWifiDirectApi(
@@ -500,6 +596,7 @@ class JetsonRepository(
                 autoLanFailureCounts.clear()
                 _lanConnectionError.value = null
                 activeIpClient = probe.client
+                mobileRtkMonitoringPaused.value = false
                 transportCoordinator.setActiveTransport(
                     transport = IpControlTransport(
                         probe.client,
@@ -521,6 +618,7 @@ class JetsonRepository(
                 ConnectionDiagnostics.record("recovery_state", mapOf(
                     "attemptId" to generation, "state" to "STOPPED", "reasonCode" to "TRUST_FAILURE"
                 ), incident = true)
+                stopMobileRtkRelayForClient(retainedRtkMonitoringSession?.client)
                 reportWifiDirectApiError(lastErrorMessage)
                 return
             }
@@ -551,6 +649,9 @@ class JetsonRepository(
     }
 
     private fun nextConnectionAttempt(): Long {
+        wifiDirectBootstrapJob?.cancel()
+        wifiDirectBootstrapJob = null
+        wifiDirectManager.clearBootstrap()
         wifiDirectApiProbeJob?.cancel()
         wifiDirectApiProbeJob = null
         return transportCoordinator.nextConnectionAttempt()
@@ -861,7 +962,8 @@ class JetsonRepository(
                         direct.connected && host != null && deviceId != null
                     // API health can revoke control without revoking the group.
                     // A later physical-loss callback still performs normal cleanup.
-                    markIpTransportOffline(error.message, preserveDirectGroup = sameDirectLink)
+                    markIpTransportOffline(error.message, preserveDirectGroup = sameDirectLink,
+                        preserveRtkMonitor = sameDirectLink && !isDirectTrustFailure(error))
                     if (sameDirectLink) {
                         pendingWifiDirectTargetDeviceId = deviceId
                         reportWifiDirectApiError(error.message ?: "장치 API 연결을 다시 확인하고 있습니다.")
@@ -1072,8 +1174,9 @@ class JetsonRepository(
     }
 
     fun prepareManualWifiDirect(deviceId: String) {
-        if (registeredDevices.value.none { it.deviceId.equals(deviceId, ignoreCase = true) }) return
-        activateAutomaticTarget(deviceId, scheduleFallback = false)
+        val targetDeviceId = registeredDevices.value
+            .firstOrNull { it.deviceId.equals(deviceId, ignoreCase = true) }?.deviceId ?: return
+        activateAutomaticTarget(targetDeviceId, scheduleFallback = false)
         explicitWifiDirectRequested.set(true)
         ConnectionDiagnostics.record("connection_intent", mapOf(
             "desiredTransport" to "WIFI_DIRECT", "reasonCode" to "USER", "intended" to true,
@@ -1086,7 +1189,7 @@ class JetsonRepository(
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
         _visibleConnectingLanDeviceId.value = null
-        pendingWifiDirectTargetDeviceId = deviceId
+        pendingWifiDirectTargetDeviceId = targetDeviceId
         if (transportCoordinator.currentTransport()?.type == TransportType.LAN) {
             stopMobileRtkRelayForClient(activeIpClient)
             activeIpClient = null
@@ -1134,23 +1237,93 @@ class JetsonRepository(
         explicitWifiDirectRequested.set(true)
         automaticConnectivityEnabled.value = true
         cancelWifiProvisioningHandoff()
-        pendingWifiDirectTargetDeviceId = registeredDevices.value
-            .filter { device ->
-                peer.name.equals(device.deviceName, ignoreCase = true) ||
-                    peer.name.equals(canonicalBleNameForDeviceId(device.deviceId), ignoreCase = true) ||
-                    peer.name.equals(legacyBleNameForDeviceId(device.deviceId), ignoreCase = true)
-            }
-            .singleOrNull()
-            ?.deviceId
-            ?: automaticTargetDeviceId(
-                preferredAutomaticDeviceId.value,
-                registeredDevices.value
-            )
-        scanner.stopScan()
-        wifiDirectManager.connect(peer)
+        // A peer name/address selects the P2P link, never the authentication identity.
+        val deviceId = pendingWifiDirectTargetDeviceId ?: automaticTargetDeviceId(
+            preferredAutomaticDeviceId.value,
+            registeredDevices.value
+        )
+        connectPreparedWifiDirect(peer, deviceId)
     }
 
+    private fun connectPreparedWifiDirect(peer: WifiDirectPeer, deviceId: String?) {
+        // A replacement request also retires preparation for an earlier peer.
+        wifiDirectBootstrapJob?.cancel()
+        wifiDirectBootstrapJob = null
+        wifiDirectManager.clearBootstrap()
+        val explicitRequest = explicitWifiDirectRequested.get()
+        if (!wifiDirectBootstrapAllowed(explicitRequest)) return
+        wifiDirectManager.markBootstrapPreparing(peer)
+        if (deviceId == null || !bluetoothPermissionGranted.value ||
+            registeredDevices.value.none { it.deviceId.equals(deviceId, ignoreCase = true) }) {
+            reportWifiDirectApiError("시각 확인을 위해 Bluetooth 권한과 장치 등록을 확인해 주세요.")
+            return
+        }
+        if (!wifiDirectPeerMatchesTarget(peer, deviceId, registeredDevices.value)) {
+            reportWifiDirectApiError("선택한 장치와 Wi-Fi Direct 대상이 일치하지 않습니다. 장치를 다시 선택해 주세요.")
+            return
+        }
+        activateAutomaticTarget(deviceId, scheduleFallback = false)
+        explicitWifiDirectRequested.set(explicitRequest)
+        val generation = nextConnectionAttempt()
+        pendingWifiDirectTargetDeviceId = deviceId
+        wifiDirectManager.markBootstrapPreparing(peer)
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            val secret = credentialStore.getSecret(deviceId)
+            currentCoroutineContext().ensureActive()
+            if (secret == null) {
+                reportWifiDirectApiError("장치가 등록되어 있지 않습니다. 먼저 QR로 장치를 등록해 주세요.")
+                return@launch
+            }
+            val ready = awaitWifiDirectBootstrap(
+                gattClient.connectionState, deviceId, gattClient::currentDeviceId
+            )
+            currentCoroutineContext().ensureActive()
+            if (!transportCoordinator.connectionAttemptIsCurrent(generation) ||
+                !pendingWifiDirectTargetDeviceId.equals(deviceId, ignoreCase = true) ||
+                !preferredAutomaticDeviceId.value.equals(deviceId, ignoreCase = true) ||
+                !wifiDirectBootstrapAllowed(explicitRequest)) {
+                wifiDirectManager.clearBootstrap()
+                return@launch
+            }
+            if (!ready) {
+                reportWifiDirectApiError("블루투스 인증과 시각 확인을 완료하지 못했습니다. 다시 시도해 주세요.")
+                return@launch
+            }
+            if (!bluetoothPermissionGranted.value) {
+                reportWifiDirectApiError("시각 확인을 위해 Bluetooth 권한을 허용한 뒤 다시 시도해 주세요.")
+                return@launch
+            }
+            // Ready can be revoked between the flow emission and this continuation.
+            if (gattClient.connectionState.value !is ConnectionState.Ready ||
+                !deviceId.equals(gattClient.currentDeviceId(), ignoreCase = true) ||
+                !wifiDirectPeerMatchesTarget(peer, deviceId, registeredDevices.value)) {
+                wifiDirectManager.clearBootstrap()
+                return@launch
+            }
+            scanner.stopScan()
+            wifiDirectManager.connect(peer)
+        }
+        wifiDirectBootstrapJob = job
+        job.start()
+    }
+
+    private fun wifiDirectBootstrapAllowed(explicitRequest: Boolean): Boolean =
+        explicitRequest == explicitWifiDirectRequested.get() &&
+            !explicitDisconnectRequested.get() && !qrPairingActive.value && !wifiProvisioningHandoff.value &&
+            (explicitRequest || (automaticConnectivityEnabled.value && nearbyWifiPermissionGranted.value &&
+                bluetoothPermissionGranted.value &&
+                _connectingLanDeviceId.value == null && allowsAutomaticDirectConnection(
+                    transportCoordinator.state.value,
+                    wifiAccessPointScanner.state.value.infrastructureWifiConnected
+                )))
+
     fun retryWifiDirectApi() {
+        val state = wifiDirectManager.state.value
+        if (!state.connected && state.bootstrapPeer != null &&
+            state.apiStatus == WifiDirectApiStatus.ERROR) {
+            connectWifiDirect(state.bootstrapPeer)
+            return
+        }
         val host = wifiDirectManager.state.value.groupOwnerAddress
             ?: return
         val expectedDeviceId = pendingWifiDirectTargetDeviceId
@@ -1287,6 +1460,12 @@ class JetsonRepository(
                             }
                         }
 
+                        // The P2P owner can become known while LAN authentication
+                        // is suspended. Never publish that address as a LAN session.
+                        if (!isLanEndpointCandidate(endpoint, wifiDirectManager.state.value.groupOwnerAddress)) {
+                            publishUserVisibleError("이 주소는 현재 Wi-Fi Direct 그룹에서 사용 중입니다. Direct 연결을 확인해 주세요.")
+                            return@onSuccess
+                        }
                         updateStatus(status)
                         _capabilities.value = capabilities.toModel()
                         setPreferredAutomaticDeviceId(hello.deviceId)
@@ -1437,7 +1616,8 @@ class JetsonRepository(
     }
 
     private fun markIpTransportOffline(
-        message: String?, preserveDirectGroup: Boolean = false, diagnosticReason: String = "API_THRESHOLD"
+        message: String?, preserveDirectGroup: Boolean = false, diagnosticReason: String = "API_THRESHOLD",
+        preserveRtkMonitor: Boolean = false
     ) {
         ConnectionDiagnostics.record("transport_state", mapOf(
             "newState" to "DISCONNECTED", "reasonCode" to diagnosticReason,
@@ -1445,9 +1625,11 @@ class JetsonRepository(
             "actualTransport" to transportCoordinator.currentTransport()?.type
         ), incident = true)
         nextConnectionAttempt()
-        // Keep the existing RTK safety policy until its independent lease/data
-        // health can be established; preserving a group alone does not prove it.
-        stopMobileRtkRelayForClient(activeIpClient)
+        // A monitor lease already authenticates this target and has independent
+        // cellular/socket health. API timeouts alone do not revoke the Direct link.
+        if (!preserveRtkMonitor || retainedRtkMonitoringSession?.client !== activeIpClient || activeIpClient == null) {
+            stopMobileRtkRelayForClient(activeIpClient)
+        }
         connectingLanGeneration = null
         _connectingLanDeviceId.value = null
         _visibleConnectingLanDeviceId.value = null
@@ -1753,8 +1935,15 @@ class JetsonRepository(
         return withIpSession { client -> client.deleteUploadSource(jobId) }
     }
 
-    suspend fun getPipelines(): Result<List<ManagedPipeline>> {
-        return withIpSession { client -> client.getPipelines() }
+    suspend fun getPipelines(): Result<List<ManagedPipeline>> = pipelineControlMutex.withLock {
+        withIpSession { client ->
+            client.getPipelines().also { result ->
+                val relayPipelineId = mobileRtkRelayState.value.pipelineId
+                if (result.getOrNull()?.any {
+                    it.id == relayPipelineId && it.state in setOf(PipelineState.STOPPED, PipelineState.FAILED)
+                } == true) mobileRtkRelayManager.stopAfterAcquisition(client)
+            }
+        }
     }
 
     suspend fun surveyProjects() = withIpSession { it.surveyProjects() }
@@ -1778,7 +1967,7 @@ class JetsonRepository(
         withIpSession { it.pipelinePreflight(pipelineId, request) }
 
     suspend fun contextualStart(pipelineId: String, request: ContextualStartRequest) =
-        withIpSession { it.contextualStart(pipelineId, request) }
+        controlPipelineWithRelay(pipelineId, "start") { it.contextualStart(pipelineId, request) }
 
     suspend fun pipelineRun(runId: String) = withIpSession { it.pipelineRun(runId) }
 
@@ -1806,12 +1995,20 @@ class JetsonRepository(
         pipelineId: String,
         action: String,
         expectedRunId: String? = null
-    ): Result<ManagedPipeline> {
-        val client = activeIpClient ?: return missingIpConnection()
+    ): Result<ManagedPipeline> = controlPipelineWithRelay(pipelineId, action) {
+        it.controlPipeline(pipelineId, action, expectedRunId)
+    }
+
+    private suspend fun controlPipelineWithRelay(
+        pipelineId: String,
+        action: String,
+        command: suspend (LocalApiClient) -> Result<ManagedPipeline>
+    ): Result<ManagedPipeline> = pipelineControlMutex.withLock {
+        val client = activeIpClient ?: return@withLock missingIpConnection()
         val sessionRequest = transportCoordinator.beginRequest("pipeline-control")
-            ?: return missingIpConnection()
+            ?: return@withLock missingIpConnection()
         val transportType = sessionRequest.transport.type
-        var relayPrepared = false
+        var relayPreparation: MobileRtkRelayManager.Preparation.Ready? = null
         if (
             action in setOf("start", "restart") &&
             transportType == TransportType.WIFI_DIRECT &&
@@ -1819,53 +2016,77 @@ class JetsonRepository(
         ) {
             val prepared = mobileRtkRelayManager.prepare(pipelineId, client)
             if (prepared.isFailure) {
-                return Result.failure(
+                return@withLock Result.failure(
                     prepared.exceptionOrNull()
                         ?: IllegalStateException("모바일 RTK 중계를 준비하지 못했습니다.")
                 )
             }
-            relayPrepared = prepared.getOrThrow()
+            relayPreparation = prepared.getOrThrow() as? MobileRtkRelayManager.Preparation.Ready
         }
 
-        if (!transportCoordinator.isCurrent(sessionRequest)) {
+        if (client !== activeIpClient || !transportCoordinator.isCurrent(sessionRequest)) {
+            withContext(NonCancellable) { mobileRtkRelayManager.stopAfterAcquisition(client) }
             throw CancellationException("장치 연결이 변경되었습니다.")
         }
-        val controlled = client.controlPipeline(pipelineId, action, expectedRunId)
-        if (!transportCoordinator.isCurrent(sessionRequest)) {
+        val controlled = try {
+            command(client)
+        } catch (error: CancellationException) {
+            // Same-session cancellation after dispatch cannot prove start failed.
+            if (client !== activeIpClient || !transportCoordinator.isCurrent(sessionRequest)) {
+                withContext(NonCancellable) { mobileRtkRelayManager.stopAfterAcquisition(client) }
+            }
+            throw error
+        }
+        if (client !== activeIpClient || !transportCoordinator.isCurrent(sessionRequest)) {
+            withContext(NonCancellable) { mobileRtkRelayManager.stopAfterAcquisition(client) }
             throw CancellationException("장치 연결이 변경되어 작업 결과를 다시 확인해야 합니다.")
         }
         // A lost response does not prove that start/restart failed. A verified
         // same-session read can preserve the prepared relay without promoting
         // the original RESULT_UNKNOWN into command success.
         val unknownResult = controlled.exceptionOrNull() as? JetsonCommandResultUnknownException
-        val observedPipeline = unknownResult
-            ?.stateQueryResult?.getOrNull() as? ManagedPipeline
+        // Contextual start recovery queries the pipeline list; legacy control
+        // queries one pipeline. Neither read turns RESULT_UNKNOWN into success.
+        val observation = unknownResult?.stateQueryResult?.getOrNull()
+        val observedPipeline = when (observation) {
+            is ManagedPipeline -> observation
+            is List<*> -> observation.filterIsInstance<ManagedPipeline>().singleOrNull { it.id == pipelineId }
+            else -> null
+        }
         val observedTerminal = observedPipeline != null && observedPipeline.id == pipelineId &&
             observedPipeline.state in setOf(PipelineState.STOPPED, PipelineState.FAILED)
+        val completedTerminal = controlled.getOrNull()?.let {
+            it.id == pipelineId && it.state in setOf(PipelineState.STOPPED, PipelineState.FAILED)
+        } == true
         if (
-            relayPrepared && controlled.isFailure &&
-            (unknownResult == null || observedTerminal)
+            relayPreparation != null && (
+                completedTerminal || (controlled.isFailure && observedTerminal) ||
+                    (controlled.isFailure && unknownResult == null && relayPreparation.newlyCreated)
+            )
         ) {
-            mobileRtkRelayManager.stopIfOwnedBy(client)
+            mobileRtkRelayManager.stopIfPrepared(client, relayPreparation)
         } else if (
             controlled.isSuccess &&
             action == "stop" &&
             mobileRtkRelayState.value.pipelineId == pipelineId
         ) {
-            mobileRtkRelayManager.stopIfOwnedBy(client)
+            mobileRtkRelayManager.stopAfterAcquisition(client)
         }
-        return controlled
+        controlled
     }
 
     fun stopMobileRtkRelay() {
+        mobileRtkMonitoringPaused.value = true
         scope.launch {
             mobileRtkRelayManager.stop()
         }
     }
 
     private fun stopMobileRtkRelayForClient(client: LocalApiClient?) {
+        val owner = client ?: retainedRtkMonitoringSession?.client
+        if (owner === retainedRtkMonitoringSession?.client) mobileRtkMonitoringPaused.value = true
         scope.launch {
-            mobileRtkRelayManager.stopIfOwnedBy(client)
+            mobileRtkRelayManager.stopIfOwnedBy(owner)
         }
     }
 
@@ -2003,6 +2224,7 @@ private const val AUTOMATIC_LAN_RETRY_DIRECT_PROBE_WAIT_MILLIS = 500L
 private const val AUTOMATIC_DIRECT_START_DELAY_MILLIS = 750L
 private const val AUTOMATIC_BLE_RECONNECT_INTERVAL_MILLIS = 5_000L
 private const val IP_HEARTBEAT_INTERVAL_MILLIS = 1_000L
+private const val RTK_MONITOR_RETRY_INTERVAL_MILLIS = 30_000L
 private const val IP_CONNECTION_ATTEMPT_TIMEOUT_MILLIS = 20_000L
 private const val WIFI_DIRECT_API_MAX_ATTEMPTS = 3
 private const val WIFI_DIRECT_API_RETRY_DELAY_MILLIS = 750L

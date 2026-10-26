@@ -21,6 +21,7 @@ import com.example.jetsoncontroller.model.UploadJobState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
@@ -73,8 +74,40 @@ class DeviceAlertMonitor(
     fun start() {
         createChannels()
         startHealthAlerts()
+        startFanAlerts()
         startPipelineAlerts()
         startUploadAlerts()
+    }
+
+    private fun startFanAlerts() {
+        scope.launch {
+            FanAlertPoller(
+                transportState = repository.transportState,
+                readFan = repository::getFanStatus,
+                latches = preferences,
+                notificationsAllowed = ::notificationsAllowed,
+                publish = ::publishFanStallAlert
+            ).run()
+        }
+    }
+
+    internal suspend fun publishFanStallAlert(
+        transport: TransportState.Connected,
+        allowed: Boolean,
+        episodeId: String
+    ) {
+        val registeredName = repository.registeredDevices.value.firstOrNull {
+            it.deviceId.equals(transport.deviceId, ignoreCase = true)
+        }?.deviceName
+        val deviceName = transport.deviceName?.takeIf { it.isNotBlank() } ?: registeredName
+        val title = fanStallAlertTitle(deviceName)
+        val message = "팬 구동 출력이 있지만 회전수가 0 RPM으로 계속 확인됩니다. 수집을 중지하고 냉각 팬을 점검하세요."
+        history.addFanStall(
+            episodeId, title, message, AlertTarget(requireNotNull(transport.deviceId), deviceName)
+        )
+        currentCoroutineContext().ensureActive()
+        if (repository.transportState.value !== transport) return
+        if (allowed) notify(FAN_STALL_NOTIFICATION_ID, FAN_ALARM_CHANNEL_ID, title, message, episodeId)
     }
 
     private fun startHealthAlerts() {
@@ -258,6 +291,7 @@ class DeviceAlertMonitor(
 
     private fun createChannels() {
         val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(createFanAlarmChannel())
         manager.createNotificationChannel(
             NotificationChannel(
                 HEALTH_CHANNEL_ID,
@@ -303,7 +337,7 @@ class DeviceAlertMonitor(
         }
     }
 
-    private fun notify(id: Int, channelId: String, title: String, message: String) {
+    private fun notify(id: Int, channelId: String, title: String, message: String, fanEpisodeId: String? = null) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -321,8 +355,11 @@ class DeviceAlertMonitor(
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .apply { if (fanEpisodeId != null) setOnlyAlertOnce(true) }
             .build()
-        context.getSystemService(NotificationManager::class.java).notify(id, notification)
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (fanEpisodeId != null) manager.notify(fanEpisodeId, id, notification)
+        else manager.notify(id, notification)
     }
 
     private fun pipelineNotificationId(base: Int, pipelineId: String): Int =
@@ -379,6 +416,7 @@ class DeviceAlertMonitor(
         const val UPLOAD_CHANNEL_ID = "jetson_upload_alerts"
         const val STORAGE_NOTIFICATION_ID = 2001
         const val TEMPERATURE_NOTIFICATION_ID = 2002
+        const val FAN_STALL_NOTIFICATION_ID = 2003
         const val PIPELINE_STARTED_NOTIFICATION_BASE = 10_000
         const val PIPELINE_FAILED_NOTIFICATION_BASE = 30_000
         const val UPLOAD_STARTED_NOTIFICATION_BASE = 50_000

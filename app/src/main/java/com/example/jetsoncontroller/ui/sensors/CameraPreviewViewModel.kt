@@ -119,15 +119,16 @@ class CameraPreviewViewModel(
                         ?: error("카메라 프레임 형식을 읽을 수 없습니다.")
                 }
                 if (generation != streamGeneration || !currentTargetConnected(current.deviceId)) return@withLock FrameLoadResult.FAILURE
+                val receivedAt = System.currentTimeMillis()
                 _uiState.value = CameraPreviewUiState(
                     deviceId = current.deviceId,
                     deviceName = current.deviceName,
                     targetConnected = current.targetConnected,
                     targetStillCurrent = current.targetStillCurrent,
-                    checkedAtEpochMillis = System.currentTimeMillis(),
+                    checkedAtEpochMillis = receivedAt,
                     frame = bitmap,
                     frameRevision = preview.revision,
-                    updatedAtEpochMillis = System.currentTimeMillis()
+                    updatedAtEpochMillis = receivedAt
                 )
                 if (preview.revision == null) {
                     FrameLoadResult.LEGACY

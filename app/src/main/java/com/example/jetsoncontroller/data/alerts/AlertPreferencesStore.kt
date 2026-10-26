@@ -6,10 +6,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 
 private val Context.alertDataStore: DataStore<Preferences> by
     preferencesDataStore(name = "device_alerts")
@@ -27,8 +30,52 @@ data class AlertSettings(
     val temperatureAlertLatched: Boolean = false
 )
 
-class AlertPreferencesStore(context: Context) {
-    private val dataStore = context.applicationContext.alertDataStore
+class AlertPreferencesStore internal constructor(
+    private val dataStore: DataStore<Preferences>
+) : FanStallLatchStore {
+    constructor(context: Context) : this(context.applicationContext.alertDataStore)
+
+    override suspend fun claimFanStall(deviceId: String): String? {
+        var episodeId: String? = null
+        dataStore.edit { preferences ->
+            val key = fanLatchKey(deviceId)
+            val latched = preferences[FAN_STALL_LATCHES].orEmpty()
+            if (key.isNotEmpty()) {
+                val pendingKey = fanPendingKey(key)
+                episodeId = preferences[pendingKey]
+                if (episodeId == null && key !in latched) {
+                    episodeId = "fan-stall-${UUID.randomUUID()}"
+                    preferences[pendingKey] = requireNotNull(episodeId)
+                }
+            }
+        }
+        return episodeId
+    }
+
+    override suspend fun pendingFanStall(deviceId: String): String? =
+        dataStore.data.first()[fanPendingKey(deviceId)]
+
+    override suspend fun completeFanStall(deviceId: String, episodeId: String) {
+        dataStore.edit { preferences ->
+            val pendingKey = fanPendingKey(deviceId)
+            if (preferences[pendingKey] == episodeId) {
+                preferences[FAN_STALL_LATCHES] =
+                    preferences[FAN_STALL_LATCHES].orEmpty() + fanLatchKey(deviceId)
+                preferences.remove(pendingKey)
+            }
+        }
+    }
+
+    override suspend fun clearFanStall(deviceId: String) {
+        dataStore.edit { preferences ->
+            val latched = preferences[FAN_STALL_LATCHES].orEmpty()
+            val key = fanLatchKey(deviceId)
+            if (key in latched) preferences[FAN_STALL_LATCHES] = latched - key
+        }
+    }
+
+    private fun fanPendingKey(deviceId: String) =
+        stringPreferencesKey("fan_stall_pending_${fanLatchKey(deviceId)}")
 
     val settings: Flow<AlertSettings> = dataStore.data.map { preferences ->
         AlertSettings(
@@ -114,6 +161,7 @@ class AlertPreferencesStore(context: Context) {
         val UPLOAD_ENDED_ENABLED = booleanPreferencesKey("upload_ended_enabled")
         val STORAGE_LATCHED = booleanPreferencesKey("storage_latched")
         val TEMPERATURE_LATCHED = booleanPreferencesKey("temperature_latched")
+        val FAN_STALL_LATCHES = stringSetPreferencesKey("fan_stall_latched_devices")
         val DASHBOARD_HEALTH_DISMISSALS =
             stringSetPreferencesKey("dashboard_health_dismissals")
     }

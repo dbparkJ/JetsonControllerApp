@@ -52,11 +52,12 @@ data class AlertRecord(
     val target: AlertTarget? = null
 )
 
-class AlertHistoryStore(
-    context: Context,
+class AlertHistoryStore internal constructor(
+    private val dataStore: DataStore<Preferences>,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
-    private val dataStore = context.applicationContext.alertHistoryDataStore
+    constructor(context: Context, clock: () -> Long = System::currentTimeMillis) :
+        this(context.applicationContext.alertHistoryDataStore, clock)
     private val gson = Gson()
     private val listType = object : TypeToken<List<AlertRecord>>() {}.type
 
@@ -76,10 +77,26 @@ class AlertHistoryStore(
         destination: AlertDestination,
         severity: AlertSeverity,
         target: AlertTarget? = null
+    ): AlertRecord = addRecord(title, message, destination, severity, target)
+
+    internal suspend fun addFanStall(
+        episodeId: String,
+        title: String,
+        message: String,
+        target: AlertTarget
+    ): AlertRecord = addRecord(title, message, AlertDestination.SENSORS, AlertSeverity.ERROR, target, episodeId)
+
+    private suspend fun addRecord(
+        title: String,
+        message: String,
+        destination: AlertDestination,
+        severity: AlertSeverity,
+        target: AlertTarget?,
+        fanEpisodeId: String? = null
     ): AlertRecord {
         val timestamp = clock()
         val alert = AlertRecord(
-            id = "$timestamp-${UUID.randomUUID()}",
+            id = fanEpisodeId ?: "$timestamp-${UUID.randomUUID()}",
             title = title,
             message = message,
             destination = destination,
@@ -87,12 +104,19 @@ class AlertHistoryStore(
             createdAtEpochMillis = timestamp,
             target = target
         )
+        var saved = alert
         dataStore.edit { preferences ->
+            val current = decode(preferences[ALERTS_JSON])
+            val existing = fanEpisodeId?.let { id -> current.firstOrNull { it.id == id } }
+            if (existing != null) {
+                saved = existing
+                return@edit
+            }
             preferences[ALERTS_JSON] = gson.toJson(
-                appendAlert(decode(preferences[ALERTS_JSON]), alert)
+                appendAlert(current, alert)
             )
         }
-        return alert
+        return saved
     }
 
     suspend fun markRead(alertId: String) {

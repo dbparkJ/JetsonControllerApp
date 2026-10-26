@@ -53,7 +53,8 @@ data class WifiDirectState(
     val apiStatus: WifiDirectApiStatus = WifiDirectApiStatus.IDLE,
     val apiDeviceName: String? = null,
     val apiError: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val bootstrapPeer: WifiDirectPeer? = null
 )
 
 class WifiDirectManager(
@@ -364,6 +365,7 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun connect(peer: WifiDirectPeer) {
+        clearBootstrap()
         if (connectionSession.phase != WifiDirectConnectionSession.Phase.IDLE) {
             return
         }
@@ -567,10 +569,12 @@ class WifiDirectManager(
     }
 
     fun cancelConnect() {
+        clearBootstrap()
         beginConnectionCleanup()
     }
 
     fun disconnect() {
+        clearBootstrap()
         beginConnectionCleanup()
     }
 
@@ -593,6 +597,7 @@ class WifiDirectManager(
             apiStatus = WifiDirectApiStatus.IDLE,
             apiDeviceName = null,
             apiError = null,
+            bootstrapPeer = null,
             error = error
         )
         stopDiscovery()
@@ -765,6 +770,7 @@ class WifiDirectManager(
             apiStatus = WifiDirectApiStatus.IDLE,
             apiDeviceName = null,
             apiError = null,
+            bootstrapPeer = null,
             error = error
         )
     }
@@ -801,11 +807,29 @@ class WifiDirectManager(
     }
 
     fun markApiError(message: String) {
-        if (!_state.value.connected) return
+        if (!_state.value.connected && _state.value.bootstrapPeer == null) return
         _state.value = _state.value.copy(
             apiStatus = WifiDirectApiStatus.ERROR,
             apiDeviceName = null,
             apiError = message
+        )
+    }
+
+    fun markBootstrapPreparing(peer: WifiDirectPeer) {
+        _state.value = _state.value.copy(
+            bootstrapPeer = peer,
+            apiStatus = WifiDirectApiStatus.CHECKING,
+            apiError = null,
+            error = null
+        )
+    }
+
+    fun clearBootstrap() {
+        if (_state.value.bootstrapPeer == null) return
+        _state.value = _state.value.copy(
+            bootstrapPeer = null,
+            apiStatus = WifiDirectApiStatus.IDLE,
+            apiError = null
         )
     }
 

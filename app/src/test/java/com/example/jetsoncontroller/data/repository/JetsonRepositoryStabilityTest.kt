@@ -10,6 +10,7 @@ import com.example.jetsoncontroller.data.network.LanDiscoveryManager
 import com.example.jetsoncontroller.data.network.LocalApiClient
 import com.example.jetsoncontroller.data.network.LocalControlApi
 import com.example.jetsoncontroller.data.network.JetsonCommandResultUnknownException
+import com.example.jetsoncontroller.data.network.JetsonResponseSignatureException
 import com.example.jetsoncontroller.data.network.WifiAccessPointScanner
 import com.example.jetsoncontroller.data.network.WifiAccessPointState
 import com.example.jetsoncontroller.data.network.WifiDirectManager
@@ -24,15 +25,19 @@ import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.BlePairingState
 import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.model.DeviceEndpoint
+import com.example.jetsoncontroller.model.EndpointTransport
 import com.example.jetsoncontroller.model.JetsonDevice
 import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.MobileRtkRelayState
+import com.example.jetsoncontroller.model.MobileRtkRelayConfig
 import com.example.jetsoncontroller.model.ControlCapabilities
 import com.example.jetsoncontroller.model.ManagedPipeline
+import com.example.jetsoncontroller.model.ContextualStartRequest
 import com.example.jetsoncontroller.model.PipelineState
 import com.example.jetsoncontroller.model.canonicalBleNameForDeviceId
 import com.example.jetsoncontroller.protocol.JetsonCommand
 import java.io.IOException
+import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
@@ -66,6 +71,141 @@ import kotlin.coroutines.resume
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class JetsonRepositoryStabilityTest {
+    @Test
+    fun `manual P2P waits for selected BLE clock preparation and cancellation blocks late Ready`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.enableBootstrap()
+            val peer = WifiDirectPeer("LAB device", "00:11:22:33:44:55", 3)
+            h.repository.prepareManualWifiDirect(DEVICE_ID)
+            h.repository.connectWifiDirect(peer)
+            testScheduler.runCurrent()
+            assertEquals(0, h.directConnectCalls())
+            h.bleState.value = ConnectionState.Ready("LAB device")
+            testScheduler.runCurrent()
+            assertEquals(1, h.directConnectCalls())
+        }
+        Harness(testScheduler).use { h ->
+            h.enableBootstrap()
+            h.repository.prepareManualWifiDirect(DEVICE_ID)
+            h.repository.connectWifiDirect(WifiDirectPeer("LAB device", "00:11:22:33:44:55", 3))
+            testScheduler.runCurrent()
+            h.repository.cancelWifiDirectConnection()
+            h.bleState.value = ConnectionState.Ready("LAB device")
+            testScheduler.runCurrent()
+            assertEquals(0, h.directConnectCalls())
+        }
+    }
+
+    @Test
+    fun `automatic P2P also waits for BLE clock preparation`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.enableBootstrap()
+            h.repository.connectRegisteredAutomatically(DEVICE_ID)
+            h.repository.startWifiDirectDiscovery()
+            h.directState.value = WifiDirectState(peers = listOf(
+                WifiDirectPeer(canonicalBleNameForDeviceId(DEVICE_ID), "00:11:22:33:44:55", 3)
+            ))
+            testScheduler.runCurrent()
+            assertEquals(0, h.directConnectCalls())
+            h.bleState.value = ConnectionState.Ready("LAB device")
+            testScheduler.runCurrent()
+            assertEquals(1, h.directConnectCalls())
+        }
+    }
+
+    @Test
+    fun `manual Direct reuses idle group after established LAN and prepares RTK on start`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateLan()
+            h.probeSucceeds = true
+            h.mobileRtkRelay = true
+            h.pipelineResponse = pipeline(PipelineState.RUNNING)
+            h.repository.prepareManualWifiDirect(DEVICE_ID.uppercase())
+            testScheduler.runCurrent()
+
+            val connected = h.repository.transportState.value as TransportState.Connected
+            assertEquals(TransportType.WIFI_DIRECT, connected.type)
+            assertEquals(DEVICE_ID, connected.deviceId)
+            assertEquals(1, h.probeCalls)
+            assertEquals(0, h.directConnectCalls())
+            assertEquals(0, h.cleanupCalls())
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isSuccess)
+            assertEquals(listOf("prepare", "contextualStart"), h.pipelineEvents)
+            assertTrue(h.relayState.value.active)
+            // Publishing Direct success must not cause another probe.
+            testScheduler.runCurrent()
+            assertEquals(1, h.probeCalls)
+        }
+    }
+
+    @Test
+    fun `manual Direct without registered target leaves LAN intact`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateLan()
+            h.repository.prepareManualWifiDirect("unregistered")
+            testScheduler.runCurrent()
+            assertEquals(TransportType.LAN, (h.repository.transportState.value as TransportState.Connected).type)
+            assertEquals(0, h.probeCalls)
+            assertFalse(h.manualDirectRequested())
+        }
+    }
+
+    @Test
+    fun `manual Direct with missing credential cannot probe or prepare RTK`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateLan()
+            h.secretAvailable = false
+            h.repository.prepareManualWifiDirect(DEVICE_ID)
+            testScheduler.runCurrent()
+            assertEquals(0, h.probeCalls)
+            assertTrue(h.repository.transportState.value !is TransportState.Connected)
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isFailure)
+            assertTrue(h.pipelineEvents.isEmpty())
+        }
+    }
+
+    @Test
+    fun `manual Direct rejects another devices API on the existing group`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activateLan()
+            h.probeSucceeds = true
+            h.helloDeviceId = OTHER_DEVICE_ID
+            h.repository.prepareManualWifiDirect(DEVICE_ID)
+            testScheduler.advanceTimeBy(2_251)
+            testScheduler.runCurrent()
+            assertEquals(3, h.probeCalls)
+            assertTrue(h.repository.transportState.value !is TransportState.Connected)
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isFailure)
+            assertTrue(h.pipelineEvents.isEmpty())
+        }
+    }
+
+    @Test
+    fun `LAN authentication cannot publish owner learned from current P2P group`() = runTest {
+        Mockito.mockStatic(android.util.Log::class.java).use {
+            Harness(testScheduler).use { h ->
+                h.directState.value = WifiDirectState()
+                testScheduler.runCurrent()
+                val cleanupBefore = h.cleanupCalls()
+                h.probeSucceeds = true
+                h.holdProbe = true
+                h.repository.connectLan(DeviceEndpoint(DEVICE_ID, "LAB", "192.0.2.1", 8000, EndpointTransport.LAN))
+                testScheduler.runCurrent()
+                val pending = requireNotNull(h.pendingProbe)
+                h.directState.value = WifiDirectState(connected = true, groupOwnerAddress = "192.0.2.1")
+                testScheduler.runCurrent()
+                assertEquals(1, h.probeCalls)
+                h.holdProbe = false
+                // Suspended Kotlin Result returns are boxed at the continuation boundary.
+                pending.resume(Result.success(h.helloResponse()))
+                testScheduler.runCurrent()
+                assertEquals(TransportType.WIFI_DIRECT, (h.repository.transportState.value as TransportState.Connected).type)
+                assertEquals(2, h.probeCalls)
+                assertEquals(cleanupBefore, h.cleanupCalls())
+            }
+        }
+    }
+
     @Test
     fun `diagnostics separate current API threshold from physical group loss`() = runTest {
         val events = mutableListOf<Pair<String, Map<String, Any?>>>()
@@ -306,7 +446,7 @@ class JetsonRepositoryStabilityTest {
     fun `R7 manual Direct reconnects through the existing fallback when wifi is absent`() = runTest {
         Harness(testScheduler).use { h ->
             h.activateDirect()
-            h.repository.configureAutomaticConnectivity(true, false, true, false)
+            h.repository.configureAutomaticConnectivity(true, false, true, true)
             testScheduler.runCurrent()
             h.directState.value = WifiDirectState(peers = listOf(
                 WifiDirectPeer(canonicalBleNameForDeviceId(DEVICE_ID), "02:00:00:00:00:01", 3)
@@ -314,6 +454,9 @@ class JetsonRepositoryStabilityTest {
             testScheduler.runCurrent()
             assertTrue(h.manualDirectRequested())
             testScheduler.advanceTimeBy(750)
+            testScheduler.runCurrent()
+            assertEquals(0, h.directConnectCalls())
+            h.bleState.value = ConnectionState.Ready("LAB device")
             testScheduler.runCurrent()
             assertEquals(1, h.directConnectCalls())
         }
@@ -464,27 +607,453 @@ class JetsonRepositoryStabilityTest {
         }
     }
 
+    @Test
+    fun `contextual start prepares relay before dispatch and keeps it for running acquisition`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineResponse = pipeline(PipelineState.RUNNING)
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isSuccess)
+            assertEquals(listOf("prepare", "contextualStart"), h.pipelineEvents)
+            assertEquals(0, h.rtkStopCalls())
+        }
+    }
+
+    @Test
+    fun `contextual start cannot dispatch when cellular relay preparation fails`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.prepareError = IOException("cellular unavailable")
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isFailure)
+            assertEquals(listOf("prepare"), h.pipelineEvents)
+        }
+    }
+
+    @Test
+    fun `contextual start without configured NTRIP still dispatches`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.relayAvailable = false
+            h.pipelineResponse = pipeline(PipelineState.RUNNING)
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isSuccess)
+            assertEquals(listOf("prepare", "contextualStart"), h.pipelineEvents)
+            assertEquals(0, h.rtkStopCalls())
+        }
+    }
+
+    @Test
+    fun `contextual start failure releases its prepared relay`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isFailure)
+            assertEquals(1, h.rtkStopCalls())
+        }
+    }
+
+    @Test
+    fun `definite start failure cannot release a reused running relay`() = runTest {
+        for (action in listOf("contextual", "start", "restart")) {
+            Harness(testScheduler).use { h ->
+                h.activatePipelineControl()
+                h.relayNewlyCreated = false
+                h.relayState.value = MobileRtkRelayState(active = true, pipelineId = "lab-pipeline")
+                h.pipelineError = IllegalStateException("409 already running")
+
+                val result = if (action == "contextual") {
+                    h.repository.contextualStart("lab-pipeline", startRequest())
+                } else {
+                    h.repository.controlPipeline("lab-pipeline", action)
+                }
+
+                assertTrue(result.isFailure)
+                assertEquals(0, h.rtkStopCalls())
+                assertTrue(h.relayState.value.active)
+            }
+        }
+    }
+
+    @Test
+    fun `failed relay refresh preserves active acquisition and skips contextual dispatch`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.relayNewlyCreated = false
+            h.relayState.value = MobileRtkRelayState(active = true, pipelineId = "lab-pipeline")
+            h.prepareError = IOException("lease refresh failed")
+
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isFailure)
+
+            assertEquals(listOf("prepare"), h.pipelineEvents)
+            assertEquals(0, h.rtkStopCalls())
+            assertTrue(h.relayState.value.active)
+        }
+    }
+
+    @Test
+    fun `reused relay unknown result is retained until matching terminal observation`() = runTest {
+        for (state in listOf(PipelineState.RUNNING, PipelineState.UNKNOWN, PipelineState.STOPPED, PipelineState.FAILED)) {
+            Harness(testScheduler).use { h ->
+                h.activatePipelineControl()
+                h.relayNewlyCreated = false
+                val unknown = JetsonCommandResultUnknownException(
+                    "contextual start", Result.success(listOf(pipeline(state))), IOException("response lost")
+                )
+                h.pipelineError = unknown
+
+                assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).exceptionOrNull() === unknown)
+
+                val terminal = state in setOf(PipelineState.STOPPED, PipelineState.FAILED)
+                assertEquals(if (terminal) 1 else 0, h.rtkStopCalls())
+                assertEquals(!terminal, h.relayState.value.active)
+            }
+        }
+    }
+
+    @Test
+    fun `reused relay terminal receipt still releases acquisition resources`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.relayNewlyCreated = false
+            h.pipelineResponse = pipeline(PipelineState.STOPPED)
+
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isSuccess)
+
+            assertEquals(1, h.rtkStopCalls())
+            assertFalse(h.relayState.value.active)
+        }
+    }
+
+    @Test
+    fun `new relay definite failure cleanup uses the exact preparation token`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineError = IllegalStateException("409 rejected")
+
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isFailure)
+
+            assertEquals(1, h.rtkStopCalls())
+            assertFalse(h.relayState.value.active)
+            assertTrue(h.cleanedPreparation === h.lastPreparation)
+        }
+    }
+
+    @Test
+    fun `contextual start receipt already terminal releases relay`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineResponse = pipeline(PipelineState.FAILED)
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isSuccess)
+            assertEquals(1, h.rtkStopCalls())
+        }
+    }
+
+    @Test
+    fun `contextual start on transport without relay capability skips cellular preparation`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl(relayCapability = false)
+            h.pipelineResponse = pipeline(PipelineState.RUNNING)
+            assertTrue(h.repository.contextualStart("lab-pipeline", startRequest()).isSuccess)
+            assertEquals(listOf("contextualStart"), h.pipelineEvents)
+        }
+    }
+
+    @Test
+    fun `contextual start unknown list read only releases relay for same terminal pipeline`() = runTest {
+        val observations = listOf(
+            listOf(pipeline(PipelineState.RUNNING)) to false,
+            listOf(pipeline(PipelineState.STOPPED)) to true,
+            listOf(pipeline(PipelineState.FAILED)) to true,
+            listOf(pipeline(PipelineState.UNKNOWN)) to false,
+            listOf(pipeline(PipelineState.STOPPED).copy(id = "other")) to false,
+            null to false,
+            emptyList<ManagedPipeline>() to false
+        )
+        for ((observation, shouldStop) in observations) {
+            Harness(testScheduler).use { h ->
+                h.activatePipelineControl()
+                val unknown = JetsonCommandResultUnknownException(
+                    "contextual start",
+                    observation?.let { Result.success(it) } ?: Result.failure<Any>(IOException("query unavailable")),
+                    IOException("response lost")
+                )
+                h.pipelineError = unknown
+                val result = h.repository.contextualStart("lab-pipeline", startRequest())
+                assertTrue(result.exceptionOrNull() === unknown)
+                assertEquals(if (shouldStop) 1 else 0, h.rtkStopCalls())
+            }
+        }
+    }
+
+    @Test
+    fun `contextual stop mismatch preserves relay and accepted stop releases it`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.relayState.value = MobileRtkRelayState(active = true, pipelineId = "lab-pipeline")
+            h.pipelineError = IllegalStateException("ACTIVE_RUN_MISMATCH")
+            assertTrue(h.repository.controlPipeline("lab-pipeline", "stop", "old-run").isFailure)
+            assertEquals(0, h.rtkStopCalls())
+            h.pipelineResponse = pipeline(PipelineState.STOPPED)
+            assertTrue(h.repository.controlPipeline("lab-pipeline", "stop", "current-run").isSuccess)
+            assertEquals(1, h.rtkStopCalls())
+        }
+    }
+
+    @Test
+    fun `terminal polling only requests acquisition cleanup for matching terminal pipeline`() = runTest {
+        for (state in listOf(PipelineState.RUNNING, PipelineState.UNKNOWN, PipelineState.STOPPED, PipelineState.FAILED)) {
+            Harness(testScheduler).use { h ->
+                h.activatePipelineControl()
+                h.relayState.value = MobileRtkRelayState(active = true, pipelineId = "lab-pipeline")
+                h.pipelineList = listOf(pipeline(PipelineState.STOPPED).copy(id = "other"), pipeline(state))
+                assertTrue(h.repository.getPipelines().isSuccess)
+                assertEquals(if (state in listOf(PipelineState.STOPPED, PipelineState.FAILED)) 1 else 0, h.rtkStopCalls())
+            }
+        }
+    }
+
+    @Test
+    fun `session replacement during preparation discards start and releases only old owner`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.beforePrepareResult = { h.coordinator.disconnect() }
+            try {
+                h.repository.contextualStart("lab-pipeline", startRequest())
+                throw AssertionError("Stale session must cancel")
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                assertEquals(listOf("prepare"), h.pipelineEvents)
+                assertEquals(1, h.rtkStopCalls())
+            }
+        }
+    }
+
+    @Test
+    fun `session replacement after contextual dispatch discards response and cleans old owner`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineResponse = pipeline(PipelineState.RUNNING)
+            h.beforeCommandResult = { h.coordinator.disconnect() }
+            try {
+                h.repository.contextualStart("lab-pipeline", startRequest())
+                throw AssertionError("Stale session must cancel")
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                assertEquals(listOf("prepare", "contextualStart"), h.pipelineEvents)
+                assertEquals(1, h.rtkStopCalls())
+            }
+        }
+    }
+
+    @Test
+    fun `same session cancellation after contextual dispatch preserves uncertain acquisition relay`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.beforeCommandResult = { throw kotlinx.coroutines.CancellationException("response interrupted") }
+            try {
+                h.repository.contextualStart("lab-pipeline", startRequest())
+                throw AssertionError("Command cancellation must propagate")
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                assertEquals(0, h.rtkStopCalls())
+            }
+        }
+    }
+
+    private fun startRequest() = ContextualStartRequest("project", "section", 1, 1, "policy", "preflight", "request")
+
+    @Test
+    fun `monitor prepares before acquisition and ignores duplicate connection signals`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED).copy(id = "unsupported"), pipeline(PipelineState.FAILED))
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+            assertTrue(h.relayState.value.active)
+            h.directState.value = h.directState.value.copy(error = "temporary discovery error")
+            h.enableMonitoring()
+            testScheduler.advanceTimeBy(60_000)
+            testScheduler.runCurrent()
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+            assertEquals(0, h.rtkStopCalls())
+        }
+    }
+
+    @Test
+    fun `monitor discovery retries with a bound and prepares when supported pipeline appears`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED).copy(id = "unsupported"))
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            assertTrue(h.pipelineEvents.isEmpty())
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+            testScheduler.advanceTimeBy(29_999)
+            testScheduler.runCurrent()
+            assertTrue(h.pipelineEvents.isEmpty())
+            testScheduler.advanceTimeBy(1)
+            testScheduler.runCurrent()
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+        }
+    }
+
+    @Test
+    fun `failed monitor preparation retries once per interval not once per pipeline`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED), pipeline(PipelineState.STOPPED).copy(id = "second"))
+            h.prepareError = IOException("사용 가능한 모바일 데이터 연결이 없습니다.")
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+            testScheduler.advanceTimeBy(30_000)
+            testScheduler.runCurrent()
+            assertEquals(2, h.pipelineEvents.size)
+        }
+    }
+
+    @Test
+    fun `monitor requires capability permissions selected device and Direct transport`() = runTest {
+        for (reason in listOf("capability", "permission", "target", "LAN", "BLE", "link")) {
+            Harness(testScheduler).use { h ->
+                h.activatePipelineControl(relayCapability = reason != "capability")
+                h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+                if (reason != "permission") h.enableMonitoring()
+                when (reason) {
+                    "target" -> h.selectOtherTarget()
+                    "LAN" -> h.coordinator.setActiveTransport(FakeTransport(TransportType.LAN), deviceId = DEVICE_ID)
+                    "BLE" -> h.coordinator.setActiveTransport(FakeTransport(TransportType.BLE), deviceId = DEVICE_ID)
+                    "link" -> h.directState.value = h.directState.value.copy(connected = false)
+                }
+                testScheduler.runCurrent()
+                assertTrue("Unexpected preparation for $reason", h.pipelineEvents.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `monitor cleans owned relay on actual link loss target transport and permission changes`() = runTest {
+        for (reason in listOf("permission", "target", "LAN", "BLE", "link")) {
+            Harness(testScheduler).use { h ->
+                h.activatePipelineControl()
+                h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+                h.enableMonitoring()
+                testScheduler.runCurrent()
+                assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+                when (reason) {
+                    "permission" -> h.enableMonitoring(false)
+                    "target" -> h.selectOtherTarget()
+                    "LAN" -> h.coordinator.setActiveTransport(FakeTransport(TransportType.LAN), deviceId = DEVICE_ID)
+                    "BLE" -> h.coordinator.setActiveTransport(FakeTransport(TransportType.BLE), deviceId = DEVICE_ID)
+                    "link" -> h.directState.value = h.directState.value.copy(connected = false)
+                }
+                testScheduler.runCurrent()
+                assertTrue("Missing cleanup for $reason", h.rtkStopCalls() > 0)
+            }
+        }
+    }
+
+    @Test
+    fun `late monitor preparation after target change is cleaned before another attempt`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+            h.beforePrepareResult = { h.selectOtherTarget() }
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+            assertTrue(h.rtkStopCalls() > 0)
+        }
+    }
+
+    @Test
+    fun `explicit relay stop pauses automatic monitoring until another authenticated connection`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+            h.repository.stopMobileRtkRelay()
+            h.relayState.value = MobileRtkRelayState()
+            testScheduler.runCurrent()
+            testScheduler.advanceTimeBy(60_000)
+            testScheduler.runCurrent()
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+        }
+    }
+
+    @Test
+    fun `authenticated monitor survives transient API outage and finite recovery until actual disconnect`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            h.failStatus()
+            repeat(IP_STATUS_FAILURE_LIMIT) { assertFalse(h.repository.refreshStatus()) }
+            testScheduler.advanceTimeBy(60_000)
+            testScheduler.runCurrent()
+            assertTrue(h.repository.transportState.value is TransportState.Error)
+            assertTrue(h.relayState.value.active)
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+            assertEquals(0, h.rtkStopCalls())
+            h.repository.disconnect()
+            testScheduler.runCurrent()
+            assertTrue(h.rtkStopCalls() > 0)
+        }
+    }
+
+    @Test
+    fun `monitor is retired when authenticated status fails signature verification`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            h.failStatus(JetsonResponseSignatureException())
+            repeat(IP_STATUS_FAILURE_LIMIT) { assertFalse(h.repository.refreshStatus()) }
+            testScheduler.runCurrent()
+            assertTrue(h.rtkStopCalls() > 0)
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+        }
+    }
+
+    @Test
+    fun `monitor retained through timeout is retired if recovery fails signature verification`() = runTest {
+        Harness(testScheduler).use { h ->
+            h.activatePipelineControl()
+            h.pipelineList = listOf(pipeline(PipelineState.STOPPED))
+            h.enableMonitoring()
+            testScheduler.runCurrent()
+            h.probeFailure = JetsonResponseSignatureException()
+            h.failStatus()
+            repeat(IP_STATUS_FAILURE_LIMIT) { assertFalse(h.repository.refreshStatus()) }
+            testScheduler.runCurrent()
+            assertTrue(h.rtkStopCalls() > 0)
+            assertEquals(listOf("prepareForMonitoring"), h.pipelineEvents)
+        }
+    }
+
     private fun pipeline(state: PipelineState) = ManagedPipeline(
         id = "lab-pipeline", label = "LAB pipeline", state = state,
         entrypoint = "unused", config = "unused", virtualenv = "unused"
     )
 
-    private class FakeTransport : ControlTransport {
-        override val type = TransportType.WIFI_DIRECT
+    private class FakeTransport(override val type: TransportType = TransportType.WIFI_DIRECT) : ControlTransport {
         override val capabilities = TransportCapabilities(true, true, true, true, true)
         var statusRequests = 0
+        var statusSucceeds = false
+        var statusFailure: Throwable = IOException("Test transport: transient API timeout")
         var beforeResponse: () -> Unit = {}
         override suspend fun ping() = true
         override suspend fun getStatus(): Result<JetsonStatus> {
             statusRequests += 1
             beforeResponse()
-            return Result.failure(IOException("Test transport: transient API timeout"))
+            if (statusSucceeds) return Result.success(JetsonStatus())
+            return Result.failure(statusFailure)
         }
         override suspend fun sendCommand(command: JetsonCommand, payload: ByteArray) = Result.success(Unit)
         override suspend fun disconnect() = Unit
     }
 
     private class Harness(private val scheduler: TestCoroutineScheduler) : AutoCloseable {
+        val bleState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
         private val constructions = mutableListOf<MockedConstruction<*>>()
         val directState = MutableStateFlow(
             WifiDirectState(connected = true, groupOwnerAddress = "192.0.2.1")
@@ -493,6 +1062,7 @@ class JetsonRepositoryStabilityTest {
         private lateinit var directManager: WifiDirectManager
         private lateinit var relayManager: MobileRtkRelayManager
         var probeSucceeds = false
+        var probeFailure: Throwable = IOException("LAB API unavailable")
         var holdProbe = false
         var helloDeviceId = DEVICE_ID
         var probeCalls = 0
@@ -500,7 +1070,20 @@ class JetsonRepositoryStabilityTest {
         val probeTimes = mutableListOf<Long>()
         var pendingProbe: CancellableContinuation<Any>? = null
         var pipelineError: Throwable = IOException("LAB command unavailable")
+        var pipelineResponse: ManagedPipeline? = null
+        var pipelineList = emptyList<ManagedPipeline>()
+        var prepareError: Throwable? = null
+        var relayAvailable = true
+        var relayNewlyCreated = true
+        var lastPreparation: MobileRtkRelayManager.Preparation.Ready? = null
+        var cleanedPreparation: MobileRtkRelayManager.Preparation.Ready? = null
+        var beforePrepareResult: () -> Unit = {}
+        var beforeCommandResult: () -> Unit = {}
+        val pipelineEvents = mutableListOf<String>()
+        val relayState = MutableStateFlow(MobileRtkRelayState())
         var mobileTimeSync = false
+        var mobileRtkRelay = false
+        var secretAvailable = true
         var timeSyncCalls = 0
         val repository: JetsonRepository
         val coordinator: TransportCoordinator
@@ -514,7 +1097,8 @@ class JetsonRepositoryStabilityTest {
                     Mockito.`when`(mock.scanState).thenReturn(MutableStateFlow<BleScanState>(BleScanState.Idle))
                 }
                 construction(BleGattClient::class.java) { mock ->
-                    Mockito.`when`(mock.connectionState).thenReturn(MutableStateFlow<ConnectionState>(ConnectionState.Disconnected))
+                    Mockito.`when`(mock.connectionState).thenReturn(bleState)
+                    Mockito.`when`(mock.currentDeviceId()).thenReturn(DEVICE_ID)
                     Mockito.`when`(mock.pairingState).thenReturn(MutableStateFlow<BlePairingState>(BlePairingState.Idle))
                     Mockito.`when`(mock.status).thenReturn(MutableStateFlow(JetsonStatus()))
                 }
@@ -524,7 +1108,7 @@ class JetsonRepositoryStabilityTest {
                 }
                 construction(MobileRtkRelayManager::class.java, prepareRelay = true) { mock ->
                     relayManager = mock
-                    Mockito.`when`(mock.state).thenReturn(MutableStateFlow(MobileRtkRelayState()))
+                    Mockito.`when`(mock.state).thenReturn(relayState)
                 }
                 construction(WifiAccessPointScanner::class.java) { mock ->
                     Mockito.`when`(mock.state).thenReturn(wifiState)
@@ -554,25 +1138,32 @@ class JetsonRepositoryStabilityTest {
                                         invocation.rawArguments.last() as Continuation<Any>
                                     )
                                 } else {
-                                    if (!probeSucceeds) throw IOException("LAB API unavailable")
+                                    if (!probeSucceeds) throw probeFailure
                                     helloResponse()
                                 }
                             }
                             "getStatus" -> JetsonStatus()
-                            "getCapabilities" -> LocalControlApi.CapabilitiesResponse(mobileTimeSync = mobileTimeSync)
+                            "getCapabilities" -> LocalControlApi.CapabilitiesResponse(mobileTimeSync = mobileTimeSync, mobileRtkRelay = mobileRtkRelay)
                             "synchronizeSystemTime" -> { timeSyncCalls += 1; null }
                             // Kotlin Result is an inline return type. Return its
                             // JVM failure representation at this client boundary.
-                            "controlPipeline" -> Class.forName("kotlin.ResultKt")
-                                .getMethod("createFailure", Throwable::class.java)
-                                .invoke(null, pipelineError)
+                            "controlPipeline", "contextualStart" -> {
+                                pipelineEvents += invocation.method.name.substringBefore('-')
+                                beforeCommandResult()
+                                pipelineResponse ?: resultFailure(pipelineError)
+                            }
+                            "getPipelines" -> pipelineList
+                            "getMobileRtkRelayConfig" -> MobileRtkRelayConfig(
+                                invocation.arguments[0] as String,
+                                available = invocation.arguments[0] != "unsupported"
+                            )
                             else -> Answers.RETURNS_DEFAULTS.answer(invocation)
                         }
                     }
                 )
                 val credentials = Mockito.mock(DeviceCredentialStore::class.java,
                     Mockito.withSettings().defaultAnswer { invocation ->
-                        if (invocation.method.name == "getSecret") "00".repeat(32)
+                        if (invocation.method.name == "getSecret") if (secretAvailable) "00".repeat(32) else null
                         else Answers.RETURNS_DEFAULTS.answer(invocation)
                     }
                 )
@@ -604,12 +1195,18 @@ class JetsonRepositoryStabilityTest {
             return transport
         }
 
+        fun activateLan() {
+            coordinator.setActiveTransport(FakeTransport(TransportType.LAN), deviceId = DEVICE_ID)
+            scheduler.runCurrent()
+            Mockito.clearInvocations(directManager, relayManager)
+        }
+
         fun cleanupCalls(): Int = Mockito.mockingDetails(directManager).invocations.count {
             it.method.name == "cancelConnect" || it.method.name == "disconnect"
         }
 
         fun rtkStopCalls(): Int = Mockito.mockingDetails(relayManager).invocations.count {
-            it.method.name.substringBefore('-') in setOf("stop", "stopIfOwnedBy")
+            it.method.name.substringBefore('-') in setOf("stop", "stopIfOwnedBy", "stopIfPrepared", "stopAfterAcquisition")
         }
 
         fun directConnectCalls(): Int = Mockito.mockingDetails(directManager).invocations.count {
@@ -620,7 +1217,7 @@ class JetsonRepositoryStabilityTest {
             1, helloDeviceId, "LAB device", "unused", 0, "JETSONHTTP2", "unused", "unused"
         )
 
-        fun activatePipelineControl() {
+        fun activatePipelineControl(relayCapability: Boolean = true) {
             activateDirect()
             val client = LocalApiClient(Mockito.mock(DeviceCredentialStore::class.java))
             JetsonRepository::class.java.getDeclaredField("activeIpClient").apply {
@@ -628,7 +1225,29 @@ class JetsonRepositoryStabilityTest {
                 set(repository, client)
             }
             field<MutableStateFlow<ControlCapabilities>>("_capabilities").value =
-                ControlCapabilities(mobileRtkRelay = true)
+                ControlCapabilities(mobileRtkRelay = relayCapability)
+        }
+
+        fun enableMonitoring(granted: Boolean = true) {
+            (coordinator.currentTransport() as? FakeTransport)?.statusSucceeds = true
+            field<MutableStateFlow<Boolean>>("localNetworkPermissionGranted").value = granted
+            field<MutableStateFlow<Boolean>>("nearbyWifiPermissionGranted").value = granted
+        }
+
+        fun enableBootstrap() {
+            directState.value = WifiDirectState()
+            field<MutableStateFlow<Boolean>>("bluetoothPermissionGranted").value = true
+        }
+
+        fun failStatus(error: Throwable = IOException("Test transport: transient API timeout")) {
+            (coordinator.currentTransport() as FakeTransport).apply {
+                statusSucceeds = false
+                statusFailure = error
+            }
+        }
+
+        fun selectOtherTarget() {
+            field<MutableStateFlow<String?>>("preferredAutomaticDeviceId").value = OTHER_DEVICE_ID
         }
 
         fun probeJobActive(): Boolean = field<kotlinx.coroutines.Job?>("wifiDirectApiProbeJob")?.isActive == true
@@ -639,11 +1258,36 @@ class JetsonRepositoryStabilityTest {
         private fun <T> construction(type: Class<T>, prepareRelay: Boolean = false, initialize: (T) -> Unit) {
             constructions += Mockito.mockConstruction(type,
                 Mockito.withSettings().defaultAnswer { invocation ->
-                    if (prepareRelay && invocation.method.name.substringBefore('-') == "prepare") true
+                    if (invocation.method.name == "reconnectEndpoint") invocation.arguments[0]
+                    else if (type == WifiDirectManager::class.java && invocation.method.name == "connect") {
+                        directState.value = directState.value.copy(
+                            connectingPeerAddress = (invocation.arguments[0] as WifiDirectPeer).deviceAddress
+                        )
+                        null
+                    }
+                    else if (prepareRelay && invocation.method.name.substringBefore('-') in setOf("prepare", "prepareForMonitoring")) {
+                        pipelineEvents += invocation.method.name.substringBefore('-')
+                        beforePrepareResult()
+                        prepareError?.let { resultFailure(it) } ?: if (relayAvailable) {
+                            relayState.value = MobileRtkRelayState(
+                                active = true, pipelineId = invocation.arguments[0] as String
+                            )
+                            MobileRtkRelayManager.Preparation.Ready(
+                                relayNewlyCreated, Mockito.mock(ServerSocket::class.java)
+                            ).also { lastPreparation = it }
+                        } else MobileRtkRelayManager.Preparation.NotRequired
+                    } else if (prepareRelay && invocation.method.name == "stopIfPrepared") {
+                        cleanedPreparation = invocation.arguments[1] as MobileRtkRelayManager.Preparation.Ready
+                        relayState.value = MobileRtkRelayState()
+                        true
+                    }
                     else Answers.RETURNS_DEFAULTS.answer(invocation)
                 }
             ) { mock, _ -> initialize(mock) }
         }
+
+        private fun resultFailure(error: Throwable): Any = Class.forName("kotlin.ResultKt")
+            .getMethod("createFailure", Throwable::class.java).invoke(null, error)
 
         @Suppress("UNCHECKED_CAST")
         private fun <T> field(name: String): T = JetsonRepository::class.java.getDeclaredField(name).let {

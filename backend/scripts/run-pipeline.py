@@ -19,7 +19,7 @@ from jetson_control.sensor_handoff import (
     CaptureDeviceLease,
     settings_for_pipeline,
 )
-from jetson_control.mobile_rtk import MobileRtkRelayRegistry
+from jetson_control.mobile_rtk import mobile_rtk_relay_environment as _relay_environment
 from jetson_control.field_quality import FieldQualitySampler
 from jetson_control.sensors import SensorBridgeStore
 
@@ -339,18 +339,11 @@ def mobile_rtk_relay_environment(
     expected_owner_uid: int = 0,
     clock_millis: Callable[[], int] = lambda: int(time.time() * 1000),
 ) -> Mapping[str, str]:
-    relay = MobileRtkRelayRegistry(
-        path,
+    return _relay_environment(
+        pipeline_id, path,
         clock_millis=clock_millis,
-        owner_uid=expected_owner_uid,
-    ).read()
-    if relay is None or relay.get("pipelineId") != pipeline_id:
-        return {}
-    return {
-        "NTRIP_HOST": str(relay["relayHost"]),
-        "NTRIP_PORT": str(relay["relayPort"]),
-        "JETSON_PIPELINE_MOBILE_RTK_RELAY": "1",
-    }
+        expected_owner_uid=expected_owner_uid,
+    )
 
 
 def process_group_exists(process_group_id: int) -> bool:

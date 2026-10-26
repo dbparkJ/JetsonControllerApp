@@ -7,13 +7,15 @@ import com.example.jetsoncontroller.data.network.WifiDirectState
 
 internal enum class DirectStage {
     UNSUPPORTED, PERMISSION, RADIO_OFF, DISCOVERING, EMPTY, PEERS, DISCOVERY_ERROR,
-    CLEANING_UP, CONNECTING, CANCELLING, VERIFYING, AUTHENTICATION_ERROR, READY
+    CLEANING_UP, PREPARING, PREPARATION_ERROR, CONNECTING, CANCELLING, VERIFYING, AUTHENTICATION_ERROR, READY
 }
 
 internal fun directStage(state: WifiDirectState, permissionGranted: Boolean, cancelling: Boolean = false): DirectStage = when {
     state.cleaningUp -> if (cancelling) DirectStage.CANCELLING else DirectStage.CLEANING_UP
     !state.supported -> DirectStage.UNSUPPORTED
     !permissionGranted -> DirectStage.PERMISSION
+    !state.connected && state.bootstrapPeer != null ->
+        if (state.apiStatus == WifiDirectApiStatus.ERROR) DirectStage.PREPARATION_ERROR else DirectStage.PREPARING
     state.connectingPeerAddress != null -> DirectStage.CONNECTING
     state.connected -> when (state.apiStatus) {
         WifiDirectApiStatus.READY -> DirectStage.READY
@@ -40,7 +42,12 @@ internal fun peerStatusLabel(status: Int, authenticated: Boolean = false): Strin
 
 internal fun canConnectDirectPeer(state: WifiDirectState, permissionGranted: Boolean, address: String): Boolean =
     directStage(state, permissionGranted) in setOf(DirectStage.PEERS, DirectStage.DISCOVERING) &&
-        state.peers.any { it.deviceAddress == address && it.status in setOf(WifiP2pDevice.AVAILABLE, WifiP2pDevice.FAILED) }
+        // After process recreation Android may retain the physical group while
+        // our target-bound session is idle. connect() verifies that exact peer
+        // against the existing group before the API authenticates the device.
+        state.peers.any { it.deviceAddress == address && it.status in setOf(
+            WifiP2pDevice.AVAILABLE, WifiP2pDevice.FAILED, WifiP2pDevice.CONNECTED
+        ) }
 
 internal fun directFailureText(message: String?): String = when {
     message?.contains("위치") == true -> "휴대폰의 위치 서비스를 켠 뒤 다시 찾으세요."

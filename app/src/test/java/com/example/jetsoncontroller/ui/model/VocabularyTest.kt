@@ -134,7 +134,7 @@ class VocabularyTest {
         assertVocabulary(
             CorrectionRelayState.values().toList(),
             listOf(
-                "중계 중" to Tone.SUCCESS,
+                "중계 등록됨" to Tone.INFO,
                 "연결하는 중" to Tone.PENDING,
                 "꺼짐" to Tone.UNKNOWN,
                 "오류" to Tone.ERROR

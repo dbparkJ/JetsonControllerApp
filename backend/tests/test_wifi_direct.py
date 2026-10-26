@@ -1,6 +1,7 @@
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -48,6 +49,16 @@ class FakeProcess:
         return self.returncode
 
 
+class FakeClock:
+    def __init__(self):
+        self.wall = 100.0  # RTC near 1970 before the phone supplies time.
+        self.mono = 1000.0
+
+    def advance(self, seconds, drift=0.0):
+        self.mono += seconds
+        self.wall += seconds + drift
+
+
 class FakeRunner:
     def __init__(
         self,
@@ -64,6 +75,8 @@ class FakeRunner:
     ):
         self.calls = []
         self.group_created = False
+        self.active_p2p_profile = None
+        self.external_groups = []
         self.p2p_state = p2p_state
         self.concurrency_supported = concurrency_supported
         self.managed_wifi_active = managed_wifi_active
@@ -96,6 +109,8 @@ class FakeRunner:
 """.format(group_interface)
                 if not self.single_interface_group:
                     stdout += "\tInterface wlan0\n\t\ttype managed\n"
+            stdout = "".join("Interface {}\n type P2P-GO\n".format(group)
+                             for group in self.external_groups) + stdout
         elif command == [
             "/usr/bin/readlink",
             "-f",
@@ -125,8 +140,9 @@ class FakeRunner:
         elif "UUID,TYPE,DEVICE" in command:
             if self.managed_wifi_active:
                 stdout = "11111111-2222-3333-4444-555555555555:802-11-wireless:wlan0\n"
-        elif "NAME,TYPE" in command:
-            stdout = ""
+        elif "NAME,TYPE,DEVICE" in command:
+            if self.active_p2p_profile:
+                stdout = "{}:wifi-p2p:p2p-wlan0-0\n".format(self.active_p2p_profile)
         elif command[:4] == ["/usr/sbin/ip", "-j", "-4", "address"]:
             stdout = json.dumps(
                 [{"addr_info": [{
@@ -141,7 +157,15 @@ class FakeRunner:
                 stderr = "Activation failed\n"
             else:
                 self.group_created = True
+                self.active_p2p_profile = command[5]
                 stdout = "Connection successfully activated\n"
+        elif command[:3] in (
+            ["/usr/bin/nmcli", "connection", "down"],
+            ["/usr/bin/nmcli", "connection", "delete"],
+        ):
+            if command[3] == self.active_p2p_profile:
+                self.group_created = False
+                self.active_p2p_profile = None
         elif command[:3] == ["/usr/bin/nmcli", "--wait", "20"]:
             self.managed_wifi_active = False
             stdout = "Connection successfully deactivated\n"
@@ -393,6 +417,7 @@ Interface wlan0
                 WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
                 run=run, start_process=runner.start_process, status_path=path,
                 sleep=lambda _seconds: None, monotonic=lambda: now[0],
+                wallclock=lambda: now[0],
             )
             controller.prepare()
             self.assertEqual(controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"), "")
@@ -966,6 +991,7 @@ Interface wlan0
                 status_path=status_path,
                 sleep=lambda _seconds: None,
                 monotonic=lambda: now[0],
+                wallclock=lambda: now[0],
             )
 
             self.assertEqual(controller.prepare(), "DISCOVERABLE")
@@ -1030,6 +1056,288 @@ Interface wlan0
             status = read_wifi_direct_status(Path(temporary) / "missing.json")
         self.assertFalse(status["enabled"])
         self.assertEqual(status["state"], "UNAVAILABLE")
+
+
+class WifiDirectClockTest(unittest.TestCase):
+    def setUp(self):
+        self.new_controller()
+
+    def new_controller(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.clock = FakeClock()
+        self.runner = FakeRunner()
+        self.before_command = lambda _command: None
+        self.after_command = lambda _command: None
+        self.shared_lease_epochs = []
+        self.path = Path(temporary.name) / "wifi-direct.json"
+        self.controller = WifiDirectController(
+            WifiDirectSettings(interface="wlan0", device_name="MMS-JETSON"),
+            run=self.run_command, start_process=self.runner.start_process,
+            status_path=self.path, sleep=lambda _: None,
+            monotonic=lambda: self.clock.mono, wallclock=lambda: self.clock.wall,
+        )
+
+    def run_command(self, command, **kwargs):
+        override = self.before_command(command)
+        if override is not None:
+            return override
+        result = self.runner(command, **kwargs)
+        if command[:5] == ["/usr/bin/nmcli", "--wait", "50", "connection", "up"]:
+            # Model the shared DHCP ACK epoch at successful NM activation.
+            self.shared_lease_epochs.append(self.clock.wall)
+        self.after_command(command)
+        return result
+
+    def activate(self, manual=False):
+        if manual:
+            self.runner.concurrency_supported = False
+            self.runner.single_interface_group = True
+            self.runner.managed_wifi_active = True
+        self.assertEqual(self.controller.prepare(), "DISCOVERABLE")
+        expected = "wlan0" if manual else "p2p-wlan0-0"
+        self.assertEqual(self.controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"), expected)
+
+    def assert_state(self, state):
+        self.assertEqual(read_wifi_direct_status(self.path)["state"], state)
+
+    def test_old_shared_lease_clock_step_cleans_once_and_next_lease_uses_current_time(self):
+        self.activate()
+        self.assertEqual(self.shared_lease_epochs, [100.0])
+        before = len(self.runner.calls)
+        self.clock.wall = 1_790_000_000.0
+        self.clock.advance(1)
+        self.assertGreater(self.clock.wall, self.shared_lease_epochs[0] + 3600)
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(self.runner.group_created)
+        for _ in range(5):
+            self.clock.advance(1)
+            self.controller.refresh_discovery()
+            self.controller.monitor()
+        cleanup_calls = self.runner.calls[before:]
+        self.assertEqual(sum(call[:3] == ["/usr/bin/nmcli", "connection", "delete"]
+                             for call in cleanup_calls), 1)
+        self.assertFalse(any("p2p_group_remove" in call for call in cleanup_calls))
+        self.assertEqual(self.runner.dnsmasq_processes, [])
+        epoch = self.clock.wall
+        self.assertEqual(self.controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"),
+                         "p2p-wlan0-0")
+        self.assertEqual(self.shared_lease_epochs, [100.0, epoch])
+        self.clock.advance(1800.004722)
+        self.controller.monitor()
+        self.assertLess(self.clock.wall, self.shared_lease_epochs[-1] + 3600)
+        self.assert_state("READY")
+
+    def test_backward_step_also_recovers_owned_group(self):
+        self.clock.wall = 1_790_000_000.0
+        self.activate()
+        self.clock.wall -= 1_000_000
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(self.runner.group_created)
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+
+    def test_jump_immediately_before_formation_preserves_new_group(self):
+        for manual in (False, True):
+            with self.subTest(manual=manual):
+                self.new_controller()
+                self.runner.concurrency_supported = not manual
+                self.runner.single_interface_group = manual
+                self.controller.prepare()
+
+                def jump_before_formation(command):
+                    if (command[:3] == ["/usr/bin/nmcli", "connection", "add"]
+                            or "p2p_stop_find" in command):
+                        self.clock.wall = 1_790_000_000.0
+
+                self.after_command = jump_before_formation
+                self.assertTrue(self.controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"))
+                before = len(self.runner.calls)
+                for _ in range(3):
+                    self.clock.advance(1)
+                    self.controller.monitor()
+                self.assert_state("READY")
+                self.assertTrue(self.runner.group_created)
+                self.assertFalse(any("p2p_group_remove" in call or "down" in call
+                                     for call in self.runner.calls[before:]))
+
+    def test_step_during_formation_recovers_both_owner_paths(self):
+        for manual in (False, True):
+            for step in (1_790_000_000, -1_790_000_000):
+                with self.subTest(manual=manual, step=step):
+                    self.new_controller()
+                    self.runner.concurrency_supported = not manual
+                    self.runner.single_interface_group = manual
+                    self.controller.prepare()
+
+                    def jump_during_formation(command):
+                        if "p2p_connect" in command or command[:3] == [
+                            "/usr/bin/nmcli", "--wait", "50"
+                        ]:
+                            self.clock.wall += step
+
+                    self.after_command = jump_during_formation
+                    self.assertEqual(self.controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"), "")
+                    self.assert_state("DISCOVERABLE")
+                    self.assertFalse(self.runner.group_created)
+                    self.assertIn("System clock changed", read_wifi_direct_status(self.path)["lastError"])
+
+    def test_monitor_defers_clock_cleanup_to_live_activation_worker(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.controller.prepare()
+
+        def block_activation(command):
+            if command[:3] == ["/usr/bin/nmcli", "--wait", "50"]:
+                entered.set()
+                release.wait(timeout=2)
+
+        self.after_command = block_activation
+        self.assertTrue(self.controller.request_connection("AA:BB:CC:DD:EE:FF"))
+        try:
+            self.assertTrue(entered.wait(timeout=2))
+            before = len(self.runner.calls)
+            self.clock.wall += 1_790_000_000
+            self.controller.monitor()
+            self.assertTrue(self.runner.group_created)
+            self.assertEqual(len(self.runner.calls), before)
+        finally:
+            release.set()
+            self.controller._activation_thread.join(timeout=2)
+        self.assertFalse(self.controller._activation_thread.is_alive())
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(self.runner.group_created)
+
+    def test_unchanged_clock_and_accumulated_gradual_drift_do_not_reset(self):
+        self.activate()
+        before = len(self.runner.calls)
+        for _ in range(10):
+            self.controller.monitor()
+        for _ in range(100):
+            self.clock.advance(600, drift=0.3)
+            self.controller.monitor()
+        self.assert_state("READY")
+        self.assertTrue(self.runner.group_created)
+        self.assertFalse(any("down" in call or "p2p_group_remove" in call
+                             for call in self.runner.calls[before:]))
+
+    def test_sampling_delay_is_not_evidence_of_a_clock_step(self):
+        self.activate()
+
+        def delayed_wall_read():
+            self.clock.advance(10)
+            return self.clock.wall
+
+        self.controller._wallclock = delayed_wall_read
+        for _ in range(3):
+            self.controller.monitor()
+        self.assert_state("READY")
+        self.assertTrue(self.runner.group_created)
+
+    def test_cleanup_failure_blocks_connections_then_retries_using_monotonic(self):
+        self.activate()
+        failures = []
+
+        def fail_cleanup(command):
+            if command[:3] in (["/usr/bin/nmcli", "connection", "down"],
+                               ["/usr/bin/nmcli", "connection", "delete"]):
+                failures.append(command)
+                return subprocess.CompletedProcess(command, 1, "", "cleanup unavailable")
+
+        self.before_command = fail_cleanup
+        self.clock.wall += 1_790_000_000
+        self.controller.monitor()
+        self.assert_state("ERROR")
+        self.assertTrue(self.runner.group_created)
+        self.assertFalse(self.controller.request_connection("AA:BB:CC:DD:EE:FF"))
+        self.clock.wall += 100_000
+        self.controller.monitor()
+        self.assertEqual(len(failures), 2)
+        self.before_command = lambda _: None
+        self.clock.advance(10)
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(self.runner.group_created)
+        self.assertFalse(self.controller._recovery_failed)
+        self.assertTrue(self.controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"))
+
+    def test_discovery_failure_after_cleanup_retries_without_another_group_reset(self):
+        self.activate()
+        self.runner.fail_all_p2p_listen = True
+        self.clock.wall += 1_790_000_000
+        self.controller.monitor()
+        self.assert_state("ERROR")
+        before = len(self.runner.calls)
+        self.runner.fail_all_p2p_listen = False
+        self.clock.advance(10)
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(any("delete" in call or "p2p_group_remove" in call
+                             for call in self.runner.calls[before:]))
+
+    def test_manual_cleanup_failure_retains_target_until_recovery(self):
+        self.activate(manual=True)
+
+        def fail_remove(command):
+            if "p2p_group_remove" in command:
+                return subprocess.CompletedProcess(command, 0, "FAIL\n", "")
+
+        self.before_command = fail_remove
+        self.clock.wall += 1_790_000_000
+        self.controller.monitor()
+        self.assert_state("ERROR")
+        self.assertEqual(self.controller.group_interface, "wlan0")
+        self.assertTrue(self.runner.group_created)
+        self.before_command = lambda _: None
+        self.clock.advance(10)
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(self.runner.group_created)
+        self.assertTrue(self.runner.dnsmasq_processes[0].terminated)
+
+    def test_clock_cleanup_preserves_external_group_and_stays_discoverable(self):
+        for manual in (False, True):
+            with self.subTest(manual=manual):
+                self.new_controller()
+                self.runner.concurrency_supported = not manual
+                self.controller.prepare()
+                self.runner.external_groups = ["p2p-wlan0-9", "p2p-wlan1-0"]
+                self.assertEqual(self.controller.activate_peer_for_test("AA:BB:CC:DD:EE:FF"),
+                                 "p2p-wlan0-0")
+                self.clock.wall += 1_790_000_000
+                self.controller.monitor()
+                for _ in range(3):
+                    self.clock.advance(1)
+                    self.controller.monitor()
+                self.assert_state("DISCOVERABLE")
+                removals = [call[-1] for call in self.runner.calls if "p2p_group_remove" in call]
+                self.assertEqual(removals, ["p2p-wlan0-0"] if manual else [])
+                self.assertEqual(self.runner.external_groups, ["p2p-wlan0-9", "p2p-wlan1-0"])
+                self.assertFalse(self.runner.group_created)
+
+    def test_clock_step_without_owned_group_does_not_remove_external_group(self):
+        self.controller.prepare()
+        self.runner.external_groups = ["p2p-wlan0-9"]
+        before = len(self.runner.calls)
+        self.clock.wall += 1_790_000_000
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(any("delete" in call or "p2p_group_remove" in call
+                             for call in self.runner.calls[before:]))
+
+    def test_prepare_adopts_managed_group_and_observes_later_step(self):
+        self.runner.group_created = True
+        self.runner.active_p2p_profile = "jetson-control-p2p-aabbccddeeff"
+        self.runner.external_groups = ["p2p-wlan0-9"]
+        self.assertEqual(self.controller.prepare(), "READY")
+        self.assertEqual(self.controller.group_interface, "p2p-wlan0-0")
+        self.clock.wall += 1_790_000_000
+        self.controller.monitor()
+        self.assert_state("DISCOVERABLE")
+        self.assertFalse(self.runner.group_created)
+        self.assertFalse(any("p2p_group_remove" in call for call in self.runner.calls))
 
 
 if __name__ == "__main__":

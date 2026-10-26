@@ -96,6 +96,51 @@ def _text(value: object, maximum: int = 256) -> Optional[str]:
     return cleaned[:maximum] or None
 
 
+def _vector(value: object) -> Optional[Dict[str, float]]:
+    raw = _mapping(value)
+    coordinates = {}
+    for axis in ("x", "y", "z"):
+        coordinate = _number(raw.get(axis))
+        if coordinate is None:
+            return None
+        coordinates[axis] = coordinate
+    return coordinates
+
+
+def _imu_status(
+    raw: Dict[str, Any], camera: Dict[str, Any], *,
+    fresh: bool, now_millis: int, stale_after_seconds: float,
+) -> Dict[str, object]:
+    # Camera-owned IMU telemetry takes precedence over the legacy external IMU.
+    # The capture bridge must export camera.imu using the sample fields below.
+    onboard = camera.get("imu")
+    oak = isinstance(onboard, dict) or raw.get("source") == "oak"
+    if isinstance(onboard, dict):
+        raw = onboard
+    sample_at = _integer(raw.get("lastSampleAtEpochMillis"))
+    sample_fresh = (
+        fresh and sample_at is not None and sample_at > 0
+        and 0 <= now_millis - sample_at <= int(stale_after_seconds * 1000)
+    )
+    acceleration = _vector(raw.get("accelerationMps2"))
+    angular_velocity = _vector(raw.get("angularVelocityRadS"))
+    # A heartbeat or attached camera alone is not evidence of an IMU sample.
+    if oak:
+        receiving = sample_fresh and (acceleration is not None or angular_velocity is not None)
+    else:
+        receiving = sample_fresh and _boolean(raw.get("active"))
+    return {
+        "configured": _boolean(raw.get("configured")) or (oak and sample_at is not None),
+        "connected": receiving if oak else sample_fresh and _boolean(raw.get("connected")),
+        "active": receiving,
+        "lastSampleAtEpochMillis": sample_at,
+        "source": "oak" if oak else _text(raw.get("source"), 32),
+        "accelerationMps2": acceleration,
+        "angularVelocityRadS": angular_velocity,
+        "error": _text(raw.get("error")),
+    }
+
+
 @dataclass(frozen=True)
 class SensorBridgeSnapshot:
     available: bool
@@ -184,14 +229,10 @@ class SensorBridgeStore:
             "rtcmBytes": max(0, _integer(gnss_raw.get("rtcmBytes")) or 0),
             "error": _text(gnss_raw.get("error")),
         }
-        imu = {
-            "configured": _boolean(imu_raw.get("configured")),
-            "connected": fresh and _boolean(imu_raw.get("connected")),
-            "active": fresh and _boolean(imu_raw.get("active")),
-            "lastSampleAtEpochMillis": _integer(imu_raw.get("lastSampleAtEpochMillis")),
-            "source": _text(imu_raw.get("source"), 32),
-            "error": _text(imu_raw.get("error")),
-        }
+        imu = _imu_status(
+            imu_raw, camera_raw, fresh=fresh, now_millis=now_millis,
+            stale_after_seconds=self.stale_after_seconds,
+        )
         return SensorBridgeSnapshot(
             available=True,
             fresh=fresh,

@@ -15,6 +15,21 @@ class WifiDirectPresentationTest {
     private val idle = WifiDirectState(enabled = true)
 
     @Test
+    fun `pre-group preparation and failure are visible and block peer confirmation`() {
+        val preparing = idle.copy(bootstrapPeer = peer, apiStatus = WifiDirectApiStatus.CHECKING,
+            peers = listOf(peer), discovering = true)
+        assertEquals(DirectStage.PREPARING, directStage(preparing, true))
+        assertFalse(canConnectDirectPeer(preparing, true, peer.deviceAddress))
+        val failed = preparing.copy(apiStatus = WifiDirectApiStatus.ERROR, apiError = "시각 확인 실패")
+        assertEquals(DirectStage.PREPARATION_ERROR, directStage(failed, true))
+        assertFalse(canConnectDirectPeer(failed, true, peer.deviceAddress))
+        assertEquals(DirectStage.CANCELLING, directStage(preparing.copy(cleaningUp = true), true, true))
+        assertEquals(DirectStage.PERMISSION, directStage(preparing, false))
+        assertEquals(DirectStage.PEERS, directStage(preparing.copy(bootstrapPeer = null, discovering = false,
+            apiStatus = WifiDirectApiStatus.IDLE), true))
+    }
+
+    @Test
     fun `discovery permission empty peers and unsupported are independent states`() {
         assertEquals(DirectStage.UNSUPPORTED, directStage(idle.copy(supported = false), false))
         assertEquals(DirectStage.PERMISSION, directStage(idle, false))
@@ -55,10 +70,21 @@ class WifiDirectPresentationTest {
         assertFalse(canConnectDirectPeer(available.copy(peers = emptyList()), true, peer.deviceAddress))
         assertFalse(canConnectDirectPeer(available.copy(connectingPeerAddress = "other"), true, peer.deviceAddress))
         assertFalse(canConnectDirectPeer(available.copy(connected = true), true, peer.deviceAddress))
-        listOf(WifiP2pDevice.CONNECTED, WifiP2pDevice.INVITED, WifiP2pDevice.UNAVAILABLE, -1).forEach { status ->
+        listOf(WifiP2pDevice.INVITED, WifiP2pDevice.UNAVAILABLE, -1).forEach { status ->
             assertFalse(canConnectDirectPeer(available.copy(peers = listOf(peer.copy(status = status))), true, peer.deviceAddress))
         }
         assertTrue(canConnectDirectPeer(available.copy(peers = listOf(peer.copy(status = WifiP2pDevice.FAILED))), true, peer.deviceAddress))
+    }
+
+    @Test
+    fun `retained physical peer can be explicitly authenticated after process recreation`() {
+        val retained = idle.copy(peers = listOf(peer.copy(status = WifiP2pDevice.CONNECTED)))
+        assertTrue(canConnectDirectPeer(retained, true, peer.deviceAddress))
+        assertFalse(canConnectDirectPeer(retained, false, peer.deviceAddress))
+        assertFalse(canConnectDirectPeer(retained, true, "another-peer"))
+        assertFalse(canConnectDirectPeer(retained.copy(connectingPeerAddress = peer.deviceAddress), true, peer.deviceAddress))
+        assertFalse(canConnectDirectPeer(retained.copy(connected = true), true, peer.deviceAddress))
+        assertFalse(canConnectDirectPeer(retained.copy(cleaningUp = true), true, peer.deviceAddress))
     }
 
     @Test

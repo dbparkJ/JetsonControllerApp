@@ -19,13 +19,17 @@ import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.model.WifiProvisionRequest
 import com.example.jetsoncontroller.model.registeredDeviceDisplayName
 import com.example.jetsoncontroller.protocol.PairingAuth
+import com.example.jetsoncontroller.protocol.BleTimeSync
 import com.example.jetsoncontroller.protocol.StatusCodec
 import com.example.jetsoncontroller.protocol.UuidCodec
 import com.example.jetsoncontroller.protocol.WifiProvisionCodec
 import com.example.jetsoncontroller.util.toHex
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,10 +38,10 @@ import java.util.UUID
 
 class BleGattClient(
     context: Context,
-    private val credentialStore: DeviceCredentialStore
+    private val credentialStore: DeviceCredentialStore,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val currentTimeMillis: () -> Long = System::currentTimeMillis
 ) {
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val appContext =
         context.applicationContext
@@ -87,9 +91,12 @@ class BleGattClient(
 
     private var pendingSessionEncryptionKey: ByteArray? = null
     private var sessionEncryptionKey: ByteArray? = null
+    private var waitingForTimeSync = false
+    private var timeSyncTimeoutJob: Job? = null
 
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun connect(
         device: BluetoothDevice,
         displayName: String,
@@ -113,6 +120,7 @@ class BleGattClient(
     }
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun connectForPairing(
         device: BluetoothDevice,
         displayName: String,
@@ -143,9 +151,10 @@ class BleGattClient(
 
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun disconnect() {
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
+        clearTimeSyncWait()
+        val gatt = bluetoothGatt
         bluetoothGatt = null
         pairingSession = null
         verifiedDeviceId = null
@@ -154,6 +163,8 @@ class BleGattClient(
         sessionEncryptionKey = null
         _connectionState.value = ConnectionState.Disconnected
         _pairingState.value = BlePairingState.Idle
+        gatt?.disconnect()
+        gatt?.close()
     }
 
 
@@ -166,41 +177,45 @@ class BleGattClient(
                 status: Int,
                 newState: Int
             ) {
-                if (gatt !== bluetoothGatt) {
-                    gatt.close()
-                    return
-                }
-                Log.d("JetsonBLE", "onConnectionStateChange: status=$status newState=$newState")
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    gatt.close()
-                    handleError("GATT connection error: $status")
-                    return
-                }
-
-                when (newState) {
-                    BluetoothProfile.STATE_CONNECTED -> {
-                        _connectionState.value = ConnectionState.Connected(currentDeviceName)
-                        if (pairingSession != null) {
-                            _pairingState.value = BlePairingState.DiscoveringServices
-                        }
-                        if (!gatt.requestMtu(247)) {
-                            gatt.discoverServices()
-                        }
+                synchronized(this@BleGattClient) {
+                    if (gatt !== bluetoothGatt) {
+                        gatt.close()
+                        return
+                    }
+                    Log.d("JetsonBLE", "onConnectionStateChange: status=$status newState=$newState")
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        gatt.close()
+                        handleError("GATT connection error: $status")
+                        return
                     }
 
-                    BluetoothProfile.STATE_DISCONNECTED -> {
-                        bluetoothGatt = null
-                        verifiedDeviceId = null
-                        expectedReconnectDeviceId = null
-                        pendingSessionEncryptionKey = null
-                        sessionEncryptionKey = null
-                        if (_connectionState.value !is ConnectionState.Error) {
-                            _connectionState.value = ConnectionState.Disconnected
+                    when (newState) {
+                        BluetoothProfile.STATE_CONNECTED -> {
+                            _connectionState.value = ConnectionState.Connected(currentDeviceName)
+                            if (pairingSession != null) {
+                                _pairingState.value = BlePairingState.DiscoveringServices
+                            }
+                            if (!gatt.requestMtu(247)) {
+                                gatt.discoverServices()
+                            }
                         }
-                        if (_pairingState.value !is BlePairingState.Error) {
-                            _pairingState.value = BlePairingState.Idle
+
+                        BluetoothProfile.STATE_DISCONNECTED -> {
+                            clearTimeSyncWait()
+                            bluetoothGatt = null
+                            pairingSession = null
+                            verifiedDeviceId = null
+                            expectedReconnectDeviceId = null
+                            pendingSessionEncryptionKey = null
+                            sessionEncryptionKey = null
+                            if (_connectionState.value !is ConnectionState.Error) {
+                                _connectionState.value = ConnectionState.Disconnected
+                            }
+                            if (_pairingState.value !is BlePairingState.Error) {
+                                _pairingState.value = BlePairingState.Idle
+                            }
+                            gatt.close()
                         }
-                        gatt.close()
                     }
                 }
             }
@@ -264,7 +279,7 @@ class BleGattClient(
                         handleChallengeRead(gatt, value)
                     }
                     JetsonGattSpec.AUTH_STATE_UUID -> {
-                        handleAuthStateRead(value)
+                        handleAuthStateRead(gatt, value)
                     }
                 }
             }
@@ -284,23 +299,7 @@ class BleGattClient(
                 characteristic: BluetoothGattCharacteristic,
                 status: Int
             ) {
-                if (gatt !== bluetoothGatt) return
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    handleError("Write failed: $status")
-                    return
-                }
-
-                if (characteristic.uuid == JetsonGattSpec.AUTH_RESPONSE_UUID) {
-                    Log.d("JetsonBLE", "AUTH_RESPONSE write callback status=$status")
-                    // Response written, now check state
-                    val authStateChar = characteristic.service.getCharacteristic(JetsonGattSpec.AUTH_STATE_UUID)
-                    if (authStateChar != null) {
-                        Log.d("JetsonBLE", "Reading AUTH_STATE")
-                        gatt.readCharacteristic(authStateChar)
-                    } else {
-                        handleError("Auth State characteristic not found")
-                    }
-                }
+                handleCharacteristicWrite(gatt, characteristic, status)
             }
 
             override fun onCharacteristicChanged(
@@ -341,7 +340,32 @@ class BleGattClient(
         }
 
     @SuppressLint("MissingPermission")
+    @Synchronized
+    private fun handleCharacteristicWrite(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        status: Int
+    ) {
+        if (gatt !== bluetoothGatt) return
+        if (status != BluetoothGatt.GATT_SUCCESS) {
+            handleError("Write failed: $status")
+            return
+        }
+        if (characteristic.uuid == JetsonGattSpec.COMMAND_UUID && waitingForTimeSync) {
+            clearTimeSyncWait()
+            completeAuthentication()
+        } else if (characteristic.uuid == JetsonGattSpec.AUTH_RESPONSE_UUID && pendingSessionEncryptionKey != null) {
+            val authStateChar = characteristic.service.getCharacteristic(JetsonGattSpec.AUTH_STATE_UUID)
+            if (authStateChar == null || !gatt.readCharacteristic(authStateChar)) {
+                handleError("Auth State characteristic read failed")
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    @Synchronized
     private fun handleDeviceIdRead(gatt: BluetoothGatt, value: ByteArray) {
+        if (gatt !== bluetoothGatt) return
         val actualDeviceId = try {
             UuidCodec.fromBytes(value).toString().lowercase()
         } catch (e: Exception) {
@@ -372,23 +396,27 @@ class BleGattClient(
             // Manual connect: check store for this deviceId
             scope.launch {
                 val secretHex = credentialStore.getSecret(actualDeviceId)
-                if (secretHex != null) {
-                    Log.d("JetsonBLE", "Stored credential found for $actualDeviceId. Authenticating...")
-                    val info = PairingInfo(1, actualDeviceId, secretHex)
-                    proceedToAuthentication(gatt, info)
-                } else {
-                    _pairingState.value = BlePairingState.Idle
-                    _connectionState.value =
-                        ConnectionState.RegistrationRequired(
-                            deviceName = currentDeviceName,
-                            deviceId = actualDeviceId
-                        )
+                synchronized(this@BleGattClient) {
+                    if (gatt !== bluetoothGatt) return@launch
+                    if (secretHex != null) {
+                        Log.d("JetsonBLE", "Stored credential found for $actualDeviceId. Authenticating...")
+                        val info = PairingInfo(1, actualDeviceId, secretHex)
+                        proceedToAuthentication(gatt, info)
+                    } else {
+                        _pairingState.value = BlePairingState.Idle
+                        _connectionState.value =
+                            ConnectionState.RegistrationRequired(
+                                deviceName = currentDeviceName,
+                                deviceId = actualDeviceId
+                            )
+                    }
                 }
             }
         }
     }
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun authenticateConnectedDevice(info: PairingInfo): Boolean {
         if (_connectionState.value !is ConnectionState.RegistrationRequired) {
             return false
@@ -408,7 +436,9 @@ class BleGattClient(
     }
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     private fun proceedToAuthentication(gatt: BluetoothGatt, info: PairingInfo) {
+        if (gatt !== bluetoothGatt) return
         // We need to keep track of the info for challenge computation
         // If it was a manual connect, we might want to set a temporary session
         if (pairingSession == null) {
@@ -427,7 +457,9 @@ class BleGattClient(
     }
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     private fun handleChallengeRead(gatt: BluetoothGatt, challenge: ByteArray) {
+        if (gatt !== bluetoothGatt) return
         val session = pairingSession ?: return
         try {
             Log.d("JetsonBLE", "Challenge received: ${challenge.size} bytes")
@@ -467,7 +499,9 @@ class BleGattClient(
     }
 
     @SuppressLint("MissingPermission")
-    private fun handleAuthStateRead(value: ByteArray) {
+    @Synchronized
+    private fun handleAuthStateRead(gatt: BluetoothGatt, value: ByteArray) {
+        if (gatt !== bluetoothGatt || waitingForTimeSync || isReady()) return
         val authState = if (value.isNotEmpty()) value[0].toInt() else -1
         Log.d("JetsonBLE", "AUTH_STATE=$authState")
         if (authState == 1) {
@@ -478,24 +512,36 @@ class BleGattClient(
             }
             sessionEncryptionKey = encryptionKey
             pendingSessionEncryptionKey = null
-            val completedSession = pairingSession
-            if (completedSession != null) {
-                scope.launch {
-                    credentialStore.saveCredential(
-                        completedSession.info,
-                        deviceName = completedSession.displayName
-                            .takeIf { completedSession.registersDevice }
-                            ?.let { registeredDeviceDisplayName(completedSession.info.deviceId, it) }
-                    )
+            if (BleTimeSync.supported(value)) {
+                // Do not publish Ready until the authenticated command has been
+                // acknowledged. P2P must not issue a DHCP lease on the boot clock.
+                waitingForTimeSync = true
+                val sent = try {
+                    writeCommandInternal(BleTimeSync.command(currentTimeMillis()))
+                } catch (_: IllegalArgumentException) {
+                    handleError("휴대폰의 현재 시각을 확인한 뒤 다시 연결해 주세요.")
+                    return
+                } catch (_: SecurityException) {
+                    handleError("Bluetooth 권한을 허용한 뒤 다시 연결해 주세요.")
+                    return
                 }
-            }
-            pairingSession = null
-            _pairingState.value = BlePairingState.Ready(currentDeviceName)
-            _connectionState.value = ConnectionState.Ready(currentDeviceName)
-
-            Log.d("JetsonBLE", "Authentication complete; enabling STATUS notifications")
-            if (!enableStatusNotifications()) {
-                Log.w("JetsonBLE", "Status notifications are unavailable; connection remains ready")
+                if (!sent) {
+                    handleError("장치의 연결 전 시각 동기화를 시작하지 못했습니다.")
+                } else if (waitingForTimeSync) {
+                    val timeoutJob = scope.launch(start = CoroutineStart.LAZY) {
+                        delay(10_000L)
+                        synchronized(this@BleGattClient) {
+                            if (gatt === bluetoothGatt && waitingForTimeSync) {
+                                handleError("장치의 연결 전 시각 동기화 응답 시간이 초과되었습니다.")
+                            }
+                        }
+                    }
+                    timeSyncTimeoutJob = timeoutJob
+                    timeoutJob.start()
+                }
+            } else {
+                // Old backends advertise no capability; retain HTTP time sync.
+                completeAuthentication()
             }
         } else {
             pendingSessionEncryptionKey = null
@@ -505,7 +551,32 @@ class BleGattClient(
     }
 
     @SuppressLint("MissingPermission")
+    private fun completeAuthentication() {
+        val completedSession = pairingSession
+        if (completedSession != null) {
+            scope.launch {
+                credentialStore.saveCredential(
+                    completedSession.info,
+                    deviceName = completedSession.displayName
+                        .takeIf { completedSession.registersDevice }
+                        ?.let { registeredDeviceDisplayName(completedSession.info.deviceId, it) }
+                )
+            }
+        }
+        pairingSession = null
+        _pairingState.value = BlePairingState.Ready(currentDeviceName)
+        _connectionState.value = ConnectionState.Ready(currentDeviceName)
+
+        Log.d("JetsonBLE", "Authentication complete; enabling STATUS notifications")
+        if (!enableStatusNotifications()) {
+            Log.w("JetsonBLE", "Status notifications are unavailable; connection remains ready")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    @Synchronized
     private fun handleError(message: String) {
+        clearTimeSyncWait()
         val gatt = bluetoothGatt
         bluetoothGatt = null
         pairingSession = null
@@ -523,6 +594,11 @@ class BleGattClient(
         gatt?.close()
     }
 
+    private fun clearTimeSyncWait() {
+        waitingForTimeSync = false
+        timeSyncTimeoutJob?.cancel()
+        timeSyncTimeoutJob = null
+    }
 
     fun isReady(): Boolean {
         return connectionState.value is ConnectionState.Ready
@@ -540,7 +616,13 @@ class BleGattClient(
 
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun writeCommand(
+        payload: ByteArray
+    ): Boolean = isReady() && writeCommandInternal(payload)
+
+    @SuppressLint("MissingPermission")
+    private fun writeCommandInternal(
         payload: ByteArray
     ): Boolean {
 
@@ -572,6 +654,7 @@ class BleGattClient(
 
         } else {
 
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             @Suppress("DEPRECATION")
             characteristic.value =
                 payload

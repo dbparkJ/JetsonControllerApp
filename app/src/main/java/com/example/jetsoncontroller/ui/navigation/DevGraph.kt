@@ -201,9 +201,9 @@ internal fun NavGraphBuilder.devGraph(state: State<AppNavigationState>) {
         DevPage("보정 정보 중계", { app.navController.popBackStack() }) {
             val relay = app.pipelineState.mobileRtkRelay
             DevIdentity(app.selectedDeviceName)
-            DevText(if (relay.active) "중계 중" else "꺼짐")
+            DevText(if (relay.active) "중계 등록됨" else "꺼짐")
             DevFeedback(relay.error, true)
-            DevText("수집 준비와 수집 중 화면에서 보정 정보 중계 상태를 확인할 수 있습니다.")
+            DevText("직접 연결 후 수집 전에도 중계를 준비합니다. 실제 보정 수신과 RTK FIX는 장치의 위치 상태에서 확인하세요.")
         }
     }
 }
