@@ -1,7 +1,6 @@
 package com.example.jetsoncontroller.ui.sensors
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -13,18 +12,22 @@ import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.CameraPreviewFrame
 import com.example.jetsoncontroller.ui.userFacingFailure
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class CameraPreviewUiState(
     val frame: Bitmap? = null,
@@ -46,13 +49,14 @@ class CameraPreviewViewModel(
     private val elapsedRealtime: () -> Long = SystemClock::elapsedRealtime,
     private val wallClock: () -> Long = System::currentTimeMillis,
     private val fetchFrame: suspend (Long?) -> Result<CameraPreviewFrame> = repository::getCameraPreviewFrame,
-    private val decodeFrame: suspend (ByteArray) -> Bitmap = ::decodeCameraPreviewBitmap,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
+    private val decodeFrame: (suspend (ByteArray) -> Bitmap)? = null,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val environment: () -> CameraPreviewEnvironment = { CameraPreviewEnvironment() }
 ) : ViewModel() {
     private val visible = MutableStateFlow(false)
     private val sensorActive = MutableStateFlow(false)
     private val previewTargetId = MutableStateFlow(savedStateHandle.get<String>(CAMERA_PREVIEW_TARGET_KEY))
-    private val loadMutex = Mutex()
+    private val refreshRequests = Channel<Unit>(Channel.CONFLATED)
     private var streamGeneration = 0L
     private val _uiState = MutableStateFlow(CameraPreviewUiState())
     val uiState: StateFlow<CameraPreviewUiState> = _uiState.asStateFlow()
@@ -91,14 +95,7 @@ class CameraPreviewViewModel(
                             delay(CAMERA_FRAME_CHECK_INTERVAL_MS)
                         }
                     }
-                    while (true) {
-                        when (loadFrame()) {
-                            FrameLoadResult.REALTIME -> Unit
-                            FrameLoadResult.UNCHANGED -> delay(CAMERA_PREVIEW_LEGACY_INTERVAL_MS)
-                            FrameLoadResult.LEGACY -> delay(CAMERA_PREVIEW_LEGACY_INTERVAL_MS)
-                            FrameLoadResult.FAILURE -> delay(CAMERA_RETRY_INTERVAL_MS)
-                        }
-                    }
+                    streamFrames()
                 }
             }
         }
@@ -138,68 +135,94 @@ class CameraPreviewViewModel(
 
     fun refresh() {
         if (!visible.value || !sensorActive.value) return
-        viewModelScope.launch { loadFrame(forceRefresh = true) }
+        _uiState.value = _uiState.value.copy(isRefreshing = true)
+        refreshRequests.trySend(Unit)
     }
 
-    private suspend fun loadFrame(
-        forceRefresh: Boolean = false
-    ): FrameLoadResult = loadMutex.withLock {
-        val transport = repository.transportState.value as? com.example.jetsoncontroller.data.transport.TransportState.Connected
-        if (!visible.value || !sensorActive.value || transport == null ||
-            !transport.deviceId.equals(_uiState.value.deviceId, true) ||
-            !_uiState.value.deviceId.equals(repository.selectedDeviceId.value, true)) return@withLock FrameLoadResult.FAILURE
+    private data class ReceivedFrame(
+        val result: Result<CameraPreviewFrame>,
+        val afterRevision: Long?,
+        val generation: Long,
+        val targetId: String?,
+        val receivedAt: Long,
+        val receivedAtEpochMillis: Long
+    )
+
+    private suspend fun receiveFrame(afterRevision: Long?): ReceivedFrame {
+        currentCoroutineContext().ensureActive()
         val generation = streamGeneration
-        val current = _uiState.value
-        _uiState.value = current.copy(
-            isLoading = current.frame == null && current.error == null,
-            isRefreshing = forceRefresh,
-            error = current.error
-        )
-        try {
-            val preview = fetchFrame(current.frameRevision).getOrThrow()
-            val receivedAt = elapsedRealtime()
-            val receivedAtEpochMillis = wallClock()
-            if (generation != streamGeneration || !currentTargetConnected(current.deviceId)) return@withLock FrameLoadResult.FAILURE
-            if (preview.revision != null && preview.revision == current.frameRevision) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    isRefreshing = false,
-                    checkedAtElapsedMillis = elapsedRealtime(),
-                    error = null
-                )
-                FrameLoadResult.UNCHANGED
-            } else {
-                val bitmap = decodeFrame(preview.bytes)
-                if (generation != streamGeneration || !currentTargetConnected(current.deviceId)) return@withLock FrameLoadResult.FAILURE
-                val checkedAt = elapsedRealtime()
-                _uiState.value = CameraPreviewUiState(
-                    deviceId = current.deviceId,
-                    deviceName = current.deviceName,
-                    targetConnected = current.targetConnected,
-                    targetStillCurrent = current.targetStillCurrent,
-                    checkedAtElapsedMillis = checkedAt,
-                    frameFreshness = _uiState.value.frameFreshness.received(receivedAt).checked(checkedAt),
-                    frame = bitmap,
-                    frameRevision = preview.revision,
-                    updatedAtEpochMillis = receivedAtEpochMillis
-                )
-                if (preview.revision == null) {
-                    FrameLoadResult.LEGACY
-                } else {
-                    FrameLoadResult.REALTIME
-                }
-            }
+        val target = _uiState.value.deviceId
+        refreshRequests.tryReceive()
+        _uiState.value = _uiState.value.let { it.copy(isLoading = it.frame == null && it.error == null) }
+        val result = try {
+            if (currentTargetConnected(target)) fetchFrame(afterRevision)
+            else Result.failure(IllegalStateException("카메라 연결이 변경되었습니다."))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            if (generation != streamGeneration) return@withLock FrameLoadResult.FAILURE
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                isRefreshing = false,
-                checkedAtElapsedMillis = elapsedRealtime(),
-                error = userFacingFailure(error, "카메라 프리뷰를 불러오지 못했습니다. 다시 시도하세요.").message
-            )
-            FrameLoadResult.FAILURE
+            Result.failure(error)
+        }
+        currentCoroutineContext().ensureActive()
+        return ReceivedFrame(result, afterRevision, generation, target, elapsedRealtime(), wallClock())
+    }
+
+    /** One lookahead JPEG at most; no second fetch starts until the first has returned. */
+    private suspend fun streamFrames(): Unit = coroutineScope {
+        var pending: Deferred<ReceivedFrame>? = null
+        try {
+            while (true) {
+                val received = pending?.await() ?: receiveFrame(_uiState.value.frameRevision)
+                pending = null
+                var outcome = FrameLoadResult.FAILURE
+                try {
+                    if (received.generation == streamGeneration && currentTargetConnected(received.targetId)) {
+                        val preview = received.result.getOrThrow()
+                        if (preview.revision != null && preview.revision == received.afterRevision) {
+                            _uiState.value = _uiState.value.copy(isLoading = false, isRefreshing = false,
+                                checkedAtElapsedMillis = elapsedRealtime(), error = null)
+                            outcome = FrameLoadResult.UNCHANGED
+                        } else {
+                            if (preview.revision != null &&
+                                cameraPreviewCanOverlap(repository.transportState.value, environment())) {
+                                // Start on Main before dispatching decode to Default. Revision belongs to
+                                // the last received JPEG, which may not have reached the screen yet.
+                                pending = async(start = CoroutineStart.UNDISPATCHED) { receiveFrame(preview.revision) }
+                            }
+                            val bitmap = if (decodeFrame != null) decodeFrame.invoke(preview.bytes)
+                                else CameraPreviewBitmapDecoder.decode(preview.bytes)
+                            currentCoroutineContext().ensureActive()
+                            if (received.generation == streamGeneration && currentTargetConnected(received.targetId)) {
+                                val checkedAt = elapsedRealtime()
+                                _uiState.value = _uiState.value.copy(
+                                    frame = bitmap, frameRevision = preview.revision,
+                                    isLoading = false, isRefreshing = false, error = null,
+                                    checkedAtElapsedMillis = checkedAt,
+                                    frameFreshness = _uiState.value.frameFreshness.received(received.receivedAt).checked(checkedAt),
+                                    updatedAtEpochMillis = received.receivedAtEpochMillis
+                                )
+                                outcome = if (preview.revision == null) FrameLoadResult.LEGACY else FrameLoadResult.REALTIME
+                            }
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    if (received.generation == streamGeneration && currentTargetConnected(received.targetId)) {
+                        _uiState.value = _uiState.value.copy(isLoading = false, isRefreshing = false,
+                            checkedAtElapsedMillis = elapsedRealtime(),
+                            error = userFacingFailure(error, "카메라 프리뷰를 불러오지 못했습니다. 다시 시도하세요.").message)
+                    }
+                }
+                if (outcome != FrameLoadResult.REALTIME) {
+                    pending?.cancelAndJoin()
+                    pending = null
+                    val interval = if (outcome == FrameLoadResult.FAILURE) CAMERA_RETRY_INTERVAL_MS
+                        else CAMERA_PREVIEW_LEGACY_INTERVAL_MS
+                    withTimeoutOrNull(interval) { refreshRequests.receive() }
+                }
+            }
+        } finally {
+            pending?.cancel()
         }
     }
 
@@ -208,15 +231,18 @@ class CameraPreviewViewModel(
         (repository.transportState.value as? com.example.jetsoncontroller.data.transport.TransportState.Connected)?.deviceId)
 
     class Factory(
-        private val repository: JetsonRepository
+        private val repository: JetsonRepository,
+        context: android.content.Context
     ) : ViewModelProvider.Factory {
+        private val context = context.applicationContext
+        private fun environment() = cameraPreviewEnvironment(context, repository.transportState.value)
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            CameraPreviewViewModel(repository) as T
+            CameraPreviewViewModel(repository, environment = ::environment) as T
 
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T =
-            CameraPreviewViewModel(repository, savedStateHandle = extras.createSavedStateHandle()) as T
+            CameraPreviewViewModel(repository, savedStateHandle = extras.createSavedStateHandle(), environment = ::environment) as T
     }
 }
 
@@ -230,14 +256,3 @@ private enum class FrameLoadResult {
 internal const val CAMERA_PREVIEW_LEGACY_INTERVAL_MS = 67L
 internal const val CAMERA_RETRY_INTERVAL_MS = 1_000L
 internal const val CAMERA_PREVIEW_TARGET_KEY = "cameraPreviewTarget"
-
-private suspend fun decodeCameraPreviewBitmap(bytes: ByteArray): Bitmap = withContext(Dispatchers.Default) {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    require(bounds.outWidth > 0 && bounds.outHeight > 0) { "카메라 프레임 형식을 읽을 수 없습니다." }
-    val options = BitmapFactory.Options().apply {
-        inSampleSize = cameraPreviewSampleSize(bounds.outWidth, bounds.outHeight)
-    }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        ?: error("카메라 프레임 형식을 읽을 수 없습니다.")
-}

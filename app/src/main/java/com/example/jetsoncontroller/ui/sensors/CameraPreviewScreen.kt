@@ -106,8 +106,8 @@ fun CameraPreviewScreen(
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         state.frame?.let {
-                            Image(it.asImageBitmap(), if (stage == CameraStageState.LIVE) "장치 카메라 최근 수신 영상" else "장치 카메라 마지막 수신 영상",
-                                Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                            val description = if (stage == CameraStageState.LIVE) "장치 카메라 최근 수신 영상" else "장치 카메라 마지막 수신 영상"
+                            Image(it.asImageBitmap(), description, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                             Row(Modifier.align(Alignment.TopStart).padding(16.dp)
                                 .background(GeoFixedColors.mediaBadge, GeoShape.badge).padding(8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

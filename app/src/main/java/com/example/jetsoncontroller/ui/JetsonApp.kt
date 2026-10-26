@@ -401,7 +401,7 @@ fun JetsonApp(
     )
 
     val cameraPreviewViewModel: CameraPreviewViewModel =
-        viewModel(factory = CameraPreviewViewModel.Factory(repository))
+        viewModel(factory = CameraPreviewViewModel.Factory(repository, fieldContext))
 
     val alertSettingsViewModel: AlertSettingsViewModel =
         viewModel(factory = AlertSettingsViewModel.Factory(alertPreferences))
