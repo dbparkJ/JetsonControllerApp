@@ -14,7 +14,8 @@ data class GeoWindow(
     val rail: Boolean,
     val gutterDp: Float,
     val twoPane: Boolean,
-    val fontScale: Float = 1f
+    val fontScale: Float = 1f,
+    val landscapeLayout: Boolean = false
 )
 
 /** Width is measured after horizontal safe drawing and before navigation chrome. */
@@ -28,13 +29,22 @@ fun geoWindow(widthDp: Float, heightDp: Float, fontScale: Float, navigationVisib
     val pane = (widthDp - if (rail) 80f else 0f).coerceAtLeast(0f)
     val gutter = paneGutter(pane)
     val scale = max(1f, fontScale)
+    val twoPane = widthClass == GeoWidthClass.EXPANDED && heightDp >= 480f && fontScale < 1.5f &&
+        pane >= 320f * scale + 24f + 400f * scale + 2f * gutter
     return GeoWindow(
         widthDp, heightDp, pane, widthClass, heightDp < 480f, rail, gutter,
-        widthClass == GeoWidthClass.EXPANDED && heightDp >= 480f && fontScale < 1.5f &&
-            pane >= 320f * scale + 24f + 400f * scale + 2f * gutter,
-        fontScale
+        twoPane, fontScale,
+        geoLandscapeLayout(widthDp, heightDp, twoPane)
     )
 }
+
+/** Safe window dimensions, not device orientation; includes the exhibition tablet's 800dp height. */
+fun geoLandscapeLayout(widthDp: Float, heightDp: Float, twoPane: Boolean): Boolean =
+    twoPane && widthDp > heightDp && heightDp in 480f..840f
+
+/** Split a device detail only when both internal columns have room for full-sized rows. */
+fun geoDeviceDetailColumns(contentWidthDp: Float, fontScale: Float, landscape: Boolean): Int =
+    if (landscape && contentWidthDp >= 560f * max(1f, fontScale) + 24f) 2 else 1
 
 @Suppress("UNUSED_PARAMETER")
 fun paneGutter(paneWidthDp: Float): Float = 24f

@@ -13,6 +13,9 @@ val LocalGeoWindow = staticCompositionLocalOf { geoWindow(412f, 882f, 1f) }
 
 val LocalGeoPane = staticCompositionLocalOf { false }
 
+/** Only the detail root loses its back arrow; pushed pages keep normal navigation. */
+val LocalGeoDetailRoot = staticCompositionLocalOf { false }
+
 /** Owns the outer gutter once. Child pages retain their own scroll and action area. */
 @Composable
 fun GeoPaneLayout(
@@ -39,7 +42,9 @@ fun GeoPaneLayout(
                 horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 GeoPane(Modifier.width(widths.listDp.dp).fillMaxHeight(), listContent)
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-                    GeoPane((if (detailFill) Modifier else Modifier.widthIn(max = 720.dp)).fillMaxSize(), detailContent)
+                    CompositionLocalProvider(LocalGeoDetailRoot provides window.landscapeLayout) {
+                        GeoPane((if (detailFill || window.landscapeLayout) Modifier else Modifier.widthIn(max = 720.dp)).fillMaxSize(), detailContent)
+                    }
                 }
             }
         }

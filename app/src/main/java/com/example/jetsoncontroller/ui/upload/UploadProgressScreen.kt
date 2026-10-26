@@ -154,8 +154,11 @@ fun UploadProgressScreen(
                 Column(Modifier.padding(transferGutter)) {
                     if (isLoading) GeoSkeleton("전송을 확인하고 있습니다", kind = GeoSkeletonKind.Rows)
                     else GeoStateBlock(GeoStateContent(if (error == null) GeoStateKind.EMPTY else GeoStateKind.ERROR,
-                        if (error == null) "전송을 확인하고 있습니다" else "전송을 확인하지 못했습니다",
-                        error ?: "전송 정보가 도착하면 표시됩니다."), fullScreen = true)
+                        if (error == null && com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current)
+                            "전송 내역을 선택하세요" else if (error == null) "전송을 확인하고 있습니다" else "전송을 확인하지 못했습니다",
+                        error ?: if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current)
+                            "왼쪽에서 전송을 고르면 수신 확인과 완료 보고 상태를 볼 수 있습니다. 보낸 파일이 없으면 파일 보내기로 시작하세요."
+                            else "전송 정보가 도착하면 표시됩니다."), fullScreen = true)
                 }
             } else {
                 val receipt = matchingTransferVerification(job, verification)

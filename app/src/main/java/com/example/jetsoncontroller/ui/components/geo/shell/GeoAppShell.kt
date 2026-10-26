@@ -46,6 +46,7 @@ fun GeoAppShell(
     focusedMediaPreview: Boolean = false,
     adaptivePreview: Boolean = false,
     tabletNavigationVisible: Boolean = false,
+    landscapeMedia: Boolean = false,
     topBar: @Composable () -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -93,7 +94,8 @@ fun GeoAppShell(
                             Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)), attentionSections)
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                                val column = if (geoWindow.twoPane && paneLayout) Modifier else Modifier.widthIn(max = 720.dp)
+                                val column = if ((geoWindow.twoPane && paneLayout) ||
+                                    (landscapeMedia && geoWindow.landscapeLayout)) Modifier else Modifier.widthIn(max = 720.dp)
                                 Box(column.fillMaxSize()
                                     .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                                     .consumeWindowInsets(WindowInsets.navigationBars)) { content() }

@@ -33,14 +33,16 @@ internal fun TransferPage(
     val c = LocalGeoColors.current
     val chrome = LocalGeoChrome.current
     val density = LocalDensity.current
+    val detailRoot = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current
+    val back = onBack.takeUnless { detailRoot }
     var headerDp by remember { mutableFloatStateOf(0f) }
     Column(Modifier.fillMaxSize().background(c.canvas)) {
         GeoTopBar(Modifier.onSizeChanged { headerDp = it.height / density.density }) {
             if (header != null) header() else
-            Row(Modifier.fillMaxWidth().heightIn(min = if (onBack == null) 64.dp else 56.dp)
-                .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (onBack != null) GeoIconButton(GeoIcons.back, "뒤로", onBack, chrome = true)
-                Text(title, Modifier.weight(1f).padding(start = if (onBack == null) 20.dp else 12.dp)
+            Row(Modifier.fillMaxWidth().heightIn(min = if (detailRoot || onBack == null) 64.dp else 56.dp)
+                .padding(start = if (detailRoot) 0.dp else 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (back != null) GeoIconButton(GeoIcons.back, "뒤로", back, chrome = true)
+                Text(title, Modifier.weight(1f).padding(start = if (detailRoot) 0.dp else if (onBack == null) 20.dp else 12.dp)
                     .semantics { heading() }, color = c.onTopBar,
                     style = if (onBack == null) LocalGeoType.current.heading else LocalGeoType.current.title)
                 actions()

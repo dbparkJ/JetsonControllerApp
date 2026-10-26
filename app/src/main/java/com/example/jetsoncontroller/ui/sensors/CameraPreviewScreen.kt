@@ -81,7 +81,10 @@ fun CameraPreviewScreen(
             DeviceTitleBar("카메라", onBack)
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val compact = maxHeight < 360.dp
-                Column(Modifier.fillMaxSize()) {
+                if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.landscapeLayout) {
+                    CameraLandscapeContent(state, camera, stage, canCapture, captureBusy, saveDevice, saveMobile,
+                        captureNow, { chooseCapture = true }, onRefresh)
+                } else Column(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
@@ -166,5 +169,63 @@ fun CameraPreviewScreen(
         }) {
         GeoCheckboxRow("장치에 저장", saveDevice, { saveDevice = it; prefs.edit().putBoolean("device", it).apply() })
         GeoCheckboxRow("휴대폰 갤러리에 저장", saveMobile, { saveMobile = it; prefs.edit().putBoolean("mobile", it).apply() })
+    }
+}
+
+/** The image owns all remaining height; the controls never cover the received frame. */
+@Composable
+private fun CameraLandscapeContent(
+    state: CameraPreviewUiState, camera: CameraSensorStatus, stage: CameraStageState,
+    canCapture: Boolean, captureBusy: Boolean, saveDevice: Boolean, saveMobile: Boolean,
+    onCapture: () -> Unit, onChooseLocation: () -> Unit, onRefresh: () -> Unit
+) {
+    val type = LocalGeoType.current
+    Row(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            state.frame?.let {
+                Image(it.asImageBitmap(),
+                    if (stage == CameraStageState.LIVE) "장치 카메라 최근 수신 영상" else "장치 카메라 마지막 수신 영상",
+                    Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            }
+            if (stage == CameraStageState.WAITING || stage == CameraStageState.ERROR) {
+                Text(if (stage == CameraStageState.ERROR) "영상을 받지 못했습니다" else "카메라 영상을 기다리고 있습니다",
+                    Modifier.padding(24.dp), style = type.body, color = GeoFixedColors.mediaText)
+            }
+        }
+        Column(Modifier.width(200.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(state.deviceName ?: "장치", style = type.deviceName, color = GeoFixedColors.mediaText)
+            GeoBadge(when (stage) {
+                CameraStageState.LIVE -> "실시간"
+                CameraStageState.DELAYED -> "지연"
+                CameraStageState.WAITING -> "대기 중"
+                CameraStageState.ERROR -> "받지 못함"
+            }, when (stage) {
+                CameraStageState.LIVE -> Tone.SUCCESS
+                CameraStageState.DELAYED -> Tone.WARNING
+                CameraStageState.ERROR -> Tone.ERROR
+                CameraStageState.WAITING -> Tone.UNKNOWN
+            }, variant = GeoBadgeVariant.ON_DARK)
+            state.updatedAtEpochMillis?.let {
+                Text("마지막 수신 ${DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.of("Asia/Seoul")).format(Instant.ofEpochMilli(it))}",
+                    style = type.caption, color = GeoFixedColors.mediaText)
+            }
+            cameraResolution(camera)?.let { Text(it, style = type.caption, color = GeoFixedColors.mediaText) }
+            if (stage == CameraStageState.DELAYED) Text(
+                "카메라 영상이 늦게 도착하고 있습니다. 실시간 영상을 받으면 캡처할 수 있습니다.",
+                style = type.supporting, color = GeoFixedColors.mediaText)
+            if (stage == CameraStageState.ERROR) GeoButton("다시 시도", onRefresh,
+                Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary,
+                enabled = !state.isRefreshing, busy = state.isRefreshing, busyLabel = "다시 시도 중")
+            GeoButton("캡처", onCapture, Modifier.fillMaxWidth(), enabled = canCapture,
+                busy = captureBusy, busyLabel = "캡처 중", icon = GeoIcons.camera,
+                disabledReason = if (!saveDevice && !saveMobile) "저장 위치를 선택하세요."
+                    else "실시간 영상을 받으면 캡처할 수 있습니다.")
+            GeoButton("저장 위치", onChooseLocation, Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary)
+            Text(listOfNotNull("장치에 저장".takeIf { saveDevice }, "휴대폰 갤러리에 저장".takeIf { saveMobile })
+                .joinToString(" · ").ifEmpty { "저장 위치를 선택하세요." },
+                style = type.caption, color = GeoFixedColors.mediaPending)
+        }
     }
 }

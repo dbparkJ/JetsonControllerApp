@@ -161,6 +161,10 @@ fun ThemeScreen(onBack: () -> Unit) {
 
 @Composable
 private fun GeoThemeTopBar(onBack: () -> Unit) {
+    if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current) {
+        com.example.jetsoncontroller.ui.devices.DeviceTitleBar("화면 테마")
+        return
+    }
     val c = LocalGeoColors.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()

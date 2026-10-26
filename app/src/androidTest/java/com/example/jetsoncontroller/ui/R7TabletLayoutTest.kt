@@ -150,7 +150,7 @@ class R7TabletLayoutTest {
         compose.onNodeWithText("빠른 기능").assertExists()
         compose.runOnIdle { width = 1333f; height = 800f }
         compose.onNodeWithText("빠른 기능").assertExists()
-        compose.onNodeWithText("수집 구간").assertExists()
+        compose.onNodeWithText("다른 수집 구간").assertExists()
         compose.onNodeWithText("최근 수집").assertExists()
     }
 

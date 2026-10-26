@@ -138,8 +138,10 @@ fun GeoButton(
         GeoButtonStyle.DangerOutline, GeoButtonStyle.DangerFilled -> BorderStroke(1.dp, if (enabled) c.dangerBorder else c.disabledText)
         else -> null
     }
-    // The cap comes first so a caller's fillMaxWidth() fills up to 560 dp instead of overriding it.
-    Column(Modifier.widthIn(max = 560.dp).then(modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Landscape panes align actions to their cards; other windows retain the 560dp cap.
+    val widthLimit = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.landscapeLayout)
+        Modifier else Modifier.widthIn(max = 560.dp)
+    Column(widthLimit.then(modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier
                 .then(tertiaryEdgeOffset(style, edge))

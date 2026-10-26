@@ -90,7 +90,8 @@ internal fun DeviceDetailScreen(
     }
     val disabledReason = if (!targetSelected) "이 장치를 다시 선택하면 쓸 수 있습니다." else "연결되면 쓸 수 있습니다."
     Column(Modifier.fillMaxSize().background(c.canvas)) {
-        DeviceTitleBar("장치", onBack) {
+        val detailRoot = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current
+        DeviceTitleBar(if (detailRoot) "장치 상태" else "장치", if (detailRoot) null else onBack) {
             Box {
                 GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
                 GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("연결 끊기", {
@@ -119,54 +120,76 @@ internal fun DeviceDetailScreen(
                         meta = if (online) listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · ")
                             else lastSeenText?.let { "마지막 응답 $it" } ?: "현재 상태 미확인",
                         figures = devicePhotoFigures(dashboard.status.takeIf { current }, snapshot))
-                    GeoSection("센서") {
-                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                            DeviceSensorRows(dashboard.status, current, control, onCamera, onGnss)
-                        }
-                    }
-                    GeoSection("연결") {
-                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                            GeoRowList(GeoRowTrailing.None) {
-                                GeoRow("연결 방법", { sheet = true }, meta = deviceTransportLabel(dashboard.transportType),
-                                    leading = { GeoIconTile(GeoIcons.link) })
-                                GeoRow("장치 Wi-Fi", onNetwork,
-                                    meta = dashboard.status.wifiSsid?.takeIf(String::isNotBlank) ?: "미확인",
-                                    leading = { GeoIconTile(GeoIcons.wifi) }, enabled = online,
-                                    disabledReason = disabledReason, divider = false)
+                    val sensors: @Composable () -> Unit = {
+                        GeoSection("센서") {
+                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                                DeviceSensorRows(dashboard.status, current, control, onCamera, onGnss)
                             }
                         }
                     }
-                    GeoSection("데이터") {
-                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                            GeoRowList(GeoRowTrailing.Status) {
-                                DeviceNavigationRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason,
-                                    leading = { GeoIconTile(GeoIcons.folder) })
-                                DeviceNavigationRow("휴지통", { onTrash?.invoke() }, value = trashCount?.let { "${it}개" },
-                                    enabled = control && onTrash != null, disabledReason = disabledReason, divider = false,
-                                    leading = { GeoIconTile(GeoIcons.trash) })
+                    val connectionSection: @Composable () -> Unit = {
+                        GeoSection("연결") {
+                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                                GeoRowList(GeoRowTrailing.None) {
+                                    GeoRow("연결 방법", { sheet = true }, meta = deviceTransportLabel(dashboard.transportType),
+                                        leading = { GeoIconTile(GeoIcons.link) })
+                                    GeoRow("장치 Wi-Fi", onNetwork,
+                                        meta = dashboard.status.wifiSsid?.takeIf(String::isNotBlank) ?: "미확인",
+                                        leading = { GeoIconTile(GeoIcons.wifi) }, enabled = online,
+                                        disabledReason = disabledReason, divider = false)
+                                }
                             }
                         }
                     }
-                    GeoSection("상태") {
-                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                            val memory = deviceFigureItems(dashboard.status.takeIf { current }, snapshot).last()
-                            val shown = deviceFigurePresentation(memory)
-                            GeoFactRow(memory.label, listOfNotNull(shown.value, shown.detail, shown.staleDetail).joinToString(" · "))
+                    val dataSection: @Composable () -> Unit = {
+                        GeoSection("데이터") {
+                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                                GeoRowList(GeoRowTrailing.Status) {
+                                    DeviceNavigationRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason,
+                                        leading = { GeoIconTile(GeoIcons.folder) })
+                                    DeviceNavigationRow("휴지통", { onTrash?.invoke() }, value = trashCount?.let { "${it}개" },
+                                        enabled = control && onTrash != null, disabledReason = disabledReason, divider = false,
+                                        leading = { GeoIconTile(GeoIcons.trash) })
+                                }
+                            }
                         }
                     }
-                    GeoSection("관리", danger = true,
-                        note = "재부팅과 전원 종료는 수집 중에는 쓸 수 없습니다.") {
-                        DeviceSurface(tone = com.example.jetsoncontroller.ui.model.Tone.ERROR) {
-                            DevicePowerButtons(powerEnabled, { confirmation = "reboot" }, { confirmation = "shutdown" })
-                            if (!powerEnabled) Text(powerReason.ifEmpty { disabledReason },
-                                Modifier.padding(top = 12.dp), style = LocalGeoType.current.body, color = c.textSecondary)
+                    val statusSection: @Composable () -> Unit = {
+                        GeoSection("상태") {
+                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                                val memory = deviceFigureItems(dashboard.status.takeIf { current }, snapshot).last()
+                                val shown = deviceFigurePresentation(memory)
+                                GeoFactRow(memory.label, listOfNotNull(shown.value, shown.detail, shown.staleDetail).joinToString(" · "))
+                            }
                         }
                     }
-                    GeoSection("이 $deviceWord", danger = true, note = "이 ${deviceWord}에 저장된 인증 정보만 지웁니다.") {
-                        DeviceSurface {
-                            GeoButton("등록 해제", { confirmation = "forget" }, Modifier.fillMaxWidth(),
-                                style = GeoButtonStyle.DangerOutline, actionArea = true, enabled = onForget != null,
-                                disabledReason = if (onForget == null) "등록된 장치를 먼저 선택하세요." else null)
+                    val management: @Composable () -> Unit = {
+                        GeoSection("관리", danger = true,
+                            note = "재부팅과 전원 종료는 수집 중에는 쓸 수 없습니다.") {
+                            DeviceSurface(tone = com.example.jetsoncontroller.ui.model.Tone.ERROR) {
+                                DevicePowerButtons(powerEnabled, { confirmation = "reboot" }, { confirmation = "shutdown" })
+                                if (!powerEnabled) Text(powerReason.ifEmpty { disabledReason },
+                                    Modifier.padding(top = 12.dp), style = LocalGeoType.current.body, color = c.textSecondary)
+                            }
+                        }
+                    }
+                    val registration: @Composable () -> Unit = {
+                        GeoSection("이 $deviceWord", danger = true, note = "이 ${deviceWord}에 저장된 인증 정보만 지웁니다.") {
+                            DeviceSurface {
+                                GeoButton("등록 해제", { confirmation = "forget" }, Modifier.fillMaxWidth(),
+                                    style = GeoButtonStyle.DangerOutline, actionArea = true, enabled = onForget != null,
+                                    disabledReason = if (onForget == null) "등록된 장치를 먼저 선택하세요." else null)
+                            }
+                        }
+                    }
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val columns = com.example.jetsoncontroller.ui.components.geo.shell.geoDeviceDetailColumns(
+                            maxWidth.value, LocalGeoWindow.current.fontScale, LocalGeoWindow.current.landscapeLayout)
+                        if (columns == 2) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            Column(Modifier.weight(1f)) { sensors(); statusSection() }
+                            Column(Modifier.weight(1f)) { connectionSection(); dataSection(); management(); registration() }
+                        } else Column(Modifier.fillMaxWidth()) {
+                            sensors(); connectionSection(); dataSection(); statusSection(); management(); registration()
                         }
                     }
                 }

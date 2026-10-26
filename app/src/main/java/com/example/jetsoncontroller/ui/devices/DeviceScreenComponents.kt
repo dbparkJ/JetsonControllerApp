@@ -37,7 +37,8 @@ internal fun DeviceTitleBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val c = LocalGeoColors.current
-    Row(modifier.fillMaxWidth().background(c.topBar).heightIn(min = if (root) 64.dp else 56.dp)
+    val detailRoot = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current
+    Row(modifier.fillMaxWidth().background(c.topBar).heightIn(min = if (root || detailRoot) 64.dp else 56.dp)
         .padding(start = if (onBack == null) LocalGeoWindow.current.gutterDp.dp else 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically) {
         onBack?.let { GeoIconButton(GeoIcons.back, "뒤로", it, chrome = true) }

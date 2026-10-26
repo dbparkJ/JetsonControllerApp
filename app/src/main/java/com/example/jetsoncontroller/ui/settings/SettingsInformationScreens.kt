@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
-    DeviceTitleBar(title, onBack)
+    DeviceTitleBar(title, if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current) null else onBack)
 }
 
 @Composable

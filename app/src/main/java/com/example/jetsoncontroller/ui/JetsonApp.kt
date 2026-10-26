@@ -886,6 +886,7 @@ fun JetsonApp(
             onSelect = onSectionSelected,
             mediaInsets = currentRoute in setOf(Routes.CAMERA_PREVIEW, Routes.QR_SCANNER) || navigationState.hasFocusedMediaPreview(),
             paneLayout = currentRoute in paneLayoutRoutes,
+            landscapeMedia = currentRoute == Routes.CAMERA_PREVIEW,
             focusedMediaPreview = navigationState.hasFocusedMediaPreview(),
             adaptivePreview = currentRoute == Routes.DATA,
             tabletNavigationVisible = currentRoute == Routes.ACTIVE_RUN && deviceState.registeredDevices.isNotEmpty(),

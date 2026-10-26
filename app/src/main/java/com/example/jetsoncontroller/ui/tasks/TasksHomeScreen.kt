@@ -59,6 +59,7 @@ internal fun TasksHomeScreen(
 ) {
     val c = LocalGeoColors.current
     val window = LocalGeoWindow.current
+    val landscape = window.landscapeLayout
     val gutter = window.gutterDp.dp
     val tablet = window.widthDp >= 600f
     val portraitGrid = tablet && !window.twoPane && !com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane.current &&
@@ -98,13 +99,14 @@ internal fun TasksHomeScreen(
     })
     val quick = remember { movableContentOf { quickContent() } }
     val recentContent by rememberUpdatedState<@Composable () -> Unit>({
-        GeoSection("최근 수집", actionLabel = if (state.recent.isEmpty()) null else "전체 기록", onAction = onOpenHistory) {
+        GeoSection("최근 수집", first = landscape,
+            actionLabel = if (state.recent.isEmpty()) null else "전체 기록", onAction = onOpenHistory) {
             if (state.recent.isEmpty()) state.deviceListsNote?.let {
                 if (state.checkingDevice) GeoSkeleton(it, kind = GeoSkeletonKind.Rows) else DeviceListsNote(it)
             }
                 ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "완료한 수집이 없습니다", "수집을 마치면 여기에 남습니다."))
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                state.recent.forEach { row ->
+                (if (landscape) state.recent.take(2) else state.recent).forEach { row ->
                     WorkSurfaceCard {
                         GeoRowList(GeoRowTrailing.None) {
                             GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta,
@@ -120,7 +122,8 @@ internal fun TasksHomeScreen(
     val recent = remember { movableContentOf { recentContent() } }
     val queueContent by rememberUpdatedState<@Composable () -> Unit>({
         WorkTicketsSection(state, onOpenTicket, onSelectTicketUnit, onChangeSection, onRefresh, onServerConnection, now,
-            completedTickets, { completedTickets = it }, first = window.twoPane)
+            completedTickets, { completedTickets = it }, first = window.twoPane && !landscape,
+            omitFeatured = landscape)
     })
     val queue = remember { movableContentOf { queueContent() } }
     val tasksContent by rememberUpdatedState<@Composable () -> Unit>({
@@ -154,13 +157,15 @@ internal fun TasksHomeScreen(
                             item(key = "device") { device() }
                             item(key = "focus") { focus() }
                             item(key = "quick") { quick() }
-                            item(key = "tasks") { tasks() }
+                            if (!landscape) item(key = "tasks") { tasks() }
                         }
                     }, detail = {
                         LazyColumn(state = rightScroll, modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(top = 24.dp, bottom = 32.dp)) {
+                            if (landscape) item(key = "recent") { recent() }
                             if (state.ticketSection != null) item(key = "queue") { queue() }
-                            if (state.ticketSection != null || state.recent.isNotEmpty()) item(key = "recent") { recent() }
+                            if (!landscape && (state.ticketSection != null || state.recent.isNotEmpty())) item(key = "recent") { recent() }
+                            if (landscape) item(key = "tasks") { tasks() }
                         }
                     })
             } else LazyColumn(state = leftScroll, modifier = Modifier.fillMaxSize().semantics {
@@ -267,11 +272,12 @@ private fun WorkCurrentCard(
 private fun WorkTicketsSection(
     state: TasksHomeUiState, onOpen: (String) -> Unit, onUnit: (String?) -> Unit,
     onManual: () -> Unit, onRefresh: () -> Unit, onServer: () -> Unit, now: Instant,
-    completed: Boolean, onCompletedChange: (Boolean) -> Unit, first: Boolean = false
+    completed: Boolean, onCompletedChange: (Boolean) -> Unit, first: Boolean = false,
+    omitFeatured: Boolean = false
 ) {
     val tickets = state.ticketSection
     val deviceUnit = tickets?.deviceUnit
-    GeoSection("수집 구간", first = first) {
+    GeoSection(if (omitFeatured) "다른 수집 구간" else "수집 구간", first = first) {
         if (tickets == null) {
             GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
                 "GEO& Work 수집 구간을 보려면 서버 연결이 필요합니다.", "서버 연결"), onAction = onServer)
@@ -285,17 +291,25 @@ private fun WorkTicketsSection(
             if (ticketRefreshVisible(tickets, now)) GeoButton("다시 확인", onRefresh,
                 style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !tickets.isLoading)
             val queue = workTicketQueue(tickets.tickets, tickets.selectedUnit)
+            val featuredId = queue.open.firstOrNull()?.rowId.takeIf {
+                omitFeatured && !(state.focus?.title != null && state.focus?.primary != null)
+            }
+            val open = queue.open.filterNot { it.rowId == featuredId }
+            if (featuredId != null && open.isEmpty() && queue.completed.isEmpty()) Text(
+                "오늘의 수집 구간은 왼쪽에서 준비할 수 있습니다.",
+                Modifier.padding(top = 12.dp), style = LocalGeoType.current.supporting,
+                color = LocalGeoColors.current.textSecondary)
             when {
                 tickets.isLoading && tickets.tickets.isEmpty() -> GeoSkeleton("수집 구간을 불러오는 중",
                     Modifier.padding(top = 12.dp), kind = GeoSkeletonKind.Rows)
                 queue.open.isEmpty() && queue.completed.isEmpty() -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
                     "이 호기에 배정된 수집 구간이 없습니다", "GEO& Work에서 배정되면 여기에 표시됩니다."), Modifier.padding(top = 16.dp))
                 else -> {
-                    if (queue.open.isNotEmpty()) WorkSurfaceCard(Modifier.padding(top = 12.dp),
+                    if (open.isNotEmpty()) WorkSurfaceCard(Modifier.padding(top = 12.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp)) {
                         GeoRowList(GeoRowTrailing.Status) {
-                            queue.open.forEachIndexed { index, ticket ->
-                                GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < queue.open.lastIndex,
+                            open.forEachIndexed { index, ticket ->
+                                GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < open.lastIndex,
                                     leading = { GeoIconTile(GeoIcons.fitZone) },
                                     badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
                             }
