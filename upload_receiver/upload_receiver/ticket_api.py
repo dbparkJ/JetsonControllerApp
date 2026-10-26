@@ -38,6 +38,7 @@ class TicketAPI:
         self.database = receiver.database
         self.configuration = receiver.ticket_configuration
         self.clock = clock
+        self.sync = None
 
     def _destination(self):
         config = self.configuration.current
@@ -106,6 +107,8 @@ class TicketAPI:
                 tickets.append(ticket)
             if unit is not None and unit not in units:
                 tickets = []
+        if self.sync is not None:
+            self.sync.request_sync_if_stale(self.clock())
         return {"tickets": tickets, "units": units, "deviceUnit": device_unit[0] if device_unit else None,
                 "syncedAt": sync["synced_at"] if sync and sync["destination"] == self._destination() else None,
                 "integration": self.configuration.state()}

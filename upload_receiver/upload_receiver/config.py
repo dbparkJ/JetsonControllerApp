@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_DATA_ROOT = Path("/data/server_storage/jetson-upload-receiver")
 DEFAULT_EXPECTED_MOUNT = Path("/data/server_storage")
+DEFAULT_TICKET_SYNC_INTERVAL_SECONDS = 30
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -61,6 +62,12 @@ class Settings:
     max_preview_bytes: int = 12 * 1024 * 1024
     server_environment: str = "development"
     geon_work_config: Path | None = None
+    ticket_sync_interval_seconds: int = DEFAULT_TICKET_SYNC_INTERVAL_SECONDS
+
+    def __post_init__(self) -> None:
+        if (type(self.ticket_sync_interval_seconds) is not int
+                or not 10 <= self.ticket_sync_interval_seconds <= 600):
+            raise RuntimeError("UPLOAD_RECEIVER_TICKET_SYNC_INTERVAL_SECONDS must be an integer from 10 to 600")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -113,6 +120,9 @@ class Settings:
                 "UPLOAD_RECEIVER_MAX_PREVIEW_BYTES", 12 * 1024 * 1024
             ),
             server_environment=_server_environment(),
+            ticket_sync_interval_seconds=_positive_int(
+                "UPLOAD_RECEIVER_TICKET_SYNC_INTERVAL_SECONDS", DEFAULT_TICKET_SYNC_INTERVAL_SECONDS
+            ),
             geon_work_config=(
                 Path(os.environ["UPLOAD_RECEIVER_GEON_WORK_CONFIG"]).expanduser()
                 if os.environ.get("UPLOAD_RECEIVER_GEON_WORK_CONFIG")

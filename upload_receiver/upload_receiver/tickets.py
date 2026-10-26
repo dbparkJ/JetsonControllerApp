@@ -9,6 +9,7 @@ from contextlib import closing
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote, urlencode
 
+from .config import DEFAULT_TICKET_SYNC_INTERVAL_SECONDS
 from .geon_work import TicketsConfiguration, parse_timestamp, timestamp
 from .outbound import OutboundRequest, PayloadRejected, SendResult, _safe_code, http_sender
 from .signing import canonical_json
@@ -18,6 +19,7 @@ LOGGER = logging.getLogger(__name__)
 TARGET = "geon-work-tickets"
 # Board options can be renamed at any time (호기 'geo X-1' → 'GEO-X-1'); re-read the schema this often.
 SCHEMA_REFRESH_SECONDS = 600.0
+READ_SYNC_STALE_SECONDS = 15.0
 GEOMETRY_PROPERTY_NAMES = {"geometry", "수집 구역"}
 MAX_GEOMETRY_BYTES = 1024 * 1024
 PROPERTIES = {
@@ -218,6 +220,9 @@ def retry_delay(result: SendResult, now: float, failures: int) -> float:
 class BoardRateLimit:
     """One shared token budget for schema, listing and PATCH; never sleep in a transaction."""
 
+    # At most 120 starts/minute. A 30s single-page poll uses 2/minute; schema reads
+    # and their full passes add at most 0.2/minute, leaving room for pages/PATCH.
+
     def __init__(self):
         self._lock = threading.Lock()
         self._next = 0.0
@@ -235,6 +240,10 @@ class BoardRateLimit:
         with self._lock:
             self._next = max(self._next, until)
 
+    def blocked(self, now: float) -> bool:
+        with self._lock:
+            return self._busy or now < self._next
+
     def release(self) -> None:
         with self._lock:
             self._busy = False
@@ -242,11 +251,14 @@ class BoardRateLimit:
 
 class TicketSync:
     def __init__(self, database, configuration: TicketsConfiguration, *, sender=http_sender,
-                 clock=time.time):
+                 clock=time.time, interval_seconds=DEFAULT_TICKET_SYNC_INTERVAL_SECONDS):
+        if type(interval_seconds) is not int or not 10 <= interval_seconds <= 600:
+            raise ValueError("Ticket sync interval must be an integer from 10 to 600")
         self.database = database
         self.configuration = configuration
         self.sender = sender
         self.clock = clock
+        self.interval_seconds = interval_seconds
         self.rate = BoardRateLimit()
         self._guard = threading.Lock()
         self._stop = threading.Event()
@@ -262,7 +274,24 @@ class TicketSync:
         self._full = True
         self._seen = None
         self._next_sync = 0.0
+        self._last_synced_at = None
         self._failures = 0
+
+    def request_sync_if_stale(self, now: float) -> bool:
+        """Advance the existing worker without waiting for an in-flight HTTP request."""
+        if not self._guard.acquire(blocking=False):
+            return False
+        try:
+            if (self._stop.is_set() or self._schema is None or self._full
+                    or self._query is not None or self._last_synced_at is None
+                    or now <= self._last_synced_at + READ_SYNC_STALE_SECONDS
+                    or now >= self._next_sync or self.rate.blocked(now)):
+                return False
+            # Repeated reads see an already-due sync; run_once uses the same guard.
+            self._next_sync = now
+            return True
+        finally:
+            self._guard.release()
 
     def start(self):
         self._thread = threading.Thread(target=self._run, name="geon-work-tickets", daemon=True)
@@ -320,14 +349,15 @@ class TicketSync:
             # A schema read leaves _full set: its full pass follows at once instead of waiting
             # for the incremental cadence.
             if (self._fingerprint == fingerprint and self._schema is not None
-                    and self._query is None and not self._full and now < self._next_sync):
+                    and self._query is None and not self._full and now < self._next_sync
+                    and now < self._schema_checked + SCHEMA_REFRESH_SECONDS):
                 return False
             if not self.rate.reserve(now):
                 return False
             reserved = True
             if self._fingerprint != fingerprint:
                 self._validated = self._schema = self._query = self._cursor = self._maximum = None
-                self._schema_checked = self._seen = None
+                self._schema_checked = self._seen = self._last_synced_at = None
                 self._full, self._next_sync, self._failures = True, 0.0, 0
                 with self.database.immediate() as connection:
                     previous = connection.execute("SELECT * FROM ticket_sync WHERE target=?", (TARGET,)).fetchone()
@@ -433,7 +463,9 @@ class TicketSync:
                         )
                 self._maximum, self._cursor = maximum, cursor
                 if cursor is None:
-                    self._full, self._query, self._seen, self._next_sync = False, None, None, now + 120
+                    self._last_synced_at = now
+                    self._full, self._query, self._seen = False, None, None
+                    self._next_sync = now + self.interval_seconds
             return True
         finally:
             if reserved:

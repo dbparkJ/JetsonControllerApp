@@ -49,8 +49,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI):
         application.state.receiver = ReceiverService(effective_settings)
         receiver = application.state.receiver
-        ticket_sync = TicketSync(receiver.database, receiver.ticket_configuration)
+        ticket_sync = TicketSync(receiver.database, receiver.ticket_configuration,
+                                 interval_seconds=effective_settings.ticket_sync_interval_seconds)
         application.state.ticket_sync = ticket_sync
+        receiver.tickets.sync = ticket_sync
         dispatcher = Dispatcher(receiver.database, receiver.geon_work, receiver.device_events,
                                 tickets=ticket_sync)
         application.state.dispatcher = dispatcher

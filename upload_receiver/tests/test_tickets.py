@@ -5,15 +5,19 @@ import io
 import json
 import os
 import tempfile
+import threading
 import unittest
 import uuid
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
 from upload_receiver.database import Database
+from upload_receiver.config import Settings
 from upload_receiver.geon_work import (
     GeonWorkConfiguration, TicketsConfiguration, parse_timestamp, timestamp,
     validate_config, validate_tickets_config,
@@ -187,6 +191,172 @@ class TicketsCoreTest(unittest.TestCase):
             return enqueue(connection, DEVICE_ID, payload, NOW + 1, target=TARGET, kind="board-patch",
                            incident_key=f"ticket:{row_id}:{run_id}", status_text=kind, idempotency_key=key)
 
+    def ticket_api(self, now):
+        from upload_receiver.ticket_api import TicketAPI
+        receiver = SimpleNamespace(database=self.database, ticket_configuration=self.configuration,
+                                   _require_project_grant=lambda employee, project: project)
+        api = TicketAPI(receiver, clock=lambda: now)
+        api.sync = self.sync
+        return api
+
+    def test_default_incremental_interval_is_thirty_seconds(self):
+        self.initialize()
+        self.assertFalse(self.sync.run_once(NOW + 30))
+        self.assertTrue(self.sync.run_once(NOW + 30.5))
+        query = parse_qs(urlsplit(self.api.requests[-1].url).query)
+        self.assertEqual(query["status"], ["all"])
+        self.assertIn("updatedSince", query)
+
+    def test_configured_interval_and_schema_deadline(self):
+        for interval in (10, 45, 600):
+            with self.subTest(interval=interval):
+                sync = TicketSync(self.database, self.configuration, sender=self.api,
+                                  clock=lambda: NOW, interval_seconds=interval)
+                self.assertTrue(sync.run_once(NOW))
+                self.assertTrue(sync.run_once(NOW + 0.5))
+                self.assertFalse(sync.run_once(NOW + min(interval, 599.5)))
+                if interval < 600:
+                    self.assertTrue(sync.run_once(NOW + interval + 0.5))
+                # The schema still refreshes at ten minutes with a long sync interval.
+                self.assertTrue(sync.run_once(NOW + 600))
+                self.assertEqual(urlsplit(self.api.requests[-1].url).query, "")
+                self.assertTrue(sync.run_once(NOW + 600.5))
+                self.assertEqual(parse_qs(urlsplit(self.api.requests[-1].url).query)["status"], ["open"])
+
+    def test_read_refresh_requires_more_than_fifteen_seconds(self):
+        self.initialize()
+        self.assertFalse(self.sync.request_sync_if_stale(NOW + 15.5))
+        self.assertTrue(self.sync.request_sync_if_stale(NOW + 15.501))
+        self.assertTrue(self.sync.run_once(NOW + 15.501))
+        self.assertFalse(self.sync.request_sync_if_stale(NOW + 16))
+
+    def test_concurrent_read_refresh_is_scheduled_and_run_once(self):
+        self.initialize()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            scheduled = list(pool.map(self.sync.request_sync_if_stale, [NOW + 16] * 32))
+            self.assertEqual(sum(scheduled), 1)
+            ran = list(pool.map(self.sync.run_once, [NOW + 16] * 32))
+        self.assertEqual(sum(ran), 1)
+        self.assertEqual(len(self.api.requests), 3)
+        self.assertFalse(self.sync.request_sync_if_stale(NOW + 16.1))
+
+    @unittest.skipUnless(os.name == "posix", "Ticket API imports receiver storage, which requires Linux/WSL")
+    def test_list_returns_snapshot_before_scheduled_refresh(self):
+        self.initialize()
+        self.api.add(revision=2, updated=NOW + 10)
+        api = self.ticket_api(NOW + 16)
+        for _ in range(10):
+            response = api.list("employee", "project")
+            self.assertEqual(response["tickets"][0]["revision"], 1)
+            self.assertEqual(response["syncedAt"], timestamp(NOW + 0.5))
+        self.assertEqual(len(self.api.requests), 2)
+        self.assertTrue(self.sync.run_once(NOW + 16))
+        self.assertEqual(api.list("employee", "project")["tickets"][0]["revision"], 2)
+        self.assertFalse(self.sync.run_once(NOW + 16.5))
+
+    @unittest.skipUnless(os.name == "posix", "Ticket API imports receiver storage, which requires Linux/WSL")
+    def test_list_does_not_wait_for_inflight_network_request(self):
+        self.initialize()
+        api = self.ticket_api(NOW + 16)
+        self.assertTrue(self.sync.request_sync_if_stale(NOW + 16))
+        started, release = threading.Event(), threading.Event()
+
+        def send(request):
+            started.set()
+            if not release.wait(5):
+                raise AssertionError("Test did not release network request")
+            return self.api(request)
+
+        self.sync.sender = send
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            syncing = pool.submit(self.sync.run_once, NOW + 16)
+            try:
+                self.assertTrue(started.wait(2))
+                reading = pool.submit(api.list, "employee", "project")
+                self.assertEqual(reading.result(timeout=2)["tickets"][0]["revision"], 1)
+                self.assertFalse(syncing.done())
+                self.assertFalse(self.sync.request_sync_if_stale(NOW + 17))
+            finally:
+                release.set()
+            self.assertTrue(syncing.result(timeout=2))
+
+    def test_read_refresh_does_not_wait_for_sync_guard(self):
+        self.initialize()
+        with self.sync._guard:
+            self.assertFalse(self.sync.request_sync_if_stale(NOW + 16))
+        self.assertTrue(self.sync.request_sync_if_stale(NOW + 16))
+
+    def test_reads_during_paging_do_not_schedule_another_pass(self):
+        self.initialize()
+        self.api.add("row-2", updated=NOW + 10)
+        self.api.add("row-3", updated=NOW + 11)
+        self.assertTrue(self.sync.request_sync_if_stale(NOW + 16))
+        self.assertTrue(self.sync.run_once(NOW + 16))
+        self.assertFalse(self.sync.request_sync_if_stale(NOW + 32))
+        self.assertTrue(self.sync.run_once(NOW + 32))
+        self.assertFalse(self.sync.run_once(NOW + 32.5))
+        self.assertEqual(len(self.api.requests), 4)
+
+    def test_read_refresh_does_not_advance_patch_backoff(self):
+        self.initialize()
+        self.enqueue()
+        self.api.faults.append(SendResult(503))
+        self.assertTrue(self.dispatcher.run_once(NOW + 1))
+        deadline = self.sync._next_sync
+        for now in (NOW + 16, NOW + 30):
+            self.assertFalse(self.sync.request_sync_if_stale(now))
+            self.assertEqual(self.sync._next_sync, deadline)
+            self.assertFalse(self.sync.run_once(now))
+        self.assertTrue(self.sync.run_once(NOW + 31))
+
+    def test_read_refresh_does_not_advance_sync_failure_backoff(self):
+        self.initialize()
+        self.assertTrue(self.sync.request_sync_if_stale(NOW + 16))
+        self.api.faults.append(SendResult(429, "RATE_LIMITED", "90"))
+        with self.assertLogs("upload_receiver.tickets", level="WARNING"):
+            self.assertTrue(self.sync.run_once(NOW + 16))
+        for now in (NOW + 32, NOW + 105.5):
+            self.assertFalse(self.sync.request_sync_if_stale(now))
+            self.assertFalse(self.sync.run_once(now))
+        self.assertEqual(len(self.api.requests), 3)
+        self.assertTrue(self.sync.run_once(NOW + 106))
+
+    def test_frequent_reads_and_paging_share_budget_with_schema_and_patch(self):
+        self.api.page_size = 1
+        self.api.add("row-2")
+        self.api.add("row-3")
+        sent_at = []
+        now = NOW
+
+        def send(request):
+            sent_at.append(now)
+            return self.api(request)
+
+        self.sync.sender = self.dispatcher.sender = send
+        self.sync.clock = lambda: now
+        for offset in range(20):
+            now = NOW + offset / 10
+            self.sync.run_once(now)
+        self.enqueue()
+        # Force a new schema/full pass, then saturate the shared budget with pages and PATCH.
+        now = NOW + 600
+        for offset in range(600):
+            now = NOW + 600 + offset / 10
+            self.sync.request_sync_if_stale(now)
+            self.sync.run_once(now)
+            self.dispatcher.run_once(now)
+        self.assertTrue(any(r.method == "PATCH" for r in self.api.requests))
+        self.assertEqual(len(self.board_reads()), 2)
+        self.assertTrue(all(b - a >= 0.5 for a, b in zip(sent_at, sent_at[1:])))
+        self.assertLessEqual(sum(NOW + 600 <= t < NOW + 660 for t in sent_at), 120)
+
+    def test_idle_default_cadence_fits_existing_budget(self):
+        # One-page board: two row reads per minute plus periodic schema/full reads.
+        for offset in range(1202):
+            self.sync.run_once(NOW + offset / 2)
+        self.assertLessEqual(len(self.api.requests), 23)
+        self.assertEqual(len(self.board_reads()), 2)
+
     def test_schema_names_types_options_and_mismatch_no_patch(self):
         schema = resolve_schema(self.api.board)
         self.assertEqual(set(schema["properties"]), set(PROPERTIES))
@@ -283,7 +453,7 @@ class TicketsCoreTest(unittest.TestCase):
         self.assertTrue(self.sync.run_once(NOW + 1))
         self.assertEqual(len(self.tickets()), 3)
         self.assertEqual(parse_qs(urlsplit(self.api.requests[-1].url).query)["cursor"], ["2"])
-        self.assertFalse(self.sync.run_once(NOW + 120))
+        self.assertFalse(self.sync.run_once(NOW + 30.5))
         self.api.add("row-1", status="완료", updated=NOW + 10, revision=2)
         self.api.add("row-2", archived=True, updated=NOW + 9, revision=2)
         self.api.add("row-4", updated=NOW + 6)
@@ -626,6 +796,34 @@ class TicketsCoreTest(unittest.TestCase):
                 validate_tickets_config({**TICKETS, **value})
 
 
+class TicketSyncSettingsTest(unittest.TestCase):
+    def test_default_and_environment_interval_bounds(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(Settings.from_env().ticket_sync_interval_seconds, 30)
+            for interval in (10, 30, 45, 600):
+                with self.subTest(interval=interval), patch.dict(
+                    os.environ, {"UPLOAD_RECEIVER_TICKET_SYNC_INTERVAL_SECONDS": str(interval)}
+                ):
+                    self.assertEqual(Settings.from_env().ticket_sync_interval_seconds, interval)
+
+    def test_invalid_environment_intervals_are_rejected(self):
+        for interval in ("", "abc", "30.5", "0", "9", "601"):
+            with self.subTest(interval=interval), patch.dict(
+                os.environ, {"UPLOAD_RECEIVER_TICKET_SYNC_INTERVAL_SECONDS": interval}
+            ):
+                with self.assertRaisesRegex(RuntimeError, "UPLOAD_RECEIVER_TICKET_SYNC_INTERVAL_SECONDS"):
+                    Settings.from_env()
+
+    def test_direct_configuration_also_rejects_invalid_intervals(self):
+        for interval in (None, True, 9, 601, 10.0, "30"):
+            with self.subTest(interval=interval):
+                with self.assertRaises(RuntimeError):
+                    Settings(data_root=Path("unused"), expected_mount=None, require_mount=False,
+                             ticket_sync_interval_seconds=interval)
+                with self.assertRaises(ValueError):
+                    TicketSync(Mock(), Mock(), interval_seconds=interval)
+
+
 @unittest.skipUnless(os.name == "posix", "Receiver API and 0600 configuration require Linux/WSL")
 class TicketsApiTest(unittest.TestCase):
     def setUp(self):
@@ -660,6 +858,33 @@ class TicketsApiTest(unittest.TestCase):
 
     def headers(self, token=None):
         return self.helpers.employee_auth(self, token or self.token_employee)
+
+    def test_list_uses_app_worker_and_returns_cached_revision_until_refresh(self):
+        self.assertIs(self.receiver.tickets.sync, self.sync)
+        self.assertEqual(self.sync.interval_seconds, self.settings.ticket_sync_interval_seconds)
+        self.receiver.tickets.clock = lambda: NOW + 138
+        self.api.page_size = 100
+        self.api.add(revision=2, updated=NOW + 137)
+        requests = len(self.api.requests)
+        for _ in range(5):
+            response = self.list()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(next(t for t in response.json()["tickets"] if t["rowId"] == "row-1")["revision"], 1)
+        self.assertEqual(len(self.api.requests), requests)
+        self.assertTrue(self.sync.run_once(NOW + 138))
+        response = self.list()
+        self.assertEqual(next(t for t in response.json()["tickets"] if t["rowId"] == "row-1")["revision"], 2)
+        self.assertFalse(self.sync.run_once(NOW + 138.5))
+
+    def test_app_passes_configured_interval_to_worker(self):
+        from dataclasses import replace
+        from fastapi.testclient import TestClient
+        from upload_receiver.app import create_app
+        settings = replace(self.settings, ticket_sync_interval_seconds=45)
+        with TestClient(create_app(settings)) as client:
+            worker = client.app.state.ticket_sync
+            self.assertEqual(worker.interval_seconds, 45)
+            self.assertIs(client.app.state.receiver.tickets.sync, worker)
 
     def auth(self, token=None):
         return self.helpers.auth(self, token)
