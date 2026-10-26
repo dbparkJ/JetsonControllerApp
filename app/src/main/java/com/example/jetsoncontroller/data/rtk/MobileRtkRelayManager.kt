@@ -572,13 +572,14 @@ class MobileRtkRelayManager(
                 upstream.use { remote ->
                     runCatching {
                         coroutineScope {
+                            val response = NtripCasterResponseTracker()
                             listOf(
                                 async(Dispatchers.IO) {
-                                    forwardNtripRequest(local, remote, upstreamHost, upstreamPort, connectionId)
+                                    forwardNtripRequest(local, remote, upstreamHost, upstreamPort, connectionId, response)
                                     runCatching { remote.shutdownOutput() }
                                 },
                                 async(Dispatchers.IO) {
-                                    copyCasterData(remote, local, connectionId, session)
+                                    copyCasterData(remote, local, connectionId, session, response)
                                     runCatching { local.shutdownOutput() }
                                 }
                             ).awaitAll()
@@ -645,7 +646,8 @@ class MobileRtkRelayManager(
         upstream: Socket,
         upstreamHost: String,
         upstreamPort: Int,
-        connectionId: Long
+        connectionId: Long,
+        response: NtripCasterResponseTracker
     ) {
         val input = downstream.getInputStream()
         val output = upstream.getOutputStream()
@@ -657,6 +659,7 @@ class MobileRtkRelayManager(
             buffered.write(chunk, 0, count)
             val current = buffered.toByteArray()
             if (findHeaderEnd(current) >= 0) {
+                response.setRequestPath(ntripRequestPath(current))
                 output.write(rewriteNtripHostHeader(current, upstreamHost, upstreamPort))
                 output.flush()
                 traceRelay(connectionId, RtkRelayPhase.REQUEST_FORWARDED, success = true)
@@ -665,17 +668,20 @@ class MobileRtkRelayManager(
             }
         }
         if (buffered.size() > 0) {
+            response.setRequestPath(ntripRequestPath(buffered.toByteArray()))
             output.write(buffered.toByteArray())
             output.flush()
         }
         traceRelay(connectionId, RtkRelayPhase.INCOMPLETE_HEADER, "bufferedBytes=${buffered.size()}")
     }
 
-    private fun copyCasterData(upstream: Socket, downstream: Socket, connectionId: Long, session: RelaySession) {
+    private fun copyCasterData(
+        upstream: Socket, downstream: Socket, connectionId: Long, session: RelaySession,
+        response: NtripCasterResponseTracker
+    ) {
         val input = upstream.getInputStream()
         val output = downstream.getOutputStream()
         val buffer = ByteArray(RELAY_BUFFER_BYTES)
-        val response = NtripCasterResponseTracker()
         var receivedBytes = 0L
         try {
             while (true) {
@@ -683,9 +689,11 @@ class MobileRtkRelayManager(
                 if (count < 0) {
                     traceRelay(connectionId, RtkRelayPhase.CASTER_EOF, "receivedBytes=$receivedBytes")
                     synchronized(resourceLock) {
-                        dataError(session, response.error
-                            ?: session.dataError?.takeIf { response.validatedBytes == 0L }
-                            ?: response.endOfInput())
+                        response.endOfInput()?.let { eofError ->
+                            dataError(session, response.error
+                                ?: session.dataError?.takeIf { response.validatedBytes == 0L }
+                                ?: eofError)
+                        }
                     }
                     break
                 }
@@ -768,6 +776,15 @@ class MobileRtkRelayManager(
         val network: Network,
         val callback: ConnectivityManager.NetworkCallback
     )
+}
+
+internal fun ntripRequestPath(request: ByteArray): String? {
+    val lineEnd = request.indexOf('\n'.code.toByte())
+    if (lineEnd < 0) return null
+    val line = request.copyOfRange(0, lineEnd).toString(Charsets.ISO_8859_1).trimEnd('\r')
+    val parts = line.split(' ')
+    return parts.takeIf { it.size == 3 && it[0] == "GET" && it[2] in listOf("HTTP/1.0", "HTTP/1.1") }
+        ?.get(1)
 }
 
 internal fun rewriteNtripHostHeader(
