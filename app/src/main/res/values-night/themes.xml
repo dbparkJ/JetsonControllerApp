@@ -10,17 +10,12 @@
     </style>
 
     <style name="Theme.GeoX.Splash.Graphite" parent="Theme.JetsonController">
-        <item name="android:windowSplashScreenBackground">#1E1F21</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_splash_icon</item>
+        <item name="android:windowBackground">#1E1F21</item>
     </style>
     <style name="Theme.GeoX.Splash.Navy" parent="Theme.JetsonController">
         <item name="android:windowBackground">#1B1F28</item>
-        <item name="android:windowSplashScreenBackground">#1B1F28</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_splash_icon</item>
     </style>
     <style name="Theme.GeoX.Splash.Dim" parent="Theme.JetsonController">
         <item name="android:windowBackground">#2F3033</item>
-        <item name="android:windowSplashScreenBackground">#2F3033</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_splash_icon</item>
     </style>
 </resources>

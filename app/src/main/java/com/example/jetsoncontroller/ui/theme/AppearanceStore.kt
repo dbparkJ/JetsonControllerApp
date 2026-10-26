@@ -6,7 +6,9 @@ import android.app.UiModeManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import android.os.Build
 import android.window.SplashScreen
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +71,7 @@ fun interface ApplicationNightMode {
     fun setApplicationNightMode(mode: Int)
 }
 
+@RequiresApi(Build.VERSION_CODES.S)
 class AndroidApplicationNightMode(private val manager: UiModeManager) : ApplicationNightMode {
     override fun setApplicationNightMode(mode: Int) = manager.setApplicationNightMode(mode)
 }
@@ -77,6 +80,7 @@ fun interface SplashScreenTheme {
     fun setSplashScreenTheme(themeId: Int)
 }
 
+@RequiresApi(Build.VERSION_CODES.S)
 class AndroidSplashScreenTheme(private val splashScreen: SplashScreen) : SplashScreenTheme {
     override fun setSplashScreenTheme(themeId: Int) = splashScreen.setSplashScreenTheme(themeId)
 }
@@ -157,8 +161,13 @@ internal fun Context.appearanceActivity(): Activity? = when (this) {
 @SuppressLint("DiscouragedApi")
 fun createAppearanceStore(activity: Activity): AppearanceStore = AppearanceStore(
     preferences = activity.getSharedPreferences("appearance", Context.MODE_PRIVATE),
-    nightMode = AndroidApplicationNightMode(requireNotNull(activity.getSystemService(UiModeManager::class.java))),
-    splashScreen = AndroidSplashScreenTheme(activity.splashScreen),
+    // Compose applies the saved palette on R; per-app system night mode and splash persistence start on S.
+    nightMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        AndroidApplicationNightMode(requireNotNull(activity.getSystemService(UiModeManager::class.java)))
+    } else ApplicationNightMode { },
+    splashScreen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        AndroidSplashScreenTheme(activity.splashScreen)
+    } else SplashScreenTheme { },
     splashThemeId = { theme ->
         // The resources belong to 4-A. Keep this slice buildable before its XML is merged.
         activity.resources.getIdentifier(theme.resourceName, "style", activity.packageName)

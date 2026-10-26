@@ -22,7 +22,7 @@ class SplashIconSafetyTest {
     }
 
     @Test fun `all light and dark splash palettes use the safe drawable`() {
-        listOf("values", "values-night").forEach { directory ->
+        listOf("values-v31", "values-night-v31").forEach { directory ->
             val styles = xml("$directory/themes.xml").getElementsByTagName("style")
             var count = 0
             for (index in 0 until styles.length) {
@@ -33,6 +33,25 @@ class SplashIconSafetyTest {
                 val icon = (0 until items.length).map { items.item(it) as org.w3c.dom.Element }
                     .single { it.getAttribute("name") == "android:windowSplashScreenAnimatedIcon" }
                 assertEquals("@drawable/geo_splash_icon", icon.textContent.trim())
+            }
+            assertEquals(3, count)
+        }
+    }
+
+    @Test fun `Android 11 startup themes use only legacy window attributes`() {
+        listOf("values", "values-night").forEach { directory ->
+            val styles = xml("$directory/themes.xml").getElementsByTagName("style")
+            var count = 0
+            for (index in 0 until styles.length) {
+                val style = styles.item(index) as org.w3c.dom.Element
+                if (!style.getAttribute("name").startsWith("Theme.GeoX.Splash.")) continue
+                count++
+                assertEquals("Theme.JetsonController", style.getAttribute("parent"))
+                val items = style.getElementsByTagName("item")
+                for (item in 0 until items.length) {
+                    assertFalse((items.item(item) as org.w3c.dom.Element)
+                        .getAttribute("name").startsWith("android:windowSplashScreen"))
+                }
             }
             assertEquals(3, count)
         }

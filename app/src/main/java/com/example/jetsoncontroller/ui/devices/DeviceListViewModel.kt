@@ -1,5 +1,7 @@
 package com.example.jetsoncontroller.ui.devices
 
+import android.os.Build
+import com.example.jetsoncontroller.ui.permissions.bluetoothPermissionText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -227,7 +229,7 @@ class DeviceListViewModel(
 
         if (!permissionGranted.value) {
             reconnectState.value = ReconnectState(
-                error = "가까운 장치를 찾으려면 블루투스 권한이 필요합니다.",
+                error = bluetoothPermissionText(Build.VERSION.SDK_INT),
                 errorDeviceId = device.deviceId
             )
             return

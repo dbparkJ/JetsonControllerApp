@@ -4,6 +4,14 @@
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
     <!--
         Do not assert neverForLocation here. Android documents that the flag can
         filter some BLE advertisements, and the app already requests location
@@ -54,6 +62,11 @@
 
     <uses-permission
         android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Optional background BLE rediscovery on Android 11; granted separately in app settings. -->
+    <uses-permission
+        android:name="android.permission.ACCESS_BACKGROUND_LOCATION"
+        android:maxSdkVersion="30" />
 
     <uses-feature
         android:name="android.hardware.camera"

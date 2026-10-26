@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.example.jetsoncontroller.JetsonApplication
 import com.example.jetsoncontroller.MainActivity
 import com.example.jetsoncontroller.BluetoothPermissionPolicy
+import com.example.jetsoncontroller.WifiPermissionPolicy
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import kotlinx.coroutines.CoroutineScope
@@ -85,9 +86,8 @@ class DeviceMonitoringService : Service() {
             repository.configureAutomaticConnectivity(
                 enabled = true,
                 localNetworkPermissionGranted = Build.VERSION.SDK_INT < 37 || granted(Manifest.permission.ACCESS_LOCAL_NETWORK),
-                nearbyWifiPermissionGranted = if (Build.VERSION.SDK_INT >= 33) granted(Manifest.permission.NEARBY_WIFI_DEVICES)
-                    else granted(Manifest.permission.ACCESS_FINE_LOCATION),
-                bluetoothPermissionGranted = BluetoothPermissionPolicy.requiredPermissions(Build.VERSION.SDK_INT).all(::granted)
+                nearbyWifiPermissionGranted = WifiPermissionPolicy.hasNearbyPermissions(Build.VERSION.SDK_INT, ::granted),
+                bluetoothPermissionGranted = BluetoothPermissionPolicy.hasPermissions(Build.VERSION.SDK_INT, ::granted)
             )
             scope.launch {
                 combine(repository.automaticConnectionRequested, repository.registeredDeviceSnapshot) { requested, devices ->
