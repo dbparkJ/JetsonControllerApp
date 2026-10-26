@@ -7,6 +7,7 @@ import com.example.jetsoncontroller.ui.components.geo.shell.GeoAppShell
 import com.example.jetsoncontroller.ui.components.geo.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -456,7 +457,9 @@ fun JetsonApp(
     val cameraPreviewState by
         cameraPreviewViewModel
             .uiState
-            .collectAsStateWithLifecycle()
+            // The stream itself is lifecycle-gated. Receive its null frame on STOP too,
+            // so a stopped UI collector does not retain the previous large bitmap.
+            .collectAsState()
 
     val alertSettings by
         alertSettingsViewModel.settings.collectAsStateWithLifecycle()

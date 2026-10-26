@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.jetsoncontroller.JetsonApplication
@@ -51,7 +52,7 @@ class MobileRtkRelayService : Service() {
             .setOngoing(true)
             .addAction(0, "중지", stopRelay)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         return START_NOT_STICKY
     }
 

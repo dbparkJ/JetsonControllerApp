@@ -22,16 +22,16 @@ class CameraPreviewPolicyTest {
     }
 
     @Test
-    fun unchangedFrameResponsesDoNotHideStallsAndANewFrameRecoversImmediately() {
+    fun unchangedFrameResponsesDoNotHideStalls() {
         val receivedAt = 10_100L
         // A successful long-poll with the same revision updates checkedAt only.
         assertEquals(CameraStageState.LIVE,
-            cameraStageState(true, true, receivedAt, 14_000L, false, checkedAt = 14_100L))
+            cameraStageState(true, true, receivedAt, 13_000L, false, checkedAt = 13_100L))
         assertEquals(CameraStageState.DELAYED,
-            cameraStageState(true, true, receivedAt, 14_000L, false, checkedAt = 14_101L))
+            cameraStageState(true, true, receivedAt, 13_000L, false, checkedAt = 13_101L))
         assertEquals(CameraStageState.DELAYED,
             cameraStageState(true, true, receivedAt, 16_000L, false, checkedAt = 16_100L))
-        // Recovery does not wait for the next UI tick.
+        // A first stream frame does not wait for the next UI tick.
         assertEquals(CameraStageState.LIVE,
             cameraStageState(true, true, 16_200L, 16_000L, false, checkedAt = 16_200L))
         // With no further responses, clock ticks still expire the recovered frame.
@@ -40,8 +40,8 @@ class CameraPreviewPolicyTest {
     }
 
     @Test
-    fun localResponseTimeCannotOverrideErrorsInactiveSensorsOrInvalidFrameTimes() {
-        assertEquals(CameraStageState.DELAYED,
+    fun transientErrorsKeepFreshFramesLiveButInactiveSensorsAndInvalidTimesDoNot() {
+        assertEquals(CameraStageState.LIVE,
             cameraStageState(true, true, 10_100L, 10_000L, true, checkedAt = 10_100L))
         assertEquals(CameraStageState.DELAYED,
             cameraStageState(false, true, 10_100L, 10_000L, false, checkedAt = 10_100L))
@@ -49,5 +49,12 @@ class CameraPreviewPolicyTest {
             cameraStageState(true, true, 10_101L, 10_000L, false, checkedAt = 10_100L))
         assertEquals(CameraStageState.WAITING,
             cameraStageState(true, false, null, 10_000L, false, checkedAt = 10_100L))
+    }
+
+    @Test fun previewDecodeBoundsMemoryWithoutChangingSensorMetadata() {
+        assertEquals(1, cameraPreviewSampleSize(1280, 800))
+        assertEquals(2, cameraPreviewSampleSize(1920, 1200))
+        assertEquals(4, cameraPreviewSampleSize(3840, 2160))
+        assertEquals(2, cameraPreviewSampleSize(800, 1920))
     }
 }

@@ -8,10 +8,20 @@ class CameraStagePresentationTest {
     @Test fun `first frame errors and stalled received frames have separate states`() {
         assertEquals(CameraStageState.WAITING, cameraStageState(true, false, null, 10_000, false))
         assertEquals(CameraStageState.ERROR, cameraStageState(true, false, null, 10_000, true))
-        assertEquals(CameraStageState.LIVE, cameraStageState(true, true, 6_000, 10_000, false))
-        assertEquals(CameraStageState.DELAYED, cameraStageState(true, true, 6_000, 10_001, false))
+        assertEquals(CameraStageState.LIVE, cameraStageState(true, true, 7_000, 10_000, false))
+        assertEquals(CameraStageState.DELAYED, cameraStageState(true, true, 7_000, 10_001, false))
         assertEquals(CameraStageState.DELAYED, cameraStageState(false, true, 9_999, 10_000, false))
         assertEquals(CameraStageState.DELAYED, cameraStageState(true, true, 10_001, 10_000, false))
+    }
+
+    @Test fun `sensor output dimensions take precedence as a complete pair`() {
+        assertEquals("1280 × 800", cameraResolution(CameraSensorStatus(
+            frameWidth = 1920, frameHeight = 1200, sensorOutputWidth = 1280, sensorOutputHeight = 800)))
+        assertEquals("1920 × 1200", cameraResolution(CameraSensorStatus(
+            frameWidth = 1920, frameHeight = 1200)))
+        assertEquals("1920 × 1200", cameraResolution(CameraSensorStatus(
+            frameWidth = 1920, frameHeight = 1200, sensorOutputWidth = 1280, sensorOutputHeight = 0)))
+        assertEquals("1280 × 800", cameraResolution(CameraSensorStatus(sensorOutputWidth = 1280, sensorOutputHeight = 800)))
     }
 
     @Test fun `capture requires a current frame an idle command and at least one destination`() {

@@ -107,6 +107,29 @@ def _vector(value: object) -> Optional[Dict[str, float]]:
     return coordinates
 
 
+def _output_size(width: object, height: object) -> Optional[Tuple[int, int]]:
+    # Reject partial/invalid pairs instead of mixing sensor and stored-frame dimensions.
+    if (isinstance(width, int) and not isinstance(width, bool)
+            and isinstance(height, int) and not isinstance(height, bool)
+            and 0 < width <= 16384 and 0 < height <= 16384):
+        return width, height
+    return None
+
+
+def _camera_output_size(camera: Dict[str, Any], pipeline: Dict[str, Any]) -> Optional[Tuple[int, int]]:
+    explicit = _output_size(camera.get("sensorOutputWidth"), camera.get("sensorOutputHeight"))
+    if explicit is not None:
+        return explicit
+    # The producer may forward its measured output size with the current bridge heartbeat.
+    # A configured recording size is deliberately not used as sensor evidence.
+    size = _mapping(pipeline.get("metadata")).get("rgb_camera_output_size")
+    if isinstance(size, (list, tuple)) and len(size) == 2:
+        return _output_size(size[0], size[1])
+    if isinstance(size, dict):
+        return _output_size(size.get("width"), size.get("height"))
+    return None
+
+
 def _imu_status(
     raw: Dict[str, Any], camera: Dict[str, Any], *,
     fresh: bool, now_millis: int, stale_after_seconds: float,
@@ -193,6 +216,7 @@ class SensorBridgeStore:
         camera_raw = _mapping(raw.get("camera"))
         gnss_raw = _mapping(raw.get("gnss"))
         imu_raw = _mapping(raw.get("imu"))
+        output_size = _camera_output_size(camera_raw, pipeline_raw)
         pipeline = {
             "active": fresh and _boolean(pipeline_raw.get("active")),
             "error": _text(pipeline_raw.get("error")),
@@ -204,6 +228,8 @@ class SensorBridgeStore:
             "lastFrameAtEpochMillis": _integer(camera_raw.get("lastFrameAtEpochMillis")),
             "frameWidth": _integer(camera_raw.get("frameWidth")),
             "frameHeight": _integer(camera_raw.get("frameHeight")),
+            "sensorOutputWidth": output_size[0] if output_size else None,
+            "sensorOutputHeight": output_size[1] if output_size else None,
             "previewAvailable": fresh and _boolean(camera_raw.get("previewAvailable")),
             "previewUpdatedAtEpochMillis": _integer(camera_raw.get("previewUpdatedAtEpochMillis")),
             "previewError": _text(camera_raw.get("previewError")),

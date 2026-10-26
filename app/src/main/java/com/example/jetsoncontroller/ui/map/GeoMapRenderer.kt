@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.ui.map
 
 import android.content.Context
+import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -10,6 +12,8 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import androidx.compose.runtime.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -197,6 +201,7 @@ internal object GeoNaverMaps {
 
 class GeoMapCamera {
     internal var map: NaverMap? = null
+    internal var savedPosition: CameraPosition? = null
     internal var data = GeoMapData()
     internal var density = 1f
     internal var bottomPadding = 0
@@ -238,6 +243,28 @@ fun GeoMapRenderer(
     onLoading: (Boolean) -> Unit = {},
     onBaseMapFailureChanged: (Boolean) -> Unit = {}
 ) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var started by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ -> started = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    if (active && started) {
+        GeoMapSurface(data, modifier, base, interactive, followDevice, panelBottomDp, panelEndDp,
+            camera, clientId, onLoading, onBaseMapFailureChanged)
+    } else {
+        // Disposing the surface releases native tiles/textures, while keeping the layout and camera.
+        Box(modifier.background(LocalGeoColors.current.sunken))
+    }
+}
+
+@Composable
+private fun GeoMapSurface(
+    data: GeoMapData, modifier: Modifier, base: GeoMapBase, interactive: Boolean,
+    followDevice: Boolean, panelBottomDp: Int, panelEndDp: Int, camera: GeoMapCamera,
+    clientId: String, onLoading: (Boolean) -> Unit, onBaseMapFailureChanged: (Boolean) -> Unit
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val colors = LocalGeoColors.current
@@ -250,7 +277,7 @@ fun GeoMapRenderer(
         // A texture view clips to the card's rounded corners and scrolls with the page.
         // Without a background resource NAVER fills unloaded areas with the palette colour instead of its grid.
         MapView(context, NaverMapOptions()
-            .camera(CameraPosition(LatLng(36.5, 127.5), 7.0))
+            .camera(camera.savedPosition ?: CameraPosition(LatLng(36.5, 127.5), 7.0))
             .useTextureView(!interactive)
             .backgroundResource(0).backgroundColor(background)
             .compassEnabled(false).scaleBarEnabled(false).zoomControlEnabled(false)
@@ -258,14 +285,16 @@ fun GeoMapRenderer(
         ).apply { onCreate(null); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
     }
     val controller = remember { GeoMapController(view, camera, clientId.isNotBlank(), { loading(it) }, { failureChanged(it) }) }
-    DisposableEffect(view, lifecycle, active) {
+    DisposableEffect(view, lifecycle) {
         var started = false
         var resumed = false
         fun sync() {
-            val nextStart = active && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-            val nextResume = active && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            val nextStart = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            val nextResume = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
             if (resumed && !nextResume) { view.onPause(); resumed = false }
-            if (started && !nextStart) { view.onStop(); controller.stopped(); started = false }
+            if (started && !nextStart) {
+                view.onStop(); controller.stopped(); view.onLowMemory(); started = false
+            }
             if (!started && nextStart) { view.onStart(); controller.started(); started = true }
             if (!resumed && nextResume) { view.onResume(); resumed = true }
         }
@@ -278,7 +307,22 @@ fun GeoMapRenderer(
             if (started) { view.onStop(); controller.stopped() }
         }
     }
-    DisposableEffect(view) { onDispose { controller.destroy(); view.onDestroy() } }
+    DisposableEffect(view) {
+        val application = context.applicationContext
+        val callbacks = object : ComponentCallbacks2 {
+            override fun onConfigurationChanged(newConfig: Configuration) = Unit
+            override fun onLowMemory() = view.onLowMemory()
+            override fun onTrimMemory(level: Int) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) view.onLowMemory()
+            }
+        }
+        application.registerComponentCallbacks(callbacks)
+        onDispose {
+            application.unregisterComponentCallbacks(callbacks)
+            controller.destroy()
+            view.onDestroy()
+        }
+    }
     val appearance = mapAppearance(base, palette, clientId.isNotBlank())
     val authFailed = GeoNaverMaps.authFailure != null
     AndroidView(factory = { view }, modifier = modifier, update = {
@@ -361,10 +405,10 @@ private class GeoMapController(
     private var map: NaverMap? = null
     private var destroyed = false
     private var published = false
-    private var positioned = false
-    private var zonePositioned = false
-    private var cameraTouched = false
-    private var followInitialized = false
+    private var positioned = camera.savedPosition != null
+    private var zonePositioned = camera.savedPosition != null
+    private var cameraTouched = camera.savedPosition != null
+    private var followInitialized = camera.savedPosition != null
     private var pendingData = GeoMapData()
     private var previousData: GeoMapData? = null
     private var renderedAppearance: GeoMapAppearance? = null
@@ -553,7 +597,9 @@ private class GeoMapController(
         view.removeOnLayoutChangeListener(layoutListener)
         map?.removeOnLoadListener(loadListener)
         map?.removeOnCameraChangeListener(cameraListener)
+        camera.savedPosition = map?.cameraPosition ?: camera.savedPosition
         camera.map = null
+        map = null
     }
 }
 

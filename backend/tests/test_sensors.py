@@ -57,6 +57,49 @@ class SensorBridgeStoreTest(unittest.TestCase):
             self.root, clock=lambda: now / 1000, stale_after_seconds=stale_after,
         ).status().imu
 
+    def camera_status(self, camera, metadata=None):
+        now = 1_700_000_000_000
+        self.write_status(now)
+        path = self.root / "status.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["camera"].update(camera)
+        if metadata is not None:
+            raw["pipeline"]["metadata"] = metadata
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        return SensorBridgeStore(self.root, clock=lambda: now / 1000).status().camera
+
+    def test_sensor_output_is_distinct_from_upscaled_saved_frames(self):
+        camera = self.camera_status({
+            "frameWidth": 1920, "frameHeight": 1200,
+            "sensorOutputWidth": 1280, "sensorOutputHeight": 800,
+        })
+        self.assertEqual((camera["sensorOutputWidth"], camera["sensorOutputHeight"]), (1280, 800))
+        self.assertEqual((camera["frameWidth"], camera["frameHeight"]), (1920, 1200))
+
+    def test_pipeline_output_metadata_is_forwarded_without_a_model_guess(self):
+        for size in ([1280, 800], {"width": 1280, "height": 800}):
+            with self.subTest(size=size):
+                camera = self.camera_status({"frameWidth": 1920, "frameHeight": 1200},
+                    {"rgb_camera_output_size": size})
+                self.assertEqual((camera["sensorOutputWidth"], camera["sensorOutputHeight"]), (1280, 800))
+        camera = self.camera_status({"sensorOutputWidth": 640, "sensorOutputHeight": 400},
+            {"rgb_camera_output_size": [1280, 800]})
+        self.assertEqual((camera["sensorOutputWidth"], camera["sensorOutputHeight"]), (640, 400))
+
+    def test_missing_or_invalid_output_size_keeps_legacy_frame_dimensions(self):
+        for size in (None, [], [1280], [1280, 0], [True, 800], [1280.5, 800],
+                     [1280, "800"], [99999, 800], {"width": 1280}):
+            with self.subTest(size=size):
+                camera = self.camera_status({"frameWidth": 1920, "frameHeight": 1200},
+                    {"rgb_camera_output_size": size})
+                self.assertIsNone(camera["sensorOutputWidth"])
+                self.assertIsNone(camera["sensorOutputHeight"])
+                self.assertEqual(camera["frameWidth"], 1920)
+                self.assertEqual(camera["frameHeight"], 1200)
+        camera = self.camera_status({"sensorOutputWidth": 1280, "sensorOutputHeight": -1})
+        self.assertIsNone(camera["sensorOutputWidth"])
+        self.assertIsNone(camera["sensorOutputHeight"])
+
     def oak_sample(self, **overrides):
         return {
             "lastSampleAtEpochMillis": 1_700_000_000_000,

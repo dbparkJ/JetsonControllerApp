@@ -211,6 +211,8 @@ input:
 
 위 timestamp·좌표는 형식 설명용이며 실제 값으로 교체한다. 수신이 끊긴 센서는 `active: false`로 게시한다. GPS 좌표는 WGS84 도 단위, 고도는 미터, timestamp는 Unix epoch 밀리초다. 여러 프로그램이 공유 상태/JPEG를 동시에 쓰는 방식은 지원하지 않는다.
 
+카메라가 낸 영상과 저장 영상의 크기가 다르면 `camera.sensorOutputWidth`와 `camera.sensorOutputHeight`에 확대·축소 전 카메라 출력 크기를 양의 정수 쌍으로 게시한다. 예를 들어 카메라 출력이 1280 × 800이고 저장 영상만 1920 × 1200이면 출력 필드는 1280/800, 기존 `frameWidth`/`frameHeight`는 1920/1200이다. Controller는 현재 bridge의 `pipeline.metadata.rgb_camera_output_size`가 `[1280, 800]` 또는 `{"width": 1280, "height": 800}`인 경우에도 출력 크기로 전달하며, 유효한 `camera.sensorOutputWidth`/`sensorOutputHeight` 쌍을 우선한다. 출력 크기는 실제 카메라 노드에서 확인한 값이어야 하며 저장 설정이나 센서 모델의 최대 크기로 추정하지 않는다. 출력 필드가 없거나 쌍이 유효하지 않으면 앱은 기존 프레임 크기를 표시한다. 기존 producer는 이 선택 필드 없이 계속 동작한다.
+
 외부 파이프라인이 현재 센서 상태 형식을 게시하면 앱이 카메라 프리뷰와 GNSS를 표시할 수 있다. 정확한 필드와 원자적 파일 작성 방식은 `backend/jetson_control/sensors.py`의 `SensorBridgeStore` 및 `sensor_monitor.py`의 게시 코드를 기준으로 한다. GNSS에는 유효한 위·경도, `active`, `lastSampleAtEpochMillis`와 최신 상태 시간이 필요하다. 과거 샘플을 현재 시간처럼 재게시하면 경로 신뢰성을 잃는다. 실행기의 `RouteRecorder`는 2초마다 새 유효 GPS 샘플만 기록하며 수신 중단 구간을 나눈다.
 
 기존 카메라 캡처는 게시된 JPEG 프리뷰의 해상도로 저장된다. 고해상도 원본 촬영이나 검지 결과 오버레이가 필요하면 외부 파이프라인에서 해당 프레임을 게시하거나 버전이 명시된 별도 API를 정의하는 확장이다.

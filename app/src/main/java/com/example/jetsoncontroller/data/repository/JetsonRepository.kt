@@ -172,6 +172,7 @@ class JetsonRepository(
     private val autoLanAttempts = ConcurrentHashMap.newKeySet<String>()
     private val autoLanFailureCounts = ConcurrentHashMap<String, Int>()
     private val automaticConnectivityEnabled = MutableStateFlow(false)
+    val automaticConnectionRequested: StateFlow<Boolean> = automaticConnectivityEnabled.asStateFlow()
     private val localNetworkPermissionGranted = MutableStateFlow(false)
     private val nearbyWifiPermissionGranted = MutableStateFlow(false)
     private val mobileRtkMonitoringPaused = MutableStateFlow(false)

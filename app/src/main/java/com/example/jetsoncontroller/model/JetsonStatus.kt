@@ -48,7 +48,9 @@ data class CameraSensorStatus(
     val frameHeight: Int? = null,
     val previewAvailable: Boolean = false,
     val previewUpdatedAtEpochMillis: Long? = null,
-    val previewError: String? = null
+    val previewError: String? = null,
+    val sensorOutputWidth: Int? = null,
+    val sensorOutputHeight: Int? = null
 )
 
 data class GnssSensorStatus(

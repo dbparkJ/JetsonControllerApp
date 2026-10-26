@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import com.example.jetsoncontroller.data.alerts.AlertPreferencesStore
 import com.example.jetsoncontroller.data.alerts.AlertHistoryStore
 import com.example.jetsoncontroller.data.alerts.DeviceAlertMonitor
@@ -29,6 +30,18 @@ class JetsonApplication :
         private set
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            com.example.jetsoncontroller.ui.pairing.PairingScannerFrame.image = null
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        com.example.jetsoncontroller.ui.pairing.PairingScannerFrame.image = null
+    }
 
     override fun onCreate() {
 

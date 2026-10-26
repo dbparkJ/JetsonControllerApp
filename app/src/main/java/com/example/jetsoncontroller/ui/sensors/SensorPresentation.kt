@@ -258,12 +258,18 @@ private fun String.isExplicitRtkOff(): Boolean =
 internal const val MOBILE_LOCATION_STALE_AFTER_MS = 5_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 
-/** Existing long-poll deadline is 2s; allow two deadlines for a received preview frame. */
-fun cameraFrameIsLive(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now: Long, hasError: Boolean): Boolean =
-    active && hasFrame && !hasError && receivedAt != null && now >= receivedAt && now - receivedAt <= 4_000L
+/** A request failure alone does not make an already received, fresh frame stale. */
+@Suppress("UNUSED_PARAMETER")
+fun cameraFrameIsLive(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now: Long, hasError: Boolean,
+    staleAfterMillis: Long = CAMERA_FRAME_MIN_STALE_MS): Boolean =
+    active && hasFrame && receivedAt != null && now >= receivedAt && now - receivedAt <= staleAfterMillis
 
-internal fun cameraResolution(camera: com.example.jetsoncontroller.model.CameraSensorStatus): String? =
-    if ((camera.frameWidth ?: 0) > 0 && (camera.frameHeight ?: 0) > 0) "${camera.frameWidth} × ${camera.frameHeight}" else null
+internal fun cameraResolution(camera: com.example.jetsoncontroller.model.CameraSensorStatus): String? = when {
+    (camera.sensorOutputWidth ?: 0) > 0 && (camera.sensorOutputHeight ?: 0) > 0 ->
+        "${camera.sensorOutputWidth} × ${camera.sensorOutputHeight}"
+    (camera.frameWidth ?: 0) > 0 && (camera.frameHeight ?: 0) > 0 -> "${camera.frameWidth} × ${camera.frameHeight}"
+    else -> null
+}
 
 internal fun SensorActivity.deviceSensorState(): SensorState = when (this) {
     SensorActivity.ACTIVE -> SensorState.RECEIVING
@@ -289,11 +295,13 @@ internal fun deviceGnssWord(presentation: SensorPresentation, gnss: GnssSensorSt
 internal enum class CameraStageState { WAITING, LIVE, DELAYED, ERROR }
 
 internal fun cameraStageState(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now: Long,
-    hasError: Boolean, checkedAt: Long = now): CameraStageState = when {
+    hasError: Boolean, checkedAt: Long = now,
+    freshness: CameraFrameFreshness = CameraFrameFreshness(receivedAt = receivedAt)): CameraStageState = when {
     hasError && !hasFrame -> CameraStageState.ERROR
     // A local response can arrive after the UI's periodic clock tick. Only the
     // evaluation clock advances here; an unchanged frame keeps its original age.
-    cameraFrameIsLive(active, hasFrame, receivedAt, maxOf(now, checkedAt), hasError) -> CameraStageState.LIVE
+    !freshness.delayed && cameraFrameIsLive(active, hasFrame, receivedAt, maxOf(now, checkedAt), hasError,
+        freshness.staleAfterMillis) -> CameraStageState.LIVE
     hasFrame -> CameraStageState.DELAYED
     else -> CameraStageState.WAITING
 }

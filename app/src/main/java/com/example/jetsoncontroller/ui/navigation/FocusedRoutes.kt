@@ -135,26 +135,22 @@ internal fun NavGraphBuilder.focusedRoutes(state: State<AppNavigationState>) {
             with(state.value) {
                 StatusPollingLifecycleEffect(dashboardViewModel)
                 val camera = dashboardState.status.cameraSensor
-                val cameraActive = if (dashboardState.status.sensorTelemetryAvailable) {
-                    dashboardState.status.sensorTelemetryFresh && camera.active
+                val telemetryAvailable = dashboardState.status.sensorTelemetryAvailable
+                val telemetryFresh = dashboardState.status.sensorTelemetryFresh
+                val cameraActive = if (telemetryAvailable) {
+                    camera.active
                 } else {
                     dashboardState.status.cameraRunning
                 }
-                LaunchedEffect(cameraActive) {
-                    cameraPreviewViewModel.setSensorActive(cameraActive)
+                LaunchedEffect(cameraActive, telemetryAvailable, telemetryFresh) {
+                    // The backend clears active when a heartbeat is stale. Keep the last known
+                    // activity until a fresh status confirms it; frame age still detects a stall.
+                    if (!telemetryAvailable || telemetryFresh) cameraPreviewViewModel.setSensorActive(cameraActive)
                 }
-                DisposableEffect(Unit) {
-                    cameraPreviewViewModel.setVisible(true)
-                    onDispose { cameraPreviewViewModel.setVisible(false) }
-                }
+                com.example.jetsoncontroller.ui.sensors.CameraPreviewLifecycleEffect(cameraPreviewViewModel)
                 CameraPreviewScreen(
                     state = cameraPreviewState,
                     camera = camera,
-                    telemetryFresh = if (dashboardState.status.sensorTelemetryAvailable) {
-                        dashboardState.status.sensorTelemetryFresh
-                    } else {
-                        dashboardState.status.cameraRunning
-                    },
                     onBack = { navController.popBackStack() },
                     captureBusy = fieldState.captureBusy,
                     captureMessage = fieldState.captureMessage,

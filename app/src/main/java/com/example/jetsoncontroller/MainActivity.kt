@@ -18,6 +18,16 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.example.jetsoncontroller.data.monitoring.DeviceMonitoringService
+import com.example.jetsoncontroller.data.monitoring.deviceMonitoringCanStart
+import com.example.jetsoncontroller.data.transport.TransportState
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.jetsoncontroller.ui.JetsonApp
 import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
@@ -180,6 +190,28 @@ class MainActivity :
             application
                 as JetsonApplication
 
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(app.repository.selectedDeviceId, app.repository.transportState,
+                    app.repository.automaticConnectionRequested) { selected, transport, requested ->
+                    deviceMonitoringCanStart(true, requested, selected,
+                        (transport as? TransportState.Connected)?.deviceId)
+                }.distinctUntilChanged().collect { shouldStart ->
+                    if (shouldStart && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        try {
+                            DeviceMonitoringService.start(applicationContext)
+                        } catch (error: IllegalStateException) {
+                            ConnectionDiagnostics.record("monitor_service_start_failed",
+                                mapOf("reasonCode" to error.javaClass.simpleName))
+                        } catch (error: SecurityException) {
+                            ConnectionDiagnostics.record("monitor_service_start_failed",
+                                mapOf("reasonCode" to error.javaClass.simpleName))
+                        }
+                    }
+                }
+            }
+        }
+
         val restoreViewModel = ViewModelProvider(this, AppRestoreViewModel.Factory(app.credentialStore))[
             AppRestoreViewModel::class.java
         ]
@@ -282,6 +314,12 @@ class MainActivity :
         ConnectionDiagnostics.record("app_foreground", mapOf("foreground" to true))
         ConnectionDiagnostics.recordPowerState(this)
         refreshPermissionState()
+        (application as JetsonApplication).repository.configureAutomaticConnectivity(
+            enabled = true,
+            localNetworkPermissionGranted = localNetworkPermissionGranted,
+            nearbyWifiPermissionGranted = nearbyWifiPermissionGranted,
+            bluetoothPermissionGranted = bluetoothPermissionGranted
+        )
     }
 
     override fun onStop() {

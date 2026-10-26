@@ -96,6 +96,18 @@ class StatusCollectorSensorTest(unittest.TestCase):
         self.assertFalse(status["imuRunning"])
         self.assertFalse(status["sensorTelemetryFresh"])
 
+    def test_sensor_output_dimensions_reach_status_api_without_replacing_saved_size(self) -> None:
+        now = time.time()
+        self.write_status(int(now * 1000))
+        path = self.root / "status.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["camera"].update(frameWidth=1920, frameHeight=1200,
+            sensorOutputWidth=1280, sensorOutputHeight=800)
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        camera = self.collect(now)["cameraSensor"]
+        self.assertEqual((camera["sensorOutputWidth"], camera["sensorOutputHeight"]), (1280, 800))
+        self.assertEqual((camera["frameWidth"], camera["frameHeight"]), (1920, 1200))
+
     def test_camera_imu_is_exposed_as_running_with_sample_values(self) -> None:
         now = time.time()
         self.write_status(int(now * 1000))

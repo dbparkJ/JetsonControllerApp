@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.sensors
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +33,6 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.GeoPalette
 import com.example.jetsoncontroller.ui.theme.GeoFixedColors
 import com.example.jetsoncontroller.ui.theme.GeoShape
-import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -42,7 +42,6 @@ import java.time.format.DateTimeFormatter
 fun CameraPreviewScreen(
     state: CameraPreviewUiState,
     camera: CameraSensorStatus,
-    telemetryFresh: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     captureBusy: Boolean = false, captureMessage: String? = null,
@@ -55,15 +54,14 @@ fun CameraPreviewScreen(
     var saveDevice by remember { mutableStateOf(prefs.getBoolean("device", true)) }
     var saveMobile by remember { mutableStateOf(prefs.getBoolean("mobile", false)) }
     var chooseCapture by remember(state.deviceId, state.targetConnected) { mutableStateOf(false) }
-    val now by produceState(System.currentTimeMillis(), state.deviceId) {
-        while (true) { value = System.currentTimeMillis(); delay(1_000) }
-    }
-    val stage = cameraStageState(telemetryFresh && (camera.active || state.targetConnected), state.frame != null,
-        state.updatedAtEpochMillis, now, state.error != null, checkedAt = state.checkedAtEpochMillis)
+    val stage = cameraStageState(state.targetConnected, state.frame != null,
+        state.frameFreshness.receivedAt, state.checkedAtElapsedMillis, state.error != null,
+        freshness = state.frameFreshness)
     val canCapture = state.targetStillCurrent() && cameraCaptureEnabled(stage, captureBusy, saveDevice, saveMobile)
     val captureNow = {
-        val currentStage = cameraStageState(telemetryFresh && (camera.active || state.targetConnected),
-            state.frame != null, state.updatedAtEpochMillis, System.currentTimeMillis(), state.error != null)
+        val currentStage = cameraStageState(state.targetConnected,
+            state.frame != null, state.frameFreshness.receivedAt, SystemClock.elapsedRealtime(), state.error != null,
+            freshness = state.frameFreshness)
         if (state.targetStillCurrent() && cameraCaptureEnabled(currentStage, captureBusy, saveDevice, saveMobile)) {
             onCapture(saveDevice, saveMobile)
         }
