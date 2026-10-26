@@ -176,7 +176,8 @@ internal fun pipelineRunReceiptCells(
     val finished = when {
         run == null -> Tone.UNKNOWN
         run.active || run.finishedAt == null -> Tone.PENDING
-        run.exitCode != null && run.exitCode != 0 -> Tone.WARNING
+        run.state == "STOPPED" -> Tone.SUCCESS
+        run.state == "FAILED" || (run.exitCode != null && run.exitCode != 0) -> Tone.WARNING
         else -> Tone.SUCCESS
     }
     val manifestState = run?.output?.manifestState.orEmpty()
@@ -198,7 +199,7 @@ internal fun pipelineRunReceiptCells(
 internal fun taskRunReceiptCells(run: TaskRun, uploadJobs: List<UploadJob>): List<RunReceiptCell> {
     val finished = when {
         run.isActiveRun() -> Tone.PENDING
-        run.state == "STOPPED" -> Tone.INFO
+        run.state == "STOPPED" -> Tone.SUCCESS
         run.state == "FAILED" || (run.exitCode != null && run.exitCode != 0) -> Tone.WARNING
         run.finishedAt != null || run.state == "COMPLETED" -> Tone.SUCCESS
         else -> Tone.UNKNOWN
@@ -213,7 +214,7 @@ internal fun taskRunReceiptCells(run: TaskRun, uploadJobs: List<UploadJob>): Lis
     }
     val serverTone = uploadReceiptTone(run.runId, run.deviceId, uploadJobs)
     return listOf(
-        RunReceiptCell("수집 종료", taskFinishedValue(finished), finished),
+        RunReceiptCell("수집 종료", if (run.state == "STOPPED") "중지됨" else taskFinishedValue(finished), finished),
         RunReceiptCell("장치 저장", storedValue(storedTone), storedTone),
         RunReceiptCell("서버 수신", serverValue(serverTone), serverTone)
     )

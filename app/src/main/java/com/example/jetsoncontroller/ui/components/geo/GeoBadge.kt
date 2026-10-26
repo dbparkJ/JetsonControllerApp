@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,6 +20,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import com.example.jetsoncontroller.ui.model.Tone
 
 enum class GeoBadgeVariant { INLINE, TAG, SOFT, ON_MAP, ON_DARK }
@@ -46,6 +50,13 @@ fun GeoBadge(
     minWidth: androidx.compose.ui.unit.Dp = 64.dp
 ) {
     val inline = LocalGeoRowStatus.current
+    val style = if (inline) LocalGeoType.current.inlineStatus else LocalGeoType.current.badge
+    val report = LocalGeoStatusWidthReporter.current
+    if (inline && report != null) {
+        val measured = rememberTextMeasurer().measure(AnnotatedString(word), style, softWrap = false).size.width
+        val naturalWidth = with(LocalDensity.current) { measured.toDp() } + 10.dp
+        SideEffect { report(naturalWidth) }
+    }
     val colors = geoBadgeColors(LocalGeoColors.current, tone, if (inline) GeoBadgeVariant.INLINE else variant)
     val shape = GeoShape.badge
     Row(modifier
@@ -58,6 +69,6 @@ fun GeoBadge(
         horizontalArrangement = Arrangement.spacedBy(4.dp, if (inline) Alignment.End else Alignment.CenterHorizontally)) {
         Box(Modifier.size(6.dp).background(colors.ink, CircleShape))
         Text(word, color = colors.ink,
-            style = if (inline) LocalGeoType.current.inlineStatus else LocalGeoType.current.badge)
+            style = style, maxLines = if (inline) 1 else Int.MAX_VALUE, softWrap = !inline)
     }
 }

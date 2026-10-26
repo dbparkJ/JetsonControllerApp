@@ -117,7 +117,8 @@ internal fun FileBrowser(
         }
     }) {
         Box(Modifier.fillMaxSize()) {
-            GeoActionArea(visibilityKey = location to sendPath, action = {
+            GeoActionArea(visibilityKey = location to sendPath,
+                visible = send != null && sendPath != null && root != null, action = {
                 if (send != null && sendPath != null && root != null) {
                     val summary = send.summary?.takeIf { it.rootId == root && it.relativePath == sendPath }
                     val target = send.targets.firstOrNull { it.id == targetId } ?: send.targets.firstOrNull()
@@ -153,9 +154,11 @@ internal fun FileBrowser(
                         }
                         item {
                             GeoButton(if (state.currentPath.isBlank()) "수집 자료" else "수집 자료 / ${state.currentPath}",
-                                onParent, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+                                onParent, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
+                                contentColor = LocalGeoColors.current.textSecondary)
                             if (state.currentPath.isBlank()) {
-                                GeoTextField(query, { query = it }, "검색", Modifier.testTag("file-search"))
+                                GeoTextField(query, { query = it }, "검색", Modifier.testTag("file-search"),
+                                    placeholder = "파일 이름 검색", showLabel = false, leadingIcon = GeoIcons.search)
                                 Spacer(Modifier.height(12.dp))
                             }
                             MediaFilters(category) { category = it }

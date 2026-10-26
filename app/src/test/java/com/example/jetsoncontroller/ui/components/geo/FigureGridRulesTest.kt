@@ -8,6 +8,40 @@ import org.junit.Test
 
 class FigureGridRulesTest {
     @Test
+    fun `long values shrink before units move below them at phone font scales`() {
+        // Pretendard's tabular advances, with the figure role's -1sp tracking.
+        val tile = (412 - 48 - 32 - 24) / 4
+        listOf(1f, 1.1f, 1.2f, 1.3f).forEach { scale ->
+            listOf("446" to "GB", "1,024" to "GB", "100" to "%").forEach { (number, unit) ->
+                val emWidth = number.sumOf { if (it == ',') .25390625 else .6142578125 }
+                val width: (Int) -> Int = { size -> kotlin.math.ceil((emWidth * size - number.length) * scale).toInt() }
+                val inset = figureValuePadding(tile, 8, width(20))
+                val available = tile - inset * 2
+                val unitWidth = kotlin.math.ceil(unit.length * 13 * .6f * scale).toInt()
+                val gap = 2
+                val result = figureValueLayout(available, unitWidth, gap, width)
+                assertEquals(4, figureGridColumns(332f, scale))
+                assertTrue(result.numberSp in 20..28)
+                if (result.stackedUnit) {
+                    assertTrue((28 downTo 20 step 2).all { width(it) + unitWidth + gap > available })
+                    assertTrue(width(result.numberSp) <= available)
+                } else {
+                    assertTrue(width(result.numberSp) + unitWidth + gap <= available)
+                    assertTrue((28 downTo result.numberSp + 2 step 2).all { width(it) + unitWidth + gap > available })
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a fitting value keeps 28sp and an oversized unit moves below without truncation`() {
+        assertEquals(FigureValueLayout(28, false), figureValueLayout(100, 10, 2) { it * 2 })
+        assertEquals(FigureValueLayout(20, false), figureValueLayout(52, 10, 2) { it * 2 })
+        assertEquals(FigureValueLayout(28, true), figureValueLayout(60, 100, 2) { it * 2 })
+        assertEquals(FigureValueLayout(28, false), figureValueLayout(56, 0, 20) { it * 2 })
+    }
+
+    @Test
     fun `R7 uses four equal columns at the design width`() {
         assertEquals(2, figureGridColumns(311f, 1f))
         assertEquals(4, figureGridColumns(312f, 1f))

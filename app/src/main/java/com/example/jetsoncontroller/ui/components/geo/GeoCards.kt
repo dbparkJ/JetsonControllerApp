@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.semantics
@@ -25,11 +26,13 @@ fun GeoIconTile(
     icon: ImageVector,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
-    tone: Tone? = null
+    tone: Tone? = null,
+    transparent: Boolean = false
 ) {
     val c = LocalGeoColors.current
     val alert = tone == Tone.WARNING || tone == Tone.ERROR
     Box(modifier.size(40.dp).background(when {
+        transparent -> Color.Transparent
         alert -> c.soft(tone!!)
         selected -> c.primaryTint
         else -> c.sunken

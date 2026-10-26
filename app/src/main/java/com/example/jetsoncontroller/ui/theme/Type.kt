@@ -56,6 +56,7 @@ data class GeoTypeRoles(
     val deviceName: TextStyle get() = sectionTitle
     val focusTitle: TextStyle get() = workTitle
     val stateTitle: TextStyle get() = titleSm.copy(fontWeight = FontWeight.SemiBold)
+    val emptyStateTitle: TextStyle get() = type(18, 28, 700)
     val emptyTitle: TextStyle get() = body
     val supporting: TextStyle get() = type(14, 20, 400)
     val propertyLabel: TextStyle get() = label

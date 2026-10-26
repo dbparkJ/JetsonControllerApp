@@ -96,7 +96,7 @@ class RunReceiptCellsTest {
 
         val cells = taskRunReceiptCells(stopped, emptyList())
 
-        assertEquals(Tone.INFO, cells[0].tone)
+        assertEquals(Tone.SUCCESS, cells[0].tone)
         assertEquals("중지됨", cells[0].value)
     }
 

@@ -1,10 +1,37 @@
 package com.example.jetsoncontroller.ui.field
 
 import com.example.jetsoncontroller.model.TaskRun
+import com.example.jetsoncontroller.ui.components.geo.GeoReceiptStep
+import com.example.jetsoncontroller.ui.components.geo.receiptTone
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.*
 import org.junit.Test
 
 class R7ReceiptEvidenceTest {
+    @Test fun `result receipt uses the same successful stop and abnormal warning policy`() {
+        val run = resultTestRun()
+        assertEquals(Tone.SUCCESS, pipelineRunReceiptCells(run.copy(state = "STOPPED", exitCode = 143), Tone.UNKNOWN)[0].tone)
+        assertEquals(Tone.WARNING, pipelineRunReceiptCells(run.copy(state = "FAILED", exitCode = null), Tone.UNKNOWN)[0].tone)
+        assertEquals(Tone.WARNING, pipelineRunReceiptCells(run.copy(state = "COMPLETED", exitCode = 1), Tone.UNKNOWN)[0].tone)
+    }
+
+    @Test fun `finished abnormal collection remains a warning in the recent receipt`() {
+        val failed = entry().copy(state = "FAILED", exitCode = 1)
+        val item = historyReceipt(failed, emptyList()).collection
+        assertTrue(item.done)
+        assertEquals("비정상 종료", item.word)
+        assertEquals(Tone.WARNING, receiptTone(GeoReceiptStep.COLLECTION, item))
+    }
+
+    @Test fun `normal and user stopped collections both use success`() {
+        listOf(entry().copy(state = "COMPLETED", exitCode = 0),
+            entry().copy(state = "STOPPED", exitCode = 143)).forEach { run ->
+            val item = historyReceipt(run, emptyList()).collection
+            assertTrue(item.done)
+            assertEquals(Tone.SUCCESS, receiptTone(GeoReceiptStep.COLLECTION, item))
+        }
+    }
+
     private fun entry(): TaskRun {
         val run = resultTestRun()
         return TaskRun("record", run.pipelineId, "수집", run.logId, run.startedAt,

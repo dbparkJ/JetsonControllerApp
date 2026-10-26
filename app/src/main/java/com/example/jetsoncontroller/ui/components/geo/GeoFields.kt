@@ -46,7 +46,9 @@ fun GeoTextField(
     unit: String? = null,
     singleLine: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    keyboardActions: KeyboardActions = KeyboardActions.Default
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    showLabel: Boolean = true,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled fields require a visible reason" }
     val c = LocalGeoColors.current
@@ -60,8 +62,10 @@ fun GeoTextField(
         else -> c.borderControl
     }
     Column(modifier.fillMaxWidth()) {
-        Text(label, style = geoLabelTextStyle(), color = c.text)
-        Spacer(Modifier.height(8.dp))
+        if (showLabel) {
+            Text(label, style = geoLabelTextStyle(), color = c.text)
+            Spacer(Modifier.height(8.dp))
+        }
         BasicTextField(
             value = value, onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth()
@@ -94,6 +98,7 @@ fun GeoTextField(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    leadingIcon?.let { Icon(it, null, Modifier.size(24.dp), tint = c.textSecondary) }
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (value.isEmpty() && placeholder != null) {
                             Text(placeholder, style = geoInputTextStyle(), color = if (enabled) c.textSecondary else c.disabledText)

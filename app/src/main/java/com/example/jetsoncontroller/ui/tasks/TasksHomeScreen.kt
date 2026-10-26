@@ -81,7 +81,7 @@ internal fun TasksHomeScreen(
                         onFocusAction, onServerConnection, focusReportLabel, focusReportMessage,
                         focusReportEnabled, stopAction, Modifier.padding(top = 24.dp))
                 }
-                if (state.ticketSection != null || state.focus?.title != null) item(key = "quick") {
+                item(key = "quick") {
                     GeoSection("빠른 기능") {
                         GeoQuickActions(buildList {
                             onCamera?.let { add(GeoQuickAction("카메라\n영상", GeoIcons.camera, it)) }
@@ -104,6 +104,7 @@ internal fun TasksHomeScreen(
                                     GeoRowList(GeoRowTrailing.None) {
                                         GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta,
                                             leading = { GeoIconTile(GeoIcons.restore) }, divider = false,
+                                            contentPadding = PaddingValues(0.dp),
                                             extra = { GeoReceiptLine(row.receipt) })
                                     }
                                 }
@@ -120,7 +121,7 @@ internal fun TasksHomeScreen(
                             if (state.checkingDevice) GeoSkeleton(it, kind = GeoSkeletonKind.Rows) else DeviceListsNote(it)
                         }
                             ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 장치에 등록된 작업이 없습니다", "작업 등록은 관리자에게 요청하세요."))
-                        if (state.otherTasks.isNotEmpty()) WorkSurfaceCard {
+                        if (state.otherTasks.isNotEmpty()) WorkSurfaceCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
                             GeoRowList(GeoRowTrailing.Status) {
                                 state.otherTasks.forEachIndexed { index, task ->
                                     GeoRow(task.title, { onOpenTask(task.pipelineId) }, meta = task.caption,
@@ -184,7 +185,7 @@ private fun WorkCurrentCard(
                 }
             }
         }
-        state.ticketSection == null -> WorkSurfaceCard(modifier) {
+        state.ticketSection == null -> WorkSurfaceCard(modifier, contentPadding = PaddingValues(24.dp)) {
             GeoIconTile(GeoIcons.router)
             Spacer(Modifier.height(24.dp))
             GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
@@ -232,7 +233,8 @@ private fun WorkTicketsSection(
                 queue.open.isEmpty() && queue.completed.isEmpty() -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
                     "이 호기에 배정된 수집 구간이 없습니다", "GEO& Work에서 배정되면 여기에 표시됩니다."), Modifier.padding(top = 16.dp))
                 else -> {
-                    if (queue.open.isNotEmpty()) WorkSurfaceCard(Modifier.padding(top = 12.dp)) {
+                    if (queue.open.isNotEmpty()) WorkSurfaceCard(Modifier.padding(top = 12.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp)) {
                         GeoRowList(GeoRowTrailing.Status) {
                             queue.open.forEachIndexed { index, ticket ->
                                 GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < queue.open.lastIndex,
@@ -244,7 +246,7 @@ private fun WorkTicketsSection(
                     if (queue.completed.isNotEmpty()) {
                         GeoRow("완료 ${queue.completed.size}개", { completed = !completed },
                             modifier = Modifier.semantics { stateDescription = if (completed) "펼침" else "접힘" }, divider = completed)
-                        if (completed) WorkSurfaceCard {
+                        if (completed) WorkSurfaceCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
                             GeoRowList(GeoRowTrailing.Status) {
                                 queue.completed.forEachIndexed { index, ticket ->
                                     GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < queue.completed.lastIndex,

@@ -118,12 +118,12 @@ internal fun DeviceDetailScreen(
                             else lastSeenText?.let { "마지막 응답 $it" } ?: "현재 상태 미확인",
                         figures = devicePhotoFigures(dashboard.status.takeIf { current }, snapshot))
                     GeoSection("센서") {
-                        DeviceSurface {
+                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                             DeviceSensorRows(dashboard.status, current, control, onCamera, onGnss)
                         }
                     }
                     GeoSection("연결") {
-                        DeviceSurface {
+                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                             GeoRowList(GeoRowTrailing.None) {
                                 GeoRow("연결 방법", { sheet = true }, meta = deviceTransportLabel(dashboard.transportType),
                                     leading = { GeoIconTile(GeoIcons.link) })
@@ -135,7 +135,7 @@ internal fun DeviceDetailScreen(
                         }
                     }
                     GeoSection("데이터") {
-                        DeviceSurface {
+                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                             GeoRowList(GeoRowTrailing.Status) {
                                 DeviceNavigationRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason,
                                     leading = { GeoIconTile(GeoIcons.folder) })
@@ -146,7 +146,7 @@ internal fun DeviceDetailScreen(
                         }
                     }
                     GeoSection("상태") {
-                        DeviceSurface {
+                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                             val memory = deviceFigureItems(dashboard.status.takeIf { current }, snapshot).last()
                             val shown = deviceFigurePresentation(memory)
                             GeoFactRow(memory.label, listOfNotNull(shown.value, shown.detail, shown.staleDetail).joinToString(" · "))

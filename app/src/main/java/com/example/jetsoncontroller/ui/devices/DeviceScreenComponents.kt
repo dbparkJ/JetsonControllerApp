@@ -57,6 +57,7 @@ internal fun DevicePhoto(size: Dp) {
 internal fun DeviceSurface(
     modifier: Modifier = Modifier,
     tone: com.example.jetsoncontroller.ui.model.Tone? = null,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = LocalGeoColors.current
@@ -66,7 +67,7 @@ internal fun DeviceSurface(
         else -> c.surface
     }
     Column(modifier.fillMaxWidth().geoCardShadow().clip(GeoShape.card)
-        .background(fill).padding(16.dp), content = content)
+        .background(fill).padding(contentPadding), content = content)
 }
 
 @Composable
@@ -102,7 +103,9 @@ internal fun rememberDeviceOverlayHost(selectedId: String?, open: Boolean, close
 @Composable
 internal fun DeviceAttentionRow(title: String, meta: String, onOpen: () -> Unit, onHide: () -> Unit, divider: Boolean = true) {
     GeoActionRow(title, "숨기기", onOpen, onHide, meta = meta,
-        leading = { GeoIconTile(GeoIcons.warning) }, divider = divider)
+        leading = { GeoIconTile(GeoIcons.warning, tone = com.example.jetsoncontroller.ui.model.Tone.WARNING, transparent = true) },
+        tone = com.example.jetsoncontroller.ui.model.Tone.WARNING,
+        divider = divider)
 }
 
 @Composable
@@ -130,10 +133,13 @@ internal fun DeviceConnectionChoice(title: String, icon: ImageVector, meta: Stri
 
 @Composable
 internal fun DevicePowerButtons(enabled: Boolean, onReboot: () -> Unit, onShutdown: () -> Unit) {
-    GeoButtonActions(listOf(
-        GeoButtonAction("재부팅", onReboot, GeoButtonStyle.DangerOutline, enabled),
-        GeoButtonAction("전원 종료", onShutdown, GeoButtonStyle.DangerOutline, enabled)
-    ))
+    val c = LocalGeoColors.current
+    CompositionLocalProvider(LocalGeoColors provides c.copy(dangerSoft = c.surface)) {
+        GeoButtonActions(listOf(
+            GeoButtonAction("재부팅", onReboot, GeoButtonStyle.DangerOutline, enabled),
+            GeoButtonAction("전원 종료", onShutdown, GeoButtonStyle.DangerOutline, enabled)
+        ))
+    }
 }
 
 internal fun statusChipText(connection: DeviceConnectionUi, lastSeenText: String?, online: Boolean, freshness: String?): String = when {

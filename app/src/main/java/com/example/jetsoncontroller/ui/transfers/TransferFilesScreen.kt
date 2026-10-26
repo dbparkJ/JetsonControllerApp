@@ -59,7 +59,7 @@ internal fun TransferFilesScreen(
     val selection = summary?.takeIf { it.rootId == root && it.relativePath == selectedPath }
     val target = targets.firstOrNull { it.id == targetId } ?: targets.firstOrNull()
     TransferPage("파일 보내기", onBack) {
-        GeoActionArea(visibilityKey = "${state.deviceId}:$selectedPath", action = {
+        GeoActionArea(visibilityKey = "${state.deviceId}:$selectedPath", visible = selectedPath != null, action = {
             if (selectedPath != null) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(listOfNotNull(selectedPath?.substringAfterLast('/'), selection?.filesTotal?.toLong()?.let(Formats::itemCount),
                     selection?.bytesTotal?.let(Formats::size)).joinToString(" · "),
@@ -82,8 +82,11 @@ internal fun TransferFilesScreen(
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
                 item { ongoingRun() }
                 item {
-                    GeoRow(if (state.currentPath.isBlank()) "수집 자료" else "수집 자료 / ${state.currentPath}", onParent)
-                    GeoTextField(search, { search = it }, "이름으로 찾기", modifier = Modifier.fillMaxWidth())
+                    Text(if (state.currentPath.isBlank()) "수집 자료" else "수집 자료 / ${state.currentPath}",
+                        Modifier.fillMaxWidth().contentTarget(onClick = onParent).heightIn(min = 48.dp).padding(vertical = 12.dp),
+                        style = LocalGeoType.current.supporting, color = LocalGeoColors.current.textSecondary)
+                    GeoTextField(search, { search = it }, "이름으로 찾기", modifier = Modifier.fillMaxWidth(),
+                        placeholder = "파일 이름 검색", showLabel = false, leadingIcon = GeoIcons.search)
                     Spacer(Modifier.height(16.dp))
                     GeoFilters(types, type, { type = it })
                     Spacer(Modifier.height(24.dp))

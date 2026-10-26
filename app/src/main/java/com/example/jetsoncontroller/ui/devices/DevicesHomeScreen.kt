@@ -120,7 +120,8 @@ internal fun DevicesHomeScreen(
                         }
                         val attentionCount = visibleHealth.size + if (fallbackAttention == null) 0 else 1
                         GeoSection("확인할 일 · ${Formats.caseCount(attentionCount.toLong())}") {
-                            if (attentionCount > 0) DeviceSurface(tone = com.example.jetsoncontroller.ui.model.Tone.WARNING) {
+                            if (attentionCount > 0) DeviceSurface(tone = com.example.jetsoncontroller.ui.model.Tone.WARNING,
+                                contentPadding = PaddingValues(horizontal = 16.dp)) {
                                 visibleHealth.forEachIndexed { index, item ->
                                     DeviceAttentionRow(item.title, item.detail, { onHealthItem(item) },
                                         { hiddenKeys = ArrayList(hiddenKeys + item.key) },
@@ -135,7 +136,7 @@ internal fun DevicesHomeScreen(
                         }
                         val others = registeredDevices.filterNot { sameDeviceTarget(it.deviceId, current.deviceId) }
                         if (others.isNotEmpty()) GeoSection("다른 장치") {
-                            DeviceSurface {
+                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                                 GeoRowList(GeoRowTrailing.Status) {
                                     others.forEachIndexed { index, device ->
                                         val seen = snapshots[deviceSnapshotKey(device.deviceId)]?.lastSeenAtEpochMillis
@@ -154,7 +155,7 @@ internal fun DevicesHomeScreen(
                         }
                     }
                     if (!loadingDevices && nearby.isNotEmpty()) GeoSection("주변에서 찾은 장치", first = current == null) {
-                        DeviceSurface {
+                        DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                             nearby.forEachIndexed { index, endpoint ->
                                 GeoActionRow(endpoint.displayName, "등록", onAddDevice, onAddDevice,
                                     leading = { DevicePhoto(40.dp) }, meta = "같은 네트워크에서 찾았습니다.",

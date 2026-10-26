@@ -35,7 +35,7 @@ fun SensorScreen(
         DeviceTitleBar("장치", onDevices)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(LocalGeoWindow.current.gutterDp.dp)) {
             GeoSection("센서", first = true) {
-                DeviceSurface {
+                DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                     DeviceSensorRows(status, deviceOnline, fullControlAvailable, onCameraClick, onGnssClick)
                 }
             }

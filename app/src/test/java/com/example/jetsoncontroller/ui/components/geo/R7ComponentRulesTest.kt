@@ -7,6 +7,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class R7ComponentRulesTest {
+    @Test fun `status lists share the longest width between 72 and 120 dp`() {
+        assertEquals(72f, rowStatusWidth(emptyList()), 0f)
+        assertEquals(72f, rowStatusWidth(listOf(30f, 65f)), 0f)
+        assertEquals(94f, rowStatusWidth(listOf(60f, 94f, 75f)), 0f)
+        assertEquals(120f, rowStatusWidth(listOf(94f, 145f)), 0f)
+        assertFalse(rowStatusStacks(332f, 1.3f, 94f))
+        assertTrue(rowStatusStacks(332f, 1.3f, 145f))
+        assertTrue(rowStatusStacks(332f, 1.5f, 72f))
+        assertTrue(rowStatusStacks(279f, 1f, 72f))
+    }
+
+    @Test fun `warning evidence retains its tone whether or not the stage is finished`() {
+        GeoReceiptStep.entries.forEach { step ->
+            listOf(false, true).forEach { done ->
+                assertEquals(Tone.WARNING, receiptTone(step, GeoReceiptItem("비정상 종료", Tone.WARNING, done = done)))
+                assertEquals(Tone.ERROR, receiptTone(step, GeoReceiptItem("실패", Tone.ERROR, done = done)))
+            }
+        }
+        listOf("정상 종료", "중지됨").forEach { word ->
+            assertEquals(Tone.SUCCESS, receiptTone(GeoReceiptStep.COLLECTION,
+                GeoReceiptItem(word, Tone.SUCCESS, done = true)))
+        }
+    }
+
     @Test fun `work cards select existing roles in all six palettes`() {
         GeoPalette.entries.forEach { palette ->
             val c = palette.colors

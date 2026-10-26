@@ -12,14 +12,14 @@
     <!-- Stable names: API 31+ persists the chosen dark-palette theme across process death. -->
     <style name="Theme.GeoX.Splash.Graphite" parent="Theme.JetsonController">
         <item name="android:windowSplashScreenBackground">#FFFFFF</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_symbol</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_splash_icon</item>
     </style>
     <style name="Theme.GeoX.Splash.Navy" parent="Theme.JetsonController">
         <item name="android:windowSplashScreenBackground">#FFFFFF</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_symbol</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_splash_icon</item>
     </style>
     <style name="Theme.GeoX.Splash.Dim" parent="Theme.JetsonController">
         <item name="android:windowSplashScreenBackground">#FFFFFF</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_symbol</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/geo_splash_icon</item>
     </style>
 </resources>

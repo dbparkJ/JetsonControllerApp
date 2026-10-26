@@ -108,7 +108,7 @@ internal fun TransfersHomeScreen(
                             GeoProgress(active.progress)
                             Text(listOfNotNull(active.sentLabel, active.remainingLabel?.let { "$it 남음" }).joinToString(" · "),
                                 style = t.supporting, color = LocalGeoColors.current.text)
-                        } else R7Section(active.stateLabel) {
+                        } else R7Section(active.stateLabel, trailingColumn = GeoRowTrailing.Status) {
                             GeoRow(active.title, { onOpenTransfer(active.jobId) }, divider = false,
                                 meta = active.subtitle,
                                 leading = { GeoIconTile(GeoIcons.tabTransfer) },
@@ -154,7 +154,8 @@ internal fun TransfersHomeScreen(
                         trailingColumn = GeoRowTrailing.Status) {
                         state.verified.forEachIndexed { index, row -> TransferHomeRow(row, onOpenTransfer, index < state.verified.lastIndex) }
                         state.emptyText?.let {
-                            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "보낸 파일이 없습니다", it))
+                            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "보낸 파일이 없습니다", it),
+                                Modifier.padding(horizontal = 8.dp, vertical = 24.dp))
                         }
                     }
                 }

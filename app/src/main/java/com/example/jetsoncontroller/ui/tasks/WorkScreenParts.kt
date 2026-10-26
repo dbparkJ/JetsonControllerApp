@@ -18,10 +18,11 @@ import com.example.jetsoncontroller.ui.theme.*
 @Composable
 internal fun WorkSurfaceCard(
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(modifier.fillMaxWidth().geoCardShadow().clip(GeoShape.card)
-        .background(LocalGeoColors.current.surface).padding(16.dp), content = content)
+        .background(LocalGeoColors.current.surface).padding(contentPadding), content = content)
 }
 
 /** A work card without an action, used for the focused clock and quality summary. */

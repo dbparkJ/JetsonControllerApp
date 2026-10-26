@@ -33,6 +33,7 @@ fun GeoActionArea(
     scene: Boolean = false,
     chrome: GeoChromeMeasurements = LocalGeoChrome.current,
     action: @Composable () -> Unit,
+    visible: Boolean = true,
     body: @Composable (inlineAction: @Composable () -> Unit) -> Unit
 ) {
     key(visibilityKey) {
@@ -58,8 +59,8 @@ fun GeoActionArea(
             }
         }
         Column(modifier.fillMaxSize()) {
-            Box(Modifier.weight(1f).fillMaxWidth()) { body(if (sticky) ({}) else actionContent) }
-            if (sticky) actionContent()
+            Box(Modifier.weight(1f).fillMaxWidth()) { body(if (!visible || sticky) ({}) else actionContent) }
+            if (visible && sticky) actionContent()
         }
     }
 }

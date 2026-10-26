@@ -7,13 +7,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.ui.model.Tone
@@ -50,6 +46,7 @@ fun GeoDeviceStrip(state: GeoDeviceStripState, onClick: () -> Unit, modifier: Mo
                 .filter(String::isNotBlank).joinToString(" · ").takeIf(String::isNotEmpty),
             leading = { Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp)) },
             badge = { GeoBadge(state.connectionWord, state.connectionTone) }, divider = false,
+            contentPadding = PaddingValues(0.dp),
             extra = attentionContent)
     }
 }
@@ -63,33 +60,6 @@ fun GeoDeviceStatusRow(
     leading: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val colors = LocalGeoColors.current
-    val type = LocalGeoType.current
-    val density = LocalDensity.current
-    val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
-    val statusCell: @Composable () -> Unit = {
-        Box(Modifier.width(72.dp).heightIn(min = firstLine), contentAlignment = Alignment.TopEnd) {
-            GeoBadge(status, tone)
-        }
-    }
-    CompositionLocalProvider(LocalGeoRowStatus provides true) {
-        BoxWithConstraints(modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
-            val stacked = density.fontScale >= 1.5f || maxWidth < 280.dp
-            Column(Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                    Box(Modifier.size(40.dp), contentAlignment = Alignment.TopCenter) { leading() }
-                    Text(title, Modifier.weight(1f), style = type.titleSm, color = colors.text)
-                    if (!stacked) statusCell()
-                    Spacer(Modifier.width(24.dp))
-                }
-                if (stacked) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Spacer(Modifier.width(40.dp))
-                    Spacer(Modifier.weight(1f))
-                    statusCell()
-                    Spacer(Modifier.width(24.dp))
-                }
-            }
-        }
-    }
+    GeoRow(title, {}, modifier, leading = leading, badge = { GeoBadge(status, tone) },
+        divider = false, navigable = false)
 }

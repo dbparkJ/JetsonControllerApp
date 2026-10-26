@@ -63,6 +63,7 @@ internal fun receiptDone(step: GeoReceiptStep, item: GeoReceiptItem): Boolean =
 
 internal fun receiptTone(step: GeoReceiptStep, item: GeoReceiptItem): Tone = when {
     step == GeoReceiptStep.REPORT && item.word == "해당 없음" -> Tone.UNKNOWN
+    item.tone == Tone.WARNING || item.tone == Tone.ERROR -> item.tone
     receiptDone(step, item) -> Tone.SUCCESS
     step == GeoReceiptStep.REPORT && item.word == "보고 전" -> Tone.UNKNOWN
     else -> Tone.PENDING
@@ -80,7 +81,17 @@ private fun ReceiptTrack(state: GeoReceiptState, modifier: Modifier = Modifier) 
                 val x = cellWidth * (index + .5f)
                 if (index < 3) drawLine(colors.borderStrong,
                     Offset(x + radius, center.y), Offset(x + cellWidth - radius, center.y), 1.dp.toPx())
-                if (receiptDone(step, item)) drawCircle(colors.success, radius, Offset(x, center.y))
+                val tone = receiptTone(step, item)
+                if (tone == Tone.WARNING || tone == Tone.ERROR) {
+                    val ink = colors.tone(tone)
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(x, center.y - radius)
+                        lineTo(x + radius, center.y + radius)
+                        lineTo(x - radius, center.y + radius)
+                        close()
+                    }
+                    drawPath(path, ink)
+                } else if (receiptDone(step, item)) drawCircle(colors.tone(tone), radius, Offset(x, center.y))
                 else drawCircle(colors.borderStrong, radius - .5.dp.toPx(), Offset(x, center.y), style = Stroke(1.dp.toPx()))
             }
         }
