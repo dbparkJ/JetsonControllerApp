@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -124,6 +125,7 @@ fun GeoRow(
     DisposableEffect(widths, rowKey) { onDispose { widths?.remove(rowKey) } }
     val sharedWidth = rowStatusWidth(widths?.values?.map { it.value } ?: listOf(requiredWidth.value)).dp
     val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
+    val titleAlignment = rememberFirstLineAlignment()
     BoxWithConstraints(modifier.fillMaxWidth().then(if (navigable) Modifier.contentTarget(enabled, onClick) else Modifier)
         .then(if (divider) Modifier.contentDivider() else Modifier).semantics(mergeDescendants = true) {}) {
         val tabletScale = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f && density.fontScale >= 1.3f && maxWidth < 480.dp
@@ -137,13 +139,16 @@ fun GeoRow(
                 verticalAlignment = if (hasMeta) Alignment.Top else Alignment.CenterVertically) {
                 Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { leading?.invoke() }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, color = if (enabled) colors.text else colors.disabledText, style = type.titleSm)
+                    Text(title, color = if (enabled) colors.text else colors.disabledText, style = type.titleSm,
+                        onTextLayout = titleAlignment::onTextLayout)
                     (if (enabled) meta else disabledReason)?.takeIf(String::isNotBlank)?.let {
                         Text(it, color = colors.textSecondary, style = type.supporting)
                     }
                 }
-                if (hasStatus && !stacked) RowStatusCell(titleHeight, sharedWidth, enabled, value, badge) { badgeWidth = it }
-                Box(Modifier.width(24.dp).height(titleHeight), contentAlignment = Alignment.Center) {
+                if (hasStatus && !stacked) RowStatusCell(titleHeight, sharedWidth, enabled, value, badge,
+                    Modifier.alignToFirstTitleLine(titleAlignment, titleCentered = !hasMeta)) { badgeWidth = it }
+                Box(Modifier.alignToFirstTitleLine(titleAlignment, titleCentered = !hasMeta)
+                    .width(24.dp).height(titleHeight), contentAlignment = Alignment.Center) {
                     if (enabled && navigable) RowChevron()
                 }
             }
@@ -167,9 +172,10 @@ private fun RowStatusCell(
     enabled: Boolean,
     value: String?,
     badge: (@Composable () -> Unit)?,
+    modifier: Modifier = Modifier,
     reportWidth: (Dp) -> Unit
 ) {
-    Box(Modifier.width(width).heightIn(min = firstLine), contentAlignment = Alignment.CenterEnd) {
+    Box(modifier.width(width).heightIn(min = firstLine), contentAlignment = Alignment.CenterEnd) {
         if (enabled) CompositionLocalProvider(LocalGeoRowStatus provides true, LocalGeoStatusWidthReporter provides reportWidth) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.Center) {
                 if (value != null) Text(value, color = LocalGeoColors.current.textSecondary,
@@ -201,7 +207,7 @@ fun GeoActionRow(
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
     val density = LocalDensity.current
-    val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
+    val titleAlignment = rememberFirstLineAlignment()
     BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider(tone) else Modifier)) {
         val stacked = density.fontScale >= 1.5f || maxWidth < 280.dp ||
             (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f &&
@@ -214,13 +220,14 @@ fun GeoActionRow(
                     }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(40.dp), contentAlignment = Alignment.TopCenter) { leading?.invoke() }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(title, color = tone?.let(colors::tone) ?: colors.text, style = type.titleSm)
+                        Text(title, color = tone?.let(colors::tone) ?: colors.text, style = type.titleSm,
+                            onTextLayout = titleAlignment::onTextLayout)
                         meta?.let { Text(it, color = tone?.let(colors::tone) ?: colors.textSecondary, style = type.supporting) }
                         if (!actionEnabled) Text(disabledReason.orEmpty(), color = colors.textSecondary, style = type.supporting)
                     }
                 }
                 if (!stacked) FixedRowAction(actionLabel, actionEnabled, onAction,
-                    Modifier.offset(y = (firstLine - 56.dp) / 2), tone)
+                    Modifier.alignToFirstTitleLine(titleAlignment), tone)
             }
             if (stacked) FixedRowAction(actionLabel, actionEnabled, onAction, Modifier.align(Alignment.End).padding(top = 8.dp), tone)
         }
@@ -364,7 +371,7 @@ private fun RowAction(label: String, enabled: Boolean, onClick: () -> Unit, modi
 
 @Composable
 private fun RowChevron() {
-    androidx.compose.material3.Icon(GeoIcons.chevronRight, null, Modifier.size(24.dp), tint = LocalGeoColors.current.textSubtle)
+    androidx.compose.material3.Icon(GeoIcons.chevronRight, null, Modifier.size(24.dp).testTag("geo-row-chevron"), tint = LocalGeoColors.current.textSubtle)
 }
 
 @Composable

@@ -63,6 +63,7 @@ fun GeoWorkCard(
     val type = LocalGeoType.current
     val c = LocalGeoColors.current
     val lineHeight = with(LocalDensity.current) { type.workTitle.lineHeight.toDp() }
+    val titleAlignment = rememberFirstLineAlignment()
     Column(modifier.fillMaxWidth().geoCardShadow().background(chosen.background, GeoShape.card).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CompositionLocalProvider(LocalGeoColors provides c.copy(text = chosen.content, textSecondary = chosen.content,
@@ -77,9 +78,10 @@ fun GeoWorkCard(
                     status?.let { GeoBadge(it, statusTone, variant = GeoBadgeVariant.INLINE) }
                 } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                Text(title, Modifier.weight(1f), style = type.workTitle, color = chosen.content)
+                Text(title, Modifier.weight(1f), style = type.workTitle, color = chosen.content,
+                    onTextLayout = titleAlignment::onTextLayout)
                 status?.let {
-                    Box(Modifier.height(lineHeight), contentAlignment = Alignment.Center) {
+                    Box(Modifier.alignToFirstTitleLine(titleAlignment).height(lineHeight), contentAlignment = Alignment.Center) {
                         GeoBadge(it, statusTone, variant = GeoBadgeVariant.INLINE)
                     }
                 }
@@ -114,6 +116,7 @@ fun GeoDevicePhotoCard(
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
     val line = with(LocalDensity.current) { type.deviceName.lineHeight.toDp() }
+    val titleAlignment = rememberFirstLineAlignment()
     Column(modifier.fillMaxWidth().geoCardShadow().clip(GeoShape.card).background(c.surface)
         .then(if (onClick == null) Modifier else Modifier.contentTarget(onClick = onClick))
         .padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -126,8 +129,9 @@ fun GeoDevicePhotoCard(
                     if (small) Modifier.size(56.dp) else Modifier.size(72.dp, 64.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                        Text(name, Modifier.weight(1f), style = type.deviceName, color = c.text)
-                        if (!stacked) Box(Modifier.height(line), contentAlignment = Alignment.Center) {
+                        Text(name, Modifier.weight(1f), style = type.deviceName, color = c.text,
+                            onTextLayout = titleAlignment::onTextLayout)
+                        if (!stacked) Box(Modifier.alignToFirstTitleLine(titleAlignment).height(line), contentAlignment = Alignment.Center) {
                             GeoBadge(status, statusTone, Modifier.widthIn(min = statusWidth), minWidth = statusWidth, singleLine = true)
                         }
                     }

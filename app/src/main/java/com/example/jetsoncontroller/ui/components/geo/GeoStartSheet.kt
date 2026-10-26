@@ -210,10 +210,13 @@ fun GeoPreparationStatusRow(
     val type = LocalGeoType.current
     val density = LocalDensity.current
     val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
+    val titleAlignment = rememberFirstLineAlignment()
     BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider() else Modifier)) {
         val stacked = density.fontScale >= 1.5f || maxWidth < 280.dp
         val statusCell: @Composable () -> Unit = {
-            Box(Modifier.width(72.dp).heightIn(min = firstLine), contentAlignment = Alignment.TopEnd) {
+            Box((if (stacked) Modifier else Modifier.alignToFirstTitleLine(titleAlignment))
+                .width(72.dp).heightIn(min = firstLine),
+                contentAlignment = if (stacked) Alignment.TopEnd else Alignment.CenterEnd) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalGeoRowStatus provides true) {
                     if (numericValue) Text(status, style = type.supporting.copy(fontFeatureSettings = "tnum"),
                         color = colors.text, textAlign = androidx.compose.ui.text.style.TextAlign.End)
@@ -226,7 +229,8 @@ fun GeoPreparationStatusRow(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 GeoIconTile(icon)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = type.titleSm, color = colors.text)
+                    Text(title, style = type.titleSm, color = colors.text,
+                        onTextLayout = titleAlignment::onTextLayout)
                     detail?.takeIf { it != status }?.let {
                         Text(it, style = type.supporting, color = colors.textSecondary)
                     }

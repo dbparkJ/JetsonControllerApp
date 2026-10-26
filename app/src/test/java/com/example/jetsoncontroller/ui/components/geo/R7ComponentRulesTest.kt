@@ -7,6 +7,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class R7ComponentRulesTest {
+    @Test fun `first title line alignment uses measured pixels rather than the line height token`() {
+        // The reported tablet failure: 36px cell, 29px trimmed single-line title.
+        assertEquals(-3, firstTitleLineOffset(0f, 29f, 29, 36, titleCentered = false))
+        assertEquals(0, firstTitleLineOffset(0f, 29f, 29, 60, titleCentered = true))
+        // A centered multiline title needs a shift to its first line, including without meta.
+        assertEquals(-18, firstTitleLineOffset(0f, 29f, 65, 60, titleCentered = true))
+        // First-line metrics can have a nonzero top; taller actions retain their measured size.
+        assertEquals(-22, firstTitleLineOffset(2f, 38f, 70, 84, titleCentered = false))
+        listOf(1f, 1.5f, 2f).forEach { density ->
+            val offset = firstTitleLineOffset(0f, 20f * density, (44 * density).toInt(),
+                (40 * density).toInt(), titleCentered = false)
+            assertEquals(-10f * density, offset.toFloat(), 0.5f)
+        }
+    }
+
     @Test fun `status lists share the longest width between 72 and 120 dp`() {
         assertEquals(72f, rowStatusWidth(emptyList()), 0f)
         assertEquals(72f, rowStatusWidth(listOf(30f, 65f)), 0f)

@@ -13,15 +13,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.getTextLayoutResult
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.rememberTextMeasurer
 import com.example.jetsoncontroller.ui.model.Tone
 
@@ -60,10 +66,14 @@ fun GeoBadge(
     }
     val colors = geoBadgeColors(LocalGeoColors.current, tone, if (inline) GeoBadgeVariant.INLINE else variant)
     val shape = GeoShape.badge
+    var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
     Row(modifier
         .background(colors.fill, shape)
         .then(if (highContrast && !inline) Modifier.border(1.dp, colors.ink, shape) else Modifier)
-        .clearAndSetSemantics { stateDescription = word }
+        .clearAndSetSemantics {
+            stateDescription = word
+            getTextLayoutResult { results -> textLayout?.let { results.add(it) } ?: false }
+        }
         .then(if (inline) Modifier.heightIn(min = 24.dp) else Modifier.widthIn(min = minWidth).heightIn(min = 24.dp))
         .padding(horizontal = if (inline) 0.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -71,6 +81,6 @@ fun GeoBadge(
         Box(Modifier.size(6.dp).background(colors.ink, CircleShape))
         Text(word, color = colors.ink,
             style = style, maxLines = if (inline || singleLine) 1 else Int.MAX_VALUE,
-            softWrap = !inline && !singleLine)
+            softWrap = !inline && !singleLine, onTextLayout = { textLayout = it })
     }
 }
