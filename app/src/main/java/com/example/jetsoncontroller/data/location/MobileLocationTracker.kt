@@ -65,11 +65,11 @@ class AndroidMobileLocationTracker(
     private var receiverRegistered = false
 
     private val candidateProviders: List<String>
-        get() = listOf(
-            LocationManager.GPS_PROVIDER,
-            LocationManager.NETWORK_PROVIDER,
-            LocationManager.FUSED_PROVIDER
-        ).distinct()
+        get() = buildList {
+            add(LocationManager.GPS_PROVIDER)
+            add(LocationManager.NETWORK_PROVIDER)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(LocationManager.FUSED_PROVIDER)
+        }
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
@@ -115,16 +115,9 @@ class AndroidMobileLocationTracker(
     private fun registerProviderReceiver() {
         val filter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                appContext.registerReceiver(
-                    providerChangeReceiver,
-                    filter,
-                    Context.RECEIVER_NOT_EXPORTED
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                appContext.registerReceiver(providerChangeReceiver, filter)
-            }
+            ContextCompat.registerReceiver(
+                appContext, providerChangeReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED
+            )
         }.onSuccess {
             receiverRegistered = true
         }

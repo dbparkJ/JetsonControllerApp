@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.data.network
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -14,6 +13,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import androidx.core.content.ContextCompat
+import com.example.jetsoncontroller.WifiPermissionPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -111,7 +111,7 @@ class WifiAccessPointScanner(context: Context) {
         if (
             ContextCompat.checkSelfPermission(
                 appContext,
-                Manifest.permission.ACCESS_FINE_LOCATION
+                WifiPermissionPolicy.scanPermission()
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             _state.value = _state.value.copy(
@@ -221,7 +221,7 @@ class WifiAccessPointScanner(context: Context) {
         if (
             ContextCompat.checkSelfPermission(
                 appContext,
-                Manifest.permission.ACCESS_FINE_LOCATION
+                WifiPermissionPolicy.scanPermission()
             ) != PackageManager.PERMISSION_GRANTED || !wifiManager.isWifiEnabled
         ) return null
         return try {

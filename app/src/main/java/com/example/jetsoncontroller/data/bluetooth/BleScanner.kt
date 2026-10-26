@@ -6,10 +6,14 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
+import com.example.jetsoncontroller.BluetoothPermissionPolicy
 import com.example.jetsoncontroller.model.JetsonDevice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,7 +46,8 @@ sealed interface BleScanFailure {
 
     data object PermissionDenied : BleScanFailure {
         override val userMessage =
-            "주변 기기 검색 권한을 확인해 주세요."
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) "블루투스 검색에 필요한 위치 권한을 허용해 주세요."
+            else "주변 기기 검색 권한을 확인해 주세요."
     }
 
     data class StartRejected(
@@ -483,6 +488,14 @@ class BleScanner(
             loggedCandidateAddresses.clear()
             _devices.value = emptyList()
             jetsonOnlyScan = jetsonOnly
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
+            !BluetoothPermissionPolicy.hasPermissions(Build.VERSION.SDK_INT) { permission ->
+                ContextCompat.checkSelfPermission(appContext, permission) == PackageManager.PERMISSION_GRANTED
+            }) {
+            failScan(BleScanFailure.PermissionDenied)
+            return
         }
 
         val adapter =

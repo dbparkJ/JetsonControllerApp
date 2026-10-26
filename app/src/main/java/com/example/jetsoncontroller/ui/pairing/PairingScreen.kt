@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.pairing
 
+import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
@@ -14,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.localDeviceWord
+import com.example.jetsoncontroller.ui.permissions.bluetoothPermissionText
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
@@ -61,14 +63,14 @@ fun PairingScreen(
             when (state.phase) {
                 PairingPhase.QR_SCANNED -> {
                     Text("블루투스로 장치를 찾아 이 ${deviceWord}에 등록합니다.", style = type.body, color = colors.text)
-                    Text("가까운 장치를 찾으려면 블루투스 권한이 필요합니다.", style = type.body, color = colors.textSecondary)
+                    Text(bluetoothPermissionText(Build.VERSION.SDK_INT), style = type.body, color = colors.textSecondary)
                 }
                 PairingPhase.ERROR -> {
                     GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "등록하지 못했습니다", pairingFailureText(state.errorMessage)))
                     GeoButton("다시 스캔", onCancel, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 else -> {
-                    Text(pairingProgressText(state.phase), style = type.body, color = colors.text)
+                    Text(pairingProgressText(state.phase, state.connectionAttempt), style = type.body, color = colors.text)
                     if (state.phase != PairingPhase.READY) GeoProgress()
                 }
             }

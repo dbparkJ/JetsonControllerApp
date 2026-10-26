@@ -155,7 +155,7 @@ class ReconnectCandidateSelectionTest {
     }
 
     @Test
-    fun `single UUID candidate waits for scan completion`() {
+    fun `single UUID candidate reconnects immediately for identity verification`() {
         val decision = chooseReconnectCandidate(
             candidates =
                 listOf(
@@ -171,10 +171,7 @@ class ReconnectCandidateSelectionTest {
             advertisesJetsonService = { it.advertisesService }
         )
 
-        assertEquals(
-            ReconnectCandidateDecision.ContinueScanning,
-            decision
-        )
+        assertTrue(decision is ReconnectCandidateDecision.Connect)
     }
 
     @Test

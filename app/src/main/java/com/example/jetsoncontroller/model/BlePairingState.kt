@@ -8,6 +8,8 @@ sealed interface BlePairingState {
     data object Connecting :
         BlePairingState
 
+    data class Retrying(val attempt: Int, val maxAttempts: Int) : BlePairingState
+
     data object DiscoveringServices :
         BlePairingState
 

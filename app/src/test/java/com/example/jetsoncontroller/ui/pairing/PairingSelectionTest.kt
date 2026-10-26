@@ -130,7 +130,7 @@ class PairingSelectionTest {
     }
 
     @Test
-    fun `UUID-only candidate waits until name discovery has finished`() {
+    fun `single UUID-only candidate connects immediately for identity verification`() {
         val generic = Candidate("Unknown", advertisesService = true)
 
         val decision = choosePairingCandidate(
@@ -142,7 +142,8 @@ class PairingSelectionTest {
             advertisesJetsonService = { it.advertisesService }
         )
 
-        assertEquals(PairingCandidateDecision.ContinueScanning, decision)
+        assertTrue(decision is PairingCandidateDecision.Connect)
+        assertSame(generic, (decision as PairingCandidateDecision.Connect<Candidate>).candidate)
     }
 
     @Test
@@ -180,6 +181,16 @@ class PairingSelectionTest {
         )
 
         assertTrue(decision is PairingCandidateDecision.Fail)
+    }
+
+    @Test
+    fun `missing or ambiguous candidates keep scanning until the deadline`() {
+        listOf(emptyList(), listOf(Candidate("A", true), Candidate("B", true)),
+            listOf(Candidate("MMS-D137", true), Candidate("mms-d137", true))).forEach { candidates ->
+            assertEquals(PairingCandidateDecision.ContinueScanning, choosePairingCandidate(
+                candidates, "MMS-D137", "MMS-9D137", true, { it.name }, { it.advertisesService }
+            ))
+        }
     }
 
     private data class Candidate(

@@ -11,6 +11,8 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
+import com.example.jetsoncontroller.model.ConnectionState
+import com.example.jetsoncontroller.model.bleConnectionProgressText
 import com.example.jetsoncontroller.ui.*
 import com.example.jetsoncontroller.ui.alerts.AlertCenterScreen
 import com.example.jetsoncontroller.ui.devices.*
@@ -215,6 +217,8 @@ private fun DeviceRootRoute(state: State<AppNavigationState>, entry: NavBackStac
             bluetoothPermissionGranted = bluetoothPermissionGranted,
             onRequestBluetoothPermission = onRequestBluetoothPermission,
             bluetoothBusy = sameDeviceTarget(selectedDeviceId, deviceState.reconnectingDeviceId),
+            bluetoothProgress = (deviceState.connectionState as? ConnectionState.Connecting)
+                ?.takeIf { sameDeviceTarget(selectedDeviceId, it.deviceId) }?.let { bleConnectionProgressText(it.attempt) },
             bluetoothError = deviceState.reconnectError.takeIf { sameDeviceTarget(selectedDeviceId, deviceState.reconnectErrorDeviceId) }
         )
     }
@@ -315,6 +319,8 @@ private fun DeviceDetailRoute(state: State<AppNavigationState>, entry: NavBackSt
             ongoingStrip = deviceOngoingStrip(this, targetId, name),
             onRefresh = { if (deviceTargetConnected(state.value, targetId)) dashboardViewModel.requestStatus() },
             bluetoothBusy = sameDeviceTarget(targetId, deviceState.reconnectingDeviceId),
+            bluetoothProgress = (deviceState.connectionState as? ConnectionState.Connecting)
+                ?.takeIf { sameDeviceTarget(targetId, it.deviceId) }?.let { bleConnectionProgressText(it.attempt) },
             bluetoothError = deviceState.reconnectError.takeIf { sameDeviceTarget(targetId, deviceState.reconnectErrorDeviceId) }
         )
     }

@@ -5,7 +5,9 @@ sealed interface ConnectionState {
     data object Disconnected : ConnectionState
 
     data class Connecting(
-        val deviceName: String
+        val deviceName: String,
+        val attempt: Int = 1,
+        val deviceId: String? = null
     ) : ConnectionState
 
     data class Connected(
@@ -22,6 +24,7 @@ sealed interface ConnectionState {
     ) : ConnectionState
 
     data class Error(
-        val message: String
+        val message: String,
+        val deviceId: String? = null
     ) : ConnectionState
 }

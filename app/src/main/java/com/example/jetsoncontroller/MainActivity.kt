@@ -36,46 +36,6 @@ import com.example.jetsoncontroller.ui.startup.AppRestoreViewModel
 import com.example.jetsoncontroller.ui.startup.StartupContent
 import com.example.jetsoncontroller.ui.startup.StartupTiming
 
-internal object BluetoothPermissionPolicy {
-
-    fun locationRequestPermissions(): Array<String> =
-        arrayOf(
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
-
-    fun requiredPermissions(
-        sdkInt: Int
-    ): List<String> =
-        if (sdkInt >= Build.VERSION_CODES.S) {
-            listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
-        } else {
-            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-
-    fun requestPermissions(
-        sdkInt: Int
-    ): Array<String> {
-        val locationPermissions =
-            locationRequestPermissions().toList()
-
-        return if (sdkInt >= Build.VERSION_CODES.S) {
-            (
-                listOf(
-                    Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT
-                ) + locationPermissions
-            ).toTypedArray()
-        } else {
-            locationPermissions.toTypedArray()
-        }
-    }
-}
-
 class MainActivity :
     ComponentActivity() {
 
@@ -99,14 +59,12 @@ class MainActivity :
 
 
     private fun hasBluetoothPermissions(): Boolean =
-        BluetoothPermissionPolicy
-            .requiredPermissions(Build.VERSION.SDK_INT)
-            .all { permission ->
-                ContextCompat.checkSelfPermission(
-                    this,
-                    permission
-                ) == PackageManager.PERMISSION_GRANTED
-            }
+        BluetoothPermissionPolicy.hasPermissions(Build.VERSION.SDK_INT) { permission ->
+            ContextCompat.checkSelfPermission(
+                this,
+                permission
+            ) == PackageManager.PERMISSION_GRANTED
+        }
 
     private fun bluetoothPermissions(): Array<String> =
         BluetoothPermissionPolicy.requestPermissions(
@@ -121,31 +79,19 @@ class MainActivity :
     }
 
     private fun hasNearbyWifiPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.NEARBY_WIFI_DEVICES
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+        return WifiPermissionPolicy.hasNearbyPermissions(Build.VERSION.SDK_INT) { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
         }
     }
 
     private fun nearbyWifiPermissions(): Array<String> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            BluetoothPermissionPolicy.locationRequestPermissions()
-        }
+        return WifiPermissionPolicy.nearbyRequestPermissions(Build.VERSION.SDK_INT)
     }
 
     private fun hasWifiScanPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
-            Manifest.permission.ACCESS_FINE_LOCATION
+            WifiPermissionPolicy.scanPermission()
         ) == PackageManager.PERMISSION_GRANTED
     }
 
@@ -178,7 +124,8 @@ class MainActivity :
     override fun onCreate(
         savedInstanceState: Bundle?
     ) {
-        val timing = StartupTiming(SystemClock.uptimeMillis(), splashVisible = true)
+        val timing = StartupTiming(SystemClock.uptimeMillis(),
+            splashVisible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
         setTheme(R.style.Theme_JetsonController)
         super.onCreate(
             savedInstanceState
@@ -227,9 +174,11 @@ class MainActivity :
             }
         })
         // The pre-draw gate releases either a resolved scene or the loader after 300 ms.
-        splashScreen.setOnExitAnimationListener { splash ->
-            timing.splashRemoved(restoreViewModel.state.value, SystemClock.uptimeMillis())
-            splash.remove()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { splash ->
+                timing.splashRemoved(restoreViewModel.state.value, SystemClock.uptimeMillis())
+                splash.remove()
+            }
         }
 
         setContent {

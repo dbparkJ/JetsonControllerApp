@@ -65,7 +65,8 @@ internal fun DevicesHomeScreen(
     localNetworkPermissionGranted: Boolean = true,
     onRequestLocalNetworkPermission: () -> Unit = {},
     loadingDevices: Boolean = false,
-    highlightedDeviceId: String? = selectedDeviceId
+    highlightedDeviceId: String? = selectedDeviceId,
+    bluetoothProgress: String? = null
 ) {
     val scroll = com.example.jetsoncontroller.ui.components.geo.shell.rememberGeoPaneListState("devices")
     val tablet = LocalGeoWindow.current.widthDp >= 600f
@@ -205,7 +206,7 @@ internal fun DevicesHomeScreen(
         { sheet = false; onDirectConnect() }, { sheet = false; onQrRegister() }, onSaveDiagnostics,
         onBluetooth = onBluetooth,
         bluetoothPermissionGranted = bluetoothPermissionGranted, onRequestBluetoothPermission = onRequestBluetoothPermission,
-        bluetoothBusy = bluetoothBusy, bluetoothError = bluetoothError)
+        bluetoothBusy = bluetoothBusy, bluetoothError = bluetoothError, bluetoothProgress = bluetoothProgress)
 }
 
 /** The host supplies its real inventory loading state; an empty list alone is not loading. */

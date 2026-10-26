@@ -1,5 +1,6 @@
 package com.example.jetsoncontroller.ui.wifi
 
+import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -66,7 +67,11 @@ fun WifiDirectScreen(
                 }
                 DirectStage.PERMISSION -> item {
                     GeoSection("주변 장치", first = true) {
-                        DirectState("근처 기기 권한이 필요합니다", "가까운 장치를 찾아 바로 연결하려면 권한을 허용하세요.", GeoStateKind.PERMISSION, "권한 허용", onPermissionClick)
+                        val legacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                        DirectState(if (legacy) "위치 권한이 필요합니다" else "근처 기기 권한이 필요합니다",
+                            if (legacy) "가까운 장치를 찾아 바로 연결하려면 위치 권한을 허용하고 위치 서비스를 켜세요."
+                            else "가까운 장치를 찾아 바로 연결하려면 권한을 허용하세요.",
+                            GeoStateKind.PERMISSION, "권한 허용", onPermissionClick)
                     }
                 }
                 DirectStage.RADIO_OFF -> item {

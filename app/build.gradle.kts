@@ -48,7 +48,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.jetsoncontroller"
-        minSdk = 31
+        minSdk = 30
         targetSdk = 37
         versionCode = 26
         versionName = "1.18.0"

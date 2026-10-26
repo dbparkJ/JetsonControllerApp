@@ -1,6 +1,5 @@
 package com.example.jetsoncontroller.data.network
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -17,6 +16,7 @@ import android.net.wifi.WpsInfo
 import android.os.Build
 import android.os.Handler
 import androidx.core.content.ContextCompat
+import com.example.jetsoncontroller.WifiPermissionPolicy
 import com.example.jetsoncontroller.data.diagnostics.ConnectionDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -276,7 +276,7 @@ class WifiDirectManager(
             return
         }
         if (!hasNearbyWifiPermission()) {
-            fail("주변 기기 권한을 허용한 뒤 다시 검색해 주세요.")
+            fail(nearbyPermissionError())
             return
         }
 
@@ -326,14 +326,14 @@ class WifiDirectManager(
                 }
             )
         } catch (_: SecurityException) {
-            fail("주변 기기 권한을 허용한 뒤 다시 검색해 주세요.")
+            fail(nearbyPermissionError())
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun requestPeers() {
         if (!hasNearbyWifiPermission()) {
-            fail("주변 기기 권한을 허용한 뒤 다시 검색해 주세요.")
+            fail(nearbyPermissionError())
             return
         }
 
@@ -359,7 +359,7 @@ class WifiDirectManager(
                 )
             }
         } catch (_: SecurityException) {
-            fail("주변 기기 권한을 허용한 뒤 다시 검색해 주세요.")
+            fail(nearbyPermissionError())
         }
     }
 
@@ -370,7 +370,7 @@ class WifiDirectManager(
             return
         }
         if (!hasNearbyWifiPermission()) {
-            fail("주변 기기 권한을 허용한 뒤 다시 연결해 주세요.")
+            fail(nearbyPermissionError(connecting = true))
             return
         }
 
@@ -445,11 +445,11 @@ class WifiDirectManager(
                         }
                     )
                 } catch (_: SecurityException) {
-                    beginConnectionCleanup("주변 기기 권한을 허용한 뒤 다시 연결해 주세요.")
+                    beginConnectionCleanup(nearbyPermissionError(connecting = true))
                 }
             }
         } catch (_: SecurityException) {
-            beginConnectionCleanup("주변 기기 권한을 허용한 뒤 다시 연결해 주세요.")
+            beginConnectionCleanup(nearbyPermissionError(connecting = true))
         }
     }
 
@@ -776,17 +776,19 @@ class WifiDirectManager(
     }
 
     private fun hasNearbyWifiPermission(): Boolean {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.NEARBY_WIFI_DEVICES
-        } else {
-            Manifest.permission.ACCESS_FINE_LOCATION
+        return WifiPermissionPolicy.hasNearbyPermissions(Build.VERSION.SDK_INT) { permission ->
+            ContextCompat.checkSelfPermission(appContext, permission) == PackageManager.PERMISSION_GRANTED
         }
-
-        return ContextCompat.checkSelfPermission(
-            appContext,
-            permission
-        ) == PackageManager.PERMISSION_GRANTED
     }
+
+    private fun nearbyPermissionError(connecting: Boolean = false): String =
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            if (connecting) "위치 권한을 허용한 뒤 다시 연결해 주세요."
+            else "위치 권한을 허용한 뒤 다시 검색해 주세요."
+        } else {
+            if (connecting) "주변 기기 권한을 허용한 뒤 다시 연결해 주세요."
+            else "주변 기기 권한을 허용한 뒤 다시 검색해 주세요."
+        }
 
     fun markApiChecking() {
         if (!_state.value.connected) return
