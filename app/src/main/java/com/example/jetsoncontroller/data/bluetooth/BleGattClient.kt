@@ -13,6 +13,8 @@ import android.os.Build
 import android.util.Log
 import com.example.jetsoncontroller.data.credentials.DeviceCredentialStore
 import com.example.jetsoncontroller.model.BlePairingState
+import com.example.jetsoncontroller.model.BLE_CONNECTION_FAILED_TEXT
+import com.example.jetsoncontroller.model.bleConnectionFailureText
 import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.model.PairingInfo
 import com.example.jetsoncontroller.model.JetsonStatus
@@ -40,6 +42,7 @@ class BleGattClient(
     context: Context,
     private val credentialStore: DeviceCredentialStore,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
     private val currentTimeMillis: () -> Long = System::currentTimeMillis
 ) {
 
@@ -94,6 +97,12 @@ class BleGattClient(
     private var waitingForTimeSync = false
     private var timeSyncTimeoutJob: Job? = null
 
+    private var connectionGeneration = 0L
+    private var connectionAttempt = 0
+    private var connectingDevice: BluetoothDevice? = null
+    private var pendingConnectJob: Job? = null
+    private var connectionTimeoutJob: Job? = null
+
 
     @SuppressLint("MissingPermission")
     @Synchronized
@@ -111,12 +120,7 @@ class BleGattClient(
         currentDeviceName =
             displayName
 
-        _connectionState.value =
-            ConnectionState.Connecting(
-                displayName
-            )
-
-        bluetoothGatt = connectGattInternal(device)
+        beginConnection(device)
     }
 
     @SuppressLint("MissingPermission")
@@ -132,10 +136,69 @@ class BleGattClient(
         expectedReconnectDeviceId = pairingInfo.deviceId.lowercase()
         
         currentDeviceName = displayName
-        _connectionState.value = ConnectionState.Connecting(displayName)
         _pairingState.value = BlePairingState.Connecting
 
-        bluetoothGatt = connectGattInternal(device)
+        beginConnection(device)
+    }
+
+    // Both registration and reconnect callers stop the scanner before entering here.
+    private fun beginConnection(device: BluetoothDevice) {
+        connectingDevice = device
+        val generation = connectionGeneration
+        connectionTimeoutJob = scope.launch(start = CoroutineStart.LAZY) {
+            delay(BleConnectionPolicy.CONNECTION_BUDGET_MILLIS)
+            synchronized(this@BleGattClient) {
+                if (generation == connectionGeneration && _connectionState.value is ConnectionState.Connecting) {
+                    handleError(BLE_CONNECTION_FAILED_TEXT, "GATT_CONNECT_TIMEOUT")
+                }
+            }
+        }.also { it.start() }
+        scheduleConnection(device, 1, BleConnectionPolicy.initialDelayMillis(sdkInt))
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun scheduleConnection(device: BluetoothDevice, attempt: Int, waitMillis: Long) {
+        connectionAttempt = attempt
+        _connectionState.value = ConnectionState.Connecting(currentDeviceName, attempt, expectedReconnectDeviceId)
+        if (pairingSession != null) {
+            _pairingState.value = if (attempt == 1) BlePairingState.Connecting
+                else BlePairingState.Retrying(attempt, BleConnectionPolicy.MAX_ATTEMPTS)
+        }
+        val generation = connectionGeneration
+        if (waitMillis == 0L) {
+            openGatt(device)
+            return
+        }
+        pendingConnectJob = scope.launch(start = CoroutineStart.LAZY) {
+            delay(waitMillis)
+            synchronized(this@BleGattClient) {
+                if (generation != connectionGeneration || _connectionState.value !is ConnectionState.Connecting) return@launch
+                pendingConnectJob = null
+                openGatt(device)
+            }
+        }.also { it.start() }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun openGatt(device: BluetoothDevice) {
+        try {
+            bluetoothGatt = connectGattInternal(device)
+            if (bluetoothGatt == null) handleError(BLE_CONNECTION_FAILED_TEXT, "GATT_CONNECT_REJECTED")
+        } catch (_: SecurityException) {
+            handleError("블루투스 연결 권한이 필요합니다.", "GATT_PERMISSION_DENIED")
+        } catch (_: RuntimeException) {
+            handleError(BLE_CONNECTION_FAILED_TEXT, "GATT_CONNECT_REJECTED")
+        }
+    }
+
+    private fun cancelPendingConnection() {
+        connectionGeneration += 1
+        pendingConnectJob?.cancel()
+        pendingConnectJob = null
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
+        connectingDevice = null
+        connectionAttempt = 0
     }
 
     @SuppressLint("MissingPermission")
@@ -153,6 +216,7 @@ class BleGattClient(
     @SuppressLint("MissingPermission")
     @Synchronized
     fun disconnect() {
+        cancelPendingConnection()
         clearTimeSyncWait()
         val gatt = bluetoothGatt
         bluetoothGatt = null
@@ -184,13 +248,28 @@ class BleGattClient(
                     }
                     Log.d("JetsonBLE", "onConnectionStateChange: status=$status newState=$newState")
                     if (status != BluetoothGatt.GATT_SUCCESS) {
-                        gatt.close()
-                        handleError("GATT connection error: $status")
+                        val retryDelay = BleConnectionPolicy.retryDelayMillis(
+                            status, connectionAttempt, _connectionState.value is ConnectionState.Connecting
+                        )
+                        val device = connectingDevice
+                        if (retryDelay != null && device != null) {
+                            // Invalidate before close: callbacks from this GATT cannot mutate the next attempt.
+                            bluetoothGatt = null
+                            gatt.close()
+                            Log.d("JetsonBLE", "Retrying GATT connection: status=$status attempt=${connectionAttempt + 1}/${BleConnectionPolicy.MAX_ATTEMPTS} delayMs=$retryDelay")
+                            scheduleConnection(device, connectionAttempt + 1, retryDelay)
+                        } else {
+                            val message = if (status == 5 || status == 137) {
+                                "장치 인증 정보를 확인할 수 없습니다. QR 코드로 다시 등록하세요."
+                            } else BLE_CONNECTION_FAILED_TEXT
+                            handleError(message, "GATT_$status")
+                        }
                         return
                     }
 
                     when (newState) {
                         BluetoothProfile.STATE_CONNECTED -> {
+                            cancelPendingConnection()
                             _connectionState.value = ConnectionState.Connected(currentDeviceName)
                             if (pairingSession != null) {
                                 _pairingState.value = BlePairingState.DiscoveringServices
@@ -201,6 +280,11 @@ class BleGattClient(
                         }
 
                         BluetoothProfile.STATE_DISCONNECTED -> {
+                            if (_connectionState.value is ConnectionState.Connecting) {
+                                handleError(BLE_CONNECTION_FAILED_TEXT, "GATT_DISCONNECTED")
+                                return
+                            }
+                            cancelPendingConnection()
                             clearTimeSyncWait()
                             bluetoothGatt = null
                             pairingSession = null
@@ -575,7 +659,8 @@ class BleGattClient(
 
     @SuppressLint("MissingPermission")
     @Synchronized
-    private fun handleError(message: String) {
+    private fun handleError(message: String, technicalCode: String? = null) {
+        cancelPendingConnection()
         clearTimeSyncWait()
         val gatt = bluetoothGatt
         bluetoothGatt = null
@@ -583,9 +668,9 @@ class BleGattClient(
         pendingSessionEncryptionKey = null
         sessionEncryptionKey = null
         verifiedDeviceId = null
+        _connectionState.value = ConnectionState.Error(bleConnectionFailureText(message), expectedReconnectDeviceId)
         expectedReconnectDeviceId = null
-        _connectionState.value = ConnectionState.Error(message)
-        _pairingState.value = BlePairingState.Error(message)
+        _pairingState.value = BlePairingState.Error(message, technicalCode)
         try {
             gatt?.disconnect()
         } catch (_: SecurityException) {

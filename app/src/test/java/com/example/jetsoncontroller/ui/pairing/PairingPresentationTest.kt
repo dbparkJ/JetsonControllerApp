@@ -39,7 +39,7 @@ class PairingPresentationTest {
             assertEquals("가까운 장치를 찾으려면 블루투스 권한이 필요합니다.", pairingFailureText("권한 $secret", sdk))
         }
         assertEquals("장치 인증 정보를 확인할 수 없습니다. QR 코드로 다시 등록하세요.", pairingFailureText("인증 실패 $code"))
-        assertEquals("장치를 찾지 못했습니다. 장치 전원과 거리를 확인하세요.", pairingFailureText("GATT_133 $code"))
+        assertEquals("장치를 찾았지만 연결하지 못했습니다. 장치 가까이에서 다시 시도하세요.", pairingFailureText("GATT_133 $code"))
         assertFalse(resolvePairingError(null, true, BlePairingState.Error("인증 $code"))!!.contains(secret))
     }
 
@@ -58,5 +58,35 @@ class PairingPresentationTest {
         assertTrue(PairingPhase.SEARCHING.isPairingInProgress())
         assertFalse(PairingPhase.QR_SCANNED.isPairingInProgress())
         assertFalse(PairingPhase.READY.isPairingInProgress())
+    }
+
+    @Test
+    fun `discovery failure and failure after discovery have distinct safe copy`() {
+        val notFound = "장치를 찾지 못했습니다. 장치 전원과 거리를 확인하세요."
+        val connectionFailed = "장치를 찾았지만 연결하지 못했습니다. 장치 가까이에서 다시 시도하세요."
+        assertEquals(notFound, pairingFailureText("MMS 장치를 찾지 못했습니다. $secret", 30))
+        assertEquals(notFound, pairingFailureText(null, 30))
+        listOf("Service discovery failed: 133", "Jetson Control Service not found",
+            "Device ID characteristic not found", "Auth Challenge characteristic not found", "Read failed: 8", secret).forEach {
+            assertEquals(connectionFailed, pairingFailureText(it, 30, deviceFound = true))
+            assertEquals(connectionFailed, resolvePairingError(null, true, BlePairingState.Error(it)))
+        }
+        // The ViewModel and screen both map copy: the second mapping must preserve it.
+        assertEquals(connectionFailed, pairingFailureText(connectionFailed, 30))
+        assertEquals("장치 인증 정보를 확인할 수 없습니다. QR 코드로 다시 등록하세요.",
+            pairingFailureText("Authentication failed $secret", 30, deviceFound = true))
+        assertEquals("가까운 장치를 찾으려면 위치 권한이 필요합니다. 위치 서비스도 켜세요.",
+            pairingFailureText("권한 $secret", 30, deviceFound = true))
+    }
+
+    @Test
+    fun `retries show attempt counts and remain an active connecting phase`() {
+        assertEquals("장치에 연결하는 중입니다.", pairingProgressText(PairingPhase.CONNECTING))
+        listOf(2, 3).forEach { attempt ->
+            val retry = BlePairingState.Retrying(attempt, 3)
+            assertEquals("다시 연결하는 중 ($attempt/3)", pairingProgressText(PairingPhase.CONNECTING, attempt))
+            assertEquals(PairingPhase.CONNECTING, resolvePairingPhase(PairingPhase.SEARCHING, true, retry))
+            assertTrue(retry.isActivePairing())
+        }
     }
 }

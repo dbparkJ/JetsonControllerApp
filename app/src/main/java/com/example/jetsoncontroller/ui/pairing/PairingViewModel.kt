@@ -59,13 +59,16 @@ internal fun <T> choosePairingCandidate(
             ambiguousPairingName(legacyExpectedBleName)
         }
     }
+    val serviceMatches = candidates.filter(advertisesJetsonService)
+    // The advertised service is a candidate, not proof of identity. GATT still
+    // verifies DEVICE_ID against the QR before sending any authentication data.
+    if (serviceMatches.size == 1) {
+        return PairingCandidateDecision.Connect(serviceMatches.single())
+    }
     if (isScanning) {
         return PairingCandidateDecision.ContinueScanning
     }
-
-    val serviceMatches = candidates.filter(advertisesJetsonService)
     return when (serviceMatches.size) {
-        1 -> PairingCandidateDecision.Connect(serviceMatches.single())
         0 -> PairingCandidateDecision.Fail(
             "$expectedBleName 장치를 찾지 못했습니다. 장치의 Bluetooth 상태를 확인해 주세요."
         )
@@ -95,6 +98,7 @@ internal fun resolvePairingPhase(
 
     return when (repositoryState) {
         is BlePairingState.Connecting -> PairingPhase.CONNECTING
+        is BlePairingState.Retrying -> PairingPhase.CONNECTING
         is BlePairingState.DiscoveringServices -> PairingPhase.VERIFYING_IDENTITY
         is BlePairingState.VerifyingIdentity -> PairingPhase.VERIFYING_IDENTITY
         is BlePairingState.Authenticating -> PairingPhase.AUTHENTICATING
@@ -113,7 +117,7 @@ internal fun resolvePairingError(
     localError ?: if (
         observeRepositoryState && repositoryState is BlePairingState.Error
     ) {
-        pairingFailureText(repositoryState.userMessage)
+        pairingFailureText(repositoryState.userMessage, deviceFound = true)
     } else {
         null
     }
@@ -165,7 +169,7 @@ internal fun shouldConnectPairingCandidate(phase: PairingPhase, userStartedAttem
 internal fun BlePairingState.isActivePairing(): Boolean = when (this) {
     BlePairingState.Connecting, BlePairingState.DiscoveringServices,
     BlePairingState.VerifyingIdentity, BlePairingState.Authenticating,
-    BlePairingState.EnablingNotifications -> true
+    BlePairingState.EnablingNotifications, is BlePairingState.Retrying -> true
     else -> false
 }
 
@@ -240,6 +244,7 @@ class PairingViewModel(
                 phase = finalPhase,
                 pairingInfo = info,
                 displayDeviceName = info?.expectedBleName,
+                connectionAttempt = (repoPairingState as? BlePairingState.Retrying)?.attempt ?: 1,
                 errorMessage = resolvePairingError(
                     localError = error,
                     observeRepositoryState = observeRepositoryState,
@@ -254,6 +259,7 @@ class PairingViewModel(
                 phase = resolvePairingPhase(restoredState.phase, restoredState.observeRepositoryState, repository.pairingState.value),
                 pairingInfo = restoredState.pairingInfo,
                 displayDeviceName = restoredState.pairingInfo?.expectedBleName,
+                connectionAttempt = (repository.pairingState.value as? BlePairingState.Retrying)?.attempt ?: 1,
                 errorMessage = resolvePairingError(restoredState.errorMessage, restoredState.observeRepositoryState, repository.pairingState.value)
             )
         )
@@ -265,7 +271,7 @@ class PairingViewModel(
                 if (_observeRepositoryState.value) {
                     _qrPhase.value = resolvePairingPhase(_qrPhase.value, true, repositoryState)
                     if (repositoryState is BlePairingState.Error) {
-                        _errorMessage.value = pairingFailureText(repositoryState.userMessage)
+                        _errorMessage.value = pairingFailureText(repositoryState.userMessage, deviceFound = true)
                     }
                     if (repositoryState is BlePairingState.Ready) PairingScannerFrame.image = null
                     saveRecreationState()

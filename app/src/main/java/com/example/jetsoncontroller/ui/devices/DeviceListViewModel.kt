@@ -9,6 +9,7 @@ import com.example.jetsoncontroller.data.bluetooth.BleScanState
 import com.example.jetsoncontroller.data.bluetooth.JetsonGattSpec
 import com.example.jetsoncontroller.data.repository.JetsonRepository
 import com.example.jetsoncontroller.model.JetsonDevice
+import com.example.jetsoncontroller.model.ConnectionState
 import com.example.jetsoncontroller.model.RegisteredDevice
 import com.example.jetsoncontroller.model.legacyBleNameForDeviceId
 import com.example.jetsoncontroller.model.registeredDeviceDisplayName
@@ -95,18 +96,17 @@ internal fun <T> chooseReconnectCandidate(
         }
     }
 
+    val serviceMatches =
+        candidates.filter(advertisesJetsonService)
+
+    if (serviceMatches.size == 1) {
+        return ReconnectCandidateDecision.Connect(serviceMatches.single())
+    }
     if (isScanning) {
         return ReconnectCandidateDecision.ContinueScanning
     }
 
-    val serviceMatches =
-        candidates.filter(advertisesJetsonService)
-
     return when (serviceMatches.size) {
-        1 -> ReconnectCandidateDecision.Connect(
-            serviceMatches.single()
-        )
-
         0 -> ReconnectCandidateDecision.NotFound
         else -> ReconnectCandidateDecision.Ambiguous
     }
@@ -160,9 +160,12 @@ class DeviceListViewModel(
                 isScanning = scanState is BleScanState.Scanning,
                 permissionGranted = permission,
                 connectionState = connection,
-                reconnectingDeviceId = savedDevices.second.deviceId,
-                reconnectError = savedDevices.second.error,
-                reconnectErrorDeviceId = savedDevices.second.errorDeviceId,
+                reconnectingDeviceId = (connection as? ConnectionState.Connecting)?.deviceId
+                    ?: savedDevices.second.deviceId,
+                reconnectError = (connection as? ConnectionState.Error)?.takeIf { it.deviceId != null }?.message
+                    ?: savedDevices.second.error,
+                reconnectErrorDeviceId = (connection as? ConnectionState.Error)?.deviceId
+                    ?: savedDevices.second.errorDeviceId,
                 scanError =
                     (scanState as? BleScanState.Failed)
                         ?.failure

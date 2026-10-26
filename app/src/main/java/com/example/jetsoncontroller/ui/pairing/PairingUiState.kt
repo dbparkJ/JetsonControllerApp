@@ -34,5 +34,7 @@ data class PairingUiState(
 
     val errorMessage:
         String? =
-        null
+        null,
+
+    val connectionAttempt: Int = 1
 )

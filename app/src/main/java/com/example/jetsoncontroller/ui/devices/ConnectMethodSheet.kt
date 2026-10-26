@@ -32,7 +32,8 @@ internal fun ConnectMethodSheet(
     bluetoothPermissionGranted: Boolean = false,
     onRequestBluetoothPermission: () -> Unit = {},
     bluetoothBusy: Boolean = false,
-    bluetoothError: String? = null
+    bluetoothError: String? = null,
+    bluetoothProgress: String? = null
 ) {
     val deviceWord = localDeviceWord()
     var confirmDirect by remember { mutableStateOf(false) }
@@ -48,10 +49,10 @@ internal fun ConnectMethodSheet(
                 meta = "공유기 없이 ${deviceWord}과 장치를 바로 연결합니다. 서버로 보내기는 같은 네트워크에서만 됩니다.")
             DeviceConnectionChoice("블루투스로 기본 연결", GeoIcons.bluetooth, onClick = {
                 if (bluetoothPermissionGranted) onBluetooth?.invoke() else onRequestBluetoothPermission()
-            }, meta = if (bluetoothBusy) "기본 연결을 확인하고 있습니다." else if (bluetoothPermissionGranted) "가까운 장치를 찾아 기본 연결합니다."
+            }, meta = if (bluetoothBusy) bluetoothProgress ?: "기본 연결을 확인하고 있습니다." else if (bluetoothPermissionGranted) "가까운 장치를 찾아 기본 연결합니다."
                 else bluetoothPermissionText(Build.VERSION.SDK_INT),
                 enabled = onBluetooth != null && !bluetoothBusy,
-                disabledReason = if (bluetoothBusy) "기본 연결을 확인하고 있습니다." else "연결할 장치를 먼저 선택하세요.")
+                disabledReason = if (bluetoothBusy) bluetoothProgress ?: "기본 연결을 확인하고 있습니다." else "연결할 장치를 먼저 선택하세요.")
             bluetoothError?.let {
                 GeoInlineNote(it, tone = com.example.jetsoncontroller.ui.model.Tone.ERROR,
                     kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 시도",

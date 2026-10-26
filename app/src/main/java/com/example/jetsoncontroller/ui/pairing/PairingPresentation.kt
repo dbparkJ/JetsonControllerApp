@@ -2,6 +2,8 @@ package com.example.jetsoncontroller.ui.pairing
 
 import android.os.Build
 import com.example.jetsoncontroller.model.PairingInfo
+import com.example.jetsoncontroller.model.BLE_CONNECTION_FAILED_TEXT
+import com.example.jetsoncontroller.model.bleConnectionProgressText
 import com.example.jetsoncontroller.protocol.PairingQrParser
 import com.example.jetsoncontroller.ui.permissions.bluetoothPermissionText
 
@@ -13,9 +15,9 @@ internal fun parsePairingCode(rawValue: String): PairingInfo? =
 internal fun maskedPairingCode(info: PairingInfo?): String =
     info?.let { "등록 코드 •••• ${it.shortId}" } ?: "등록 코드 미확인"
 
-internal fun pairingProgressText(phase: PairingPhase): String = when (phase) {
+internal fun pairingProgressText(phase: PairingPhase, connectionAttempt: Int = 1): String = when (phase) {
     PairingPhase.SEARCHING -> "장치를 찾는 중입니다."
-    PairingPhase.CONNECTING -> "장치에 연결하는 중입니다."
+    PairingPhase.CONNECTING -> bleConnectionProgressText(connectionAttempt)
     PairingPhase.VERIFYING_IDENTITY -> "장치를 확인하는 중입니다."
     PairingPhase.AUTHENTICATING -> "인증하는 중입니다."
     PairingPhase.ENABLING_STATUS -> "장치 상태를 확인하는 중입니다."
@@ -24,17 +26,24 @@ internal fun pairingProgressText(phase: PairingPhase): String = when (phase) {
 }
 
 // Repository and platform diagnostics can contain identifiers. Only mapped copy reaches a sheet.
-internal fun pairingFailureText(message: String?, sdkInt: Int = Build.VERSION.SDK_INT): String = when {
+internal fun pairingFailureText(
+    message: String?,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+    deviceFound: Boolean = false
+): String = when {
     message?.contains("여러 대") == true ->
         "장치가 여러 대 검색되었습니다. 대상 장치만 켠 뒤 다시 시도하세요."
     message?.contains("권한") == true ->
         bluetoothPermissionText(sdkInt)
     sdkInt < Build.VERSION_CODES.S && message?.contains("위치") == true ->
         "가까운 장치를 찾으려면 위치 서비스를 켜세요."
-    message?.contains("인증") == true || message?.contains("일치") == true ->
+    message?.contains("인증") == true || message?.contains("일치") == true ||
+        message?.contains("Authentication", ignoreCase = true) == true ->
         "장치 인증 정보를 확인할 수 없습니다. QR 코드로 다시 등록하세요."
     message?.contains("중단") == true ->
         "장치 등록이 중단되었습니다. 다시 시도하세요."
+    deviceFound || message?.contains("GATT", ignoreCase = true) == true ||
+        message?.contains("찾았지만") == true -> BLE_CONNECTION_FAILED_TEXT
     else -> "장치를 찾지 못했습니다. 장치 전원과 거리를 확인하세요."
 }
 

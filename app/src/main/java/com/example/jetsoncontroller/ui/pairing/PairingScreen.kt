@@ -70,7 +70,7 @@ fun PairingScreen(
                     GeoButton("다시 스캔", onCancel, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 else -> {
-                    Text(pairingProgressText(state.phase), style = type.body, color = colors.text)
+                    Text(pairingProgressText(state.phase, state.connectionAttempt), style = type.body, color = colors.text)
                     if (state.phase != PairingPhase.READY) GeoProgress()
                 }
             }

@@ -62,7 +62,8 @@ internal fun DeviceDetailScreen(
     onRefresh: () -> Unit = {},
     bluetoothBusy: Boolean = false,
     initialConnectionMethods: Boolean = false,
-    bluetoothError: String? = null
+    bluetoothError: String? = null,
+    bluetoothProgress: String? = null
 ) {
     val c = LocalGeoColors.current
     val tablet = LocalGeoWindow.current.widthDp >= 600f
@@ -201,7 +202,7 @@ internal fun DeviceDetailScreen(
         { sheet = false; onQrRegister() }, onSaveDiagnostics,
         onBluetooth = onBluetooth,
         bluetoothPermissionGranted = bluetoothPermissionGranted, onRequestBluetoothPermission = onRequestBluetoothPermission,
-        bluetoothBusy = bluetoothBusy, bluetoothError = bluetoothError)
+        bluetoothBusy = bluetoothBusy, bluetoothError = bluetoothError, bluetoothProgress = bluetoothProgress)
 }
 
 internal fun powerUnavailableReason(dashboard: DashboardUiState, runActive: Boolean): String = when {
