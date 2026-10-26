@@ -22,6 +22,9 @@ internal fun readableDeviceName(raw: String?): String {
 internal fun alertTitle(deviceName: String?, condition: String): String =
     "${readableDeviceName(deviceName)} $condition"
 
+internal fun fanStallAlertTitle(deviceName: String?): String =
+    alertTitle(deviceName, "냉각 팬이 멈췄습니다")
+
 /** Temperature with one decimal and the degree sign, for example "81.5°C". */
 internal fun formatCelsius(celsius: Float): String =
     String.format(Locale.US, "%.1f°C", celsius)

@@ -393,7 +393,7 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
             relay.pipelineId != null && relay.pipelineId != pipelineId -> "꺼짐"
             relay.error != null -> "오류"
             relay.preparing -> "연결하는 중"
-            relay.active -> "중계 중"
+            relay.active -> "중계 등록됨"
             else -> "꺼짐"
         } else null)
         Box(Modifier.fillMaxSize()) {

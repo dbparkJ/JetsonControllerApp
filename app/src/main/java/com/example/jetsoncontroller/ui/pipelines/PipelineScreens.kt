@@ -105,13 +105,13 @@ fun PipelineListScreen(
                     leading = { GeoIconTile(GeoIcons.folder) },
                     enabled = pipeline.outputRootId != null && pipeline.outputPath != null,
                     disabledReason = "저장 결과 위치가 없습니다.")
-                GeoRow("보정 정보 중계", onRelay, leading = { GeoIconTile(GeoIcons.link) }, divider = false,
-                    badge = { GeoBadge(if (state.mobileRtkRelay.active) "중계 중" else "꺼짐", if (state.mobileRtkRelay.active) Tone.INFO else Tone.UNKNOWN) })
+                GeoRow("?? ?? ??", onRelay, leading = { GeoIconTile(GeoIcons.link) }, divider = false,
+                    badge = { GeoBadge(if (state.mobileRtkRelay.active) "?? ???" else "??", if (state.mobileRtkRelay.active) Tone.INFO else Tone.UNKNOWN) })
             }
             GeoTechInfo(listOf(GeoTechnicalValue("실행 ID", pipeline.execution?.runId.orEmpty()),
                 GeoTechnicalValue("로그 ID", pipeline.execution?.logId.orEmpty()), GeoTechnicalValue("실행 파일", pipeline.entrypoint),
                 GeoTechnicalValue("설정 파일", pipeline.config), GeoTechnicalValue("리비전", pipeline.sourceRevision),
-                GeoTechnicalValue("보정 수신량", state.mobileRtkRelay.bytesFromCaster.toString())), developerModeEnabled, technical)
+                GeoTechnicalValue("중계 서버 수신 바이트", state.mobileRtkRelay.bytesFromCaster.toString())), developerModeEnabled, technical)
             if (developerModeEnabled) GeoSection("관리", danger = true) {
                 DevText("등록을 해제하면 ${deviceName}의 실행 서비스가 멈춥니다.")
                 GeoButton("등록 해제", { removal = pipeline }, Modifier.fillMaxWidth(), style = GeoButtonStyle.DangerOutline, enabled = available)

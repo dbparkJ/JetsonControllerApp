@@ -9,4 +9,13 @@ class CameraFrameFreshnessTest {
         assertFalse(cameraFrameIsLive(false, true, 1000, 1001, false))
         assertTrue(cameraFrameIsLive(true, true, 1000, 5000, false))
     }
+
+    @Test fun frameAgeRequiresAnObservedTimestampAndExpiresAtTheExistingBoundary() {
+        assertFalse(cameraFrameIsLive(true, true, null, 10_000L, false))
+        assertFalse(cameraFrameIsLive(true, true, 10_001L, 10_000L, false))
+        assertTrue(cameraFrameIsLive(true, true, 10_000L, 10_000L, false))
+        assertTrue(cameraFrameIsLive(true, true, 10_000L, 14_000L, false))
+        assertFalse(cameraFrameIsLive(true, true, 10_000L, 14_001L, false))
+        assertTrue(cameraFrameIsLive(true, true, 14_001L, 14_001L, false))
+    }
 }

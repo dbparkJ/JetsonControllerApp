@@ -6,22 +6,42 @@ import java.net.InetAddress
 
 internal data class LanAddressPrefix(val address: InetAddress, val prefixLength: Int)
 
+/** Kernel interface prefixes also work when Android omits the P2P Network. */
+internal fun kernelWifiDirectPrefixes(
+    candidates: List<WifiDirectInterfaceAddressCandidate>
+): List<LanAddressPrefix> = candidates.filter {
+    isWifiDirectInterface(it.interfaceName) &&
+        !it.address.isAnyLocalAddress && !it.address.isLoopbackAddress &&
+        !it.address.isMulticastAddress &&
+        it.prefixLength in 1..(it.address.address.size * 8)
+}.map { LanAddressPrefix(it.address, it.prefixLength) }
+
+internal fun isWifiDirectInterface(name: String): Boolean =
+    name.contains("p2p", ignoreCase = true) || name.contains("wifi-direct", ignoreCase = true)
+
 /** DNS can replace a Wi-Fi answer with another interface while the app is backgrounded. */
 internal fun selectLanReconnectAddress(
     advertised: InetAddress,
     lastAuthenticated: InetAddress?,
-    localPrefixes: List<LanAddressPrefix>
-): InetAddress = if (
-    localPrefixes.none { lanPrefixContains(it, advertised) } &&
+    localPrefixes: List<LanAddressPrefix>,
+    directPrefixes: List<LanAddressPrefix> = emptyList()
+): InetAddress? = if (
+    (directPrefixes.any { lanPrefixContains(it, advertised) } ||
+        localPrefixes.none { lanPrefixContains(it, advertised) }) &&
     lastAuthenticated != null &&
+    directPrefixes.none { lanPrefixContains(it, lastAuthenticated) } &&
     localPrefixes.any { lanPrefixContains(it, lastAuthenticated) }
-) lastAuthenticated else advertised
+) lastAuthenticated else advertised.takeUnless { candidate ->
+    directPrefixes.any { lanPrefixContains(it, candidate) }
+}
 
 /** A multi-interface Jetson may advertise Ethernet before its reachable Wi-Fi address. */
 internal fun selectLanServiceAddress(
     advertised: List<InetAddress>,
-    localPrefixes: List<LanAddressPrefix>
+    localPrefixes: List<LanAddressPrefix>,
+    directPrefixes: List<LanAddressPrefix> = emptyList()
 ): InetAddress? = advertised
+    .filterNot { candidate -> directPrefixes.any { lanPrefixContains(it, candidate) } }
     .filterNot { it.isAnyLocalAddress || it.isLoopbackAddress || it.isMulticastAddress }
     // Scoped link-local URLs are not supported by the HTTPS client.
     .filterNot { it is Inet6Address && it.isLinkLocalAddress }

@@ -87,9 +87,11 @@ internal fun SurveyRunScreen(
     val density = LocalDensity.current
     val lockedReason = preparationEditDisabledReason(state)
     val editable = lockedReason == null
-    val now by produceState(System.currentTimeMillis(), state.deviceId) {
+    val freshnessTick by produceState(System.currentTimeMillis(), state.deviceId) {
         while (true) { value = System.currentTimeMillis(); delay(1_000) }
     }
+    // A response can arrive between ticks. Read the clock again before comparing its timestamps.
+    val now = remember(freshnessTick, state) { System.currentTimeMillis() }
     val beginCheck = { showStart = true; onPreflight() }
     LaunchedEffect(state.contextLocked, state.restoringLocalState) {
         if (state.contextLocked || state.restoringLocalState) { showStart = false; projectPicker = false }

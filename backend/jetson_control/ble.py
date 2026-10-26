@@ -22,6 +22,7 @@ from .config import DeviceConfig, RuntimePaths
 from .filesystem import StorageRegistry
 from .network import WifiProvisioner, decode_wifi_payload
 from .status import StatusCollector
+from .system_control import SystemTimeSynchronizer
 
 
 BLUEZ = "org.bluez"
@@ -52,6 +53,8 @@ CMD_REBOOT = 0x04
 CMD_SHUTDOWN = 0x05
 CMD_GET_STATUS = 0x06
 CMD_SET_WIFI = 0x07
+CMD_SYNC_TIME = 0x08
+AUTH_CAP_MOBILE_TIME_SYNC = 0x01
 
 AUTH_CONTEXT = b"JETSONCTRL1|"
 CHALLENGE_TTL_SECONDS = 30
@@ -362,11 +365,12 @@ class Characteristic(dbus.service.Object):
 
 
 class CommandCharacteristic(Characteristic):
-    def __init__(self, bus, index, service, auth, commands, wifi) -> None:
+    def __init__(self, bus, index, service, auth, commands, wifi, system_time=None) -> None:
         super().__init__(bus, index, COMMAND_UUID, ["write"], service)
         self.auth = auth
         self.commands = commands
         self.wifi = wifi
+        self.system_time = system_time or SystemTimeSynchronizer()
 
     def WriteValue(self, value, options) -> None:
         device = device_from(options)
@@ -394,6 +398,10 @@ class CommandCharacteristic(Characteristic):
                 )
                 ssid, password, hidden = decode_wifi_payload(plaintext)
                 self.wifi.submit(ssid, password, hidden)
+            elif command == CMD_SYNC_TIME:
+                if len(payload) != 8:
+                    raise ValueError("SYNC_TIME requires an unsigned 64-bit millisecond timestamp")
+                self.system_time.synchronize(struct.unpack("<Q", payload)[0])
             else:
                 raise NotSupported("Unknown command")
             self.auth.refresh(device)
@@ -524,7 +532,8 @@ class AuthStateCharacteristic(Characteristic):
 
     def ReadValue(self, options) -> dbus.Array:
         state = 1 if self.auth.authorized(device_from(options)) else 0
-        return dbus_bytes(bytes((state,)))
+        # The first byte remains compatible with clients predating boot time sync.
+        return dbus_bytes(bytes((state, AUTH_CAP_MOBILE_TIME_SYNC)))
 
 
 class JetsonService(Service):

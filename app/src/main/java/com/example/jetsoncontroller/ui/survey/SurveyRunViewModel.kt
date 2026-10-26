@@ -29,6 +29,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -113,7 +114,8 @@ internal class RepositorySurveyRunDataSource(
     private val ticketValidator: (suspend (PreparationDraft) -> Result<Unit>)? = null
 ) : SurveyRunDataSource {
     override val preparationTelemetry: Flow<PreparationTelemetry> = combine(
-        repository.selectedDeviceId, repository.status, repository.transportState, repository.mobileRtkRelayState
+        repository.selectedDeviceId, repository.status, repository.transportState,
+        repository.mobileRtkRelayState.preparationRelayLabels()
     ) { deviceId, status, transport, relay ->
         val connected = transport as? TransportState.Connected
         PreparationTelemetry(deviceId,
@@ -122,14 +124,7 @@ internal class RepositorySurveyRunDataSource(
             TransportType.WIFI_DIRECT -> "직접 연결"
             TransportType.BLE -> "기본 연결"
             else -> "미확인"
-        }, relay.pipelineId?.let {
-            when {
-                relay.error != null -> "오류"
-                relay.active -> "중계 중"
-                relay.preparing -> "연결하는 중"
-                else -> "꺼짐"
-            }
-        })
+        }, relay)
     }
     override val deviceConnection: Flow<SurveyDeviceConnection> = combine(
         repository.selectedDeviceId,
@@ -295,14 +290,14 @@ internal class SurveyRunViewModel(
     init {
         viewModelScope.launch {
             source.preparationTelemetry.collect { telemetry ->
-                latestPreparationTelemetry = telemetry
+                latestPreparationTelemetry = retainPreparationStatus(latestPreparationTelemetry, telemetry)
                 if (telemetry.deviceId.equals(_uiState.value.deviceId, true)) {
-                    _uiState.value = _uiState.value.copy(preparationTelemetry = telemetry)
+                    _uiState.value = _uiState.value.copy(preparationTelemetry = latestPreparationTelemetry)
                 }
             }
         }
         viewModelScope.launch {
-            source.deviceConnection.collect { connection ->
+            source.deviceConnection.distinctUntilChanged().collect { connection ->
                 val expected = ++generation
                 operationJob?.cancel()
                 deviceLoadJob?.cancel()

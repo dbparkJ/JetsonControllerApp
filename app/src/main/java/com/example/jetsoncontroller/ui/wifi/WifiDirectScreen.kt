@@ -72,6 +72,18 @@ fun WifiDirectScreen(
                 DirectStage.RADIO_OFF -> item {
                     DirectState("직접 연결이 꺼져 있습니다", "${deviceWord}의 Wi-Fi를 켠 뒤 다시 확인하세요.", GeoStateKind.OFFLINE, "다시 확인", onDiscoveryClick)
                 }
+                DirectStage.PREPARING -> item {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        DirectState("시각 동기화 준비 중", "블루투스 인증과 장치 시각을 확인하고 있습니다.")
+                        GeoProgress()
+                        GeoButton("연결 취소", onCancel, style = GeoButtonStyle.Secondary)
+                    }
+                }
+                DirectStage.PREPARATION_ERROR -> item {
+                    DirectState("연결 준비 실패", state.apiError ?: "시각을 확인하지 못했습니다. 다시 시도해 주세요.",
+                        GeoStateKind.ERROR, "다시 시도", onRetryApi)
+                    GeoButton("연결 취소", onCancel, style = GeoButtonStyle.Secondary)
+                }
                 DirectStage.CLEANING_UP, DirectStage.CONNECTING, DirectStage.CANCELLING -> item {
                     Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(when (stage) {

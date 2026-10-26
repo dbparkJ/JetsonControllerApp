@@ -289,9 +289,11 @@ internal fun deviceGnssWord(presentation: SensorPresentation, gnss: GnssSensorSt
 internal enum class CameraStageState { WAITING, LIVE, DELAYED, ERROR }
 
 internal fun cameraStageState(active: Boolean, hasFrame: Boolean, receivedAt: Long?, now: Long,
-    hasError: Boolean): CameraStageState = when {
+    hasError: Boolean, checkedAt: Long = now): CameraStageState = when {
     hasError && !hasFrame -> CameraStageState.ERROR
-    cameraFrameIsLive(active, hasFrame, receivedAt, now, hasError) -> CameraStageState.LIVE
+    // A local response can arrive after the UI's periodic clock tick. Only the
+    // evaluation clock advances here; an unchanged frame keeps its original age.
+    cameraFrameIsLive(active, hasFrame, receivedAt, maxOf(now, checkedAt), hasError) -> CameraStageState.LIVE
     hasFrame -> CameraStageState.DELAYED
     else -> CameraStageState.WAITING
 }

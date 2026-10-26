@@ -99,7 +99,7 @@ enum class TaskState(override val word: String, override val tone: Tone) : Vocab
 }
 
 enum class CorrectionRelayState(override val word: String, override val tone: Tone) : VocabularyEntry {
-    RELAYING("중계 중", Tone.SUCCESS),
+    RELAYING("중계 등록됨", Tone.INFO),
     CONNECTING("연결하는 중", Tone.PENDING),
     OFF("꺼짐", Tone.UNKNOWN),
     ERROR("오류", Tone.ERROR)

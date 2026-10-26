@@ -5,8 +5,6 @@ import com.example.jetsoncontroller.data.network.WifiDirectState
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.model.RegisteredDevice
-import com.example.jetsoncontroller.model.canonicalBleNameForDeviceId
-import com.example.jetsoncontroller.model.legacyBleNameForDeviceId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -71,37 +69,42 @@ internal fun allowsWifiDirectApiProbe(
 internal data class WifiDirectProbeSignal(
     val connected: Boolean,
     val host: String?,
-    val lanConnectionPending: Boolean
+    val lanConnectionPending: Boolean,
+    val lanTransportActive: Boolean
 )
 
 internal fun wifiDirectProbeSignals(
     directStates: Flow<WifiDirectState>,
-    connectingLanDeviceIds: Flow<String?>
+    connectingLanDeviceIds: Flow<String?>,
+    transportStates: Flow<TransportState>
 ): Flow<WifiDirectProbeSignal> = combine(
     directStates
         .map { state -> state.connected to state.groupOwnerAddress }
         .distinctUntilChanged(),
     connectingLanDeviceIds
         .map { it != null }
+        .distinctUntilChanged(),
+    // Only LAN ownership affects probe eligibility. Direct success/errors must
+    // not restart the probe itself or reset its finite recovery budget.
+    transportStates
+        .map { it is TransportState.Connected && it.type == TransportType.LAN }
         .distinctUntilChanged()
-) { direct, lanConnectionPending ->
+) { direct, lanConnectionPending, lanTransportActive ->
     WifiDirectProbeSignal(
         connected = direct.first,
         host = direct.second,
-        lanConnectionPending = lanConnectionPending
+        lanConnectionPending = lanConnectionPending,
+        lanTransportActive = lanTransportActive
     )
 }.distinctUntilChanged()
 
 internal fun chooseAutomaticWifiDirectPeer(
     peers: List<WifiDirectPeer>,
-    deviceId: String
+    deviceId: String,
+    registeredDevices: List<RegisteredDevice>
 ): WifiDirectPeer? {
-    val expectedNames = setOf(
-        canonicalBleNameForDeviceId(deviceId).lowercase(),
-        legacyBleNameForDeviceId(deviceId).lowercase()
-    )
     return peers
-        .filter { it.name.lowercase() in expectedNames }
+        .filter { it.name.isNotBlank() && wifiDirectPeerMatchesTarget(it, deviceId, registeredDevices) }
         .singleOrNull()
 }
 

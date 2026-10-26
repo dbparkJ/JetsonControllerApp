@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.charset.StandardCharsets
 import java.net.InetAddress
+import java.net.NetworkInterface
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -53,12 +54,12 @@ class LanDiscoveryManager(private val context: Context) {
     /** Re-evaluate on every retry, after Android has restored foreground network access. */
     fun reconnectEndpoint(endpoint: DeviceEndpoint): DeviceEndpoint {
         val id = endpoint.deviceId.lowercase()
-        val previous = authenticatedEndpoints[id] ?: endpointPreferences.getString("$id.host", null)?.let {
+        val previous = (authenticatedEndpoints[id] ?: endpointPreferences.getString("$id.host", null)?.let {
             endpoint.copy(host = it, port = endpointPreferences.getInt("$id.port", -1))
-        } ?: return endpoint
-        if (previous.port != endpoint.port) return endpoint
-        return runCatching {
-            val prefixes = connectivityManager.allNetworks.filter { network ->
+        })?.takeIf { it.port == endpoint.port }
+        val directPrefixes = currentDirectPrefixes()
+        val prefixes = runCatching {
+            connectivityManager.allNetworks.filter { network ->
                 val capabilities = connectivityManager.getNetworkCapabilities(network)
                 !isDirectNetwork(network) &&
                     (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
@@ -67,11 +68,15 @@ class LanDiscoveryManager(private val context: Context) {
                 connectivityManager.getLinkProperties(network)?.linkAddresses.orEmpty()
                     .map { LanAddressPrefix(it.address, it.prefixLength) }
             }
+        }.getOrDefault(emptyList())
+        return runCatching {
             val host = selectLanReconnectAddress(
                 InetAddress.getByName(endpoint.host),
-                InetAddress.getByName(previous.host),
-                prefixes
-            ).hostAddress ?: endpoint.host
+                previous?.let { runCatching { InetAddress.getByName(it.host) }.getOrNull() },
+                prefixes,
+                directPrefixes
+            )?.hostAddress.orEmpty()
+            // An empty host is rejected by the existing LAN endpoint validation.
             endpoint.copy(host = host)
         }.getOrDefault(endpoint)
     }
@@ -124,7 +129,9 @@ class LanDiscoveryManager(private val context: Context) {
                                     .map { LanAddressPrefix(it.address, it.prefixLength) }
                             }
                         }.getOrDefault(emptyList())
-                        val host = selectLanServiceAddress(addresses, localPrefixes)?.hostAddress.orEmpty()
+                        val host = selectLanServiceAddress(
+                            addresses, localPrefixes, currentDirectPrefixes()
+                        )?.hostAddress.orEmpty()
                         if (host.isBlank() || serviceInfo.port <= 0) {
                             return
                         }
@@ -207,7 +214,33 @@ class LanDiscoveryManager(private val context: Context) {
 
     private fun isDirectNetwork(network: Network): Boolean {
         val name = connectivityManager.getLinkProperties(network)?.interfaceName.orEmpty()
-        return name.contains("p2p", ignoreCase = true) || name.contains("wifi-direct", ignoreCase = true)
+        return isWifiDirectInterface(name)
+    }
+
+    private fun currentDirectPrefixes(): List<LanAddressPrefix> {
+        val kernelPrefixes = runCatching {
+            val candidates = NetworkInterface.getNetworkInterfaces()?.asSequence()
+                ?.filter { it.isUp }
+                ?.flatMap { networkInterface ->
+                    networkInterface.interfaceAddresses.asSequence().map {
+                        WifiDirectInterfaceAddressCandidate(
+                            networkInterface.name.orEmpty(), it.address, it.networkPrefixLength.toInt()
+                        )
+                    }
+                }?.toList().orEmpty()
+            kernelWifiDirectPrefixes(candidates)
+        }.getOrDefault(emptyList())
+        val networkPrefixes = runCatching {
+            connectivityManager.allNetworks.flatMap { network ->
+                val link = connectivityManager.getLinkProperties(network)
+                if (link == null || !isWifiDirectInterface(link.interfaceName.orEmpty())) emptyList()
+                else link.linkAddresses.map { LanAddressPrefix(it.address, it.prefixLength) } +
+                    link.routes.filterNot { it.isDefaultRoute }.map {
+                        LanAddressPrefix(it.destination.address, it.destination.prefixLength)
+                    }
+            }
+        }.getOrDefault(emptyList())
+        return (kernelPrefixes + networkPrefixes).distinct()
     }
 
     private fun updateEndpoints(endpoint: DeviceEndpoint) {

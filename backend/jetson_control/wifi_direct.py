@@ -36,6 +36,8 @@ P2P_PEER_ABSENCE_GRACE_SECONDS = 10
 P2P_LISTEN_REG_CLASS = 81
 P2P_LISTEN_CHANNEL = 6
 CONNECTION_TIMEOUT_SECONDS = 120
+CLOCK_STEP_SECONDS = 5
+CLOCK_STEP_ERROR = "System clock changed after Wi-Fi Direct group formation started"
 
 
 class WifiDirectError(RuntimeError):
@@ -304,6 +306,7 @@ class WifiDirectController:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         diagnostics=None,
+        wallclock: Callable[[], float] = time.time,
     ) -> None:
         self.settings = settings.validated()
         self.diagnostics = diagnostics if diagnostics is not None else NullDiagnostics()
@@ -311,6 +314,12 @@ class WifiDirectController:
         self._start_process = start_process
         self._sleep = sleep
         self._monotonic = monotonic
+        self._wallclock = wallclock
+        self._clock_lock = threading.Lock()
+        self._group_clock: Optional[Tuple[float, float, float]] = None
+        self._clock_step_pending = False
+        self._clock_retry_at: Optional[float] = None
+        self._formation_existing_groups: Optional[List[str]] = None
         self.status_path = status_path
         self.wpa_client_path = status_path.parent / "wpa-cli"
         self.dnsmasq_lease_path = status_path.parent / "wifi-direct.leases"
@@ -346,11 +355,12 @@ class WifiDirectController:
         self._configure_p2p_identity()
         self.management_interface = self._wait_for_management_interface()
 
-        active_profile = self._active_managed_profile()
-        group_interface = self._first_group_interface()
-        if active_profile and group_interface:
-            self.active_profile = active_profile
-            self.group_interface = group_interface
+        self._first_group_interface()
+        active_group = self._active_managed_group()
+        if active_group:
+            self._anchor_group_clock()
+            self.active_profile, self.group_interface = active_group
+            group_interface = self.group_interface
             address = self._interface_address(group_interface)
             if address:
                 self._publish(
@@ -475,6 +485,8 @@ class WifiDirectController:
         attempt_id = getattr(self._attempt_context, "attempt_id", None)
         if attempt_id is None:
             return
+        if self._observe_group_clock():
+            raise WifiDirectError(CLOCK_STEP_ERROR)
         if attempt_id != self._attempt_id or self._attempt_cancelled.is_set():
             raise WifiDirectError("Wi-Fi Direct connection attempt was cancelled")
         if self._attempt_deadline is not None and self._monotonic() >= self._attempt_deadline:
@@ -484,7 +496,42 @@ class WifiDirectController:
         with self._activation_lock:
             return self._monitor()
 
+    def _anchor_group_clock(self) -> None:
+        # A jump before this boundary cannot invalidate this group's DHCP leases.
+        with self._clock_lock:
+            self._group_clock = self._sample_group_clock()
+
+    def _sample_group_clock(self) -> Tuple[float, float, float]:
+        before = self._monotonic()
+        wall = self._wallclock()
+        return wall, before, self._monotonic()
+
+    def _begin_group_formation(self) -> None:
+        self._formation_existing_groups = parse_p2p_group_interfaces(
+            self._run(["/usr/sbin/iw", "dev"]).stdout
+        )
+        self._anchor_group_clock()
+
+    def _observe_group_clock(self) -> bool:
+        with self._clock_lock:
+            if self._group_clock is not None and not self._clock_step_pending:
+                sample = self._sample_group_clock()
+                wall, before, after = sample
+                previous_wall, previous_before, previous_after = self._group_clock
+                elapsed_min = before - previous_after
+                elapsed_max = after - previous_before
+                # Compare consecutive samples so ordinary clock slew does not
+                # accumulate into a reset. All operational timers stay monotonic.
+                # Bracket wall reads to exclude scheduler delays from evidence.
+                tolerance = max(CLOCK_STEP_SECONDS, abs(elapsed_max) * 0.001)
+                delta = wall - previous_wall
+                if delta < elapsed_min - tolerance or delta > elapsed_max + tolerance:
+                    self._clock_step_pending = True
+                self._group_clock = sample
+            return self._clock_step_pending
+
     def _monitor(self) -> bool:
+        clock_step = self._observe_group_clock()
         activation_alive = (
             self._activation_thread is not None and self._activation_thread.is_alive()
         )
@@ -500,6 +547,10 @@ class WifiDirectController:
                 self._last_error = "Wi-Fi Direct connection timed out; waiting for cleanup"
                 self._publish("ERROR", self._last_error)
             return True
+        if clock_step:
+            if self._clock_retry_at is None or self._monotonic() >= self._clock_retry_at:
+                self._recover_connection(WifiDirectError(CLOCK_STEP_ERROR))
+            return True
         if self._recovery_failed:
             return True
         if self._state == "CONNECTING" or (
@@ -509,7 +560,11 @@ class WifiDirectController:
             self._recover_connection(WifiDirectError("Wi-Fi Direct connection worker stopped"))
             return True
         try:
-            group_interface = self._first_group_interface()
+            # Discovery must not adopt another owner's group after our cleanup.
+            group_interface = self._first_group_interface() if (
+                self.active_profile is not None or self._manual_owner_mode
+                or self.group_interface is not None
+            ) else None
             address = self._interface_address(group_interface) if group_interface else None
         except WifiDirectError as error:
             # A failed observation does not prove that the owned group vanished.
@@ -701,11 +756,19 @@ class WifiDirectController:
         self.active_peer = None
         if failures:
             self._recovery_failed = True
-            self._last_error = "{}; cleanup failed: {}; restart the Wi-Fi Direct service".format(
-                error, "; ".join(failures)
+            self._last_error = "{}; cleanup failed: {}; {}".format(
+                error, "; ".join(failures),
+                "retrying cleanup" if self._clock_step_pending else "restart the Wi-Fi Direct service",
             )
             self._publish("ERROR", self._last_error)
+            if self._clock_step_pending:
+                self._clock_retry_at = self._monotonic() + DISCOVERY_RETRY_SECONDS
             return
+        self._recovery_failed = False
+        with self._clock_lock:
+            self._group_clock = None
+            self._clock_step_pending = False
+        self._clock_retry_at = None
         self._sleep(DISCOVERY_SETTLE_SECONDS)
         if self.refresh_discovery(stop_existing=False):
             self._publish("DISCOVERABLE", "Connection failed; waiting for another Android request")
@@ -748,6 +811,7 @@ class WifiDirectController:
             ],
             timeout=20,
         )
+        self._begin_group_formation()
         self._run(
             [
                 "/usr/bin/nmcli",
@@ -767,6 +831,7 @@ class WifiDirectController:
         self._prepare_manual_owner()
         self._manual_owner_mode = True
         self._wpa(self.settings.interface, "p2p_stop_find", allow_failure=True)
+        self._begin_group_formation()
         self._wpa(
             self.settings.interface,
             "p2p_connect",
@@ -906,7 +971,12 @@ class WifiDirectController:
         self.diagnostics.record("p2p_observation", group="present" if groups else "absent",
                                 attempt=self._attempt_id,
                                 incident=not groups and self.group_interface is not None, episode="p2p")
-        return groups[0] if groups else None
+        if self.group_interface is not None:
+            return self.group_interface if self.group_interface in groups else None
+        pattern = re.compile(r"^p2p-{}-[0-9]+$".format(re.escape(self.settings.interface)))
+        return next((group for group in groups if (
+            group == self.settings.interface or pattern.fullmatch(group)
+        ) and group not in (self._formation_existing_groups or [])), None)
 
     def _group_has_connected_peer(self, interface: str) -> Optional[bool]:
         result = self._run(
@@ -956,23 +1026,31 @@ class WifiDirectController:
             self._sleep(0.25)
         raise WifiDirectError("NetworkManager did not assign the Wi-Fi Direct address")
 
-    def _active_managed_profile(self) -> Optional[str]:
+    def _active_managed_group(self) -> Optional[Tuple[str, str]]:
         result = self._run(
             [
                 "/usr/bin/nmcli",
                 "--terse",
                 "--fields",
-                "NAME,TYPE",
+                "NAME,TYPE,DEVICE",
                 "connection",
                 "show",
                 "--active",
             ],
             allow_failure=True,
         )
+        pattern = re.compile(r"^p2p-{}-[0-9]+$".format(re.escape(self.settings.interface)))
+        groups = [group for group in self._group_frequencies if (
+            group == self.settings.interface or pattern.fullmatch(group)
+        )]
         for line in result.stdout.splitlines():
-            fields = line.split(":", 1)
-            if len(fields) == 2 and fields[0].startswith(PROFILE_PREFIX) and fields[1] == "wifi-p2p":
-                return fields[0]
+            fields = line.split(":", 2)
+            if (len(fields) == 3 and fields[0].startswith(PROFILE_PREFIX)
+                    and fields[1] == "wifi-p2p"):
+                if fields[2] in groups:
+                    return fields[0], fields[2]
+                if fields[2] == self.management_interface and len(groups) == 1:
+                    return fields[0], groups[0]
         return None
 
     def _active_managed_wifi_profile(self) -> Optional[str]:
@@ -1129,6 +1207,9 @@ class WifiDirectController:
             self.diagnostics.record("p2p_cleanup_failed", attempt=self._attempt_id,
                                     incident=True, episode="p2p")
             raise
+        with self._clock_lock:
+            self._group_clock = None
+        self._formation_existing_groups = None
         self.diagnostics.record("p2p_cleanup_completed", attempt=self._attempt_id,
                                 confirmed=False)
 
@@ -1163,7 +1244,9 @@ class WifiDirectController:
                 allow_failure=True,
             ))
         cleanup(lambda: self._wpa(self.settings.interface, "p2p_cancel", allow_failure=True))
-        group_interface = self.group_interface or cleanup(self._first_group_interface)
+        group_interface = self.group_interface
+        if group_interface is None and self._formation_existing_groups is not None:
+            group_interface = cleanup(self._first_group_interface)
         if group_interface:
             cleanup(lambda: self._wpa(
                 self.settings.interface,
@@ -1210,7 +1293,7 @@ class WifiDirectController:
         self._suspended_wifi_profile = None
 
     def _delete_active_profile(self) -> None:
-        profile = self.active_profile or self._active_managed_profile()
+        profile = self.active_profile
         if not profile:
             return
         try:

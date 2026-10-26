@@ -50,7 +50,10 @@ class StatusCollectorSensorTest(unittest.TestCase):
                         "fixQuality": 5,
                         "fixType": "rtk_float",
                     },
-                    "imu": {"configured": True, "connected": True, "active": True},
+                    "imu": {
+                        "configured": True, "connected": True, "active": True,
+                        "lastSampleAtEpochMillis": updated_at_millis,
+                    },
                 }
             ),
             encoding="utf-8",
@@ -92,6 +95,32 @@ class StatusCollectorSensorTest(unittest.TestCase):
         self.assertFalse(status["gnssRunning"])
         self.assertFalse(status["imuRunning"])
         self.assertFalse(status["sensorTelemetryFresh"])
+
+    def test_camera_imu_is_exposed_as_running_with_sample_values(self) -> None:
+        now = time.time()
+        self.write_status(int(now * 1000))
+        path = self.root / "status.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["imu"] = {"source": "external_imu", "error": "not found"}
+        raw["camera"]["imu"] = {
+            "lastSampleAtEpochMillis": int(now * 1000),
+            "accelerationMps2": {"x": 0, "y": 0, "z": 9.81},
+            "angularVelocityRadS": {"x": 0, "y": 0, "z": 0},
+        }
+        path.write_text(json.dumps(raw), encoding="utf-8")
+
+        status = self.collect(now)
+
+        self.assertTrue(status["imuConfigured"])
+        self.assertTrue(status["imuRunning"])
+        self.assertEqual(status["imuSensor"]["source"], "oak")
+        self.assertEqual(status["imuSensor"]["accelerationMps2"]["z"], 9.81)
+        self.assertEqual(status["imuSensor"]["angularVelocityRadS"]["z"], 0)
+        self.assertIsNone(status["imuSensor"]["error"])
+
+        raw["camera"]["imu"]["lastSampleAtEpochMillis"] -= 6000
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertFalse(self.collect(now)["imuRunning"])
 
 
 class StatusCollectorWifiTest(unittest.TestCase):

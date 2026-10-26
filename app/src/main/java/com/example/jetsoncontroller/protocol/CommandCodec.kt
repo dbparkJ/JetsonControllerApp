@@ -12,6 +12,11 @@ object CommandCodec {
     fun encode(
         command: JetsonCommand,
         payload: ByteArray = byteArrayOf()
+    ): ByteArray = encodeId(command.id, payload)
+
+    internal fun encodeId(
+        commandId: Byte,
+        payload: ByteArray
     ): ByteArray {
 
         require(
@@ -27,7 +32,7 @@ object CommandCodec {
             byteArrayOf(
                 MAGIC,
                 VERSION,
-                command.id,
+                commandId,
                 length
             ) + payload
 

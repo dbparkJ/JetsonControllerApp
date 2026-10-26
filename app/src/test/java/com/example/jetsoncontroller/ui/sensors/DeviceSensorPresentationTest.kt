@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.ui.sensors
 
 import com.example.jetsoncontroller.model.GnssSensorStatus
+import com.example.jetsoncontroller.model.CameraSensorStatus
+import com.example.jetsoncontroller.model.JetsonStatus
 import com.example.jetsoncontroller.ui.model.PositionQuality
 import com.example.jetsoncontroller.ui.model.SensorState
 import org.junit.Assert.assertEquals
@@ -8,6 +10,23 @@ import org.junit.Test
 
 class DeviceSensorPresentationTest {
     private val active = SensorPresentation(SensorActivity.ACTIVE, "수신 중", "센서 데이터 수신 중")
+
+    @Test fun `camera sensor badges preserve actual sample delay and recovery independently of preview`() {
+        val status = JetsonStatus(
+            sensorTelemetryAvailable = true, sensorTelemetryFresh = true,
+            cameraSensor = CameraSensorStatus(configured = true, connected = true, active = true,
+                lastFrameAtEpochMillis = 1_000L)
+        )
+        fun cameraState(value: JetsonStatus, now: Long) =
+            sensorPresentations(value, true, now).camera.activity.deviceSensorState()
+
+        assertEquals(SensorState.RECEIVING, cameraState(status, 16_000L))
+        assertEquals(SensorState.DELAYED, cameraState(status, 16_001L))
+        val recovered = status.copy(cameraSensor = status.cameraSensor.copy(lastFrameAtEpochMillis = 16_001L))
+        assertEquals(SensorState.RECEIVING, cameraState(recovered, 16_001L))
+        assertEquals(SensorState.DELAYED, cameraState(recovered.copy(sensorTelemetryFresh = false), 16_001L))
+        assertEquals(SensorState.UNKNOWN, cameraState(recovered.copy(sensorTelemetryAvailable = false), 16_001L))
+    }
 
     @Test fun `receiving GNSS without coordinates is unknown even if RTK claims a fix`() {
         listOf(

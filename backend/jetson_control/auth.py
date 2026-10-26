@@ -157,6 +157,7 @@ class RequestAuthenticator:
         nonce_capacity: int = 8192,
         max_clock_skew_seconds: int = 120,
         clock: Callable[[], float] = time.time,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         if nonce_capacity < 1:
             raise ValueError("nonce_capacity must be positive")
@@ -167,12 +168,13 @@ class RequestAuthenticator:
         self.nonce_capacity = nonce_capacity
         self.max_clock_skew_seconds = max_clock_skew_seconds
         self._clock = clock
+        self._monotonic = monotonic
         self._seen_nonces: "OrderedDict[str, int]" = OrderedDict()
         self._nonce_lock = threading.Lock()
 
     def reset_after_clock_change(self) -> None:
         """Rebase replay timestamps without making accepted nonces reusable."""
-        now = int(self._clock())
+        now = int(self._monotonic())
         with self._nonce_lock:
             for nonce in self._seen_nonces:
                 self._seen_nonces[nonce] = now
@@ -217,7 +219,10 @@ class RequestAuthenticator:
             return False
 
         with self._nonce_lock:
-            cutoff = now - (self.max_clock_skew_seconds * 2)
+            # BLE can set wall time in another process. Replay retention must not
+            # expire early when a boot without RTC jumps from 1970 to phone time.
+            seen_now = int(self._monotonic())
+            cutoff = seen_now - (self.max_clock_skew_seconds * 2)
             while self._seen_nonces:
                 _, seen_at = next(iter(self._seen_nonces.items()))
                 if seen_at >= cutoff:
@@ -227,5 +232,5 @@ class RequestAuthenticator:
                 return False
             if len(self._seen_nonces) >= self.nonce_capacity:
                 return False
-            self._seen_nonces[request_nonce] = now
+            self._seen_nonces[request_nonce] = seen_now
         return True

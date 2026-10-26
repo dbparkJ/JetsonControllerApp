@@ -10,10 +10,12 @@ import stat
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
+from .mobile_rtk import DEFAULT_MOBILE_RTK_RELAY, mobile_rtk_relay_environment
+from .sensors import SensorBridgeSnapshot, SensorBridgeStore
 from .sensor_handoff import (
     DEFAULT_SENSOR_MONITOR_CONFIG,
     SensorMonitorSettings,
@@ -36,6 +38,8 @@ class MonitorRuntime:
     working_directory: Path
     user: str
     release: Path
+    relay_environment: Mapping[str, str] = field(default_factory=dict)
+    camera_required: bool = False
 
 
 def _relative_path(value: object, name: str) -> Path:
@@ -210,6 +214,7 @@ def load_monitor_runtime(
     expected_owner_uid: int = 0,
     pipeline_env_root: Path = DEFAULT_PIPELINE_ENV_ROOT,
     pipeline_environment: Optional[Mapping[str, str]] = None,
+    relay_path: Path = DEFAULT_MOBILE_RTK_RELAY,
 ) -> MonitorRuntime:
     registry_root = _trusted_directory(
         settings.registry_root,
@@ -233,6 +238,21 @@ def load_monitor_runtime(
         or manifest.get("id") != settings.pipeline_id
     ):
         raise ValueError("Sensor monitor pipeline manifest schema is invalid")
+
+    # Reuse the operator's existing run policy, independently of child status.
+    # Missing/optional camera policies must still permit camera-less devices.
+    policy_path = pipeline_root / "run-policy.json"
+    camera_required = False
+    if policy_path.exists():
+        policy = _load_trusted_manifest(policy_path, expected_owner_uid)
+        if (
+            policy.get("schemaVersion") != 1
+            or policy.get("pipelineId") != settings.pipeline_id
+            or policy.get("configured") is not True
+            or not isinstance(policy.get("requiredSensors"), list)
+        ):
+            raise ValueError("Sensor monitor run policy is invalid")
+        camera_required = "camera" in policy["requiredSensors"]
 
     release = (pipeline_root / "current").resolve(strict=True)
     try:
@@ -298,6 +318,11 @@ def load_monitor_runtime(
     environment.pop("JETSON_PIPELINE_RESULTS_DIR", None)
     environment.pop("JETSON_PIPELINE_LOGS_DIR", None)
     environment.update(pipeline_environment)
+    environment.pop("JETSON_PIPELINE_MOBILE_RTK_RELAY", None)
+    relay_environment = mobile_rtk_relay_environment(
+        settings.pipeline_id, relay_path, expected_owner_uid=expected_owner_uid,
+    )
+    environment.update(relay_environment)
     environment.update(
         {
             "JETSON_PIPELINE_ID": settings.pipeline_id,
@@ -324,7 +349,69 @@ def load_monitor_runtime(
         working_directory,
         user,
         release,
+        relay_environment,
+        camera_required,
     )
+
+
+class CameraProgressWatchdog:
+    """Watch sample progress outside the child, including a hung C++ close.
+
+    Required cameras arm at launch, even if initialization never publishes a
+    status. Optional cameras arm on new samples or attached hardware status.
+    GNSS/status heartbeats do not establish sample progress. Use monotonic time
+    so mobile clock synchronization cannot look like a stall.
+    """
+
+    def __init__(
+        self, initial: SensorBridgeSnapshot, started_at: float,
+        *, startup_seconds: float = 45.0, stale_seconds: float = 15.0,
+        camera_required: bool = False,
+    ) -> None:
+        self.started_at = started_at
+        self.startup_seconds = startup_seconds
+        self.stale_seconds = stale_seconds
+        self.samples = self._samples(initial)
+        self.initial_status_update = initial.updated_at_epoch_millis
+        self.camera_required = camera_required
+        self.progress: dict[str, float] = {"camera": started_at} if camera_required else {}
+
+    @staticmethod
+    def _samples(snapshot: SensorBridgeSnapshot) -> dict[str, Optional[int]]:
+        return {
+            "camera": snapshot.camera.get("lastFrameAtEpochMillis"),
+            "imu": snapshot.imu.get("lastSampleAtEpochMillis"),
+        }
+
+    def stalled(self, snapshot: SensorBridgeSnapshot, now: float) -> bool:
+        for name, sample in self._samples(snapshot).items():
+            sensor = getattr(snapshot, name)
+            if (sensor.get("configured") is False and not (
+                name == "camera" and self.camera_required
+            )) or (
+                name == "imu" and sensor.get("source") not in (None, "oak")
+            ):
+                self.progress.pop(name, None)
+                continue
+            if (
+                sensor.get("connected") is True
+                and snapshot.updated_at_epoch_millis is not None
+                and snapshot.updated_at_epoch_millis != self.initial_status_update
+                and (name == "camera" or sensor.get("source") == "oak")
+            ):
+                # A new child status can confirm an attached camera even if
+                # its very first frame never arrives. Do not refresh this timer
+                # for GNSS/status-only heartbeats.
+                self.progress.setdefault(name, now)
+            if isinstance(sample, int) and not isinstance(sample, bool) and sample > 0:
+                if sample != self.samples[name]:
+                    self.progress[name] = now
+                    self.samples[name] = sample
+        if now - self.started_at < self.startup_seconds:
+            return False
+        if "camera" not in self.progress:
+            return False
+        return any(now - updated >= self.stale_seconds for updated in self.progress.values())
 
 
 def drop_privileges(user: str) -> None:
@@ -400,6 +487,7 @@ def supervise(
     retry_seconds: float = 3.0,
     pipeline_environment: Optional[Mapping[str, str]] = None,
     runtime_loader: Optional[Callable[[SensorMonitorSettings], MonitorRuntime]] = None,
+    relay_path: Path = DEFAULT_MOBILE_RTK_RELAY,
 ) -> int:
     stopping = False
     child: Optional[subprocess.Popen] = None
@@ -411,6 +499,7 @@ def supervise(
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
     settings.bridge_dir.mkdir(parents=True, exist_ok=True)
+    bridge = SensorBridgeStore(settings.bridge_dir)
 
     while not stopping:
         while capture_request_active(settings) and not stopping:
@@ -433,6 +522,7 @@ def supervise(
                     runtime = load_monitor_runtime(
                         settings,
                         pipeline_environment=pipeline_environment,
+                        relay_path=relay_path,
                     )
                 else:
                     runtime = runtime_loader(settings)
@@ -454,6 +544,11 @@ def supervise(
                         "Sensor monitor pipeline user changed; restarting supervisor"
                     )
                 print(f"Starting boot sensor monitor for {settings.pipeline_id}", flush=True)
+                watchdog = CameraProgressWatchdog(
+                    bridge.status(), time.monotonic(),
+                    camera_required=runtime.camera_required,
+                )
+                next_health_check = 0.0
                 try:
                     child = subprocess.Popen(
                         runtime.command,
@@ -467,6 +562,14 @@ def supervise(
                     child = None
 
             while runtime is not None and child is not None and child.poll() is None:
+                # Handoff takes priority over reloads and health recovery. Keep
+                # the lock until all children are gone, even if C++ close hangs.
+                if stopping:
+                    stop_child(child)
+                    break
+                if capture_request_active(settings):
+                    stop_child(child, timeout_seconds=2.0, terminate_timeout_seconds=2.0)
+                    break
                 try:
                     release_changed = (
                         (settings.registry_root / settings.pipeline_id / "current").resolve(
@@ -481,9 +584,25 @@ def supervise(
                         "Sensor monitor release changed; reloading",
                         flush=True,
                     )
-                if stopping or release_changed or capture_request_active(settings):
+                if release_changed:
                     stop_child(child)
                     break
+                now = time.monotonic()
+                if now >= next_health_check:
+                    next_health_check = now + 1.0
+                    relay_changed = mobile_rtk_relay_environment(
+                        settings.pipeline_id, relay_path,
+                    ) != runtime.relay_environment
+                    camera_stalled = watchdog.stalled(bridge.status(), now)
+                    if relay_changed or camera_stalled:
+                        print(
+                            "Sensor monitor relay changed; reloading" if relay_changed else
+                            "Sensor monitor camera/IMU progress stalled; restarting child",
+                            flush=True,
+                        )
+                        # Recovery must not wait on the child's C++ close/GIL.
+                        stop_child(child, timeout_seconds=2.0, terminate_timeout_seconds=2.0)
+                        break
                 time.sleep(0.1)
             if child is not None:
                 # The direct Python process may have left helpers in its process
@@ -504,11 +623,13 @@ def supervise(
             os.close(device_descriptor)
 
         if not stopping and not capture_request_active(settings):
+            # The watchdog already gives each child a startup grace period.
+            # Extra camera backoff here would also leave GNSS/RTK stopped.
             deadline = time.monotonic() + retry_seconds
             while time.monotonic() < deadline and not stopping:
                 if capture_request_active(settings):
                     break
-                time.sleep(0.1)
+                time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
     return 0
 
 
