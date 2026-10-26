@@ -2,11 +2,13 @@ package com.example.jetsoncontroller.ui.sensors
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.RouteInfo
+import android.os.Build
 import android.os.PowerManager
 import com.example.jetsoncontroller.data.transport.TransportState
 import com.example.jetsoncontroller.data.transport.TransportType
-import java.net.InetAddress
 
 data class CameraPreviewEnvironment(
     val unmetered: Boolean = false,
@@ -33,29 +35,39 @@ internal fun cameraPreviewEnvironment(context: Context, transport: TransportStat
         val power = context.getSystemService(PowerManager::class.java)
             ?: return@runCatching CameraPreviewEnvironment()
         val network = connectivity.activeNetwork ?: return@runCatching CameraPreviewEnvironment()
-        val caps = connectivity.getNetworkCapabilities(network)
+        val active = connectivity.previewSnapshot(network)
             ?: return@runCatching CameraPreviewEnvironment()
-        val endpoint = (transport as? TransportState.Connected)?.endpoint
-        val host = endpoint?.let {
-            if (it.startsWith("[")) it.substringAfter('[').substringBefore(']')
-            else it.substringBefore(':')
-        }
-        // Numeric endpoints only: never resolve DNS on the UI thread.
-        val address = host?.takeIf {
-            it.matches(Regex("[0-9.]+")) || (it.contains(':') && it.matches(Regex("[0-9a-fA-F:]+")))
-        }?.let { InetAddress.getByName(it) }
-        val localRoute = address != null && !address.isLoopbackAddress &&
-            !address.isAnyLocalAddress && !address.isMulticastAddress &&
-            (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) &&
-            !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-            connectivity.getLinkProperties(network)?.routes?.any {
-                !it.isDefaultRoute && !it.hasGateway() && it.matches(address)
-            } == true
+        // Underlying VPN networks are not exposed by the public Android SDK.
+        // Fall back to visible Wi-Fi/Ethernet networks; ambiguous routes fail closed.
+        val fallback = if (active.vpn) connectivity.allNetworks.filter { it != network }
+            .mapNotNull { candidate -> runCatching { connectivity.previewSnapshot(candidate) }.getOrNull() }
+            else emptyList()
+        val decision = cameraPreviewNetworkDecision(
+            cameraPreviewNumericAddress((transport as? TransportState.Connected)?.endpoint),
+            active, fallback
+        )
         CameraPreviewEnvironment(
-            unmetered = !connectivity.isActiveNetworkMetered,
+            unmetered = decision.unmetered,
             powerSave = power.isPowerSaveMode,
-            localLanRoute = localRoute,
+            localLanRoute = decision.localLanRoute,
             thermalLimited = power.currentThermalStatus >= PowerManager.THERMAL_STATUS_MODERATE
         )
     }.getOrDefault(CameraPreviewEnvironment())
+
+private fun ConnectivityManager.previewSnapshot(network: Network): CameraPreviewNetwork? {
+    val caps = getNetworkCapabilities(network) ?: return null
+    return CameraPreviewNetwork(
+        vpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+        wifiOrEthernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+        unmetered = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+        routes = getLinkProperties(network)?.routes?.map { route ->
+            CameraPreviewRoute(
+                destination = route.destination.address.address.toList(),
+                prefixLength = route.destination.prefixLength,
+                hasGateway = route.hasGateway(),
+                unicast = Build.VERSION.SDK_INT < 33 || route.type == RouteInfo.RTN_UNICAST
+            )
+        }
+    )
+}
