@@ -38,7 +38,8 @@ internal fun DevServerProfilesScreen(state: DirectServerUiState, onBack: () -> U
 internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: String?, onBack: () -> Unit,
     onSave: (ServerEndpointProfile, String) -> Unit, onConnect: (String) -> Unit, onRemove: (String) -> Unit) {
     val deviceWord = localDeviceWord()
-    val profile = state.profiles.firstOrNull { it.profile.profileId == profileId }?.profile
+    var submittedId by rememberSaveable(profileId) { mutableStateOf<String?>(null) }
+    val profile = state.profiles.firstOrNull { it.profile.profileId == (profileId ?: submittedId) }?.profile
     if (profileId != null && profile == null) {
         DevPage("서버 프로필 수정", onBack) { DevEmpty("프로필을 찾을 수 없습니다", "서버 프로필 목록을 다시 확인하세요.") }
         return
@@ -53,7 +54,7 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
     var token by secret
     var pending by remember(profileId) { mutableStateOf<ServerEndpointProfile?>(null) }
     val candidate = runCatching { ServerEndpointProfile(id, name, ServerEnvironment.entries[environment], url.trim(), employee, project).validated() }.getOrNull()
-    val busy = state.isLoading || state.isConnecting
+    val busy = state.isSavingProfile || state.isLoading || state.isConnecting
     pending?.let { frozen ->
         GeoConfirmDialog("${devObject(frozen.displayName)} 삭제할까요?",
             "이 ${deviceWord}에 저장된 서버 주소와 직원 인증 정보, 저장된 목록을 지웁니다. 서버의 데이터는 그대로입니다.", "프로필 삭제",
@@ -67,9 +68,9 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
                 style = GeoButtonStyle.Secondary, enabled = !busy))
             add(GeoButtonAction("암호화해 저장", {
                 val credential = secret.consume()
-                candidate?.let { onSave(it, credential) }
+                candidate?.let { submittedId = it.profileId; onSave(it, credential) }
             }, enabled = candidate != null && validProfileToken(token) && !busy,
-                busy = busy, busyLabel = "저장 중",
+                busy = state.isSavingProfile, busyLabel = "저장 중",
                 disabledReason = "프로필 정보와 관리자에게 받은 직원 토큰을 입력하세요."))
         })
     }) {

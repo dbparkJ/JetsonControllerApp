@@ -71,6 +71,7 @@ internal data class DirectServerUiState(
     val isEmptyingTrash: Boolean = false,
     val undoSessionId: String? = null,
     val mutationMessage: String? = null,
+    val isSavingProfile: Boolean = false,
     val isConnecting: Boolean = false,
     val isLoading: Boolean = false,
     val message: String? = null,
@@ -123,6 +124,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             preview = null,
             receipt = null,
             currentPath = "",
+            isSavingProfile = false,
             isLoading = false,
             isConnecting = false,
             isEmptyingTrash = false,
@@ -141,7 +143,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         repository?.logout()
         repository = null
         _uiState.value = _uiState.value.forProfile(profile.profileId)
-        launchOperation(connecting = false, generation = generation) { expected ->
+        launchOperation(connecting = false, generation = generation, savingProfile = true) { expected ->
             try {
                 store.save(profile, employeeToken)
                 if (requestGeneration.isCurrent(expected)) {
@@ -584,6 +586,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         connecting: Boolean = false,
         generation: Long? = null,
         mutation: Boolean = false,
+        savingProfile: Boolean = false,
         block: suspend (Long) -> Unit
     ) {
         if (_uiState.value.isMutating) return
@@ -593,8 +596,9 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
         operation = viewModelScope.launch {
             try {
                 _uiState.value = _uiState.value.copy(
+                    isSavingProfile = savingProfile,
                     isConnecting = connecting,
-                    isLoading = !connecting,
+                    isLoading = !connecting && !savingProfile,
                     isEmptyingTrash = false,
                     message = null,
                     errorActionLabel = null
@@ -605,7 +609,10 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
             } catch (error: Exception) {
                 showError(error, directServerRecoveryAction(error), expected)
             } finally {
-                if (requestGeneration.isCurrent(expected)) _uiState.value = _uiState.value.copy(isMutating = false)
+                if (requestGeneration.isCurrent(expected)) _uiState.value = _uiState.value.copy(
+                    isSavingProfile = false, isConnecting = false, isLoading = false,
+                    isEmptyingTrash = false, isMutating = false
+                )
             }
         }
     }

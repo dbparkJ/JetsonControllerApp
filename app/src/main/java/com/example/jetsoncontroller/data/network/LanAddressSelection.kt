@@ -1,7 +1,6 @@
 package com.example.jetsoncontroller.data.network
 
 import java.net.Inet4Address
-import java.net.Inet6Address
 import java.net.InetAddress
 
 internal data class LanAddressPrefix(val address: InetAddress, val prefixLength: Int)
@@ -26,13 +25,14 @@ internal fun selectLanReconnectAddress(
     localPrefixes: List<LanAddressPrefix>,
     directPrefixes: List<LanAddressPrefix> = emptyList()
 ): InetAddress? = if (
-    (directPrefixes.any { lanPrefixContains(it, advertised) } ||
+    (!isUsableLanAddress(advertised) || directPrefixes.any { lanPrefixContains(it, advertised) } ||
         localPrefixes.none { lanPrefixContains(it, advertised) }) &&
     lastAuthenticated != null &&
+    isUsableLanAddress(lastAuthenticated) &&
     directPrefixes.none { lanPrefixContains(it, lastAuthenticated) } &&
     localPrefixes.any { lanPrefixContains(it, lastAuthenticated) }
 ) lastAuthenticated else advertised.takeUnless { candidate ->
-    directPrefixes.any { lanPrefixContains(it, candidate) }
+    !isUsableLanAddress(candidate) || directPrefixes.any { lanPrefixContains(it, candidate) }
 }
 
 /** A multi-interface Jetson may advertise Ethernet before its reachable Wi-Fi address. */
@@ -42,9 +42,7 @@ internal fun selectLanServiceAddress(
     directPrefixes: List<LanAddressPrefix> = emptyList()
 ): InetAddress? = advertised
     .filterNot { candidate -> directPrefixes.any { lanPrefixContains(it, candidate) } }
-    .filterNot { it.isAnyLocalAddress || it.isLoopbackAddress || it.isMulticastAddress }
-    // Scoped link-local URLs are not supported by the HTTPS client.
-    .filterNot { it is Inet6Address && it.isLinkLocalAddress }
+    .filter(::isUsableLanAddress)
     .distinct()
     .sortedWith(
         compareByDescending<InetAddress> { candidate ->
@@ -52,6 +50,12 @@ internal fun selectLanServiceAddress(
         }.thenByDescending { it is Inet4Address }
     )
     .firstOrNull()
+
+// Remote interface names are absent from NSD answers. Docker veth IPv6 answers
+// are normally link-local; scoped URLs cannot be used by the HTTPS client.
+private fun isUsableLanAddress(address: InetAddress): Boolean =
+    !address.isAnyLocalAddress && !address.isLoopbackAddress &&
+        !address.isMulticastAddress && !address.isLinkLocalAddress
 
 private fun lanPrefixContains(prefix: LanAddressPrefix, candidate: InetAddress): Boolean {
     val local = prefix.address.address

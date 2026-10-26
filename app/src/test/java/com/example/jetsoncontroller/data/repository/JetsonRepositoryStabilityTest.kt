@@ -72,6 +72,115 @@ import kotlin.coroutines.resume
 @OptIn(ExperimentalCoroutinesApi::class)
 class JetsonRepositoryStabilityTest {
     @Test
+    fun `startup tries remembered authenticated address without any mDNS result`() = runTest {
+        Mockito.mockStatic(android.util.Log::class.java).use {
+            Harness(testScheduler, preferredDeviceId = DEVICE_ID).use { h ->
+                h.enableBootstrap()
+                h.cachedLan = h.lanEndpoint("111.111.111.45", 8765)
+                h.probeSucceeds = true
+                h.repository.configureAutomaticConnectivity(true, true, false, false)
+                testScheduler.runCurrent()
+                assertEquals(listOf("111.111.111.45:8765"), h.apiEndpoints)
+                assertEquals(TransportType.LAN, (h.repository.transportState.value as TransportState.Connected).type)
+                Mockito.verify(h.lanManager).rememberAuthenticatedEndpoint(h.cachedLan!!)
+                assertTrue(h.lanResults.value.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `manual reconnect uses remembered address while NSD is silent`() = runTest {
+        Mockito.mockStatic(android.util.Log::class.java).use {
+            Harness(testScheduler).use { h ->
+                h.enableBootstrap()
+                h.cachedLan = h.lanEndpoint("111.111.111.45", 8765)
+                h.probeSucceeds = true
+                h.repository.configureAutomaticConnectivity(true, true, false, false)
+                h.repository.startLanDiscovery()
+                h.repository.connectRegisteredAutomatically(DEVICE_ID)
+                testScheduler.runCurrent()
+                assertEquals(listOf("111.111.111.45:8765"), h.apiEndpoints)
+                assertEquals(DEVICE_ID, (h.repository.transportState.value as TransportState.Connected).deviceId)
+            }
+        }
+    }
+
+    @Test
+    fun `same target reconnect immediately retries a failed cached address`() = runTest {
+        Mockito.mockStatic(android.util.Log::class.java).use {
+            Harness(testScheduler, preferredDeviceId = DEVICE_ID).use { h ->
+                h.enableBootstrap()
+                h.cachedLan = h.lanEndpoint("111.111.111.45", 8765)
+                h.probeSucceeds = true
+                h.helloDeviceId = OTHER_DEVICE_ID
+                h.repository.configureAutomaticConnectivity(true, true, false, false)
+                testScheduler.runCurrent()
+                assertEquals(1, h.apiEndpoints.size)
+                h.helloDeviceId = DEVICE_ID
+                h.repository.connectRegisteredAutomatically(DEVICE_ID)
+                testScheduler.runCurrent()
+                assertEquals(2, h.apiEndpoints.size)
+                assertEquals(TransportType.LAN, (h.repository.transportState.value as TransportState.Connected).type)
+            }
+        }
+    }
+
+    @Test
+    fun `cached address cannot connect another device and new mDNS address wins`() = runTest {
+        Mockito.mockStatic(android.util.Log::class.java).use {
+            Harness(testScheduler, preferredDeviceId = DEVICE_ID).use { h ->
+                h.enableBootstrap()
+                h.cachedLan = h.lanEndpoint("111.111.111.45", 8765)
+                h.probeSucceeds = true
+                h.helloDeviceId = OTHER_DEVICE_ID
+                h.repository.configureAutomaticConnectivity(true, true, false, false)
+                testScheduler.runCurrent()
+                assertTrue(h.repository.transportState.value !is TransportState.Connected)
+                assertFalse(Mockito.mockingDetails(h.lanManager).invocations.any { it.method.name == "rememberAuthenticatedEndpoint" })
+                h.helloDeviceId = DEVICE_ID
+                h.lanResults.value = listOf(h.lanEndpoint("111.111.111.46", 9876))
+                testScheduler.runCurrent()
+                assertEquals(listOf("111.111.111.45:8765", "111.111.111.46:9876"), h.apiEndpoints)
+                assertEquals(TransportType.LAN, (h.repository.transportState.value as TransportState.Connected).type)
+            }
+        }
+    }
+
+    @Test
+    fun `remembered address still requires registered secret and local network permission`() = runTest {
+        Mockito.mockStatic(android.util.Log::class.java).use {
+            Harness(testScheduler, preferredDeviceId = DEVICE_ID).use { h ->
+                h.enableBootstrap()
+                h.cachedLan = h.lanEndpoint("111.111.111.45", 8765)
+                h.probeSucceeds = true
+                h.secretAvailable = false
+                h.repository.configureAutomaticConnectivity(true, false, false, false)
+                testScheduler.runCurrent()
+                assertTrue(h.apiEndpoints.isEmpty())
+                h.repository.configureAutomaticConnectivity(true, true, false, false)
+                testScheduler.runCurrent()
+                assertEquals(1, h.apiEndpoints.size)
+                assertTrue(h.repository.transportState.value !is TransportState.Connected)
+                assertFalse(Mockito.mockingDetails(h.lanManager).invocations.any { it.method.name == "rememberAuthenticatedEndpoint" })
+            }
+        }
+    }
+
+    @Test
+    fun `Wi-Fi metadata failure does not prevent NSD startup`() = runTest {
+        Mockito.mockStatic(android.util.Log::class.java).use {
+            Harness(testScheduler).use { h ->
+                Mockito.doThrow(SecurityException("SSID unavailable")).`when`(h.wifiScanner).refreshCurrentConnection()
+                h.repository.configureAutomaticConnectivity(true, true, false, false)
+                testScheduler.runCurrent()
+                Mockito.verify(h.lanManager, Mockito.atLeastOnce()).ensureDiscovery()
+                h.repository.startLanDiscovery()
+                Mockito.verify(h.lanManager).startDiscovery()
+            }
+        }
+    }
+
+    @Test
     fun `manual P2P waits for selected BLE clock preparation and cancellation blocks late Ready`() = runTest {
         Harness(testScheduler).use { h ->
             h.enableBootstrap()
@@ -1052,13 +1161,18 @@ class JetsonRepositoryStabilityTest {
         override suspend fun disconnect() = Unit
     }
 
-    private class Harness(private val scheduler: TestCoroutineScheduler) : AutoCloseable {
+    private class Harness(private val scheduler: TestCoroutineScheduler, preferredDeviceId: String? = null) : AutoCloseable {
         val bleState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
         private val constructions = mutableListOf<MockedConstruction<*>>()
         val directState = MutableStateFlow(
             WifiDirectState(connected = true, groupOwnerAddress = "192.0.2.1")
         )
         val wifiState = MutableStateFlow(WifiAccessPointState())
+        lateinit var wifiScanner: WifiAccessPointScanner
+        lateinit var lanManager: LanDiscoveryManager
+        val lanResults = MutableStateFlow<List<DeviceEndpoint>>(emptyList())
+        var cachedLan: DeviceEndpoint? = null
+        val apiEndpoints = mutableListOf<String>()
         private lateinit var directManager: WifiDirectManager
         private lateinit var relayManager: MobileRtkRelayManager
         var probeSucceeds = false
@@ -1111,10 +1225,15 @@ class JetsonRepositoryStabilityTest {
                     Mockito.`when`(mock.state).thenReturn(relayState)
                 }
                 construction(WifiAccessPointScanner::class.java) { mock ->
+                    wifiScanner = mock
                     Mockito.`when`(mock.state).thenReturn(wifiState)
                 }
                 construction(LanDiscoveryManager::class.java) { mock ->
-                    Mockito.`when`(mock.discoveredEndpoints).thenReturn(MutableStateFlow<List<DeviceEndpoint>>(emptyList()))
+                    lanManager = mock
+                    Mockito.`when`(mock.discoveredEndpoints).thenReturn(lanResults)
+                    Mockito.`when`(mock.authenticatedEndpoint(Mockito.anyString(), Mockito.anyString())).thenAnswer {
+                        cachedLan?.takeIf { endpoint -> endpoint.deviceId.equals(it.getArgument<String>(0), true) }
+                    }
                     Mockito.`when`(mock.lastSeenAtEpochMillis).thenReturn(MutableStateFlow<Map<String, Long>>(emptyMap()))
                     Mockito.`when`(mock.isDiscovering).thenReturn(MutableStateFlow(false))
                     Mockito.`when`(mock.error).thenReturn(MutableStateFlow<String?>(null))
@@ -1123,6 +1242,7 @@ class JetsonRepositoryStabilityTest {
                     LocalApiClient::class.java,
                     Mockito.withSettings().defaultAnswer { invocation ->
                         when (invocation.method.name.substringBefore('-')) {
+                            "updateEndpoint" -> { apiEndpoints += "${invocation.arguments[0]}:${invocation.arguments[1]}"; null }
                             "hello" -> {
                                 probeCalls += 1
                                 probeTimes += scheduler.currentTime
@@ -1163,7 +1283,8 @@ class JetsonRepositoryStabilityTest {
                 )
                 val credentials = Mockito.mock(DeviceCredentialStore::class.java,
                     Mockito.withSettings().defaultAnswer { invocation ->
-                        if (invocation.method.name == "getSecret") if (secretAvailable) "00".repeat(32) else null
+                        if (invocation.method.name == "getPreferredDeviceId") preferredDeviceId
+                        else if (invocation.method.name == "getSecret") if (secretAvailable) "00".repeat(32) else null
                         else Answers.RETURNS_DEFAULTS.answer(invocation)
                     }
                 )
@@ -1238,6 +1359,8 @@ class JetsonRepositoryStabilityTest {
             directState.value = WifiDirectState()
             field<MutableStateFlow<Boolean>>("bluetoothPermissionGranted").value = true
         }
+
+        fun lanEndpoint(host: String, port: Int) = DeviceEndpoint(DEVICE_ID, "LAB device", host, port, EndpointTransport.LAN)
 
         fun failStatus(error: Throwable = IOException("Test transport: transient API timeout")) {
             (coordinator.currentTransport() as FakeTransport).apply {

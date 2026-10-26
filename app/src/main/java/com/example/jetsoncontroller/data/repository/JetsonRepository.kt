@@ -169,6 +169,7 @@ class JetsonRepository(
         _lanConnectionError.asStateFlow()
 
     private val autoLanEnabled = MutableStateFlow(false)
+    private val lanRetryRevision = MutableStateFlow(0L)
     private val autoLanAttempts = ConcurrentHashMap.newKeySet<String>()
     private val autoLanFailureCounts = ConcurrentHashMap<String, Int>()
     private val automaticConnectivityEnabled = MutableStateFlow(false)
@@ -412,6 +413,14 @@ class JetsonRepository(
         }
 
         scope.launch {
+            combine(automaticConnectivityEnabled, localNetworkPermissionGranted, qrPairingActive) {
+                    enabled, permission, pairing -> enabled && permission && !pairing
+            }.distinctUntilChanged().collect { allowed ->
+                if (allowed) ensureLanDiscovery() else stopLanDiscovery()
+            }
+        }
+
+        scope.launch {
             val automaticDeviceId = combine(
                 registeredDevices,
                 preferredAutomaticDeviceId
@@ -421,8 +430,9 @@ class JetsonRepository(
             val automaticLanAllowed = combine(
                 autoLanEnabled,
                 qrPairingActive,
-                _connectingLanDeviceId
-            ) { enabled, pairing, pendingDeviceId ->
+                _connectingLanDeviceId,
+                lanRetryRevision
+            ) { enabled, pairing, pendingDeviceId, _ ->
                 enabled && !pairing && pendingDeviceId == null
             }
             combine(
@@ -445,7 +455,7 @@ class JetsonRepository(
                 ) {
                     return@combine null
                 }
-                endpoints.firstOrNull { endpoint ->
+                lanCandidates(targetDeviceId, endpoints).firstOrNull { endpoint ->
                     endpoint.deviceId.equals(targetDeviceId, ignoreCase = true) &&
                         isLanEndpointCandidate(endpoint, directState.groupOwnerAddress)
                 }
@@ -772,7 +782,11 @@ class JetsonRepository(
         val registered = registeredDevices.value.firstOrNull {
             it.deviceId.equals(deviceId, ignoreCase = true)
         } ?: return
+        explicitWifiDirectRequested.set(false)
         activateAutomaticTarget(registered.deviceId, scheduleFallback = true)
+        autoLanAttempts.clear()
+        autoLanFailureCounts.clear()
+        lanRetryRevision.value += 1
     }
 
     suspend fun forgetRegisteredDevice(deviceId: String) {
@@ -1159,7 +1173,7 @@ class JetsonRepository(
         this.bluetoothPermissionGranted.value = bluetoothPermissionGranted
 
         if (effectiveEnabled && localNetworkPermissionGranted && !qrPairingActive.value) {
-            startLanDiscovery()
+            ensureLanDiscovery()
         } else {
             stopLanDiscovery()
         }
@@ -1352,13 +1366,36 @@ class JetsonRepository(
         wifiAccessPointScanner.stop()
     }
 
-    fun startLanDiscovery() {
+    fun startLanDiscovery() = ensureLanDiscovery(restart = true)
+
+    private fun ensureLanDiscovery(restart: Boolean = false) {
         _lanConnectionError.value = null
-        autoLanAttempts.clear()
-        autoLanFailureCounts.clear()
+        if (restart || !autoLanEnabled.value) {
+            autoLanAttempts.clear()
+            autoLanFailureCounts.clear()
+            lanRetryRevision.value += 1
+        }
+        ConnectionDiagnostics.record("lan_discovery_requested", mapOf(
+            "restart" to restart, "enabled" to automaticConnectivityEnabled.value,
+            "permission" to localNetworkPermissionGranted.value, "pairing" to qrPairingActive.value
+        ))
+        // NSD does not require SSID access. A vendor Wi-Fi information failure must
+        // not prevent service discovery or the authenticated cached-address attempt.
+        if (restart) lanDiscoveryManager.startDiscovery() else lanDiscoveryManager.ensureDiscovery()
+        runCatching { wifiAccessPointScanner.refreshCurrentConnection() }
+            .onFailure { Log.w("JetsonLAN", "Wi-Fi information unavailable during LAN discovery", it) }
         autoLanEnabled.value = true
-        wifiAccessPointScanner.refreshCurrentConnection()
-        lanDiscoveryManager.startDiscovery()
+    }
+
+    private fun lanCandidates(
+        deviceId: String,
+        discovered: List<DeviceEndpoint> = lanDiscoveryManager.discoveredEndpoints.value
+    ): List<DeviceEndpoint> {
+        val registered = registeredDevices.value.firstOrNull { it.deviceId.equals(deviceId, true) }
+            ?: return emptyList()
+        val current = discovered.filter { it.deviceId.equals(deviceId, true) }
+        if (current.isNotEmpty()) return current
+        return listOfNotNull(lanDiscoveryManager.authenticatedEndpoint(registered.deviceId, registered.deviceName))
     }
 
     fun stopLanDiscovery() {
@@ -1565,7 +1602,7 @@ class JetsonRepository(
                 preferredAutomaticDeviceId.value,
                 registeredDevices.value
             )
-            val endpointStillPresent = lanDiscoveryManager.discoveredEndpoints.value.any {
+            val endpointStillPresent = lanCandidates(endpoint.deviceId).any {
                 it.deviceId.equals(endpoint.deviceId, ignoreCase = true) &&
                     it.host == endpoint.host && it.port == endpoint.port
             }
@@ -1654,7 +1691,7 @@ class JetsonRepository(
             !qrPairingActive.value &&
             localNetworkPermissionGranted.value
         ) {
-            startLanDiscovery()
+            ensureLanDiscovery()
         }
         scheduleAutomaticIpFallback()
     }
@@ -1671,7 +1708,7 @@ class JetsonRepository(
         }
         automaticDirectFallbackJob = scope.launch {
             if (localNetworkPermissionGranted.value) {
-                startLanDiscovery()
+                ensureLanDiscovery()
                 delay(AUTOMATIC_LAN_GRACE_MILLIS)
             } else {
                 delay(AUTOMATIC_DIRECT_START_DELAY_MILLIS)
@@ -1720,7 +1757,7 @@ class JetsonRepository(
             wifiDirectManager.cancelConnect()
         }
         if (localNetworkPermissionGranted.value) {
-            startLanDiscovery()
+            ensureLanDiscovery()
         }
 
         wifiProvisioningHandoffJob = scope.launch {

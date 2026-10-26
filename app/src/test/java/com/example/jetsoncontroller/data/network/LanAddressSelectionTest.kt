@@ -9,6 +9,24 @@ class LanAddressSelectionTest {
     private fun address(host: String) = InetAddress.getByName(host)
 
     @Test
+    fun `Docker veth and wlan link local IPv6 are excluded regardless of answer order`() {
+        val veth = address("fe80::42:acff:fe11:2")
+        val wlan = address("fe80::1234")
+        val reachable = address("111.111.111.45")
+        val tablet = LanAddressPrefix(address("111.111.111.72"), 24)
+        assertEquals(reachable, selectLanServiceAddress(listOf(veth, wlan, reachable), listOf(tablet)))
+        assertEquals(reachable, selectLanServiceAddress(listOf(reachable, wlan, veth), listOf(tablet)))
+        assertNull(selectLanServiceAddress(listOf(veth, wlan), listOf(tablet)))
+        assertNull(selectLanReconnectAddress(veth, null, listOf(tablet)))
+        assertEquals(reachable, selectLanReconnectAddress(veth, reachable, listOf(tablet)))
+        assertNull(selectLanReconnectAddress(address("169.254.1.1"), null, emptyList()))
+        for (host in listOf("0.0.0.0", "127.0.0.1", "224.0.0.1", "::", "::1", "ff02::1")) {
+            assertNull(selectLanServiceAddress(listOf(address(host)), emptyList()))
+            assertNull(selectLanReconnectAddress(address(host), null, emptyList()))
+        }
+    }
+
+    @Test
     fun `kernel P2P prefix excludes Samsung service without Network or local LAN prefixes`() {
         val direct = kernelWifiDirectPrefixes(listOf(
             WifiDirectInterfaceAddressCandidate("p2p-wlan0-0", address("192.168.49.2"), 24),
