@@ -62,6 +62,25 @@ class R7ComponentLayoutTest {
         assertTrue(status.top >= title.bottom)
     }
 
+    @Test fun deviceStatusBadgeStaysOnOneLineAtLargeFontScales() {
+        listOf(1.1f, 2f).forEach { scale ->
+            compose.setContent {
+                val base = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(base.density, scale)) {
+                    JetsonControllerTheme {
+                        GeoBadge("연결 확인 중", Tone.UNKNOWN,
+                            Modifier.widthIn(min = 72.dp).testTag("device-status-$scale"),
+                            minWidth = 72.dp, singleLine = true)
+                    }
+                }
+            }
+            val badge = compose.onNodeWithTag("device-status-$scale")
+            badge.assertIsDisplayed()
+            val bounds = badge.fetchSemanticsNode().boundsInRoot
+            assertTrue("status must fit on one line at scale $scale", bounds.height < 56f * scale)
+        }
+    }
+
     @Test fun filterWidthAndHeightStayTheSameWhenSelected() {
         var selected by mutableStateOf(false)
         compose.setContent {

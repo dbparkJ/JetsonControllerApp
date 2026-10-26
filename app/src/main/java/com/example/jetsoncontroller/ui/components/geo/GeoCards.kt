@@ -108,7 +108,7 @@ fun GeoDevicePhotoCard(
     figures: List<GeoFigure>,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    statusWidth: androidx.compose.ui.unit.Dp = 64.dp
+    statusWidth: androidx.compose.ui.unit.Dp = 72.dp
 ) {
     require(figures.size == 4) { "A device photo card requires four figures" }
     val c = LocalGeoColors.current
@@ -120,7 +120,7 @@ fun GeoDevicePhotoCard(
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f
             val small = tablet && maxWidth < 312.dp
-            val stacked = tablet && (small || LocalDensity.current.fontScale >= 1.3f)
+            val stacked = tablet && (small || LocalDensity.current.fontScale >= 1.1f)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
                 Image(painterResource(R.drawable.geo_device), null,
                     if (small) Modifier.size(56.dp) else Modifier.size(72.dp, 64.dp))
@@ -128,10 +128,10 @@ fun GeoDevicePhotoCard(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                         Text(name, Modifier.weight(1f), style = type.deviceName, color = c.text)
                         if (!stacked) Box(Modifier.height(line), contentAlignment = Alignment.Center) {
-                            GeoBadge(status, statusTone, Modifier.width(statusWidth), minWidth = statusWidth)
+                            GeoBadge(status, statusTone, Modifier.widthIn(min = statusWidth), minWidth = statusWidth, singleLine = true)
                         }
                     }
-                    if (stacked) GeoBadge(status, statusTone, Modifier.widthIn(min = statusWidth), minWidth = statusWidth)
+                    if (stacked) GeoBadge(status, statusTone, Modifier.widthIn(min = statusWidth), minWidth = statusWidth, singleLine = true)
                     Text(meta, style = type.supporting, color = c.textSecondary)
                 }
             }
