@@ -8,7 +8,7 @@ import org.junit.Test
 
 class FigureGridRulesTest {
     @Test
-    fun `long values shrink before units move below them at phone font scales`() {
+    fun `phone values keep 22sp and move units below when needed`() {
         // Pretendard's tabular advances, with the figure role's -1sp tracking.
         val tile = (412 - 48 - 32 - 24) / 4
         listOf(1f, 1.1f, 1.2f, 1.3f).forEach { scale ->
@@ -19,15 +19,13 @@ class FigureGridRulesTest {
                 val available = tile - inset * 2
                 val unitWidth = kotlin.math.ceil(unit.length * 13 * .6f * scale).toInt()
                 val gap = 2
-                val result = figureValueLayout(available, unitWidth, gap, width)
-                assertEquals(4, figureGridColumns(332f, scale))
-                assertTrue(result.numberSp in 20..28)
+                val result = figureValueLayout(available, unitWidth, gap, 22, width)
+                assertEquals(if (scale >= 1.3f) 2 else 4, figureGridColumns(332f, scale))
+                assertEquals(22, result.numberSp)
                 if (result.stackedUnit) {
-                    assertTrue((28 downTo 20 step 2).all { width(it) + unitWidth + gap > available })
-                    assertTrue(width(result.numberSp) <= available)
+                    assertTrue(width(22) + unitWidth + gap > available)
                 } else {
                     assertTrue(width(result.numberSp) + unitWidth + gap <= available)
-                    assertTrue((28 downTo result.numberSp + 2 step 2).all { width(it) + unitWidth + gap > available })
                 }
             }
         }
@@ -36,7 +34,7 @@ class FigureGridRulesTest {
     @Test
     fun `a fitting value keeps 28sp and an oversized unit moves below without truncation`() {
         assertEquals(FigureValueLayout(28, false), figureValueLayout(100, 10, 2) { it * 2 })
-        assertEquals(FigureValueLayout(20, false), figureValueLayout(52, 10, 2) { it * 2 })
+        assertEquals(FigureValueLayout(26, true), figureValueLayout(52, 10, 2) { it * 2 })
         assertEquals(FigureValueLayout(28, true), figureValueLayout(60, 100, 2) { it * 2 })
         assertEquals(FigureValueLayout(28, false), figureValueLayout(56, 0, 20) { it * 2 })
     }
@@ -45,12 +43,12 @@ class FigureGridRulesTest {
     fun `R7 uses four equal columns at the design width`() {
         assertEquals(2, figureGridColumns(311f, 1f))
         assertEquals(4, figureGridColumns(312f, 1f))
-        assertEquals(4, figureGridColumns(364f, 1.3f))
+        assertEquals(2, figureGridColumns(364f, 1.3f))
     }
 
     @Test
     fun `large text uses two then one column including a wide pane`() {
-        assertEquals(4, figureGridColumns(720f, 1.49f))
+        assertEquals(2, figureGridColumns(720f, 1.49f))
         assertEquals(2, figureGridColumns(720f, 1.5f))
         assertEquals(1, figureGridColumns(720f, 2f))
     }

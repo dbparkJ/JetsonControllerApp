@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -48,13 +49,16 @@ fun GeoTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     showLabel: Boolean = true,
-    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    inputKind: GeoInputKind = GeoInputKind.TEXT,
+    imeAction: ImeAction = ImeAction.Done
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled fields require a visible reason" }
     val c = LocalGeoColors.current
     var focused by remember { mutableStateOf(false) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     val textColor = if (enabled) c.text else c.disabledText
+    val inputOptions = if (keyboardOptions == KeyboardOptions.Default) geoKeyboardOptions(inputKind, imeAction) else keyboardOptions
     val outline = when {
         !enabled -> c.borderControl
         error != null -> c.danger
@@ -81,10 +85,10 @@ fun GeoTextField(
             singleLine = singleLine,
             minLines = if (singleLine) 1 else 3,
             maxLines = if (singleLine) 1 else Int.MAX_VALUE,
-            keyboardOptions = keyboardOptions.copy(keyboardType = when {
+            keyboardOptions = inputOptions.copy(keyboardType = when {
                 password -> KeyboardType.Password
-                numeric -> KeyboardType.Decimal
-                else -> keyboardOptions.keyboardType
+                numeric && inputKind == GeoInputKind.TEXT -> KeyboardType.Decimal
+                else -> inputOptions.keyboardType
             }),
             keyboardActions = keyboardActions,
             visualTransformation = if (password && !passwordVisible) PasswordVisualTransformation()
@@ -143,11 +147,8 @@ fun GeoPickerField(
                 .onFocusChanged { focused = it.isFocused }
                 .geoFocusRing(GeoControlShape, focused)
                 .clip(GeoControlShape)
-                .background(when {
-                    !enabled -> c.disabledFill
-                    pressed -> c.fieldPressed
-                    else -> c.field
-                })
+                .geoPressFeedback(source, enabled, background = if (!enabled) c.disabledFill else c.field,
+                    shape = GeoControlShape)
                 .border(1.dp, c.borderControl, GeoControlShape)
                 .clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 12.dp),

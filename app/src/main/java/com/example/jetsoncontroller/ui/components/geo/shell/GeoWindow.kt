@@ -38,11 +38,11 @@ fun GeoPaneLayout(
     val detailContent = remember { movableContentOf { currentDetail() } }
     if (widths != null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            Row(Modifier.widthIn(max = 1560.dp).fillMaxSize().padding(horizontal = 24.dp),
+            Row(Modifier.widthIn(max = 1560.dp).fillMaxSize().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 GeoPane(Modifier.width(widths.listDp.dp).fillMaxHeight(), listContent)
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-                    CompositionLocalProvider(LocalGeoDetailRoot provides window.landscapeLayout) {
+                    CompositionLocalProvider(LocalGeoDetailRoot provides true) {
                         GeoPane((if (detailFill || window.landscapeLayout) Modifier else Modifier.widthIn(max = 720.dp)).fillMaxSize(), detailContent)
                     }
                 }

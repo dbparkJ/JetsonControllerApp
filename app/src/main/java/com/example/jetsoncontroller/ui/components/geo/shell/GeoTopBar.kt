@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 @Composable
 fun GeoTopBar(modifier: Modifier = Modifier, mediaInsets: Boolean = false, content: @Composable () -> Unit = {}) {
     Column(
-        modifier.fillMaxWidth().background(if (mediaInsets) androidx.compose.ui.graphics.Color.Black else LocalGeoColors.current.topBar)
+        modifier.fillMaxWidth().background(if (mediaInsets) com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaStage else LocalGeoColors.current.canvas)
             .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top))
     ) { content() }
 }

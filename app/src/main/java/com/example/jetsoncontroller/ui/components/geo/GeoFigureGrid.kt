@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -18,6 +21,9 @@ import androidx.compose.ui.unit.sp
 
 internal data class FigureValueLayout(val numberSp: Int, val stackedUnit: Boolean)
 
+internal fun figureValueLayout(availablePx: Int, unitPx: Int, gapPx: Int, numberWidth: (Int) -> Int): FigureValueLayout =
+    figureValueLayout(availablePx, unitPx, gapPx, 28, numberWidth)
+
 /** Very long numbers may use half the normal inset; the tile boundary is always preserved. */
 internal fun figureValuePadding(tilePx: Int, defaultPaddingPx: Int, minimumNumberPx: Int): Int =
     if (minimumNumberPx > tilePx - defaultPaddingPx * 2) defaultPaddingPx / 2 else defaultPaddingPx
@@ -27,12 +33,13 @@ internal fun figureValueLayout(
     availablePx: Int,
     unitPx: Int,
     gapPx: Int,
+    preferredSp: Int,
     numberWidth: (Int) -> Int
 ): FigureValueLayout {
-    val sizes = 28 downTo 20 step 2
+    val sizes = if (preferredSp <= 22) listOf(22) else listOf(28, 26)
     sizes.firstOrNull { numberWidth(it) + unitPx + (if (unitPx > 0) gapPx else 0) <= availablePx }
         ?.let { return FigureValueLayout(it, false) }
-    return FigureValueLayout(sizes.firstOrNull { numberWidth(it) <= availablePx } ?: 20, true)
+    return FigureValueLayout(sizes.firstOrNull { numberWidth(it) <= availablePx } ?: sizes.last(), true)
 }
 
 /** Formatting, validity, freshness and threshold evaluation belong to the screen model. */
@@ -58,7 +65,7 @@ fun figureGridColumns(availableWidthDp: Float, fontScale: Float, contained: Bool
     val contentWidth = availableWidthDp - if (contained) 32f else 0f
     return when {
         fontScale >= 2f || contentWidth < 200f -> 1
-        fontScale >= (if (tablet) 1.3f else 1.5f) || contentWidth < 312f -> 2
+        fontScale >= 1.3f || contentWidth < 312f -> 2
         else -> 4
     }
 }
@@ -77,19 +84,34 @@ fun figurePresentation(figure: GeoFigure): GeoFigurePresentation {
 
 @Composable
 fun GeoFigureGrid(figures: List<GeoFigure>, modifier: Modifier = Modifier, contained: Boolean = false) {
+    val colors = LocalGeoColors.current
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val columns = figureGridColumns(maxWidth.value, LocalDensity.current.fontScale, contained,
             tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f)
-        Column(Modifier.fillMaxWidth().then(if (contained) Modifier.padding(16.dp) else Modifier),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            figures.chunked(columns).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { figure -> FigureCell(figure, Modifier.weight(1f)) }
+        Column(Modifier.fillMaxWidth().clip(GeoShape.card).background(colors.surface)
+            .then(if (contained) Modifier.padding(16.dp) else Modifier)) {
+            figures.chunked(columns).forEachIndexed { rowIndex, row ->
+                Row(Modifier.fillMaxWidth().drawBehind {
+                    if (rowIndex > 0) drawLine(colors.border, Offset.Zero, Offset(size.width, 0f), 1f)
+                    (1 until row.size).forEach { index ->
+                        val x = size.width * index / columns
+                        drawLine(colors.border, Offset(x, 0f), Offset(x, size.height), 1f)
+                    }
+                }) {
+                    row.forEachIndexed { index, figure -> FigureCell(figure, Modifier.weight(1f)
+                        .padding(horizontal = if (index == 0) 0.dp else 12.dp, vertical = 8.dp)) }
                     repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
     }
+}
+
+/** Four neutral metric cells with 1px dividers; values reflow at enlarged font scales. */
+@Composable
+fun GeoMetricStrip(figures: List<GeoFigure>, modifier: Modifier = Modifier) {
+    require(figures.size == 4) { "A metric strip requires four figures" }
+    GeoFigureGrid(figures, modifier)
 }
 
 @Composable
@@ -99,24 +121,26 @@ private fun FigureCell(figure: GeoFigure, modifier: Modifier) {
     val type = LocalGeoType.current
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
+    val preferredSp = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 28 else 22
+    val figureStyle = if (preferredSp == 22) type.phoneFigure else type.tabletFigure
     val parts = Regex("^([+-]?[\\d.,]+)\\s*(.*)$").matchEntire(shown.value)
     val number = if (figure.unit.isNotEmpty()) shown.value else parts?.groupValues?.get(1) ?: shown.value
     val unit = if (shown.unknown) "" else figure.unit.ifEmpty { parts?.groupValues?.get(2).orEmpty() }
     Column(modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Column(Modifier.fillMaxWidth().heightIn(min = 80.dp).background(colors.sunken, GeoShape.control).padding(vertical = 8.dp)) {
-            Text(figure.label, Modifier.padding(horizontal = 8.dp), color = colors.textSecondary, style = LocalGeoType.current.caption)
-            Spacer(Modifier.height(4.dp))
-            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 36.dp)) {
-                val padding = figureValuePadding(constraints.maxWidth, with(density) { 8.dp.roundToPx() },
+        Column(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text(figure.label, color = colors.textSecondary, style = LocalGeoType.current.caption)
+            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = if (preferredSp == 22) 28.dp else 36.dp)) {
+                val padding = figureValuePadding(constraints.maxWidth, with(density) { 0.dp.roundToPx() },
                     measurer.measure(AnnotatedString(number),
-                        if (shown.unknown) type.caption else type.figure.copy(fontSize = 20.sp), softWrap = false).size.width)
+                        if (shown.unknown) type.caption else figureStyle, softWrap = false).size.width)
                 val layout = figureValueLayout((constraints.maxWidth - padding * 2).coerceAtLeast(0),
                     if (unit.isEmpty()) 0 else measurer.measure(AnnotatedString(unit), type.unit, softWrap = false).size.width,
-                    with(density) { 2.dp.roundToPx() }) { size ->
+                    with(density) { 2.dp.roundToPx() }, preferredSp) { size ->
                     measurer.measure(AnnotatedString(number),
-                        if (shown.unknown) type.caption else type.figure.copy(fontSize = size.sp), softWrap = false).size.width
+                        if (shown.unknown) type.caption else figureStyle.copy(fontSize = size.sp), softWrap = false).size.width
                 }
-                val numberStyle = if (shown.unknown) type.caption else type.figure.copy(fontSize = layout.numberSp.sp)
+                val numberStyle = if (shown.unknown) type.caption else figureStyle.copy(fontSize = layout.numberSp.sp,
+                    lineHeight = if (layout.numberSp == 22) 28.sp else if (layout.numberSp == 26) 32.sp else 36.sp)
                 val inset = with(density) { padding.toDp() }
                 if (layout.stackedUnit) {
                     Column(Modifier.padding(horizontal = inset)) {

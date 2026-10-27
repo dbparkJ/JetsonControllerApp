@@ -56,7 +56,8 @@ fun GeoBadge(
     minWidth: androidx.compose.ui.unit.Dp = 64.dp,
     singleLine: Boolean = false
 ) {
-    val inline = LocalGeoRowStatus.current
+    val inline = LocalGeoRowStatus.current || variant == GeoBadgeVariant.INLINE
+    val wrap = inline && LocalGeoStatusWrap.current && !singleLine
     val style = if (inline) LocalGeoType.current.inlineStatus else LocalGeoType.current.badge
     val report = LocalGeoStatusWidthReporter.current
     if (inline && report != null) {
@@ -80,7 +81,7 @@ fun GeoBadge(
         horizontalArrangement = Arrangement.spacedBy(4.dp, if (inline) Alignment.End else Alignment.CenterHorizontally)) {
         Box(Modifier.size(6.dp).background(colors.ink, CircleShape))
         Text(word, color = colors.ink,
-            style = style, maxLines = if (inline || singleLine) 1 else Int.MAX_VALUE,
-            softWrap = !inline && !singleLine, onTextLayout = { textLayout = it })
+            style = style, maxLines = if ((inline && !wrap) || singleLine) 1 else Int.MAX_VALUE,
+            softWrap = wrap || (!inline && !singleLine), onTextLayout = { textLayout = it })
     }
 }

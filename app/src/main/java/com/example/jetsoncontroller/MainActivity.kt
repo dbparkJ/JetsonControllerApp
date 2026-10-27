@@ -163,6 +163,8 @@ class MainActivity :
             AppRestoreViewModel::class.java
         ]
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.isStatusBarContrastEnforced = false
+        window.isNavigationBarContrastEnforced = false
         var composedState: AppRestoreState = AppRestoreState.Loading
         val root = window.decorView
         root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
@@ -196,7 +198,7 @@ class MainActivity :
             SideEffect { composedState = restoreState }
             val palette = com.example.jetsoncontroller.ui.theme.rememberAppearancePalette()
             SideEffect {
-                window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.colors.surface.toArgb()))
+                window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.colors.canvas.toArgb()))
             }
             StartupContent(restoreState, timing, restoreViewModel::retry, palette) {
                 JetsonApp(

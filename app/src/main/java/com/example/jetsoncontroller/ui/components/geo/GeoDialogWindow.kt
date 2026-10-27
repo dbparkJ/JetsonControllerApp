@@ -5,6 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.view.WindowCompat
+import com.example.jetsoncontroller.ui.theme.LocalGeoPalette
 
 /**
  * A full-screen Compose dialog (decorFitsSystemWindows = false) still gets a window that fits between
@@ -15,9 +19,21 @@ import androidx.compose.ui.window.DialogWindowProvider
  */
 @Composable
 internal fun GeoDialogCoversDisplay() {
-    val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+    val view = LocalView.current
+    val window = (view.parent as? DialogWindowProvider)?.window
+    val dark = LocalGeoPalette.current.isDark
     SideEffect {
         val attributes = window?.attributes ?: return@SideEffect
+        window.isStatusBarContrastEnforced = false
+        window.isNavigationBarContrastEnforced = false
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Color.Transparent.toArgb()
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = Color.Transparent.toArgb()
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
         val cutout = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         if (attributes.fitInsetsTypes != 0 || attributes.layoutInDisplayCutoutMode != cutout) {
             attributes.fitInsetsTypes = 0

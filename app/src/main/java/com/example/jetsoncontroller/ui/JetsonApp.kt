@@ -65,6 +65,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 
@@ -887,9 +889,10 @@ fun JetsonApp(
             mediaInsets = currentRoute in setOf(Routes.CAMERA_PREVIEW, Routes.QR_SCANNER) || navigationState.hasFocusedMediaPreview(),
             paneLayout = currentRoute in paneLayoutRoutes,
             landscapeMedia = currentRoute == Routes.CAMERA_PREVIEW,
+            mapBackdrop = currentRoute == Routes.ACTIVE_RUN,
             focusedMediaPreview = navigationState.hasFocusedMediaPreview(),
             adaptivePreview = currentRoute == Routes.DATA,
-            tabletNavigationVisible = currentRoute == Routes.ACTIVE_RUN && deviceState.registeredDevices.isNotEmpty(),
+            tabletNavigationVisible = currentRoute in setOf(Routes.ACTIVE_RUN, Routes.CAMERA_PREVIEW) && deviceState.registeredDevices.isNotEmpty(),
             attentionSections = alertCenterState.alerts.asSequence().filter {
                 !it.read && System.currentTimeMillis() - it.createdAtEpochMillis in 0..86_400_000L
             }.mapNotNull { alert -> when (alert.destination) {
@@ -898,15 +901,24 @@ fun JetsonApp(
                 else -> null
             } }.toSet()
         ) {
-            Column(Modifier.fillMaxSize()) {
-                if (!fullControlConnected) connectionNotice?.let { notice ->
-                    GeoInlineNote(notice.message, tone = notice.tone, kind = GeoNoteKind.LIVE_ERROR,
-                        actionLabel = "연결 문제 해결", onAction = { navigateToDeviceRoot(navController) })
-                }
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    com.example.jetsoncontroller.ui.zone.ZoneObservationHost(navigationState) {
-                        AppNavHost(navigationState, Modifier.fillMaxSize())
+            val noticeOverMedia = currentRoute == Routes.CAMERA_PREVIEW || navigationState.hasFocusedMediaPreview()
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize()) {
+                    if (!noticeOverMedia && !fullControlConnected) connectionNotice?.let { notice ->
+                        GeoInlineNote(notice.message, tone = notice.tone, kind = GeoNoteKind.LIVE_ERROR,
+                            actionLabel = "연결 문제 해결", onAction = { navigateToDeviceRoot(navController) })
                     }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        com.example.jetsoncontroller.ui.zone.ZoneObservationHost(navigationState) {
+                            AppNavHost(navigationState, Modifier.fillMaxSize())
+                        }
+                    }
+                }
+                if (noticeOverMedia && !fullControlConnected) connectionNotice?.let { notice ->
+                    GeoInlineNote(notice.message, tone = notice.tone, kind = GeoNoteKind.LIVE_ERROR,
+                        modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding()
+                            .padding(start = 24.dp, end = 24.dp, top = 64.dp),
+                        actionLabel = "연결 문제 해결", onAction = { navigateToDeviceRoot(navController) })
                 }
             }
         }

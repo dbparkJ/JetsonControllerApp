@@ -2,7 +2,11 @@ package com.example.jetsoncontroller.ui.components.geo
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -11,45 +15,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.theme.*
 
-/** Decorative tile; a clickable parent must supply a target of at least 48dp. */
+/** Plain 24dp leading icon; the containing row supplies the touch target. */
 @Composable
-fun GeoIconTile(
-    icon: ImageVector,
-    modifier: Modifier = Modifier,
-    selected: Boolean = false,
-    tone: Tone? = null,
-    transparent: Boolean = false
-) {
+@Suppress("UNUSED_PARAMETER")
+fun GeoIconTile(icon: ImageVector, modifier: Modifier = Modifier, selected: Boolean = false,
+    tone: Tone? = null, transparent: Boolean = false) {
     val c = LocalGeoColors.current
-    val alert = tone == Tone.WARNING || tone == Tone.ERROR
-    Box(modifier.size(40.dp).background(when {
-        transparent -> Color.Transparent
-        alert -> c.soft(tone!!)
-        selected -> c.primaryTint
-        else -> c.sunken
-    }, GeoShape.iconTile), contentAlignment = Alignment.Center) {
-        Icon(icon, null, Modifier.size(24.dp), tint = when {
-            alert -> c.tone(tone!!)
-            selected -> c.primaryTintText
-            else -> c.textSecondary
-        })
-    }
+    Icon(icon, null, modifier.size(24.dp), tint = when {
+        tone == Tone.WARNING || tone == Tone.ERROR -> c.tone(tone)
+        selected -> c.primaryTintText
+        else -> c.textSecondary
+    })
 }
 
-/** Same frame for assignment waiting and collection in progress. At most one per screen. */
+/** One dark today card per screen, with no action inside its inverse/sunken surface. */
 @Composable
-fun GeoWorkCard(
+fun GeoTodayCard(
     title: String,
-    action: GeoButtonAction,
     modifier: Modifier = Modifier,
     label: String? = null,
     meta: String? = null,
@@ -58,115 +51,85 @@ fun GeoWorkCard(
     statusTone: Tone = Tone.UNKNOWN,
     content: @Composable ColumnScope.() -> Unit = {}
 ) {
-    val palette = LocalGeoPalette.current
-    val chosen = geoWorkCardColors(palette)
-    val type = LocalGeoType.current
+    val chosen = geoWorkCardColors(LocalGeoPalette.current)
     val c = LocalGeoColors.current
-    val lineHeight = with(LocalDensity.current) { type.workTitle.lineHeight.toDp() }
-    val titleAlignment = rememberFirstLineAlignment()
-    Column(modifier.fillMaxWidth().geoCardShadow().background(chosen.background, GeoShape.card).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val type = LocalGeoType.current
+    val tablet = LocalGeoWindow.current.widthDp >= 600f
+    val titleStyle = if (tablet) type.tabletWorkTitle else type.workTitle
+    val firstLine = with(LocalDensity.current) { titleStyle.lineHeight.toDp() }
+    val alignment = rememberFirstLineAlignment()
+    Column(modifier.fillMaxWidth().clip(GeoShape.card).background(chosen.background)
+        .padding(if (tablet) 24.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         CompositionLocalProvider(LocalGeoColors provides c.copy(text = chosen.content, textSecondary = chosen.content,
             neutral = chosen.content, success = chosen.content, warning = chosen.content,
             danger = chosen.content, primary = chosen.content, pending = chosen.content)) {
-            label?.let { Text(it, style = type.caption, color = chosen.content) }
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val stackStatus = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f &&
-                    (LocalDensity.current.fontScale >= 1.3f || maxWidth < 280.dp)
-                if (stackStatus) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(title, style = type.workTitle, color = chosen.content)
-                    status?.let { GeoBadge(it, statusTone, variant = GeoBadgeVariant.INLINE) }
-                } else {
+            label?.let { Text(it, style = type.badge, color = chosen.content) }
+            val stacked = LocalDensity.current.fontScale >= 1.3f
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                Text(title, Modifier.weight(1f), style = type.workTitle, color = chosen.content,
-                    onTextLayout = titleAlignment::onTextLayout)
-                status?.let {
-                    Box(Modifier.alignToFirstTitleLine(titleAlignment).height(lineHeight), contentAlignment = Alignment.Center) {
-                        GeoBadge(it, statusTone, variant = GeoBadgeVariant.INLINE)
-                    }
-                }
+                Text(title, Modifier.weight(1f), style = titleStyle, color = chosen.content,
+                    onTextLayout = alignment::onTextLayout)
+                if (!stacked && status != null) Box(Modifier.alignToFirstTitleLine(alignment).heightIn(min = firstLine),
+                    contentAlignment = Alignment.Center) { GeoBadge(status, statusTone, variant = GeoBadgeVariant.INLINE) }
             }
-                }
-            }
-            meta?.let { Text(it, style = type.body, color = chosen.content) }
+            if (stacked && status != null) GeoBadge(status, statusTone,
+                Modifier.align(Alignment.End), variant = GeoBadgeVariant.INLINE)
+            meta?.let { Text(it, style = type.supporting, color = chosen.content) }
             clock?.let { Text(it, style = type.clock, color = chosen.content) }
             content()
         }
-        GeoButton(action.label, action.onClick, Modifier.fillMaxWidth(), action.style,
-            action.enabled, action.busy, action.busyLabel, action.icon, action.disabledReason,
-            actionArea = true,
-            contentColor = if (action.style == GeoButtonStyle.Primary) chosen.onAction else null,
-            containerColor = if (action.style == GeoButtonStyle.Primary) chosen.action else null)
     }
 }
 
-/** Photo, heading and metadata form one identity; the four figures belong to this device. */
+/** Compatibility wrapper: the action is outside the dark card; new pages pin it in their scaffold. */
 @Composable
-fun GeoDevicePhotoCard(
-    name: String,
-    status: String,
-    statusTone: Tone,
-    meta: String,
-    figures: List<GeoFigure>,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
-    statusWidth: androidx.compose.ui.unit.Dp = 72.dp
-) {
-    require(figures.size == 4) { "A device photo card requires four figures" }
-    val c = LocalGeoColors.current
-    val type = LocalGeoType.current
-    val line = with(LocalDensity.current) { type.deviceName.lineHeight.toDp() }
-    val titleAlignment = rememberFirstLineAlignment()
-    Column(modifier.fillMaxWidth().geoCardShadow().clip(GeoShape.card).background(c.surface)
-        .then(if (onClick == null) Modifier else Modifier.contentTarget(onClick = onClick))
-        .padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f
-            val small = tablet && maxWidth < 312.dp
-            val stacked = tablet && (small || LocalDensity.current.fontScale >= 1.1f)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
-                Image(painterResource(R.drawable.geo_device), null,
-                    if (small) Modifier.size(56.dp) else Modifier.size(72.dp, 64.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                        Text(name, Modifier.weight(1f), style = type.deviceName, color = c.text,
-                            onTextLayout = titleAlignment::onTextLayout)
-                        if (!stacked) Box(Modifier.alignToFirstTitleLine(titleAlignment).height(line), contentAlignment = Alignment.Center) {
-                            GeoBadge(status, statusTone, Modifier.widthIn(min = statusWidth), minWidth = statusWidth, singleLine = true)
-                        }
-                    }
-                    if (stacked) GeoBadge(status, statusTone, Modifier.widthIn(min = statusWidth), minWidth = statusWidth, singleLine = true)
-                    Text(meta, style = type.supporting, color = c.textSecondary)
-                }
-            }
-        }
-        GeoFigureGrid(figures)
+fun GeoWorkCard(title: String, action: GeoButtonAction, modifier: Modifier = Modifier,
+    label: String? = null, meta: String? = null, clock: String? = null, status: String? = null,
+    statusTone: Tone = Tone.UNKNOWN, content: @Composable ColumnScope.() -> Unit = {}) {
+    Column(modifier.fillMaxWidth()) {
+        GeoTodayCard(title, label = label, meta = meta, clock = clock, status = status,
+            statusTone = statusTone, content = content)
+        GeoFixedActionBar(action)
     }
 }
 
-data class GeoQuickAction(
-    val label: String,
-    val icon: ImageVector,
-    val onClick: () -> Unit,
-    val selected: Boolean = false
-)
+/** Device identity uses a 40dp photo row and a four-cell metric strip on one surface. */
+@Composable
+fun GeoDevicePhotoCard(name: String, status: String, statusTone: Tone, meta: String,
+    figures: List<GeoFigure>, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null,
+    statusWidth: androidx.compose.ui.unit.Dp = 72.dp) {
+    require(figures.size == 4) { "A device photo card requires four figures" }
+    Column(modifier.fillMaxWidth().clip(GeoShape.card).background(LocalGeoColors.current.surface)) {
+        GeoRowList(GeoRowTrailing.Status) {
+            GeoRow(name, onClick ?: {}, meta = meta, navigable = onClick != null, leadingIsPhoto = true,
+                leading = { Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp)) },
+                badge = { GeoBadge(status, statusTone, minWidth = statusWidth, variant = GeoBadgeVariant.INLINE) },
+                divider = false)
+        }
+        androidx.compose.material3.HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = LocalGeoColors.current.border)
+        GeoMetricStrip(figures, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+    }
+}
 
+data class GeoQuickAction(val label: String, val icon: ImageVector, val onClick: () -> Unit, val selected: Boolean = false)
+
+/** Compatibility grid policy; phones use the horizontal tile row in R8. */
 fun quickActionColumns(fontScale: Float): Int = when {
     fontScale >= 2f -> 1
-    fontScale >= 1.5f -> 2
-    else -> 5
+    fontScale >= 1.3f -> 2
+    else -> 3
 }
 
+/** Phone tiles snap at 104dp; tablet quick functions form a 3 by 2 grid. */
 @Composable
 fun GeoQuickActions(actions: List<GeoQuickAction>, modifier: Modifier = Modifier) {
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f
-        val columns = if (tablet) tabletQuickActionColumns(maxWidth.value, LocalDensity.current.fontScale)
-            else quickActionColumns(LocalDensity.current.fontScale)
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    if (LocalGeoWindow.current.widthDp < 600f) {
+        GeoHorizontalTiles(actions, modifier)
+    } else BoxWithConstraints(modifier.fillMaxWidth()) {
+        val columns = tabletQuickActionColumns(maxWidth.value, LocalDensity.current.fontScale)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             actions.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { action -> GeoQuickTile(action, Modifier.weight(1f)) }
+                    row.forEach { GeoQuickTile(it, Modifier.weight(1f)) }
                     repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
@@ -174,23 +137,30 @@ fun GeoQuickActions(actions: List<GeoQuickAction>, modifier: Modifier = Modifier
     }
 }
 
-fun tabletQuickActionColumns(widthDp: Float, fontScale: Float): Int =
-    com.example.jetsoncontroller.ui.components.geo.shell.GeoTabletRules.quickColumns(widthDp, fontScale)
+fun tabletQuickActionColumns(widthDp: Float, fontScale: Float): Int = GeoTabletRules.quickColumns(widthDp, fontScale)
 
+/** Use at the full pane width; contentPadding owns the 24dp leading gutter and next-item peek. */
+@Composable
+fun GeoHorizontalTiles(actions: List<GeoQuickAction>, modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp)) {
+    val state = rememberLazyListState()
+    LazyRow(modifier.fillMaxWidth().testTag("geo-horizontal-tiles"), state = state, contentPadding = contentPadding,
+        horizontalArrangement = Arrangement.spacedBy(8.dp), flingBehavior = rememberSnapFlingBehavior(state)) {
+        items(actions) { GeoQuickTile(it, Modifier.width(104.dp)) }
+    }
+}
+
+/** Flat 104 by 96 phone tile, growing vertically for enlarged labels. */
 @Composable
 fun GeoQuickTile(action: GeoQuickAction, modifier: Modifier = Modifier) {
     val c = LocalGeoColors.current
-    Column(modifier.widthIn(min = 48.dp).heightIn(min = 88.dp)
-        .contentTarget(onClick = action.onClick)
+    Column(modifier.heightIn(min = 96.dp).clip(GeoShape.card)
+        .geoClickable(shape = GeoShape.card, background = if (action.selected) c.primaryTint else c.surface,
+            onClick = action.onClick).padding(horizontal = 8.dp, vertical = 16.dp)
         .semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(40.dp).geoCardShadow(GeoShape.iconTile)
-            .background(if (action.selected) c.primaryTint else c.surface, GeoShape.iconTile),
-            contentAlignment = Alignment.Center) {
-            Icon(action.icon, null, Modifier.size(24.dp),
-                tint = if (action.selected) c.primaryTintText else c.textSecondary)
-        }
-        Text(action.label, style = LocalGeoType.current.caption, color = c.textSecondary,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
+        Icon(action.icon, null, Modifier.size(24.dp), tint = if (action.selected) c.primaryTintText else c.text)
+        Text(action.label.replace('\n', ' '), style = LocalGeoType.current.caption,
+            color = if (action.selected) c.primaryTintText else c.text, textAlign = TextAlign.Center)
     }
 }

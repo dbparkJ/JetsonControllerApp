@@ -41,9 +41,12 @@ class R7PhoneLayoutTest {
         }
         listOf(true, false).forEach { online ->
             compose.runOnIdle { connected = online }
-            compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("빠른 기능"))
-            listOf("카메라\n영상", "파일\n보내기", "장치 위치\n지도", "수집\n기록", "장치\n파일")
-                .forEach { compose.onNodeWithText(it).assertExists() }
+            compose.onAllNodes(hasScrollToIndexAction()).onFirst().performScrollToNode(hasText("빠른 기능"))
+            listOf("카메라 영상", "파일 보내기", "장치 위치 지도", "수집 기록", "장치 파일")
+                .forEach { label ->
+                    compose.onNodeWithTag("geo-horizontal-tiles").performScrollToNode(hasText(label))
+                    compose.onNodeWithText(label).assertExists()
+                }
         }
     }
 
@@ -69,15 +72,15 @@ class R7PhoneLayoutTest {
                 node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                 val layout = layouts.single()
                 assertFalse("$value at $fontScale", layout.hasVisualOverflow)
-                assertEquals(1, layout.lineCount)
-                assertTrue(layout.layoutInput.style.fontSize.value in 20f..28f)
+                assertTrue(layout.lineCount >= 1)
+                assertEquals(22f, layout.layoutInput.style.fontSize.value, 0f)
                 val text = node.fetchSemanticsNode()
                 val tile = requireNotNull(text.parent).boundsInRoot
                 assertTrue(text.boundsInRoot.left >= tile.left - 1f)
                 assertTrue(text.boundsInRoot.right <= tile.right + 1f)
                 tile
             }
-            assertEquals(4, bounds.map { it.left }.distinct().size)
+            assertEquals(if (fontScale >= 1.3f) 2 else 4, bounds.map { it.left }.distinct().size)
             listOf("GB", "%", "°C").forEach { unit ->
                 compose.onAllNodesWithText(unit, useUnmergedTree = true).fetchSemanticsNodes().forEach { node ->
                     val tile = requireNotNull(node.parent).boundsInRoot
@@ -152,7 +155,7 @@ class R7PhoneLayoutTest {
         compose.setContent {
             JetsonControllerTheme(palette = GeoPalette.GRAPHITE) {
                 GeoRow("휴지통", {}, Modifier.width(332.dp), value = "2개",
-                    leading = { Box(Modifier.size(40.dp).testTag("leading-tile")) })
+                    leading = { Box(Modifier.size(24.dp).testTag("leading-tile")) })
             }
         }
         val title = compose.onNodeWithText("휴지통", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot

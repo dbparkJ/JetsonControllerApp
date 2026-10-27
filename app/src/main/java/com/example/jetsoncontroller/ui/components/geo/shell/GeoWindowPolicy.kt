@@ -81,8 +81,8 @@ object GeoTabletRules {
     fun homeGrid(contentWidthDp: Float, fontScale: Float): Boolean = contentWidthDp >= 624f && fontScale <= 1f
     fun quickColumns(widthDp: Float, fontScale: Float): Int = when {
         fontScale >= 2f || widthDp < 104f -> 1
-        fontScale >= 1.3f || widthDp < 400f -> 2
-        else -> 5
+        fontScale >= 1.3f || widthDp < 328f -> 2
+        else -> 3
     }
     fun themeColumns(widthDp: Float, fontScale: Float): Int = when {
         fontScale >= 2f || widthDp < 320f -> 1

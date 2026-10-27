@@ -65,7 +65,7 @@ private fun OverlayMenuItem(item: GeoMenuItem, onDismissRequest: () -> Unit) {
     val focused by interactions.collectIsFocusedAsState()
     Column(
         Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            .background(if (pressed) t.fieldPressed else Color.Transparent)
+            .geoPressFeedback(interactions, item.enabled)
             .then(if (focused) Modifier.border(2.dp, t.focus, RoundedCornerShape(2.dp)) else Modifier)
             .clickable(interactionSource = interactions, indication = null, enabled = item.enabled, role = Role.Button) {
                 onDismissRequest()

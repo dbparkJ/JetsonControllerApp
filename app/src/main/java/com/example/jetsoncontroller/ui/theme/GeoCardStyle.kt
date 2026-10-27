@@ -23,9 +23,16 @@ fun geoWorkCardColors(palette: GeoPalette): GeoWorkCardColors = with(palette.col
     else GeoWorkCardColors(inverse, onInverse, inverseAction, inverse)
 }
 
-/** Draw exactly one y4 / blur16 / text6% shadow outside the surface. */
+/** Legacy card decoration is flat in R8; retained for existing screen callers. */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun Modifier.geoCardShadow(shape: Shape = GeoShape.card): Modifier {
+    return this
+}
+
+/** Draw the single permitted shadow on a floating media control. */
+@Composable
+fun Modifier.geoMediaShadow(shape: Shape = GeoShape.circle): Modifier {
     val shadow = GeoElevation.shadow(LocalGeoPalette.current)
     return drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)

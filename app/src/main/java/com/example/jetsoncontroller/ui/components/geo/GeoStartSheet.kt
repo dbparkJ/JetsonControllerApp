@@ -188,7 +188,7 @@ private fun StartFailureCard(check: GeoStartCheck, tone: Tone) {
     }
 }
 
-/** The read-only form of the R7 row; only an existing remedy creates a tap target. */
+/** Read-only checks share the R8 row anatomy and font-scale reflow. */
 @Composable
 fun GeoPreparationStatusRow(
     title: String,
@@ -201,53 +201,11 @@ fun GeoPreparationStatusRow(
     divider: Boolean = true,
     numericValue: Boolean = false
 ) {
-    if (onClick != null) {
-        GeoRow(title, onClick, modifier, meta = detail,
-            leading = { GeoIconTile(icon) }, badge = { GeoBadge(status, tone) }, divider = divider)
-        return
-    }
-    val colors = LocalGeoColors.current
-    val type = LocalGeoType.current
-    val density = LocalDensity.current
-    val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
-    val titleAlignment = rememberFirstLineAlignment()
-    BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider() else Modifier)) {
-        val stacked = density.fontScale >= 1.5f || maxWidth < 280.dp
-        val statusCell: @Composable () -> Unit = {
-            Box((if (stacked) Modifier else Modifier.alignToFirstTitleLine(titleAlignment))
-                .width(72.dp).heightIn(min = firstLine),
-                contentAlignment = if (stacked) Alignment.TopEnd else Alignment.CenterEnd) {
-                androidx.compose.runtime.CompositionLocalProvider(LocalGeoRowStatus provides true) {
-                    if (numericValue) Text(status, style = type.supporting.copy(fontFeatureSettings = "tnum"),
-                        color = colors.text, textAlign = androidx.compose.ui.text.style.TextAlign.End)
-                    else GeoBadge(status, tone)
-                }
-            }
-        }
-        Column(Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(vertical = 16.dp)
-            .semantics(mergeDescendants = true) {}) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                GeoIconTile(icon)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = type.titleSm, color = colors.text,
-                        onTextLayout = titleAlignment::onTextLayout)
-                    detail?.takeIf { it != status }?.let {
-                        Text(it, style = type.supporting, color = colors.textSecondary)
-                    }
-                }
-                if (!stacked) statusCell()
-                Spacer(Modifier.width(24.dp))
-            }
-            if (stacked) {
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Spacer(Modifier.width(40.dp))
-                    Spacer(Modifier.weight(1f))
-                    statusCell()
-                    Spacer(Modifier.width(24.dp))
-                }
-            }
-        }
-    }
+    GeoRow(title, onClick ?: {}, modifier, meta = detail?.takeIf { it != status },
+        value = status.takeIf { numericValue },
+        leading = { GeoIconTile(icon) },
+        badge = if (numericValue) null else ({ GeoBadge(status, tone) }),
+        divider = divider, navigable = onClick != null)
 }
 
 private fun preparationRowIcon(title: String): ImageVector = when (title) {

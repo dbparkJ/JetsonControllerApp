@@ -47,6 +47,7 @@ fun GeoAppShell(
     adaptivePreview: Boolean = false,
     tabletNavigationVisible: Boolean = false,
     landscapeMedia: Boolean = false,
+    mapBackdrop: Boolean = false,
     topBar: @Composable () -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -69,49 +70,55 @@ fun GeoAppShell(
         var topChrome by remember { mutableFloatStateOf(0f) }
         var bottomChrome by remember { mutableFloatStateOf(0f) }
         BoxWithConstraints(
-            modifier.fillMaxSize().background(if (mediaInsets && !adaptivePreview) androidx.compose.ui.graphics.Color.Black else colors.canvas)
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+            modifier.fillMaxSize().background(if (mediaInsets && !adaptivePreview) com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaStage else colors.canvas)
+                .then(if (mediaInsets && !adaptivePreview) Modifier else Modifier
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)))
         ) {
             val safeHeight = (maxHeight.value - topDp - bottomDp).coerceAtLeast(0f)
             val navigationRequested = (navigationVisible || (tabletNavigationVisible && maxWidth.value >= 600f)) && imeDp == 0f
             val candidate = geoWindow(maxWidth.value, safeHeight, density.fontScale, navigationRequested)
             val previewInPane = adaptivePreview && candidate.twoPane
             val showNavigation = navigationRequested && (!focusedMediaPreview || previewInPane)
-            val geoWindow = geoWindow(maxWidth.value, safeHeight, density.fontScale, showNavigation).let {
+            val floatingNavigation = mediaInsets && landscapeMedia && maxWidth.value >= 600f && showNavigation
+            val standardNavigation = showNavigation && !floatingNavigation
+            val geoWindow = geoWindow(maxWidth.value, safeHeight, density.fontScale, standardNavigation).let {
                 if (focusedMediaPreview && !previewInPane) it.copy(twoPane = false) else it
             }
             val mediaChrome = mediaInsets && !previewInPane
-            com.example.jetsoncontroller.ui.theme.GeoSystemBars(navigationBarUsesSurface = !showNavigation || geoWindow.rail, media = mediaChrome)
+            val fullBleed = mediaChrome || (mapBackdrop && maxWidth.value < 600f)
+            com.example.jetsoncontroller.ui.theme.GeoSystemBars(navigationBarUsesSurface = standardNavigation && !geoWindow.rail, media = mediaChrome)
             CompositionLocalProvider(
                 LocalGeoWindow provides geoWindow,
-                LocalGeoChrome provides GeoChromeMeasurements(maxHeight.value, topChrome,
-                    if (showNavigation && !geoWindow.rail) bottomChrome else if (imeDp == 0f) bottomDp else 0f, imeDp)
+                LocalGeoChrome provides GeoChromeMeasurements(maxHeight.value, if (fullBleed) 0f else topChrome,
+                    if (fullBleed) 0f else if (standardNavigation && !geoWindow.rail) bottomChrome else if (imeDp == 0f) bottomDp else 0f, imeDp)
             ) {
                 Column(Modifier.fillMaxSize().imePadding()) {
-                    GeoTopBar(Modifier.onSizeChanged { topChrome = it.height / density.density }, mediaInsets = mediaChrome, content = topBar)
+                    if (!fullBleed) GeoTopBar(Modifier.onSizeChanged { topChrome = it.height / density.density }, content = topBar)
                     Row(Modifier.weight(1f).fillMaxWidth()) {
-                        if (showNavigation && geoWindow.rail) GeoRail(selected, onSelect,
+                        if (standardNavigation && geoWindow.rail) GeoRail(selected, onSelect,
                             Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)), attentionSections)
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                                val column = if ((geoWindow.twoPane && paneLayout) ||
+                                val column = if (fullBleed || (geoWindow.twoPane && paneLayout) ||
                                     (landscapeMedia && geoWindow.landscapeLayout)) Modifier else Modifier.widthIn(max = 720.dp)
-                                Box(column.fillMaxSize()
+                                Box(column.fillMaxSize().then(if (fullBleed) Modifier else Modifier
                                     .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                                    .consumeWindowInsets(WindowInsets.navigationBars)) { content() }
+                                    .consumeWindowInsets(WindowInsets.navigationBars))) { content() }
                             }
-                            if ((!showNavigation || geoWindow.rail) && imeDp == 0f) {
+                            if ((!standardNavigation || geoWindow.rail) && imeDp == 0f && !fullBleed) {
                                 // A rail protects neither the bottom nor the far-side system bar.
-                                Spacer(Modifier.fillMaxWidth().background(if (mediaChrome) androidx.compose.ui.graphics.Color.Black else colors.surface)
+                                Spacer(Modifier.fillMaxWidth().background(colors.canvas)
                                     .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)))
                             }
                         }
                     }
-                    if (showNavigation && !geoWindow.rail) {
+                    if (standardNavigation && !geoWindow.rail) {
                         GeoBottomBar(selected, onSelect, Modifier.onSizeChanged { bottomChrome = it.height / density.density },
                             attentionSections = attentionSections)
                     }
                 }
+                if (floatingNavigation) GeoFloatingMediaNavigation(selected, onSelect,
+                    Modifier.align(Alignment.BottomStart).safeDrawingPadding().padding(24.dp))
             }
         }
     }

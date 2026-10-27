@@ -53,7 +53,7 @@ internal fun GeoPaneListRow(
     Box(modifier.fillMaxWidth().clip(shape)
         .background(if (selected) LocalGeoColors.current.primaryTint else Color.Transparent)) {
         GeoRow(title, onClick,
-            modifier = Modifier.padding(horizontal = 16.dp).semantics { this.selected = selected },
+            modifier = Modifier.semantics { this.selected = selected },
             meta = meta, leading = leading, badge = badge,
             divider = paneListRowDivider(index, rowCount, selected, nextSelected))
     }

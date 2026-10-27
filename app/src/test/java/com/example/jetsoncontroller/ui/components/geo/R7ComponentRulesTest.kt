@@ -27,7 +27,8 @@ class R7ComponentRulesTest {
         assertEquals(72f, rowStatusWidth(listOf(30f, 65f)), 0f)
         assertEquals(94f, rowStatusWidth(listOf(60f, 94f, 75f)), 0f)
         assertEquals(120f, rowStatusWidth(listOf(94f, 145f)), 0f)
-        assertFalse(rowStatusStacks(332f, 1.3f, 94f))
+        assertFalse(rowStatusStacks(332f, 1.29f, 94f))
+        assertTrue(rowStatusStacks(332f, 1.3f, 94f))
         assertTrue(rowStatusStacks(332f, 1.3f, 145f))
         assertTrue(rowStatusStacks(332f, 1.5f, 72f))
         assertTrue(rowStatusStacks(279f, 1f, 72f))
@@ -73,8 +74,9 @@ class R7ComponentRulesTest {
         }
     }
 
-    @Test fun `quick actions reflow from five to two then one column`() {
-        assertEquals(5, quickActionColumns(1.49f))
+    @Test fun `tablet quick actions reflow from three to two then one column`() {
+        assertEquals(3, quickActionColumns(1.29f))
+        assertEquals(2, quickActionColumns(1.3f))
         assertEquals(2, quickActionColumns(1.5f))
         assertEquals(1, quickActionColumns(2f))
     }

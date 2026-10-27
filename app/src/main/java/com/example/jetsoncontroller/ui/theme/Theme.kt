@@ -23,10 +23,10 @@ internal data class GeoSystemBarAppearance(
 )
 
 internal fun systemBarAppearance(palette: GeoPalette, navigationBarUsesSurface: Boolean, media: Boolean = false) = GeoSystemBarAppearance(
-    statusBar = if (media) Color.Black else palette.colors.topBar,
-    navigationBar = if (media) Color.Black else if (navigationBarUsesSurface) palette.colors.surface else palette.colors.nav,
-    darkStatusIcons = !media && !palette.lightStatusBarIcons,
-    darkNavigationIcons = !media && if (navigationBarUsesSurface) !palette.lightSurfaceBarIcons else !palette.lightNavigationBarIcons
+    statusBar = if (media) GeoFixedColors.mediaStage else palette.colors.canvas,
+    navigationBar = if (media) GeoFixedColors.mediaStage else if (navigationBarUsesSurface) palette.colors.surface else palette.colors.canvas,
+    darkStatusIcons = !media && !palette.isDark,
+    darkNavigationIcons = !media && !palette.isDark
 )
 
 private data class SystemBarRequest(val surface: Boolean, val media: Boolean)
@@ -36,6 +36,14 @@ private class SystemBarRequests {
 }
 
 private val LocalSystemBarRequests = staticCompositionLocalOf<SystemBarRequests?> { null }
+
+/** R8 chrome borrows canvas/surface and their matching inks from the original six palettes. */
+internal fun geoR8Colors(palette: GeoPalette): GeoColors = with(palette.colors) {
+    copy(topBar = canvas, onTopBar = text, onTopBarIcon = textSecondary, topBarBorder = border,
+        nav = surface, navSelected = primary, navUnselected = textSubtle, navBorder = Color.Transparent,
+        navFocus = focus, chromeSuccess = success, chromeWarning = warning, chromeDanger = danger,
+        chromeInfo = primary, chromePending = pending, chromeNeutral = neutral)
+}
 
 /** Shells/overlays declare the surface below their navigation inset; the theme owns the window. */
 @Composable
@@ -108,6 +116,7 @@ fun JetsonControllerTheme(
 ) {
     val view = LocalView.current
     val type = GeoType.forPalette(palette)
+    val reducedMotion = geoReducedMotion()
     val barRequests = remember { SystemBarRequests() }
     val request = barRequests.navigationSurfaces.values.lastOrNull()
     val bars = systemBarAppearance(palette, request?.surface ?: navigationBarUsesSurface, request?.media == true)
@@ -116,9 +125,9 @@ fun JetsonControllerTheme(
             val window = view.context.appearanceActivity()?.window
             if (window != null) {
                 @Suppress("DEPRECATION")
-                window.statusBarColor = bars.statusBar.toArgb()
+                window.statusBarColor = Color.Transparent.toArgb()
                 @Suppress("DEPRECATION")
-                window.navigationBarColor = bars.navigationBar.toArgb()
+                window.navigationBarColor = Color.Transparent.toArgb()
                 window.isNavigationBarContrastEnforced = false
                 WindowCompat.getInsetsController(window, view).apply {
                     isAppearanceLightStatusBars = bars.darkStatusIcons
@@ -129,10 +138,11 @@ fun JetsonControllerTheme(
     }
     CompositionLocalProvider(
         LocalSystemBarRequests provides barRequests,
-        LocalGeoColors provides palette.colors,
+        LocalGeoColors provides geoR8Colors(palette),
         LocalGeoPalette provides palette,
         LocalGeoDarkTheme provides palette.isDark,
         LocalGeoType provides type,
+        LocalGeoReducedMotion provides reducedMotion,
         LocalTonalElevationEnabled provides false
     ) {
         MaterialTheme(

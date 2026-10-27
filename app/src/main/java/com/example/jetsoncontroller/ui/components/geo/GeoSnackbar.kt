@@ -89,7 +89,7 @@ private fun OverlaySnackbar(data: SnackbarData, modifier: Modifier) {
     val measure = rememberTextMeasurer()
     val buttonStyle = LocalGeoType.current.button
     Surface(
-        modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().geoCardShadow()
+        modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth()
             .semantics { liveRegion = LiveRegionMode.Polite },
         shape = GeoShape.card, color = LocalGeoColors.current.inverse, contentColor = color, shadowElevation = 0.dp
     ) {
@@ -127,12 +127,13 @@ private fun OverlaySnackbarClose(color: Color, onClose: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val focused by interaction.collectIsFocusedAsState()
-    Box(Modifier.size(48.dp).background(if (pressed) color.copy(alpha = .12f) else Color.Transparent, CircleShape)
+    Box(Modifier.size(48.dp).geoPressFeedback(interaction, shape = CircleShape)
         .drawBehind { if (focused) drawCircle(color, radius = size.minDimension / 2 + 4.dp.toPx(), style = Stroke(2.dp.toPx())) }
         .semantics { contentDescription = "메시지 닫기" }
         .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClose),
         contentAlignment = Alignment.Center) {
-        androidx.compose.material3.Icon(GeoIcons.close, null, Modifier.size(24.dp), tint = color)
+        androidx.compose.material3.Icon(GeoIcons.close, null, Modifier.size(24.dp),
+            tint = if (pressed) LocalGeoColors.current.text else color)
 
     }
 }

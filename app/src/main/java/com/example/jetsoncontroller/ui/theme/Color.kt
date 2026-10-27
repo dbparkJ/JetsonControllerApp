@@ -75,7 +75,7 @@ data class GeoColors(
     val switchTrackOn: Color get() = primary
     val iconSubtle: Color get() = textSubtle
     val borderControl: Color get() = borderStrong
-    val sectionDivider: Color get() = if (this == GeoHighContrast) borderStrong else border
+    val sectionDivider: Color get() = if (text == GeoHighContrast.text) borderStrong else border
 
 
     /** Canonical roles, including the R3 and R4 role aliases. */

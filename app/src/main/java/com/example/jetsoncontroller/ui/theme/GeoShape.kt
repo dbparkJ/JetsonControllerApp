@@ -7,12 +7,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** R7 radii; only filters use the pill shape. */
+/** R8 radii; navigation indicators and filters have explicit pill roles. */
 object GeoShape {
     val sm = 8.dp
-    val md = 12.dp
-    val lg = 16.dp
-    val xl = 16.dp
+    val md = 16.dp
+    val lg = 20.dp
+    val xl = 20.dp
     val xxl = 24.dp
     val pillRadius = 999.dp
 

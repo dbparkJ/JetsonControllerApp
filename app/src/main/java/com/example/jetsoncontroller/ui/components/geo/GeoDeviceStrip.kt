@@ -40,13 +40,13 @@ fun GeoDeviceStrip(state: GeoDeviceStripState, onClick: () -> Unit, modifier: Mo
         }
     }
     GeoRowList(GeoRowTrailing.Status, modifier.fillMaxWidth().geoCardShadow().clip(GeoShape.card)
-        .background(colors.surface).padding(16.dp)) {
+        .background(colors.surface)) {
         GeoRow(state.deviceName, onClick,
             meta = (state.facts + if (state.firstAttention == null) listOf(state.freshness) else emptyList())
                 .filter(String::isNotBlank).joinToString(" · ").takeIf(String::isNotEmpty),
             leading = { Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp)) },
             badge = { GeoBadge(state.connectionWord, state.connectionTone) }, divider = false,
-            contentPadding = PaddingValues(0.dp),
+            leadingIsPhoto = true,
             extra = attentionContent)
     }
 }

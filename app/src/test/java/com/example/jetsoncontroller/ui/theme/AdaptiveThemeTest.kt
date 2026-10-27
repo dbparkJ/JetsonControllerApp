@@ -5,6 +5,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AdaptiveThemeTest {
+    @Test fun `R8 chrome uses canvas surface and their semantic inks in six palettes`() {
+        GeoPalette.entries.forEach { palette ->
+            val raw = palette.colors
+            val c = geoR8Colors(palette)
+            assertEquals(raw.canvas, c.topBar)
+            assertEquals(raw.text, c.onTopBar)
+            assertEquals(raw.surface, c.nav)
+            assertEquals(raw.primary, c.navSelected)
+            assertEquals(raw.success, c.chromeSuccess)
+            assertEquals(if (palette.highContrast) raw.borderStrong else raw.border, c.sectionDivider)
+            assertEquals(0f, c.navBorder.alpha, 0f)
+        }
+    }
     @Test
     fun `R7 gutters remain 24 dp at every pane width`() {
         listOf(0f to 24f, 339.99f to 24f, 340f to 24f, 389.99f to 24f, 390f to 24f, 840f to 24f).forEach { (width, gutter) ->
@@ -19,7 +32,7 @@ class AdaptiveThemeTest {
             GeoSpace.space7, GeoSpace.space8, GeoSpace.space9, GeoSpace.space10, GeoSpace.space11, GeoSpace.space12,
             GeoSpace.space13, GeoSpace.space14
         ).map { it.value })
-        assertEquals(listOf(8f, 12f, 16f, 16f, 24f, 999f), listOf(
+        assertEquals(listOf(8f, 16f, 20f, 20f, 24f, 999f), listOf(
             GeoShape.sm, GeoShape.md, GeoShape.lg, GeoShape.xl, GeoShape.xxl, GeoShape.pillRadius
         ).map { it.value })
         assertEquals(48f, GeoSize.minTouchTarget.value, 0f)

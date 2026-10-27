@@ -35,7 +35,7 @@ class GeoPaletteTest {
         assertEquals(GeoPalette.GRAPHITE, GeoPalette.defaultFor(true))
         assertEquals(listOf("표준", "네이비 (밝게)", "고대비", "그래파이트", "네이비 (어둡게)", "흐림"), GeoPalette.entries.map { it.label })
         GeoPalette.entries.forEach { palette ->
-            assertEquals(palette.isDark || palette == GeoPalette.NAVY_LIGHT, palette.lightStatusBarIcons)
+            assertEquals(palette.isDark, palette.lightStatusBarIcons)
             assertEquals(palette.lightStatusBarIcons, palette.lightNavigationBarIcons)
             assertEquals(palette.isDark, palette.lightSurfaceBarIcons)
         }

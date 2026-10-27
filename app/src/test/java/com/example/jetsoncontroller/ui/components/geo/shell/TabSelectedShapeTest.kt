@@ -7,16 +7,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TabSelectedShapeTest {
-    @Test fun `selected icon shape uses primary tint in five palettes`() {
-        GeoPalette.entries.filterNot { it == GeoPalette.NAVY_LIGHT }.forEach { palette ->
+    @Test fun `selected icon shape uses primary tint in all six palettes`() {
+        GeoPalette.entries.forEach { palette ->
             assertEquals(palette.name, palette.colors.primaryTint, geoTabSelectedShapeColor(palette))
         }
     }
 
-    @Test fun `light navy composites selected white at fourteen percent over the navy bar`() {
+    @Test fun `light navy uses the same surface navigation contract`() {
         val fill = geoTabSelectedShapeColor(GeoPalette.NAVY_LIGHT)
-        assertEquals(Color(0xFF333A58).toArgb(), fill.toArgb())
+        assertEquals(GeoPalette.NAVY_LIGHT.colors.primaryTint.toArgb(), fill.toArgb())
         assertEquals(1f, fill.alpha, 0f)
-        assertNotEquals(GeoPalette.NAVY_LIGHT.colors.primaryTint, fill)
+        assertEquals(GeoPalette.NAVY_LIGHT.colors.primaryTint, fill)
     }
 }

@@ -3,11 +3,14 @@ package com.example.jetsoncontroller.ui.theme
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** R7 spacing ownership. Named aliases avoid tying callers to scale indices. */
+/** R8 spacing ownership. Named aliases avoid tying callers to scale indices. */
 object AppSpacing {
     val screenGutter = 24.dp
     val cardInset = 16.dp
     val workCardInset = 20.dp
+    val tabletWorkCardInset = 24.dp
+    val contentTop = 8.dp
+    val contentBottom = 24.dp
     val sectionGap = 24.dp
     val titleGap = 12.dp
     val relatedCardGap = 12.dp
@@ -65,7 +68,15 @@ object GeoSize {
     val minTouchTarget = 48.dp
     val primaryAction = 56.dp
     val secondaryAction = 48.dp
-    val statusDot = 8.dp
+    val statusDot = 6.dp
+    val singleRow = 56.dp
+    val doubleRow = 72.dp
+    val compactBar = 64.dp
+    val detailTools = 48.dp
+    val bottomNavigation = 72.dp
+    val quickTileWidth = 104.dp
+    val quickTileHeight = 96.dp
+    val capture = 80.dp
     val iconSm = 16.dp
     val iconMd = 20.dp
     val iconLg = 24.dp

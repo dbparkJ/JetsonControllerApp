@@ -6,6 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PaneListRowRulesTest {
+    @Test fun `R8 selection keeps a 20dp group radius and inset divider`() {
+        assertEquals(20f, com.example.jetsoncontroller.ui.theme.GeoShape.lg.value, 0f)
+        assertEquals(56, geoRowAnatomy(twoLine = false).dividerXDp)
+        assertEquals(68, geoRowAnatomy(twoLine = true, photo = true).dividerXDp)
+    }
     @Test fun `single row rounds both ends of the card`() {
         assertEquals(PaneListRowCorners(true, true), paneListRowCorners(0, 1))
     }

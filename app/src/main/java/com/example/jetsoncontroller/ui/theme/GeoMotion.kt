@@ -13,7 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 
 /** R3 §3.10. Numeric readings change immediately; timings apply to state changes. */
@@ -34,9 +36,13 @@ object GeoMotion {
         tween<T>(durationMillis = duration(milliseconds, reducedMotion), easing = easing)
 }
 
-/** Observe animation removal while running; callers also use this for a static loader. */
+internal val LocalGeoReducedMotion = staticCompositionLocalOf<Boolean?> { null }
+
+/** Observe once per theme and share removal of motion with every interactive child. */
 @Composable
 fun geoReducedMotion(): Boolean {
+    LocalGeoReducedMotion.current?.let { return it }
+    if (LocalView.current.isInEditMode) return true
     val resolver = LocalContext.current.contentResolver
     fun readScale() = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     var reduced by remember(resolver) { mutableStateOf(readScale()) }

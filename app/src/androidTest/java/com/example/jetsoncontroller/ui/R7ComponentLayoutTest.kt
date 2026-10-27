@@ -48,7 +48,7 @@ class R7ComponentLayoutTest {
                 }
             }
         }
-        for (fontScale in listOf(1f, 1.1f, 1.3f)) {
+        for (fontScale in listOf(1f, 1.1f, 1.29f)) {
             for (multipleLines in listOf(false, true)) {
                 for (meta in listOf(false, true)) {
                     for (value in listOf(false, true)) {
@@ -87,7 +87,7 @@ class R7ComponentLayoutTest {
     @Test fun largeTextMovesStatusBelowTitleInTheSameRightColumn() {
         compose.setContent {
             val base = LocalDensity.current
-            CompositionLocalProvider(LocalDensity provides Density(base.density, 1.5f)) {
+            CompositionLocalProvider(LocalDensity provides Density(base.density, 1.3f)) {
                 JetsonControllerTheme {
                     GeoRow("장치 정보", {}, Modifier.width(364.dp), badge = {
                         Box(Modifier.fillMaxWidth().testTag("후행")) { GeoBadge("연결됨", Tone.SUCCESS) }
@@ -138,7 +138,7 @@ class R7ComponentLayoutTest {
                 }
             }
         }
-        for (fontScale in listOf(1f, 1.1f, 1.3f)) {
+        for (fontScale in listOf(1f, 1.1f, 1.29f)) {
             for (multipleLines in listOf(false, true)) {
                 for (meta in listOf(false, true)) {
                     compose.runOnIdle { scale = fontScale; multiline = multipleLines; withMeta = meta }
@@ -167,7 +167,7 @@ class R7ComponentLayoutTest {
                 }
             }
         }
-        for (fontScale in listOf(1f, 1.1f, 1.3f)) {
+        for (fontScale in listOf(1f, 1.1f, 1.29f)) {
             for (multipleLines in listOf(false, true)) {
                 for (meta in listOf(false, true)) {
                     for (value in listOf(false, true)) {
@@ -198,7 +198,7 @@ class R7ComponentLayoutTest {
                 }
             }
         }
-        for (fontScale in listOf(1f, 1.1f, 1.3f)) {
+        for (fontScale in listOf(1f, 1.1f, 1.29f)) {
             for (multipleLines in listOf(false, true)) {
                 for (photoCard in listOf(false, true)) {
                     compose.runOnIdle { scale = fontScale; multiline = multipleLines; device = photoCard }

@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.components.geo
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -86,9 +87,11 @@ fun GeoPropertyRow(
                     valueContent != null -> valueContent()
                     tone != null || variant == GeoBadgeVariant.TAG -> GeoBadge(value, tone ?: Tone.INFO, variant = variant)
                     else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                        Text(value, Modifier.weight(1f),
-                            style = if (numeric) type.propertyValue.copy(fontFeatureSettings = "tnum") else type.propertyValue,
-                            color = if (enabled) colors.text else colors.disabledText)
+                        SelectionContainer(Modifier.weight(1f)) {
+                            Text(value,
+                                style = if (numeric) type.propertyValue.copy(fontFeatureSettings = "tnum") else type.propertyValue,
+                                color = if (enabled) colors.text else colors.disabledText)
+                        }
                         if (onClick != null && enabled) Icon(GeoIcons.chevronRight, null, Modifier.size(20.dp), tint = colors.iconSubtle)
                     }
                 }

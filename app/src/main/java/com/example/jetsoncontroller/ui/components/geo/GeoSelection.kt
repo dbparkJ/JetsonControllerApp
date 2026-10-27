@@ -61,15 +61,21 @@ fun GeoFilterChip(
     enabled: Boolean = true
 ) {
     val c = LocalGeoColors.current
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
     var focused by remember { mutableStateOf(false) }
-    Box(modifier.height(48.dp).widthIn(min = 48.dp)
+    val density = LocalDensity.current
+    val textWidth = rememberTextMeasurer().measure(AnnotatedString(label), LocalGeoType.current.filter,
+        softWrap = false).size.width
+    val width = with(density) { geoFilterWidthPx(textWidth, 16.dp.roundToPx(), 48.dp.roundToPx()).toDp() }
+    Box(modifier.heightIn(min = 48.dp).width(width)
         .onFocusChanged { focused = it.isFocused }
         .geoFocusRing(GeoShape.pill, focused)
-        .background(if (selected) c.primary else c.surface, GeoShape.pill)
-        .selectable(selected, enabled = enabled, role = Role.Tab, onClick = onClick)
-        .padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        .geoSelectable(selected, enabled, GeoShape.pill,
+            background = if (selected) c.inverse else c.surface, interactionSource = source, onClick = onClick)
+        .padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
         Text(label, style = LocalGeoType.current.filter,
-            color = if (!enabled) c.disabledText else if (selected) c.onPrimary else c.textSecondary,
+            color = if (!enabled) c.disabledText else if (pressed) c.text else if (selected) c.onInverse else c.textSecondary,
             maxLines = 1, softWrap = false)
     }
 }
@@ -231,6 +237,7 @@ private fun GeoSelectionRow(
                 drawRect(fill, topLeft = Offset(-gutter, 0f), size = Size(size.width + gutter * 2, size.height))
             }
             .contentDivider()
+            .geoPressFeedback(source, enabled)
             .then(interaction)
             .padding(vertical = if (meta.isNullOrEmpty()) 16.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -314,11 +321,11 @@ fun GeoSegmented(
                             var focused by remember { mutableStateOf(false) }
                             Box(Modifier.weight(1f).heightIn(min = 48.dp)
                                 .onFocusChanged { focused = it.isFocused }
+                                .geoPressFeedback(source, enabled, shape = thumb)
                                 .selectable(index == selectedIndex, source, indication = null, enabled = enabled,
                                     role = Role.Tab, onClick = { onSelect(index) })
                                 .padding(vertical = 4.dp)
                                 .geoFocusRing(thumb, focused)
-                                .background(if (pressed) c.fieldPressed else Color.Transparent, thumb)
                                 .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center
                             ) {
                                 Text(option, style = style.copy(fontWeight = if (index == selectedIndex) FontWeight.SemiBold else FontWeight.Medium),

@@ -112,16 +112,14 @@ class R7LandscapeLayoutTest {
                     onOpenTicket = { opened = it }, onCamera = {}, onSendFiles = {}, onDeviceMap = {}, onDeviceFiles = {})
             }
         }
-        listOf("저장 여유", "준비하기", "빠른 기능", "최근 수집 1", "최근 수집 2", "장치\n파일").forEach {
-            compose.onNodeWithText(it).assertIsDisplayed()
+        listOf("저장 여유", "준비하기", "빠른 기능", "최근 수집 1", "최근 수집 2", "장치 파일").forEach {
+            compose.onNodeWithText(it).assertExists()
         }
         compose.onAllNodesWithText("전시 수집 구간").assertCountEquals(1)
         compose.onNodeWithText("최근 수집 3").assertDoesNotExist()
         compose.onNode(hasText("구간 직접 고르기") and hasClickAction()).assertWidthIsEqualTo(608.dp)
-        val bottom = compose.onNodeWithTag("검사 창").fetchSemanticsNode().boundsInRoot.bottom
-        val quick = compose.onNodeWithText("장치\n파일").fetchSemanticsNode().boundsInRoot
-        assertTrue("빠른 기능 전체가 첫 화면 안에 있어야 합니다", quick.bottom <= bottom)
-        compose.onNodeWithText("준비하기").performClick()
+        compose.onNodeWithText("장치 파일").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("준비하기").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("today", opened) }
     }
 

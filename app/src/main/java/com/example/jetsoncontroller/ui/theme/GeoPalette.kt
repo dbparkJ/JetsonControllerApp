@@ -22,7 +22,7 @@ enum class GeoPalette(val label: String, val isDark: Boolean) {
         }
 
     val highContrast: Boolean get() = this == HIGH_CONTRAST
-    val lightStatusBarIcons: Boolean get() = isDark || this == NAVY_LIGHT
+    val lightStatusBarIcons: Boolean get() = isDark
     val lightNavigationBarIcons: Boolean get() = lightStatusBarIcons
     val lightSurfaceBarIcons: Boolean get() = isDark
 

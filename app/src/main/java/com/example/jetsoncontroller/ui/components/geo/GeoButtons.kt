@@ -119,14 +119,13 @@ fun GeoButton(
         !enabled -> c.disabledFill
         containerColor != null -> containerColor
         danger -> c.dangerSoft
-        style == GeoButtonStyle.Primary -> if (pressed) c.primaryPressed else c.primary
-        pressed && contentColor != null -> contentColor.copy(alpha = .12f)
-        pressed -> c.fieldPressed
+        style == GeoButtonStyle.Primary -> c.primary
         style == GeoButtonStyle.Secondary -> c.surface
         else -> Color.Transparent
     }
     val content = when {
         !enabled -> c.disabledText
+        pressed -> if (style == GeoButtonStyle.Primary) c.onPrimary else if (danger) c.danger else c.text
         contentColor != null -> contentColor
         danger -> c.danger
         filled -> c.onPrimary
@@ -138,10 +137,7 @@ fun GeoButton(
         GeoButtonStyle.DangerOutline, GeoButtonStyle.DangerFilled -> BorderStroke(1.dp, if (enabled) c.dangerBorder else c.disabledText)
         else -> null
     }
-    // Landscape panes align actions to their cards; other windows retain the 560dp cap.
-    val widthLimit = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.landscapeLayout)
-        Modifier else Modifier.widthIn(max = 560.dp)
-    Column(widthLimit.then(modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier
                 .then(tertiaryEdgeOffset(style, edge))
@@ -151,7 +147,9 @@ fun GeoButton(
                 .onFocusChanged { focused = it.isFocused }
                 .geoFocusRing(GeoControlShape, focused, tint = contentColor)
                 .clip(GeoControlShape)
-                .background(fill)
+                .geoPressFeedback(source, enabled && !busy, primary = style == GeoButtonStyle.Primary,
+                    background = fill, shape = GeoControlShape,
+                    pressedColor = Color.Unspecified)
                 .then(if (border != null) Modifier.border(border, GeoControlShape) else Modifier)
                 .clickable(source, indication = null, enabled = enabled && !busy, role = Role.Button, onClick = onClick)
                 .semantics { if (busy) stateDescription = busyLabel.orEmpty() }
@@ -198,7 +196,8 @@ fun GeoIconButton(
                 .onFocusChanged { focused = it.isFocused }
                 .geoFocusRing(GeoControlShape, focused, chrome)
                 .clip(GeoControlShape)
-                .background(if (!enabled) c.disabledFill else if (pressed) c.fieldPressed else Color.Transparent)
+                .geoPressFeedback(source, enabled, background = if (!enabled) c.disabledFill else Color.Transparent,
+                    shape = GeoControlShape)
                 .clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
                 .semantics { this.contentDescription = contentDescription },
             contentAlignment = Alignment.Center
@@ -256,7 +255,7 @@ fun GeoButtonActions(
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val style = geoButtonTextStyle()
-    BoxWithConstraints(modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
         val gap = with(density) { 8.dp.roundToPx() }
         val widths = actions.map { action ->
             val label = if (action.busy) action.busyLabel.orEmpty() else action.label

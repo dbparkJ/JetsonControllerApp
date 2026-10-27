@@ -195,7 +195,7 @@ private fun OverlaySheetHeading(title: String, subtitle: String?, onDismiss: (()
 private fun OverlayFooter(content: @Composable ColumnScope.() -> Unit) {
     Column {
         HorizontalDivider(color = LocalGeoColors.current.border)
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), content = content)
+        Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp), content = content)
     }
 }
 
@@ -218,7 +218,7 @@ internal fun OverlayViewport(
         val inline = inlineFooterWhenCrowded && sheetNeedsFullScreen(available.toDp().value, 0f, 0f)
         val scrollHeight = if (inline) (constraints.maxHeight - head.height).coerceAtLeast(0) else available
         val main = subcompose(if (inline) "inline-body" else "body") {
-            Column(Modifier.verticalScroll(scroll).padding(bottom = 16.dp)) {
+            Column(Modifier.geoContainScroll().verticalScroll(scroll).padding(bottom = 16.dp)) {
                 body()
                 if (inline && footer != null) footer()
             }

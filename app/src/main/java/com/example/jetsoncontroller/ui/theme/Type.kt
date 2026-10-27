@@ -34,7 +34,7 @@ private fun type(size: Int, line: Int, weight: Int, trackingEm: Float = 0f) = Te
     letterSpacing = (size * trackingEm).sp
 )
 
-/** R7 reading roles; legacy names remain source compatible. */
+/** R8 reading roles; legacy names remain source compatible. */
 @Immutable
 data class GeoTypeRoles(
     val count: TextStyle,
@@ -51,7 +51,13 @@ data class GeoTypeRoles(
 ) {
     val badge: TextStyle get() = caption.copy(fontWeight = FontWeight.SemiBold)
     val brandTitle: TextStyle get() = type(32, 40, 700)
-    val workTitle: TextStyle get() = type(22, 32, 700)
+    val largeTitle: TextStyle get() = type(32, 40, 700)
+    val compactTitle: TextStyle get() = type(20, 28, 600)
+    val groupHeading: TextStyle get() = type(14, 20, 600)
+    val workTitle: TextStyle get() = type(26, 34, 700)
+    val tabletWorkTitle: TextStyle get() = type(28, 36, 700)
+    val phoneFigure: TextStyle get() = type(22, 28, 700).copy(fontFeatureSettings = "tnum")
+    val tabletFigure: TextStyle get() = type(28, 36, 700).copy(fontFeatureSettings = "tnum")
     val sectionTitle: TextStyle get() = type(18, 28, 700)
     val deviceName: TextStyle get() = sectionTitle
     val focusTitle: TextStyle get() = workTitle
@@ -64,10 +70,10 @@ data class GeoTypeRoles(
     val inlineStatus: TextStyle get() = type(14, 20, 500)
     val tag: TextStyle get() = badge
     val tab: TextStyle get() = caption.copy(fontWeight = FontWeight.SemiBold)
-    val tabSelected: TextStyle get() = caption.copy(fontWeight = FontWeight.Bold)
+    val tabSelected: TextStyle get() = caption.copy(fontWeight = FontWeight.SemiBold)
     val figure: TextStyle get() = type(28, 36, 700).copy(fontFeatureSettings = "tnum", letterSpacing = (-1).sp)
     val clock: TextStyle get() = type(40, 48, 700).copy(fontFeatureSettings = "tnum")
-    val filter: TextStyle get() = type(13, 20, 600)
+    val filter: TextStyle get() = type(14, 20, 600)
     val unit: TextStyle get() = type(13, 20, 500)
 }
 
@@ -79,8 +85,8 @@ object GeoType {
         body = type(16, 24, 400),
         titleSm = type(16, 24, 600),
         title = type(18, 28, 700),
-        boardTitle = type(24, 32, 700),
-        heading = type(24, 32, 700),
+        boardTitle = type(32, 40, 700),
+        heading = type(32, 40, 700),
         button = type(16, 24, 600),
         input = type(16, 24, 400),
         mono = type(13, 20, 400).copy(fontFamily = FontFamily.Monospace)

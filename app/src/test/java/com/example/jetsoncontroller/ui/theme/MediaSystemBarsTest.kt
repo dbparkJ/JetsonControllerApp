@@ -12,8 +12,11 @@ class MediaSystemBarsTest {
             assertEquals(Color.Black, media.navigationBar)
             assertFalse(media.darkStatusIcons)
             assertFalse(media.darkNavigationIcons)
-            assertEquals(palette.colors.topBar, systemBarAppearance(palette, false).statusBar)
-            assertEquals(palette.colors.nav, systemBarAppearance(palette, false).navigationBar)
+            assertEquals(palette.colors.canvas, systemBarAppearance(palette, false).statusBar)
+            assertEquals(palette.colors.canvas, systemBarAppearance(palette, false).navigationBar)
+            assertEquals(palette.colors.surface, systemBarAppearance(palette, true).navigationBar)
+            assertEquals(!palette.isDark, systemBarAppearance(palette, false).darkStatusIcons)
+            assertEquals(!palette.isDark, systemBarAppearance(palette, true).darkNavigationIcons)
         }
     }
 }

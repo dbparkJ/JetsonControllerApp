@@ -90,10 +90,10 @@ class ThemeScreenStateTest {
         GeoPalette.entries.forEach { palette ->
             listOf(false, true).forEach { surfaceInset ->
                 val bars = systemBarAppearance(palette, surfaceInset)
-                assertEquals(palette.colors.topBar, bars.statusBar)
-                assertEquals(if (surfaceInset) palette.colors.surface else palette.colors.nav, bars.navigationBar)
-                assertEquals(!palette.isDark && palette != GeoPalette.NAVY_LIGHT, bars.darkStatusIcons)
-                assertEquals(!palette.isDark && (surfaceInset || palette != GeoPalette.NAVY_LIGHT), bars.darkNavigationIcons)
+                assertEquals(palette.colors.canvas, bars.statusBar)
+                assertEquals(if (surfaceInset) palette.colors.surface else palette.colors.canvas, bars.navigationBar)
+                assertEquals(!palette.isDark, bars.darkStatusIcons)
+                assertEquals(!palette.isDark, bars.darkNavigationIcons)
             }
         }
     }

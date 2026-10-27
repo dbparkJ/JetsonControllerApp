@@ -27,17 +27,14 @@ fun GeoActionArea(
         var largestDp by remember { mutableFloatStateOf(0f) }
         val latestAction = rememberUpdatedState(action)
         val colors by rememberUpdatedState(LocalGeoColors.current)
-        val gutter by rememberUpdatedState(if (LocalGeoPane.current) 16.dp else LocalGeoWindow.current.gutterDp.dp)
+        val gutter by rememberUpdatedState(if (LocalGeoPane.current) 0.dp else 24.dp)
         val sticky = stickyAction(chrome.viewportDp, chrome.topDp, chrome.bottomDp, chrome.imeDp,
             largestDp, scene, LocalGeoWindow.current.compactHeight, inlineForIme = LocalGeoWindow.current.widthDp >= 600f)
-        // KIT §3.12: a pinned action area carries a 1 dp border hairline on top; inline it has none.
-        val pinned by rememberUpdatedState(sticky)
         val actionContent = remember {
             movableContentOf {
-                Surface(color = colors.surface) {
+                Surface(color = colors.canvas) {
                     Box(Modifier.fillMaxWidth().heightIn(min = largestDp.dp)
                         .onSizeChanged { largestDp = retainedActionHeight(largestDp, it.height / density.density) }
-                        .drawBehind { if (pinned) drawRect(colors.border, size = Size(size.width, 1.dp.toPx())) }
                         .padding(horizontal = gutter, vertical = 12.dp)) {
                         latestAction.value()
                     }
