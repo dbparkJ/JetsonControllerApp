@@ -76,6 +76,11 @@ internal fun DirectServerScreen(
     var menu by remember(state.selectedProfileId, state.selectedJob?.sessionId) { mutableStateOf(false) }
     val menuOpener = remember { FocusRequester() }
     val trash = state.section == DirectServerSection.TRASH
+    val detailJob = state.selectedJob.takeUnless { trash }
+    val detailStatus = detailJob?.let { serverJobState(it.state) }
+    val detailSubtitle = detailJob?.let {
+        "${it.deviceId.takeIf { id -> id.startsWith("GEO-X-", true) } ?: "장치"} → ${profile?.displayName.orEmpty()}"
+    } ?: profile?.displayName
     val twoPanes = LocalGeoWindow.current.twoPane && !LocalGeoPane.current && !trash &&
         !state.requiresLogin && state.profiles.isNotEmpty() &&
         !(state.capabilities == null && state.jobsSource == null && !state.isConnecting)
@@ -154,13 +159,14 @@ internal fun DirectServerScreen(
                     }
                 } },
                 detail = { GeoLargeTitleScaffold(state.selectedJob?.sourceName ?: "수신 상세", actions = serverActions,
-                    subtitle = profile?.displayName) {
+                    subtitle = detailSubtitle, subtitleStatus = detailStatus?.let { GeoStatusSpec(it.word, it.tone) }) {
                     JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory, onOpenFile, onReceipt,
                         Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
                 } })
             else GeoLargeTitleScaffold(state.selectedJob?.sourceName?.takeUnless { trash } ?: "서버 수신 결과",
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
-                onBack = onBack, subtitle = profile?.displayName, actions = serverActions) {
+                onBack = onBack, subtitle = detailSubtitle, actions = serverActions,
+                subtitleStatus = detailStatus?.let { GeoStatusSpec(it.word, it.tone) }) {
                 Column(Modifier.fillMaxSize()) {
                     serverContext()
                     when {
@@ -245,10 +251,6 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
     }
     LazyColumn(modifier, contentPadding = PaddingValues(storageGutter, 16.dp)) {
         item {
-            val status = serverJobState(job.state)
-            GeoBadge(status.word, status.tone)
-            Text("${job.deviceId.takeIf { it.startsWith("GEO-X-", true) } ?: "장치"} → $server",
-                style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
             GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp), trailingColumn = GeoRowTrailing.None) {
                 GeoRow("작업 정보", { information = true },
                     meta = "${Formats.itemCount(job.fileCount.toLong())} · ${Formats.size(job.totalBytes)}",

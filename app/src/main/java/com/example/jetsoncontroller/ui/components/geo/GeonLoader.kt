@@ -28,6 +28,8 @@ import kotlin.math.roundToInt
 
 internal data class LoaderFrame(val reveal: Float, val foregroundAlpha: Float, val clipTop: Float)
 
+internal fun loaderBaseAlpha(media: Boolean): Float = if (media) .64f else .16f
+
 internal fun loaderFrame(size: Float, fraction: Float, reducedMotion: Boolean = false): LoaderFrame {
     if (reducedMotion) return LoaderFrame(1f, 1f, 0f)
     val t = fraction.coerceIn(0f, 1f)
@@ -61,7 +63,7 @@ fun GeonLoader(
         if (reducedMotion) {
             drawImage(symbol, dstOffset = offset, dstSize = destination, colorFilter = tint)
         } else {
-            drawImage(symbol, dstOffset = offset, dstSize = destination, alpha = .16f, colorFilter = tint)
+            drawImage(symbol, dstOffset = offset, dstSize = destination, alpha = loaderBaseAlpha(media), colorFilter = tint)
             val frame = loaderFrame(height.toFloat(), fraction)
             clipRect(left = offset.x.toFloat(), top = offset.y + frame.clipTop,
                 right = (offset.x + width).toFloat(), bottom = (offset.y + height).toFloat()) {

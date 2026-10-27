@@ -136,12 +136,13 @@ internal fun StorageFreshness(updatedAt: Long?, onRefresh: () -> Unit, prefix: S
     val age = instant?.let { Duration.between(it, Instant.ofEpochMilli(now)).coerceAtLeast(Duration.ZERO) }
     if (loading && instant == null) return
     if (forceVisible || prefix != null || age == null || age >= Duration.ofSeconds(60)) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(if (prefix != null && server) "$prefix · 마지막 동기화 ${Formats.time(instant)}"
                 else if (prefix != null) "$prefix · ${Formats.freshness(age, instant)}"
                 else Formats.freshness(age, instant),
-                style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
-            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
+                modifier = Modifier.weight(1f), style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
+            GeoIconButton(GeoIcons.refresh, "다시 확인", onRefresh,
                 enabled = !loading)
         }
     }

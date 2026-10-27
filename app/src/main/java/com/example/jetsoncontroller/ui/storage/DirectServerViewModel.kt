@@ -72,6 +72,7 @@ internal data class DirectServerUiState(
     val undoSessionId: String? = null,
     val mutationMessage: String? = null,
     val isSavingProfile: Boolean = false,
+    val isLoadingProfiles: Boolean = false,
     val isConnecting: Boolean = false,
     val isLoading: Boolean = false,
     val message: String? = null,
@@ -89,14 +90,21 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
     val uiState = _uiState.asStateFlow()
     private var repository: DirectServerRepository? = null
     private var operation: Job? = null
+    private var profilesJob: Job? = null
     private val requestGeneration = DirectServerRequestGeneration()
 
     init {
-        viewModelScope.launch {
+        refreshProfiles()
+    }
+
+    fun refreshProfiles() {
+        profilesJob?.cancel()
+        _uiState.value = _uiState.value.copy(isLoadingProfiles = true, message = null,
+            messageIsError = false, errorActionLabel = null)
+        profilesJob = viewModelScope.launch {
             store.profiles.catch {
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    isConnecting = false,
+                    isLoadingProfiles = false,
                     message = "저장된 서버 연결 정보를 불러오지 못했습니다. 다시 시도하세요.",
                     messageIsError = true,
                     errorActionLabel = "프로필 편집"
@@ -107,6 +115,7 @@ internal class DirectServerViewModel(context: Context) : ViewModel() {
                     ?: profiles.firstOrNull()?.profile?.profileId
                 _uiState.value = _uiState.value.copy(
                     profiles = profiles,
+                    isLoadingProfiles = false,
                     selectedProfileId = selected,
                     section = _uiState.value.section
                 )

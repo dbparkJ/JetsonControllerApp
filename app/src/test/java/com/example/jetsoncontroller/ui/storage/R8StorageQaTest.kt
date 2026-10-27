@@ -11,6 +11,7 @@ class R8StorageQaTest {
         val direct = r8UiSource("storage/DirectServerScreen.kt")
         val proxy = r8UiSource("storage/ServerStorageScreen.kt")
         assertTrue(browser.contains("R7Section(day"))
+        assertFalse(browser.contains("GeoRowTrailing.Status"))
         assertTrue(browser.contains("maxContentWidth = 720.dp"))
         assertTrue(browser.contains("GeoCopyableValue(state.currentPath, label = \"폴더 경로\")"))
         listOf(browser, direct, proxy, selection).forEach {
@@ -52,5 +53,48 @@ class R8StorageQaTest {
         assertFalse(proxy.contains("DevEmpty(\"빈 폴더입니다\""))
         assertTrue(proxy.contains("count = if (!state.isLoading && state.error == null && state.selectedTarget != null)"))
         assertTrue(detail.contains("if (deletionEnabled) GeoSection(\"관리\", danger = true)"))
+    }
+
+    @Test fun standaloneSectionNavigationDoesNotInheritAStatusColumn() {
+        val section = r8UiSource("storage/R7ScreenLayout.kt")
+        val action = section.substringAfter("if (actionLabel != null && onAction != null)")
+        assertTrue(action.contains("GeoRowList(GeoRowTrailing.None)"))
+        assertTrue(action.contains("GeoRow(actionLabel, onAction, divider = false)"))
+    }
+
+    @Test fun receivedJobStatusAndRouteBelongToTheLargeTitleSubtitle() {
+        val direct = r8UiSource("storage/DirectServerScreen.kt")
+        assertEquals(2, Regex("subtitleStatus = detailStatus").findAll(direct).count())
+        assertTrue(direct.contains("GeoStatusSpec(it.word, it.tone)"))
+        assertTrue(direct.contains("subtitle = detailSubtitle"))
+        val body = direct.substringAfter("private fun JobDetail(").substringBefore("private fun serverFileCategory(")
+        assertFalse(body.contains("GeoBadge("))
+        assertFalse(body.contains(" → "))
+        val panes = direct.substringAfter("if (twoPanes) GeoPaneLayout(").substringBefore("else GeoLargeTitleScaffold(")
+        assertTrue(panes.contains("list = { GeoLargeTitleScaffold("))
+        assertFalse(panes.contains("policy ="))
+        assertFalse(panes.contains("widthIn("))
+    }
+
+    @Test fun trashOnlyWarnsWhenPreviousEntriesAreActuallyVisible() {
+        val trash = r8UiSource("storage/LocalTrashScreen.kt")
+        val failure = trash.substringAfter("state.error?.let { error ->").substringBefore("items(state.entries")
+        assertTrue(failure.contains("if (state.entries.isNotEmpty()) GeoInlineNote("))
+        assertTrue(failure.contains("tone = Tone.WARNING"))
+        assertTrue(failure.contains("else GeoStateBlock(GeoStateContent(GeoStateKind.ERROR"))
+        assertFalse(failure.contains("state.hasLoaded"))
+        assertTrue(trash.contains("forceVisible = state.error != null && state.entries.isNotEmpty()"))
+    }
+
+    @Test fun storageRefreshActionsUseTheTitleOrTheRightOfFreshness() {
+        val freshness = r8UiSource("storage/StorageLayout.kt").substringAfter("internal fun StorageFreshness(")
+        assertTrue(freshness.contains("Row(Modifier.fillMaxWidth()"))
+        assertTrue(freshness.contains("modifier = Modifier.weight(1f)"))
+        assertTrue(freshness.contains("GeoIconButton(GeoIcons.refresh"))
+        assertFalse(freshness.contains("GeoButton("))
+        val proxy = r8UiSource("storage/ServerStorageScreen.kt")
+        assertTrue(proxy.contains("DevPage(\"장치 경유 서버 조회\", onBack, actions = {"))
+        assertTrue(proxy.contains("if (state.controlAvailable) GeoIconButton(GeoIcons.refresh"))
+        assertFalse(proxy.contains("GeoButton(\"다시 조회\""))
     }
 }

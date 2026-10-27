@@ -66,9 +66,8 @@ fun UploadConfirmScreen(
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
                 item { ongoingRun() }
                 item {
-                    TransferHeading(linkedRun?.contextSnapshot?.surveySectionLabel ?: summary?.folderName
-                        ?: path.substringAfterLast('/').ifBlank { "수집 자료" },
-                        linkedRun?.contextSnapshot?.surveyProjectLabel)
+                    TransferHeading(linkedRun?.contextSnapshot?.surveySectionLabel?.takeIf(String::isNotBlank) ?: "수집 자료",
+                        linkedRun?.contextSnapshot?.surveyProjectLabel?.takeIf(String::isNotBlank))
                     GeoSection("보낼 자료", first = true, note = "장치 원본은 그대로 보관됩니다.") {
                         GeoCopyableValue(path, label = "원본 경로")
                         GeoPropertyList(listOf("파일", "용량", "보내는 장치", "수집")) {

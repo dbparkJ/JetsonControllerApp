@@ -160,7 +160,7 @@ class StartSheetStateTest {
         )
         cases.forEach { (state, tone) ->
             assertEquals(preparationActionReason(state), tone, preparationActionTone(state))
-            assertEquals(tone == Tone.SUCCESS, preparationActionReason(state).endsWith(" · 시작할 수 있습니다."))
+            assertEquals(tone == Tone.SUCCESS, preparationActionReason(state).endsWith(" · 시작 전 점검을 진행하세요."))
         }
     }
 

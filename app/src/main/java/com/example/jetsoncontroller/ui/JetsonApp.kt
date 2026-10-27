@@ -226,7 +226,7 @@ private val routesNeedingConnectionNotice = routesRequiringDeviceConnection + se
 private val paneLayoutRoutes = setOf(
     Routes.WORK_BROWSE, Routes.TASKS, Routes.TICKET_DETAIL, Routes.ACTIVE_RUN,
     Routes.DEVICES, Routes.DEVICE_BROWSE, Routes.DEVICE_DETAIL,
-    Routes.TRANSFERS, Routes.TRANSFER_BROWSE, Routes.UPLOAD_PROGRESS, Routes.DATA,
+    Routes.TRANSFERS, Routes.TRANSFER_BROWSE, Routes.UPLOAD_PROGRESS, Routes.DATA, Routes.SERVER_STORAGE,
     Routes.SETTINGS, Routes.THEME, Routes.ALERT_SETTINGS, "settings/about", "settings/help", "settings/server"
 )
 

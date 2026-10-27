@@ -57,6 +57,19 @@ class R8FieldQaRulesTest {
         assertFalse(screen.contains("GeoBadgeVariant.SOFT"))
     }
 
+    @Test fun activeMetricsMeasureEvidenceAndAlignLabelsAtTheTop() {
+        val screen = r8UiSource("field/ActiveRunScreen.kt")
+        val clock = screen.substringAfter("private fun ActiveRunClockCard(").substringBefore("private fun RunHeading(")
+        assertTrue(clock.contains("AnnotatedString(elapsed?.detail.orEmpty())"))
+        assertTrue(clock.contains("AnnotatedString(capacityShown?.detail.orEmpty())"))
+        assertTrue(clock.contains("AnnotatedString(capacityShown?.staleDetail.orEmpty())"))
+        assertTrue(clock.contains("Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top"))
+        assertFalse(clock.contains("verticalAlignment = Alignment.Bottom"))
+        val note = screen.substringAfter("note?.let {").substringBefore("ActiveRunClockCard(figures.take(2))")
+        assertTrue(note.indexOf("GeoInlineNote(it, tone = if (awaitingStart)") < note.indexOf("Spacer(Modifier.height(16.dp))"))
+        assertTrue(note.contains("Spacer(Modifier.height(16.dp))"))
+    }
+
     @Test fun actionNotesStayWithTheirFixedActions() {
         val active = r8UiSource("field/ActiveRunScreen.kt")
         val result = r8UiSource("field/RunResultScreen.kt")

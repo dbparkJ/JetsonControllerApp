@@ -46,7 +46,10 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
         }
         return
     }
-    DevPage("장치 경유 서버 조회", onBack, overlay = {
+    DevPage("장치 경유 서버 조회", onBack, actions = {
+        if (state.controlAvailable) GeoIconButton(GeoIcons.refresh, "서버 저장소 다시 조회", onRefresh,
+            enabled = !state.isLoading, chrome = true)
+    }, overlay = {
         com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost(state.message, onDismissMessage)
     }) {
         if (!state.controlAvailable) {
@@ -97,7 +100,6 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
                 }
                 GeoTechInfo(listOf(GeoTechnicalValue("수신 ID", state.selectedSession.sessionId)), true, technical)
             }
-            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !state.isLoading)
         }
     }
 }

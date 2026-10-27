@@ -18,11 +18,13 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoPalette
  * the display, so the insets arrive and the bottom of the content stays above the bar.
  */
 @Composable
-internal fun GeoDialogCoversDisplay() {
+internal fun GeoDialogCoversDisplay(useThemeScrim: Boolean = false) {
     val view = LocalView.current
     val window = (view.parent as? DialogWindowProvider)?.window
     val dark = LocalGeoPalette.current.isDark
     SideEffect {
+        // The caller draws the palette scrim itself; platform dim would darken it a second time.
+        if (useThemeScrim) window?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         val attributes = window?.attributes ?: return@SideEffect
         window.isStatusBarContrastEnforced = false
         window.isNavigationBarContrastEnforced = false

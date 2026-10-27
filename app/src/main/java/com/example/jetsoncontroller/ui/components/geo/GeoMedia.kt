@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane
@@ -63,10 +64,12 @@ fun GeoImmersiveMediaFrame(
     onRetry: (() -> Unit)? = null,
     retryEnabled: Boolean = true,
     loadingText: String? = null,
+    captureDisabledReason: String? = null,
     media: @Composable BoxScope.() -> Unit
 ) {
     if (!LocalGeoPane.current) GeoSystemBars(navigationBarUsesSurface = false, media = true)
     val tablet = LocalGeoWindow.current.widthDp >= 600f
+    val captionWithCapture = !tablet && captureAction != null && !captureEnabled && !captureDisabledReason.isNullOrBlank()
     val colors = LocalGeoColors.current
     CompositionLocalProvider(LocalGeoMediaStage provides true, LocalGeoGroupInset provides false,
         LocalGeoColors provides colors.copy(text = GeoFixedColors.mediaText,
@@ -78,7 +81,7 @@ fun GeoImmersiveMediaFrame(
                     GeoMediaInfo(it)
                 }
             }
-            caption?.let {
+            if (!captionWithCapture) caption?.let {
                 Box(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(24.dp)
                     .padding(bottom = if (tablet) 56.dp else 104.dp).widthIn(max = 360.dp)
                     .background(GeoFixedColors.mediaPlate, GeoShape.card).padding(12.dp)) { it() }
@@ -103,8 +106,30 @@ fun GeoImmersiveMediaFrame(
             }
             Box(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), content = controls)
             captureAction?.let {
-                GeoCaptureButton(it, Modifier.align(if (tablet) Alignment.CenterEnd else Alignment.BottomCenter)
-                    .safeDrawingPadding().padding(24.dp), captureEnabled)
+                val captureNote: @Composable () -> Unit = {
+                    if (!captureEnabled && !captureDisabledReason.isNullOrBlank()) {
+                        Column(Modifier.widthIn(max = if (tablet) 280.dp else 360.dp)
+                            .background(GeoFixedColors.mediaPlate, GeoShape.card).padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (captionWithCapture) caption?.invoke()
+                            Text(captureDisabledReason, style = LocalGeoType.current.supporting,
+                                color = GeoFixedColors.mediaText, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+                if (tablet) {
+                    Row(Modifier.align(Alignment.CenterEnd).safeDrawingPadding().padding(24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        captureNote()
+                        GeoCaptureButton(it, enabled = captureEnabled)
+                    }
+                } else {
+                    Column(Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        captureNote()
+                        GeoCaptureButton(it, enabled = captureEnabled)
+                    }
+                }
             }
         }
     }

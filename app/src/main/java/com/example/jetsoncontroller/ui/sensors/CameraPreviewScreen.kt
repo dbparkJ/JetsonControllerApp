@@ -66,6 +66,7 @@ fun CameraPreviewScreen(
     GeoImmersiveMediaFrame(
         captureAction = captureNow,
         captureEnabled = canCapture,
+        captureDisabledReason = cameraCaptureDelayReason(stage, compactInfo),
         info = GeoMediaInfoSpec(
             status = when (stage) {
                 CameraStageState.LIVE -> "실시간"
@@ -88,8 +89,6 @@ fun CameraPreviewScreen(
                     received?.let { Text(it, style = type.caption.copy(fontFeatureSettings = "tnum"), color = GeoFixedColors.mediaText) }
                     Text(cameraCaptureDestinationText(saveDevice, saveMobile), style = type.caption, color = GeoFixedColors.mediaText)
                     if (captureBusy) Text("캡처 중", style = type.caption, color = GeoFixedColors.mediaText)
-                    if (stage == CameraStageState.DELAYED) Text("실시간 영상을 받으면 캡처할 수 있습니다.",
-                        style = type.supporting, color = GeoFixedColors.mediaText)
                 }
             }
         },
@@ -134,3 +133,8 @@ fun CameraPreviewScreen(
         GeoCheckboxRow("휴대폰 갤러리에 저장", saveMobile, { saveMobile = it; prefs.edit().putBoolean("mobile", it).apply() })
     }
 }
+
+internal fun cameraCaptureDelayReason(stage: CameraStageState, compactInfo: Boolean): String? =
+    if (stage != CameraStageState.DELAYED) null
+    else if (compactInfo) "실시간 영상 수신 후 캡처 가능"
+    else "실시간 영상을 받으면 캡처할 수 있습니다."

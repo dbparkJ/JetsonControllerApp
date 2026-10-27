@@ -69,7 +69,8 @@ fun LocalTrashScreen(
                     item {
                         // The freshness line holds the screen's one "다시 확인"; the notes below never repeat it.
                         StorageFreshness(state.refreshedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() },
-                            onRefresh, state.deviceName, server = false, loading = state.loading)
+                            onRefresh, state.deviceName, server = false, loading = state.loading,
+                            forceVisible = state.error != null && state.entries.isNotEmpty())
                         if (state.error == null && (!state.loading || state.hasLoaded || !state.online)) GeoInlineNote(when {
                             !state.online -> "장치에 연결하면 복원 가능한 항목과 영구 삭제 지원 여부를 확인할 수 있습니다."
                             !state.hasLoaded -> "장치 휴지통을 확인하고 있습니다."
@@ -79,7 +80,12 @@ fun LocalTrashScreen(
                         Spacer(Modifier.height(24.dp))
                         if (state.loading && !state.hasLoaded) GeoSkeleton("장치 휴지통을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
                         else if (busy && !state.loading) GeoProgress()
-                        state.error?.let { GeoInlineNote(it, tone = if (state.hasLoaded) Tone.WARNING else Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR) }
+                        state.error?.let { error ->
+                            if (state.entries.isNotEmpty()) GeoInlineNote(localTrashFailureDetail(error, true),
+                                tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR)
+                            else GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "장치 휴지통을 불러오지 못했습니다",
+                                localTrashFailureDetail(error, false)), fullScreen = true)
+                        }
                     }
                     items(state.entries, key = { it.trashId }) { entry ->
                         LocalTrashEntry(entry, state.online, busy) { onRestore(entry) }
@@ -97,6 +103,11 @@ fun LocalTrashScreen(
             Box(Modifier.align(Alignment.BottomCenter)) { GeoOperationMessageHost(state.message, onDismissMessage) }
         }
     }
+}
+
+internal fun localTrashFailureDetail(error: String, hasPreviousResults: Boolean): String {
+    if (!hasPreviousResults) return storageFailureDetail(error, "장치 휴지통을 불러오지 못했습니다")
+    return "$error 이전 조회 결과를 표시합니다."
 }
 
 @Composable

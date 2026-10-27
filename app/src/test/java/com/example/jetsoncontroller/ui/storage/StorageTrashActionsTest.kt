@@ -88,4 +88,15 @@ class StorageTrashActionsTest {
         assertEquals("20261019_1636을", storageObjectName("20261019_1636"))
         assertEquals("20260915_data를", storageObjectName("20260915_data"))
     }
+
+    @Test fun cachedTrashFailureKeepsTheCauseAndExplainsTheVisibleResults() {
+        val detail = localTrashFailureDetail("장치 연결이 끊겼습니다.", true)
+        assertTrue(detail.startsWith("장치 연결이 끊겼습니다."))
+        assertTrue(detail.contains("이전 조회 결과를 표시합니다."))
+        val empty = localTrashFailureDetail("장치 휴지통을 불러오지 못했습니다", false)
+        assertEquals("연결 상태를 확인한 뒤 다시 확인하세요.", empty)
+        assertFalse(empty.contains("이전 조회"))
+        assertEquals("장치 응답 시간이 초과되었습니다.",
+            localTrashFailureDetail("장치 응답 시간이 초과되었습니다.", false))
+    }
 }

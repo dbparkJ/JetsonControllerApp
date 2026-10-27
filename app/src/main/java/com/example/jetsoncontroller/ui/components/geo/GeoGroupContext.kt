@@ -29,8 +29,11 @@ internal fun geoGroupLastRow(rowBottomPx: Float, lastBottomPx: Float): Boolean =
 
 internal fun geoActionWidth(widths: Collection<Float>): Float = maxOf(88f, widths.maxOrNull() ?: 0f)
 
-internal fun geoActionStacks(available: Float, action: Float, title: Float): Boolean =
-    action + title + 48f > available
+/** Available width excludes the row padding and leading content. */
+internal fun geoActionStacks(
+    available: Float, action: Float, title: Float,
+    fontScale: Float = 1f, bodyLines: Int = 0
+): Boolean = action + title + 8f > available || (fontScale >= 1.3f && bodyLines > 2)
 
 internal fun geoBreakableValue(value: String): String = buildString {
     value.forEach { char ->

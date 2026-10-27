@@ -78,7 +78,8 @@ internal fun NavGraphBuilder.devGraph(state: State<AppNavigationState>) {
     devDestination(DevDestination.PROFILES.route, state) { app, _ ->
         DevServerProfilesScreen(app.directServerState, { app.navController.popBackStack() },
             { id -> app.directServerViewModel.dismissMessage(); app.navController.navigateSingle("dev/server-profiles/edit?profileId=${Uri.encode(id.orEmpty())}") },
-            { id -> app.directServerViewModel.selectProfile(id); app.directServerViewModel.connect() })
+            { id -> app.directServerViewModel.selectProfile(id); app.directServerViewModel.connect() },
+            onRefresh = app.directServerViewModel::refreshProfiles)
     }
     devDestination(DevDestination.PROFILE_EDITOR.route, state,
         arguments = listOf(navArgument("profileId") { defaultValue = "" })) { app, entry ->

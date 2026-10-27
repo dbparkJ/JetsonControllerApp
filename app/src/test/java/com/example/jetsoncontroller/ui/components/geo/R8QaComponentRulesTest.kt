@@ -122,8 +122,8 @@ class R8QaComponentRulesTest {
     @Test fun qa15ActionWidthsShareMeasuredLabelsAndStackOnlyOnOverflow() {
         assertEquals(88f, geoActionWidth(emptyList()), 0f)
         assertEquals(137f, geoActionWidth(listOf(80f, 137f, 92f)), 0f)
-        assertFalse(geoActionStacks(329f, 137f, 144f))
-        assertTrue(geoActionStacks(328f, 137f, 144f))
+        assertFalse(geoActionStacks(289f, 137f, 144f))
+        assertTrue(geoActionStacks(288f, 137f, 144f))
         assertTrue(source("GeoRows").contains("textAlign = TextAlign.Center, maxLines = 1, softWrap = false"))
     }
 

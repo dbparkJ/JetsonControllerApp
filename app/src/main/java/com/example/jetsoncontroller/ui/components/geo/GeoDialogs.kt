@@ -4,6 +4,7 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.geoCardShadow
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,7 +37,7 @@ fun GeoConfirmDialog(
     disabledReason: String? = null,
     busy: Boolean = false,
     openerFocusRequester: FocusRequester? = null,
-    facts: @Composable ColumnScope.() -> Unit = {}
+    facts: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     require(confirmLabel.isNotBlank() && confirmLabel != "확인" && confirmLabel != "예")
     require(confirmEnabled || !disabledReason.isNullOrBlank()) { "A disabled confirmation needs a visible reason" }
@@ -48,7 +49,9 @@ fun GeoConfirmDialog(
         )
     }) {
         Text(body, color = LocalGeoColors.current.text, style = LocalGeoType.current.body)
-        facts()
+        if (facts != null) {
+            Column(Modifier.fillMaxWidth().padding(top = 16.dp), content = facts)
+        }
         if (!confirmEnabled && disabledReason != null) {
             Spacer(Modifier.height(8.dp))
             Text(disabledReason, color = LocalGeoColors.current.textSecondary, style = LocalGeoType.current.body)
@@ -90,8 +93,9 @@ private fun OverlayDialog(
         OverlayFullScreenDialog(title, null, onDismissRequest, modifier, footer, content)
     } else {
         Dialog(onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-            GeoDialogCoversDisplay()
-            BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))) {
+            GeoDialogCoversDisplay(useThemeScrim = true)
+            BoxWithConstraints(Modifier.fillMaxSize().background(t.scrim)
+                .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))) {
                 val gutter = overlayGutter(maxWidth.value).dp
                 Box(Modifier.fillMaxSize().padding(gutter), contentAlignment = Alignment.Center) {
                     Surface(

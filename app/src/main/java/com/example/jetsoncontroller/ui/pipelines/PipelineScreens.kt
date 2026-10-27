@@ -63,7 +63,7 @@ fun PipelineListScreen(
             when (pipelineListContent(state.isLoading, state.error, state.pipelines.isNotEmpty())) {
                 PipelineDetailContent.LOADING -> DevLoading("작업 목록을 불러오는 중")
                 PipelineDetailContent.ERROR -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
-                    "작업 목록을 불러오지 못했습니다", state.error ?: "장치 연결을 확인하고 다시 조회하세요."), fullScreen = true)
+                    "작업 목록을 불러오지 못했습니다", pipelineFailureDetail(state.error, "작업 목록을 불러오지 못했습니다")), fullScreen = true)
                 PipelineDetailContent.EMPTY -> DevEmpty("이 장치에 등록된 작업이 없습니다.",
                     if (developerModeEnabled) "작업 등록을 눌러 이 장치에 작업을 등록하세요." else "작업 등록은 관리자에게 요청하세요.")
                 else -> Unit
@@ -87,7 +87,7 @@ fun PipelineListScreen(
             }
         } else if (state.isLoading && pipeline == null) DevLoading("작업 정보를 불러오는 중")
         else if (state.error != null && pipeline == null) GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
-            "작업 정보를 불러오지 못했습니다", state.error), fullScreen = true)
+            "작업 정보를 불러오지 못했습니다", pipelineFailureDetail(state.error, "작업 정보를 불러오지 못했습니다")), fullScreen = true)
         else if (pipeline == null) DevEmpty("작업을 찾을 수 없습니다", "장치의 작업 목록을 다시 조회하세요.")
         else {
             DevIdentity(pipeline.label, "$deviceName · 마지막 실행 ${devTimestamp(pipeline.execution?.startedAt)}",
@@ -183,7 +183,7 @@ fun PipelinePickerScreen(roots: List<RemoteRoot>, state: PipelinePickerState, on
         if (state.root != null) GeoCopyableValue(state.currentPath.ifBlank { "/" }, label = "현재 경로")
         if (state.isLoading) DevLoading("폴더를 불러오는 중")
         else if (state.error != null) GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
-            "폴더를 불러오지 못했습니다", state.error, "다시 시도"), fullScreen = true, onAction = onRefresh)
+            "폴더를 불러오지 못했습니다", pipelineFailureDetail(state.error, "폴더를 불러오지 못했습니다"), "다시 시도"), fullScreen = true, onAction = onRefresh)
         else if (state.root == null) GeoSection("저장소", trailingColumn = GeoRowTrailing.None) {
             if (roots.isEmpty()) DevEmpty("선택할 저장소가 없습니다", "장치의 저장소를 확인해 주세요.", fullScreen = false)
           roots.forEachIndexed { index, root ->

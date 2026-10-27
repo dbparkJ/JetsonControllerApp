@@ -43,4 +43,33 @@ class R8PairingLayoutTest {
         assertTrue(pairing.contains("GeoOverlayAction(\"취소\", onCancel)"))
         assertTrue(pairing.contains("maskedPairingCode(state.pairingInfo)"))
     }
+
+    @Test fun registrationErrorWithCredentialsRetriesTheSameTarget() {
+        val calls = mutableListOf<String>()
+        val recovery = pairingErrorRecoveryAction(true, { calls += "retry" }, { calls += "scan" })
+        assertEquals("다시 시도", recovery.label)
+        assertTrue(recovery.enabled)
+        recovery.onClick()
+        assertEquals(listOf("retry"), calls)
+    }
+
+    @Test fun registrationErrorWithoutCredentialsOffersAnEnabledScannerAction() {
+        val calls = mutableListOf<String>()
+        val recovery = pairingErrorRecoveryAction(false, { calls += "retry" }, { calls += "scan" })
+        assertEquals("다시 스캔", recovery.label)
+        assertTrue(recovery.enabled)
+        assertNull(recovery.disabledReason)
+        recovery.onClick()
+        assertEquals(listOf("scan"), calls)
+    }
+
+    @Test fun registrationErrorHasOneCauseAndNoBodyRecoveryButton() {
+        val pairing = source("PairingScreen")
+        assertEquals(1, Regex("pairingFailureText\\(").findAll(pairing).count())
+        val errorBody = pairing.substringAfter("Column(Modifier.semantics")
+            .substringAfter("PairingPhase.ERROR -> {").substringBefore("else -> {")
+        assertTrue(errorBody.contains("GeoStateBlock("))
+        assertFalse(errorBody.contains("GeoButton("))
+        assertTrue(pairing.contains("pairingErrorRecoveryAction(state.pairingInfo != null, onRetry, onCancel)"))
+    }
 }

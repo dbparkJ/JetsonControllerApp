@@ -16,6 +16,15 @@ import org.junit.Test
 
 class QualityPresentationTest {
     @Test
+    fun `sheet names quality once while preserving the summary outside the sheet`() {
+        val presentation = runQualityPresentation(null)
+        assertEquals("미확인", qualitySheetHeadline("미확인", presentation.headline))
+        assertEquals("위치 품질 미확인", presentation.headline)
+        assertEquals("위치 없음", qualitySheetHeadline("미확인", "위치 없음"))
+        assertEquals("75%", qualitySheetHeadline("75%", "정밀 위치 75%"))
+    }
+
+    @Test
     fun `precision summary uses known denominator and keeps unknown time separate`() {
         val presentation = runQualityPresentation(
             RunQuality(

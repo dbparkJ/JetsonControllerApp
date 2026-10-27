@@ -296,21 +296,30 @@ internal fun SurveyStartSheet(
 internal fun preparationActionReason(state: SurveyRunUiState): String = when {
     state.pendingStart != null -> "시작 확인 중"
     state.unconfirmedRunId != null -> "수집 상태를 확인할 수 없습니다"
-    state.restoringLocalState || !state.runStateConfirmed -> "확인 중"
-    !state.online || !state.controlAvailable -> "연결되면 시작할 수 있습니다."
+    state.restoringLocalState -> "저장된 선택을 확인하고 있습니다."
+    !state.online || !state.controlAvailable -> "연결되면 시작 전 점검을 진행하세요."
     state.contextLocked || state.observedActiveRunCount > 0 -> "진행 중인 수집과 시작 요청을 먼저 확인하세요."
+    state.isLoading -> "수집 구간을 불러오고 있습니다."
+    !state.error.isNullOrBlank() -> if (state.sections.isEmpty() && state.preparationDraft?.section == null)
+        "수집 구간을 불러오지 못했습니다. 다시 확인하세요."
+        else "수집 준비 정보를 확인하지 못했습니다. 다시 확인하세요."
+    !state.runStateConfirmed -> "수집 상태를 확인하고 있습니다."
+    state.operation != null -> "진행 중인 작업이 끝나면 점검하세요."
     !state.preparationSelectionComplete -> "프로젝트와 구간을 선택하세요."
     state.policy == null -> "수집 작업 설정을 확인하세요."
-    else -> "${state.preparationTelemetry.connectionLabel} · 시작할 수 있습니다."
+    else -> "${state.preparationTelemetry.connectionLabel} · 시작 전 점검을 진행하세요."
 }
 
 /** The icon tone for [preparationActionReason], in the same order. */
 internal fun preparationActionTone(state: SurveyRunUiState): Tone = when {
     state.pendingStart != null -> Tone.PENDING
     state.unconfirmedRunId != null -> Tone.WARNING
-    state.restoringLocalState || !state.runStateConfirmed -> Tone.PENDING
+    state.restoringLocalState -> Tone.PENDING
     !state.online || !state.controlAvailable -> Tone.WARNING
     state.contextLocked || state.observedActiveRunCount > 0 -> Tone.WARNING
+    state.isLoading -> Tone.PENDING
+    !state.error.isNullOrBlank() -> Tone.WARNING
+    !state.runStateConfirmed || state.operation != null -> Tone.PENDING
     !state.preparationSelectionComplete -> Tone.UNKNOWN
     state.policy == null -> Tone.WARNING
     else -> Tone.SUCCESS

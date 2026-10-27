@@ -51,7 +51,7 @@ fun UploadTargetSettingsScreen(
             else -> GeoSection("서버", first = true, count = "${targets.size}개", note = "${deviceName}에 저장된 서버입니다.",
                 trailingColumn = GeoRowTrailing.None) {
                 targets.forEachIndexed { index, target ->
-                    GeoRow(target.label, { open(target) }, meta = target.baseUrl ?: "주소 미확인",
+                    GeoRow(target.label, { open(target) }, meta = target.baseUrl?.let(::geoBreakableValue) ?: "주소 미확인",
                         leading = { GeoIconTile(GeoIcons.router) }, divider = index < targets.lastIndex)
                 }
             }

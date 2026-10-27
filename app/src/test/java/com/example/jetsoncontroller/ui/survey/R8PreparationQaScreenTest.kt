@@ -42,6 +42,22 @@ class R8PreparationQaScreenTest {
         assertFalse(preparationPrimaryAction(state.copy(online = false), true, null, {}, {}, {}).enabled)
     }
 
+    @Test fun footerExplainsTheCheckActionAndCurrentLoadState() {
+        assertTrue(preparationActionReason(ready()).endsWith(" · 시작 전 점검을 진행하세요."))
+        assertFalse(preparationActionReason(ready()).contains("시작할 수 있습니다"))
+        val loading = ready().copy(isLoading = true, operation = "refresh", runStateConfirmed = false)
+        assertEquals("수집 구간을 불러오고 있습니다.", preparationActionReason(loading))
+        assertEquals(com.example.jetsoncontroller.ui.model.Tone.PENDING, preparationActionTone(loading))
+        val failed = ready().copy(error = "조회 실패", runStateConfirmed = false)
+        assertEquals("수집 구간을 불러오지 못했습니다. 다시 확인하세요.", preparationActionReason(failed))
+        assertEquals(com.example.jetsoncontroller.ui.model.Tone.WARNING, preparationActionTone(failed))
+        val loadingAction = preparationPrimaryAction(loading, true, null, {}, {}, {})
+        assertFalse(loadingAction.enabled)
+        assertEquals(preparationActionReason(loading), loadingAction.disabledReason)
+        // Presentation never opens the start gate after a failed lookup.
+        assertFalse(preparationPrimaryAction(failed, true, null, {}, {}, {}).enabled)
+    }
+
     @Test fun preparationUsesSharedStatusFooterAndOneProjectLabel() {
         val screen = r8UiSource("survey/SurveyRunScreen.kt")
         assertTrue(screen.contains("subtitleStatus = GeoStatusSpec(taskState.word, taskState.tone)"))

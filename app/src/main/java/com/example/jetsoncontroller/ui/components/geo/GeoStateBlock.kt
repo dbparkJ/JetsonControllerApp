@@ -28,9 +28,8 @@ fun GeoStateBlock(
     onAction: (() -> Unit)? = null
 ) {
     val colors = LocalGeoColors.current
-    val inGroup = LocalGeoGroupInset.current
     Box(modifier.fillMaxWidth().geoGroupInset(), contentAlignment =
-        if (inGroup) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopCenter) {
+        if (fullScreen || LocalGeoMediaStage.current) androidx.compose.ui.Alignment.TopCenter else androidx.compose.ui.Alignment.TopStart) {
         CompositionLocalProvider(LocalGeoGroupInset provides false) {
             Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(top = if (fullScreen) 56.dp else 0.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {

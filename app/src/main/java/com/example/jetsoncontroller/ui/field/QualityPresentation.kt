@@ -206,6 +206,9 @@ internal fun qualityDetailProblems(quality: RunQuality?): List<QualityProblemInt
         duration == null || duration >= 1_000L
     }
 
+internal fun qualitySheetHeadline(precision: String, headline: String): String =
+    if (precision != "미확인") precision else headline.removePrefix("위치 품질 ")
+
 @Composable
 internal fun RunQualityEvidence(
     quality: RunQuality?,
@@ -227,24 +230,23 @@ internal fun RunQualityEvidence(
             kind = GeoSheetKind.INFO, subtitle = subtitle, openerFocusRequester = openerFocus) {
             SelectionContainer {
               Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (precision != "미확인") "정밀 위치 · 관찰한 시간 기준" else "위치 품질",
+                if (precision != "미확인") Text("정밀 위치 · 관찰한 시간 기준",
                     style = LocalGeoType.current.supporting, color = colors.textSecondary)
-                Text(if (precision != "미확인") precision else presentation.headline,
-                    style = LocalGeoType.current.phoneFigure, color = colors.text)
+                Text(qualitySheetHeadline(precision, presentation.headline),
+                    style = if (precision != "미확인") LocalGeoType.current.phoneFigure else LocalGeoType.current.titleSm,
+                    color = colors.text)
                 Text(presentation.detail, style = LocalGeoType.current.caption, color = colors.textSecondary)
               }
             }
             PrecisionBar(presentation.slices)
-            GeoSection("관찰한 시간", first = true) {
+            GeoSection("시간 집계") {
                 GeoPropertyList(listOf("관찰한 시간", "관찰하지 못한 시간")) {
                     GeoFactRow("관찰한 시간", quality?.rtkObservedDurationMillis?.let(::qualityDurationLabel) ?: "미확인", numeric = true)
                     GeoFactRow("관찰하지 못한 시간", quality?.rtkUnknownDurationMillis?.let(::qualityDurationLabel) ?: "미확인", numeric = true)
                 }
             }
-            GeoSection("위치 품질별 시간") {
-                if (detailSlices.isEmpty()) GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
-                    "위치 품질 미확인", presentation.detail))
-                else GeoPropertyList(detailSlices.map { it.label }) {
+            if (detailSlices.isNotEmpty()) GeoSection("품질별 시간") {
+                GeoPropertyList(detailSlices.map { it.label }) {
                     detailSlices.forEach { slice ->
                         GeoPropertyRow(slice.label, qualityDurationLabel(slice.durationMillis), numeric = true)
                     }

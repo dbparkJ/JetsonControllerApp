@@ -132,7 +132,8 @@ internal fun DeviceIdentityRow(deviceId: String) {
     val titleAlignment = rememberFirstLineAlignment()
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
-    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+    Row(Modifier.fillMaxWidth().contentDivider(startIndent = 56.dp, enabled = false)
+        .heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
         Box(Modifier.size(24.dp).alignToFirstTitleLine(titleAlignment)) { GeoIconTile(GeoIcons.tabDevice) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {

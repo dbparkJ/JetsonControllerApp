@@ -20,6 +20,14 @@ import com.example.jetsoncontroller.ui.permissions.bluetoothPermissionText
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
+internal fun pairingErrorRecoveryAction(
+    hasPairingInfo: Boolean,
+    onRetry: () -> Unit,
+    onScanAgain: () -> Unit
+): GeoOverlayAction =
+    if (hasPairingInfo) GeoOverlayAction("다시 시도", onRetry)
+    else GeoOverlayAction("다시 스캔", onScanAgain)
+
 @Composable
 fun PairingScreen(
     state: PairingUiState,
@@ -41,8 +49,7 @@ fun PairingScreen(
                     GeoOverlayAction("다시 스캔", onCancel)
                 )
                 PairingPhase.ERROR -> GeoSheetFooter(
-                    GeoOverlayAction("다시 시도", onRetry, enabled = state.pairingInfo != null,
-                        disabledReason = "QR 코드로 다시 등록하세요."),
+                    pairingErrorRecoveryAction(state.pairingInfo != null, onRetry, onCancel),
                     GeoOverlayAction("취소", onCancel)
                 )
                 PairingPhase.READY -> Unit
@@ -65,7 +72,7 @@ fun PairingScreen(
                 badge = { GeoBadge(if (state.pairingInfo != null) "확인됨" else "미확인",
                     if (state.pairingInfo != null) Tone.SUCCESS else Tone.UNKNOWN) })
             GeoRow("장치 등록", {}, navigable = false, divider = false,
-                meta = if (state.phase == PairingPhase.ERROR) pairingFailureText(state.errorMessage)
+                meta = if (state.phase == PairingPhase.ERROR) null
                     else pairingProgressText(state.phase, state.connectionAttempt),
                 leading = { GeoIconTile(GeoIcons.bluetooth) },
                 badge = { GeoBadge(when (state.phase) {
@@ -88,7 +95,6 @@ fun PairingScreen(
                 }
                 PairingPhase.ERROR -> {
                     GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "등록하지 못했습니다", pairingFailureText(state.errorMessage)))
-                    GeoButton("다시 스캔", onCancel, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
                 else -> {
                     Text(pairingProgressText(state.phase, state.connectionAttempt), style = type.body, color = colors.text)

@@ -1,9 +1,29 @@
 package com.example.jetsoncontroller.ui.pipelines
 
+import com.example.jetsoncontroller.ui.components.geo.r8UiSource
 import org.junit.Assert.*
 import org.junit.Test
 
 class PipelineDetailPresentationTest {
+    @Test fun genericListAndPickerFailuresExplainRecoveryInsteadOfRepeatingTheTitle() {
+        val recovery = "장치 연결을 확인하고 다시 조회하세요."
+        listOf(null, "", "작업 목록을 불러오지 못했습니다", "작업 목록을 불러오지 못했습니다.",
+            "수집 작업을 불러오지 못했습니다. 다시 시도하세요.").forEach {
+            assertEquals(recovery, pipelineFailureDetail(it, "작업 목록을 불러오지 못했습니다"))
+        }
+        assertEquals(recovery, pipelineFailureDetail("폴더 내용을 불러오지 못했습니다. 다시 시도하세요.", "폴더를 불러오지 못했습니다"))
+        val screens = r8UiSource("pipelines/PipelineScreens.kt")
+        assertTrue(screens.contains("pipelineFailureDetail(state.error, \"작업 목록을 불러오지 못했습니다\")"))
+        assertTrue(screens.contains("pipelineFailureDetail(state.error, \"폴더를 불러오지 못했습니다\")"))
+    }
+
+    @Test fun specificFailureCausesRemainVisible() {
+        val cause = "저장소 접근 권한이 없습니다. 관리자에게 확인하세요."
+        assertEquals(cause, pipelineFailureDetail(cause, "폴더를 불러오지 못했습니다"))
+        assertEquals("장치 응답 시간이 초과되었습니다.", pipelineFailureDetail(
+            "작업 목록을 불러오지 못했습니다. 장치 응답 시간이 초과되었습니다.", "작업 목록을 불러오지 못했습니다"))
+    }
+
     @Test fun taskListLoadingFailureAndEmptyAreExclusive() {
         assertEquals(PipelineDetailContent.LOADING, pipelineListContent(true, "failed", false))
         assertEquals(PipelineDetailContent.ERROR, pipelineListContent(false, "failed", false))

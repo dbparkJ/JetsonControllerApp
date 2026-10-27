@@ -344,8 +344,14 @@ internal fun ActiveRunScreen(
             ActiveRunState.ENDED -> "결과 보기에서 장치 저장과 서버 수신 상태를 확인하세요."
             else -> null
         }
-        note?.let { GeoInlineNote(it, tone = if (awaitingStart) Tone.PENDING else Tone.UNKNOWN) }
-        stopError?.let { GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR) }
+        note?.let {
+            GeoInlineNote(it, tone = if (awaitingStart) Tone.PENDING else Tone.UNKNOWN)
+            Spacer(Modifier.height(16.dp))
+        }
+        stopError?.let {
+            GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR)
+            Spacer(Modifier.height(16.dp))
+        }
         ActiveRunClockCard(figures.take(2))
         GeoGroupedSection("수집 상태", trailingColumn = GeoRowTrailing.Status) {
             if (observedRun != null && !awaitingStart) {
@@ -414,16 +420,20 @@ private fun ActiveRunClockCard(figures: List<GeoFigure>) {
         val capacityValueStyle = if (LocalGeoWindow.current.widthDp >= 600f) type.tabletFigure else type.phoneFigure
         val capacityStyle = if (capacityShown?.unknown != false) type.titleSm else capacityValueStyle
         val capacityParts = capacityFigure?.let(::runFigureParts) ?: ("미확인" to "")
-        val clockWidth = with(density) {
-            measurer.measure(AnnotatedString(elapsed?.value ?: "미확인"), elapsedStyle, softWrap = false).size.width.toDp()
-        }
+        val clockWidth = with(density) { maxOf(
+            measurer.measure(AnnotatedString(elapsed?.value ?: "미확인"), elapsedStyle, softWrap = false).size.width,
+            measurer.measure(AnnotatedString("경과 시간"), type.caption, softWrap = false).size.width,
+            measurer.measure(AnnotatedString(elapsed?.detail.orEmpty()), type.caption, softWrap = false).size.width
+        ).toDp() + 1.dp }
         val capacityUnitWidth = if (capacityParts.second.isEmpty()) 0 else
             measurer.measure(AnnotatedString(capacityParts.second), type.unit, softWrap = false).size.width +
                 with(density) { 2.dp.roundToPx() }
         val capacityWidth = with(density) { maxOf(
             measurer.measure(AnnotatedString(capacityParts.first), capacityStyle, softWrap = false).size.width + capacityUnitWidth,
-            measurer.measure(AnnotatedString(capacityFigure?.label.orEmpty()), type.caption, softWrap = false).size.width
-        ).toDp() }
+            measurer.measure(AnnotatedString(capacityFigure?.label.orEmpty()), type.caption, softWrap = false).size.width,
+            measurer.measure(AnnotatedString(capacityShown?.detail.orEmpty()), type.caption, softWrap = false).size.width,
+            measurer.measure(AnnotatedString(capacityShown?.staleDetail.orEmpty()), type.caption, softWrap = false).size.width
+        ).toDp() + 1.dp }
         val clock: @Composable () -> Unit = {
             Column {
                 Text("경과 시간", color = colors.textSecondary, style = type.caption)
@@ -446,13 +456,14 @@ private fun ActiveRunClockCard(figures: List<GeoFigure>) {
                             color = colors.textSecondary, style = type.unit)
                     }
                     shown.detail?.let { Text(it, color = colors.textSecondary, style = type.caption) }
+                    shown.staleDetail?.let { Text(it, color = colors.textSecondary, style = type.caption) }
                 }
             }
         }
         if (runClockStacks(maxWidth.value, density.fontScale, clockWidth.value, capacityWidth.value)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { clock(); capacity() }
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Bottom) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
                 Box(Modifier.weight(1f)) { clock() }
                 Box(Modifier.width(capacityWidth)) { capacity() }
             }

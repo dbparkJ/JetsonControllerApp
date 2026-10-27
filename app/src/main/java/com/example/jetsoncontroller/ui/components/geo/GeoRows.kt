@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -67,12 +68,16 @@ private val LocalGeoStatusWidths = staticCompositionLocalOf<MutableMap<Any, Dp>?
 internal val LocalGeoStatusWidthReporter = staticCompositionLocalOf<((Dp) -> Unit)?> { null }
 internal val LocalGeoStatusWrap = staticCompositionLocalOf { false }
 
-internal fun rowStatusWidth(widthsDp: Collection<Float>): Float = (widthsDp.maxOrNull() ?: 72f).coerceIn(72f, 120f)
+internal fun rowStatusWidth(widthsDp: Collection<Float>): Float =
+    widthsDp.maxOrNull()?.coerceIn(72f, 120f) ?: 0f
+
+internal fun geoRowHasStatus(enabled: Boolean, value: String?, hasBadge: Boolean): Boolean =
+    enabled && (!value.isNullOrBlank() || hasBadge)
 
 internal fun rowStatusStacks(availableDp: Float, fontScale: Float, requiredDp: Float): Boolean =
     fontScale >= 1.3f || availableDp < 280f || requiredDp > 120f
 
-/** Lists declare the column once, including rows with a temporarily missing status. */
+/** Only rows with visible status content participate in the shared trailing width. */
 @Composable
 fun GeoRowList(
     trailingColumn: GeoRowTrailing,
@@ -110,7 +115,7 @@ fun GeoRow(
     val type = LocalGeoType.current
     val column = LocalGeoRowTrailing.current ?:
         if (badge != null || value != null) GeoRowTrailing.Status else GeoRowTrailing.None
-    val hasStatus = column == GeoRowTrailing.Status
+    val hasStatus = column == GeoRowTrailing.Status && geoRowHasStatus(enabled, value, badge != null)
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val widths = LocalGeoStatusWidths.current
@@ -120,9 +125,12 @@ fun GeoRow(
         measurer.measure(AnnotatedString(it), type.inlineStatus.copy(fontFeatureSettings = "tnum"), softWrap = false).size.width.toDp() + 1.dp
     } } ?: 0.dp
     val requiredWidth = if (enabled) maxOf(valueWidth, if (badge != null) badgeWidth else 0.dp) else 0.dp
-    SideEffect { widths?.set(rowKey, requiredWidth) }
+    SideEffect {
+        if (hasStatus) widths?.set(rowKey, requiredWidth) else widths?.remove(rowKey)
+    }
     DisposableEffect(widths, rowKey) { onDispose { widths?.remove(rowKey) } }
-    val sharedWidth = rowStatusWidth(widths?.values?.map { it.value } ?: listOf(requiredWidth.value)).dp
+    val statusWidths = widths?.values?.map { it.value }.orEmpty()
+    val sharedWidth = rowStatusWidth(if (hasStatus) statusWidths + requiredWidth.value else statusWidths).dp
     val stackedWidth = maxOf(sharedWidth, widths?.values?.maxOrNull() ?: requiredWidth)
     val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
     val titleAlignment = rememberFirstLineAlignment()
@@ -189,10 +197,12 @@ private fun RowStatusCell(
         if (enabled) CompositionLocalProvider(LocalGeoRowStatus provides true, LocalGeoStatusWrap provides wrap,
             LocalGeoStatusWidthReporter provides reportWidth) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.Center) {
-                if (value != null) Text(geoBreakableStatus(value), color = LocalGeoColors.current.textSecondary,
-                    style = LocalGeoType.current.inlineStatus.copy(fontFeatureSettings = "tnum"), textAlign = TextAlign.End,
-                    maxLines = if (wrap) Int.MAX_VALUE else 1, softWrap = wrap,
-                    modifier = Modifier.fillMaxWidth())
+                value?.takeIf(String::isNotBlank)?.let {
+                    Text(geoBreakableStatus(it), color = LocalGeoColors.current.textSecondary,
+                        style = LocalGeoType.current.inlineStatus.copy(fontFeatureSettings = "tnum"), textAlign = TextAlign.End,
+                        maxLines = if (wrap) Int.MAX_VALUE else 1, softWrap = wrap,
+                        modifier = Modifier.fillMaxWidth())
+                }
                 badge?.invoke()
             }
         }
@@ -228,9 +238,18 @@ fun GeoActionRow(
     SideEffect { group?.actionWidths?.set(key, labelWidth) }
     DisposableEffect(group, key) { onDispose { group?.actionWidths?.remove(key) } }
     val actionWidth = geoActionWidth(group?.actionWidths?.values ?: listOf(labelWidth)).dp
-    val titleWidth = with(density) { measurer.measure(AnnotatedString(title), type.titleSm, softWrap = false).size.width.toDp().value }.coerceAtMost(144f)
+    val titleWidth = with(density) { measurer.measure(AnnotatedString(title), type.titleSm, softWrap = false).size.width.toDp().value }
+    val layoutDirection = LocalLayoutDirection.current
+    val horizontalPadding = contentPadding.calculateStartPadding(layoutDirection) + contentPadding.calculateEndPadding(layoutDirection)
+    val leadingWidth = if (leading == null) 0.dp else (anatomy.textXDp - anatomy.leadingXDp).dp
     BoxWithConstraints(modifier.fillMaxWidth().contentDivider(tone, if (leading == null) 16.dp else anatomy.dividerXDp.dp, enabled = divider)) {
-        val stacked = geoActionStacks(maxWidth.value, actionWidth.value, titleWidth)
+        val textAndActionWidth = (maxWidth - horizontalPadding - leadingWidth).coerceAtLeast(0.dp)
+        val inlineBodyWidth = with(density) { (textAndActionWidth - actionWidth - 8.dp).roundToPx().coerceAtLeast(1) }
+        val bodyLines = listOfNotNull(meta, disabledReason?.takeIf { !actionEnabled }).sumOf {
+            measurer.measure(AnnotatedString(it), type.supporting,
+                constraints = Constraints(maxWidth = inlineBodyWidth)).lineCount
+        }
+        val stacked = geoActionStacks(textAndActionWidth.value, actionWidth.value, titleWidth, density.fontScale, bodyLines)
         Column(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(contentPadding),
             verticalArrangement = Arrangement.Center) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {

@@ -49,6 +49,17 @@ class NavigationShellTest {
     }
 
     @Test
+    fun `direct server results use the full two pane shell layout`() {
+        val ui = listOf(java.io.File("src/main/java/com/example/jetsoncontroller/ui/JetsonApp.kt"),
+            java.io.File("app/src/main/java/com/example/jetsoncontroller/ui/JetsonApp.kt")).first { it.isFile }
+        val source = ui.readText().replace("\r\n", "\n")
+        val paneRoutes = source.substringAfter("private val paneLayoutRoutes = setOf(")
+            .substringBefore("\n)")
+
+        assertTrue(paneRoutes, Regex("\\bRoutes\\.SERVER_STORAGE\\b").containsMatchIn(paneRoutes))
+    }
+
+    @Test
     fun `focused committed and planned routes hide navigation`() {
         listOf(
             Routes.ONBOARDING, Routes.QR_SCANNER, Routes.PAIRING,

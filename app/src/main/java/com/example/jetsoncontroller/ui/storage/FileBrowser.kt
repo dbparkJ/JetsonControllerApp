@@ -224,7 +224,7 @@ internal fun FileBrowser(
                         days.entries.forEachIndexed { groupIndex, (day, group) ->
                             item(key = "day:$day") {
                             R7Section(day, first = groupIndex == 0,
-                                modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp), trailingColumn = GeoRowTrailing.Status) {
+                                modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp), trailingColumn = GeoRowTrailing.None) {
                             group.forEachIndexed { index, entry ->
                                 val directory = entry.type == RemoteEntryType.DIRECTORY
                                 val divider = index < group.lastIndex

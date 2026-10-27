@@ -250,9 +250,9 @@ data class GeoStatusSpec(val word: String, val tone: com.example.jetsoncontrolle
 @Composable
 private fun GeoSubtitleLine(subtitle: String?, status: GeoStatusSpec?) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        status?.let { GeoBadge(it.word, it.tone) }
+        status?.let { GeoBadge(it.word, it.tone, Modifier.alignByBaseline()) }
         subtitle?.let {
-            Text(if (status == null) it else "· $it", color = LocalGeoColors.current.textSecondary,
+            Text(if (status == null) it else "· $it", Modifier.alignByBaseline(), color = LocalGeoColors.current.textSecondary,
                 style = LocalGeoType.current.supporting)
         }
     }

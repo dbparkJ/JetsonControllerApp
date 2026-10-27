@@ -23,7 +23,7 @@ class R7ComponentRulesTest {
     }
 
     @Test fun `status lists share the longest width between 72 and 120 dp`() {
-        assertEquals(72f, rowStatusWidth(emptyList()), 0f)
+        assertEquals(0f, rowStatusWidth(emptyList()), 0f)
         assertEquals(72f, rowStatusWidth(listOf(30f, 65f)), 0f)
         assertEquals(94f, rowStatusWidth(listOf(60f, 94f, 75f)), 0f)
         assertEquals(120f, rowStatusWidth(listOf(94f, 145f)), 0f)

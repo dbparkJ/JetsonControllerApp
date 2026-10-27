@@ -40,6 +40,24 @@ class R8SensorLayoutTest {
         assertFalse(camera.contains("GeoSkeleton("))
     }
 
+    @Test fun delayedCaptureKeepsItsReasonNearTheButtonAtLargeFontScales() {
+        assertEquals("실시간 영상 수신 후 캡처 가능", cameraCaptureDelayReason(CameraStageState.DELAYED, compactInfo = true))
+        assertEquals("실시간 영상을 받으면 캡처할 수 있습니다.", cameraCaptureDelayReason(CameraStageState.DELAYED, compactInfo = false))
+        CameraStageState.entries.filter { it != CameraStageState.DELAYED }.forEach {
+            assertNull(cameraCaptureDelayReason(it, compactInfo = true))
+        }
+        val camera = source("CameraPreviewScreen")
+        assertTrue(camera.contains("captureDisabledReason = cameraCaptureDelayReason(stage, compactInfo)"))
+        val media = com.example.jetsoncontroller.ui.components.geo.r8UiSource("components/geo/GeoMedia.kt")
+        assertTrue(media.contains("if (!captionWithCapture) caption?.let"))
+        val capture = media.substringAfter("captureAction?.let {")
+        assertTrue(capture.contains("if (captionWithCapture) caption?.invoke()"))
+        assertTrue(capture.contains("Row(Modifier.align(Alignment.CenterEnd).safeDrawingPadding().padding(24.dp)"))
+        assertTrue(capture.contains("Column(Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(24.dp)"))
+        assertTrue(capture.contains("if (!captureEnabled && !captureDisabledReason.isNullOrBlank())"))
+        assertTrue(capture.indexOf("Text(captureDisabledReason") < capture.indexOf("GeoCaptureButton(it, enabled = captureEnabled)"))
+    }
+
     @Test fun offlineSensorsKeepTheirStatusColumnWithoutEnablingNavigation() {
         val sensors = source("SensorScreen")
         assertTrue(sensors.contains("GeoRowList(GeoRowTrailing.Status)"))

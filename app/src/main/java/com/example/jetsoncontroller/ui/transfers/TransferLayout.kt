@@ -36,7 +36,7 @@ private val EmptyTransferBadge: @Composable () -> Unit = {}
 @Composable
 internal fun TransferHeading(title: String, meta: String? = null, badge: @Composable () -> Unit = EmptyTransferBadge) {
     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        GeoCopyableValue(title)
+        Text(title, style = LocalGeoType.current.titleSm, color = LocalGeoColors.current.text)
         badge()
         meta?.let { Text(it, style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary) }
     }

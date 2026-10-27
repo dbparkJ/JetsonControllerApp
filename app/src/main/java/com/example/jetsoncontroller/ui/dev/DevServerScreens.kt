@@ -28,12 +28,18 @@ internal data class ServerPurgeTarget(val profileId: String, val sessions: List<
 
 @Composable
 internal fun DevServerProfilesScreen(state: DirectServerUiState, onBack: () -> Unit,
-    onEdit: (String?) -> Unit, onConnect: (String) -> Unit) {
-    DevPage("서버 프로필", onBack, primaryAction = GeoButtonAction("프로필 추가", { onEdit(null) })) {
-        when (serverProfilesContent(state.isLoading || state.isConnecting, state.messageIsError, state.profiles.isNotEmpty())) {
+    onEdit: (String?) -> Unit, onConnect: (String) -> Unit, onRefresh: () -> Unit = {}) {
+    val busy = state.isLoadingProfiles || state.isLoading || state.isConnecting
+    val content = serverProfilesContent(busy, state.messageIsError, state.profiles.isNotEmpty())
+    DevPage("서버 프로필", onBack, actions = {
+        GeoIconButton(GeoIcons.refresh, "서버 프로필 다시 불러오기", onRefresh, enabled = !busy, chrome = true)
+    }, primaryAction = GeoButtonAction("프로필 추가", { onEdit(null) },
+        style = if (content == ServerProfilesContent.ERROR) GeoButtonStyle.Secondary else GeoButtonStyle.Primary)) {
+        when (content) {
             ServerProfilesContent.LOADING -> DevLoading("서버 프로필을 불러오는 중")
             ServerProfilesContent.ERROR -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
-                "서버 연결 정보를 불러오지 못했습니다", "관리자에게 받은 정보로 프로필을 추가해 주세요."), fullScreen = true)
+                "서버 연결 정보를 불러오지 못했습니다", "이 기기에 저장된 프로필을 읽지 못했습니다. 다시 불러온 뒤에도 문제가 계속되면 관리자에게 확인하세요.",
+                "다시 불러오기"), fullScreen = true, onAction = onRefresh)
             ServerProfilesContent.EMPTY -> DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 프로필을 추가하세요.")
             ServerProfilesContent.CONTENT -> {
                 GeoSection("프로필", first = true, trailingColumn = GeoRowTrailing.None) {

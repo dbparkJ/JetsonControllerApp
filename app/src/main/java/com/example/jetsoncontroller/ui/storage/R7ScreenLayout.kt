@@ -16,6 +16,7 @@ import com.example.jetsoncontroller.ui.components.geo.GeoInlineNote
 import com.example.jetsoncontroller.ui.components.geo.GeoNoteKind
 import com.example.jetsoncontroller.ui.components.geo.GeoGroupedSection
 import com.example.jetsoncontroller.ui.components.geo.GeoRow
+import com.example.jetsoncontroller.ui.components.geo.GeoRowList
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -73,7 +74,9 @@ internal fun R7Section(
             if (trailingColumn == null) Column(Modifier.padding(16.dp), content = content) else content()
             note?.let { Text(it, Modifier.padding(16.dp), style = LocalGeoType.current.supporting,
                 color = colors.textSecondary) }
-            if (actionLabel != null && onAction != null) GeoRow(actionLabel, onAction, divider = false)
+            if (actionLabel != null && onAction != null) GeoRowList(GeoRowTrailing.None) {
+                GeoRow(actionLabel, onAction, divider = false)
+            }
         }
     }
 }

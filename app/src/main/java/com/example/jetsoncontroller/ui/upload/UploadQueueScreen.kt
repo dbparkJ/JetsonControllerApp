@@ -84,18 +84,17 @@ fun UploadQueueScreen(
                                             if (job.state == com.example.jetsoncontroller.model.UploadJobState.FAILED) "연결이 끊겨 멈췄습니다." else null,
                                             targets.firstOrNull { it.id == job.targetId }?.let(::transferTargetLabel),
                                             job.bytesTotal?.let(Formats::size)).joinToString(" · "),
-                                    badge = {
-                                        if (isDeletableUploadJob(job)) Box {
+                                    badge = if (isDeletableUploadJob(job)) ({
+                                        Box {
                                             GeoIconButton(GeoIcons.more, "${transferSourceName(job)} 메뉴", { menu = true })
                                             GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
                                                 deletion = transferActionTarget(deviceId.orEmpty(), job) to job
                                             }, destructive = true, enabled = mutationEnabled && !isLoading,
                                                 disabledReason = "장치 연결을 확인하세요.")))
-                                        } else GeoIconButton(GeoIcons.chevronRight, "${transferSourceName(job)} 상세", { onJobClick(job) })
-                                    },
+                                        }
+                                    }) else null,
                                     leading = { GeoIconTile(GeoIcons.tabTransfer) }, divider = index < jobs.lastIndex,
-                                    navigable = false,
-                                    modifier = Modifier.geoClickable(onClick = { onJobClick(job) }))
+                                    navigable = true)
                         } }
                     }
                 }
