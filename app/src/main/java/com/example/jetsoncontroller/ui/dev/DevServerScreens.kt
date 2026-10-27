@@ -1,10 +1,14 @@
 package com.example.jetsoncontroller.ui.dev
 
-import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
+import com.example.jetsoncontroller.ui.dev.DevSection as GeoSection
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.*
 import com.example.jetsoncontroller.ui.components.geo.*
@@ -23,8 +27,8 @@ internal data class ServerPurgeTarget(val profileId: String, val sessions: List<
 @Composable
 internal fun DevServerProfilesScreen(state: DirectServerUiState, onBack: () -> Unit,
     onEdit: (String?) -> Unit, onConnect: (String) -> Unit) {
-    DevPage("서버 프로필", onBack, actions = { GeoIconButton(GeoIcons.add, "프로필 추가", { onEdit(null) }, chrome = true) }) {
-        if (state.profiles.isEmpty()) DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 설정하세요.", "프로필 추가", { onEdit(null) })
+    DevPage("서버 프로필", onBack, primaryAction = GeoButtonAction("프로필 추가", { onEdit(null) })) {
+        if (state.profiles.isEmpty()) DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 설정하세요.")
         else GeoSection("프로필", first = true, trailingColumn = GeoRowTrailing.None) {
             state.profiles.forEach { stored ->
                 DevAddressRow(stored.profile.displayName, stored.profile.baseUrl, { onEdit(stored.profile.profileId) })
@@ -55,6 +59,8 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
     var pending by remember(profileId) { mutableStateOf<ServerEndpointProfile?>(null) }
     val candidate = runCatching { ServerEndpointProfile(id, name, ServerEnvironment.entries[environment], url.trim(), employee, project).validated() }.getOrNull()
     val busy = state.isSavingProfile || state.isLoading || state.isConnecting
+    val focus = LocalFocusManager.current
+    val next = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Next) })
     pending?.let { frozen ->
         GeoConfirmDialog("${devObject(frozen.displayName)} 삭제할까요?",
             "이 ${deviceWord}에 저장된 서버 주소와 직원 인증 정보, 저장된 목록을 지웁니다. 서버의 데이터는 그대로입니다.", "프로필 삭제",
@@ -62,32 +68,38 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
             { pending = null }, kind = GeoConfirmKind.DANGER, confirmEnabled = !busy,
             disabledReason = "서버 요청이 끝난 뒤 삭제할 수 있습니다.")
     }
-    DevPage(if (profile == null) "서버 프로필 추가" else "서버 프로필 수정", { token = ""; onBack() }, footer = {
-        GeoButtonActions(buildList {
-            if (profile != null) add(GeoButtonAction("이 프로필로 연결", { token = ""; onConnect(profile.profileId) },
-                style = GeoButtonStyle.Secondary, enabled = !busy))
-            add(GeoButtonAction("암호화해 저장", {
+    DevPage(if (profile == null) "서버 프로필 추가" else "서버 프로필 수정", { token = ""; onBack() },
+        secondaryAction = profile?.let { stored -> GeoButtonAction("이 프로필로 연결", { token = ""; onConnect(stored.profileId) },
+            style = GeoButtonStyle.Secondary, enabled = !busy) },
+        primaryAction = GeoButtonAction("암호화해 저장", {
                 val credential = secret.consume()
                 candidate?.let { submittedId = it.profileId; onSave(it, credential) }
             }, enabled = candidate != null && validProfileToken(token) && !busy,
                 busy = state.isSavingProfile, busyLabel = "저장 중",
-                disabledReason = "프로필 정보와 관리자에게 받은 직원 토큰을 입력하세요."))
-        })
-    }) {
-        if (profile != null) GeoFactRow("프로필 ID", id)
-        else GeoTextField(id, { id = it.lowercase().take(64) }, "프로필 ID")
+                disabledReason = "프로필 정보와 관리자에게 받은 직원 토큰을 입력하세요.")) {
+      GeoSection("프로필 정보", first = true) {
+        if (profile != null) GeoCopyableValue(id, label = "프로필 ID")
+        else GeoTextField(id, { id = it.lowercase().take(64) }, "프로필 ID",
+            inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
-        GeoTextField(name, { name = it.take(128) }, "표시 이름")
+        GeoTextField(name, { name = it.take(128) }, "표시 이름",
+            inputKind = GeoInputKind.TEXT, imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
         DevChoice("환경", listOf("개발", "시험", "운영"), environment, { environment = it })
         Spacer(Modifier.height(16.dp))
-        GeoTextField(url, { url = it.take(2048) }, "HTTPS 서버 주소")
+        GeoTextField(url, { url = it.take(2048) }, "HTTPS 서버 주소",
+            inputKind = GeoInputKind.SERVER_ADDRESS, imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
-        GeoTextField(employee, { employee = it.lowercase().take(64) }, "직원 ID")
+        GeoTextField(employee, { employee = it.lowercase().take(64) }, "직원 ID",
+            inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
-        GeoTextField(project, { project = it.lowercase().take(64) }, "프로젝트 ID")
+        GeoTextField(project, { project = it.lowercase().take(64) }, "프로젝트 ID",
+            inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
-        GeoTextField(token, { token = it.take(4096) }, "직원 토큰", password = true, helper = "저장한 토큰은 다시 보여 주지 않습니다.")
+        GeoTextField(token, { token = it.take(4096) }, "직원 토큰", password = true, helper = "저장한 토큰은 다시 보여 주지 않습니다.",
+            inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Done,
+            keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }))
+      }
         // Do not render arbitrary exception messages, even if a service echoes a submitted token.
         DevFeedback(state.message?.let { if (state.messageIsError) "서버 연결 정보를 저장하지 못했습니다. 입력과 연결을 확인하세요." else "서버 연결 정보를 저장했습니다." }, state.messageIsError)
         if (profile != null) GeoSection("관리", danger = true) {
@@ -116,11 +128,10 @@ internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit
             confirmEnabled = profile?.profileId == frozen.profileId && frozen.valid(state.selectedProfileId, eligible, state.trashEmptySupported, busy),
             disabledReason = "서버와 표시된 휴지통 항목을 다시 확인하세요.")
     }
-    DevPage("서버 휴지통", onBack, footer = if (profile != null && state.trashEmptySupported && eligible.isNotEmpty()) ({
-        GeoButton("표시된 ${eligible.size}개 비우기", {
+    DevPage("서버 휴지통", onBack, primaryAction = if (profile != null && state.trashEmptySupported && eligible.isNotEmpty())
+        GeoButtonAction("표시된 ${eligible.size}개 비우기", {
             state.selectedProfileId?.let { pending = ServerPurgeTarget(it, eligible.toList()) }
-        }, Modifier.fillMaxWidth(), style = GeoButtonStyle.DangerOutline, enabled = !busy, actionArea = true)
-    }) else null) {
+        }, style = GeoButtonStyle.DangerFilled, enabled = !busy) else null) {
         if (content == ServerTrashContent.NO_PROFILE) {
             DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 설정하세요.")
             return@DevPage
@@ -131,7 +142,9 @@ internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit
             if (content == ServerTrashContent.CONTENT || content == ServerTrashContent.EMPTY)
                 DevText("전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다.")
             state.trash.forEach { job ->
-                GeoFactRow(job.sourceName, "${Formats.size(job.totalBytes)} · ${if (job.state == "PURGING") "삭제 처리 중" else if (job.restoreSupported == false) "복원할 수 없음" else "복원 가능"}")
+                GeoPropertyRow("수집", job.sourceName,
+                    valueContent = { GeoCopyableValue(job.sourceName) },
+                    supportingText = "${Formats.size(job.totalBytes)} · ${if (job.state == "PURGING") "삭제 처리 중" else if (job.restoreSupported == false) "복원할 수 없음" else "복원 가능"}")
             }
             if (content == ServerTrashContent.EMPTY) DevEmpty("서버 휴지통이 비어 있습니다", "휴지통으로 옮긴 수신 결과가 여기에 표시됩니다.")
             if (content == ServerTrashContent.ERROR) DevEmpty("서버 휴지통을 불러오지 못했습니다", "서버 연결을 확인하고 다시 시도하세요.", "다시 시도", onRefresh)

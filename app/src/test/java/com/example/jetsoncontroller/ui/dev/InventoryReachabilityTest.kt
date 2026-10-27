@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.dev
 
 import java.io.File
+import com.example.jetsoncontroller.ui.devices.devicePhotoFigures
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -41,9 +42,12 @@ class InventoryReachabilityTest {
         }
         assertTrue(source("dev/DevFanScreen.kt").contains("GeoSliderRow("))
         assertTrue(source("dev/DevDeviceTools.kt").contains("onCamera"))
-        assertTrue(source("tasks/TasksHomeScreen.kt").contains("GeoWorkCard("))
+        assertTrue(source("tasks/TasksHomeScreen.kt").contains("GeoTodayCard("))
         val devicesHome = source("devices/DevicesHomeScreen.kt")
-        assertTrue(devicesHome.contains("GeoDevicePhotoCard("))
-        assertTrue(devicesHome.contains("figures = devicePhotoFigures("))
+        assertTrue(devicesHome.contains("GeoPaneListRow("))
+        assertTrue(devicesHome.contains("selected = sameDeviceTarget(device.deviceId, highlightedDeviceId)"))
+        assertTrue(devicesHome.contains("leading = { DevicePhoto(40.dp) }, leadingIsPhoto = true"))
+        assertTrue(detail.contains("GeoMetricStrip(devicePhotoFigures("))
+        assertEquals(listOf("저장 여유", "온도", "CPU", "GPU"), devicePhotoFigures(null, null).map { it.label })
     }
 }

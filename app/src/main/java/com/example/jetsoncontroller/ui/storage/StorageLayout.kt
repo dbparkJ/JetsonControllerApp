@@ -1,18 +1,17 @@
 package com.example.jetsoncontroller.ui.storage
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.*
@@ -30,35 +29,70 @@ internal fun StoragePage(
     onBack: () -> Unit,
     media: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
+    showHeader: Boolean = true,
+    primaryAction: GeoButtonAction? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val base = LocalGeoColors.current
-    val colors = if (media) base.copy(topBar = com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaStage,
-        onTopBar = com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaText,
-        onTopBarIcon = com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaText) else base
-    val chrome = LocalGeoChrome.current
-    val density = LocalDensity.current
-    var topDp by remember { mutableFloatStateOf(0f) }
-    CompositionLocalProvider(LocalGeoColors provides colors) {
-    Column(Modifier.fillMaxSize().background(if (media) com.example.jetsoncontroller.ui.theme.GeoFixedColors.mediaStage else colors.canvas)) {
-        GeoTopBar(Modifier.onSizeChanged { topDp = it.height / density.density }) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                GeoIconButton(GeoIcons.back, "뒤로", onBack, chrome = true)
-                Text(title, Modifier.weight(1f).padding(start = 12.dp).semantics { heading() },
-                    style = LocalGeoType.current.title, color = colors.onTopBar)
-                actions()
-            }
+    if (media) {
+        GeoImmersiveMediaFrame(controls = {
+            GeoMediaIconButton(GeoIcons.back, "뒤로", onBack, Modifier.align(Alignment.TopStart))
+        }) {
+            Column(Modifier.fillMaxSize(), content = content)
         }
-        CompositionLocalProvider(LocalGeoChrome provides chrome.copy(topDp = chrome.topDp + topDp)) {
-            content()
+    } else if (showHeader) {
+        GeoLargeTitleScaffold(title, onBack = onBack, actions = actions, primaryAction = primaryAction) {
+            Column(Modifier.fillMaxSize(), content = content)
+        }
+    } else {
+        Column(Modifier.fillMaxSize(), content = content)
+    }
+}
+
+/** Footer consumes pane space, so the browser never scrolls behind the send controls. */
+@Composable
+internal fun StorageActionLayout(
+    visible: Boolean,
+    action: @Composable () -> Unit,
+    primaryAction: GeoButtonAction? = null,
+    body: @Composable () -> Unit
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val summaryLimit = maxHeight * 0.5f
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) { body() }
+        if (visible) {
+            Column(Modifier.fillMaxWidth().heightIn(max = summaryLimit).geoContainScroll()
+                .verticalScroll(rememberScrollState()).padding(horizontal = storageGutter, vertical = 12.dp)) {
+                action()
+            }
+            primaryAction?.let { GeoFixedActionBar(it) }
         }
     }
     }
 }
 
 internal val storageGutter: androidx.compose.ui.unit.Dp
-    @Composable get() = LocalGeoWindow.current.gutterDp.dp
+    @Composable get() = if (LocalGeoPane.current) 0.dp else 24.dp
+
+/** Header actions are composed twice; the owning screen presents one action sheet. */
+@Composable
+internal fun StorageMenuSheet(
+    title: String,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    items: List<GeoMenuItem>,
+    openerFocusRequester: FocusRequester? = null
+) {
+    if (expanded) GeoSheet(title, onDismiss, kind = GeoSheetKind.CHOICE,
+        openerFocusRequester = openerFocusRequester) {
+        items.forEachIndexed { index, item ->
+            GeoRow(item.label, { onDismiss(); item.onClick() }, enabled = item.enabled,
+                disabledReason = item.disabledReason, divider = index < items.lastIndex,
+                leading = { GeoIconTile(if (item.destructive) GeoIcons.trash else GeoIcons.more,
+                    tone = if (item.destructive) com.example.jetsoncontroller.ui.model.Tone.ERROR else null) })
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

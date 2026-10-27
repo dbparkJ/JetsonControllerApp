@@ -40,7 +40,8 @@ internal fun ConnectMethodSheet(
     GeoSheet(
         title = "$deviceName 연결 방법",
         subtitle = listOfNotNull(connection.label, lastSeenText?.let { "마지막 응답 $it" }).joinToString(" · "),
-        onDismissRequest = onDismiss
+        onDismissRequest = onDismiss,
+        kind = GeoSheetKind.CHOICE
     ) {
         GeoRowList(GeoRowTrailing.None) {
             DeviceConnectionChoice("같은 네트워크에서 다시 찾기", GeoIcons.wifi, onClick = onSameNetwork,
@@ -61,13 +62,15 @@ internal fun ConnectMethodSheet(
             if (Build.VERSION.SDK_INT == Build.VERSION_CODES.R && bluetoothPermissionGranted) {
                 LegacyBluetoothBackgroundNote()
             }
-            DeviceConnectionChoice("QR 코드로 다시 등록", GeoIcons.qr, onClick = onQrRegister, meta = "인증 정보를 확인할 수 없을 때 씁니다.")
+            DeviceConnectionChoice("QR 코드로 다시 등록", GeoIcons.qr, onClick = onQrRegister,
+                meta = "인증 정보를 확인할 수 없을 때 씁니다.", divider = false)
         }
     }
     if (confirmDirect) GeoConfirmDialog(
         title = "${deviceName}에 직접 연결할까요?",
         body = "장치의 공유기 연결과 진행 중인 전송이 끊길 수 있습니다.",
         confirmLabel = "직접 연결",
+        kind = GeoConfirmKind.DANGER,
         onConfirm = { confirmDirect = false; onDirectConnect() },
         onDismissRequest = { confirmDirect = false }
     )

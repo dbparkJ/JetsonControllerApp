@@ -85,7 +85,7 @@ internal fun overlayActionsFit(labelWidths: List<Int>, availableWidth: Int, gap:
 internal fun GeoOverlayButton(action: GeoOverlayAction, modifier: Modifier = Modifier,
     style: GeoButtonStyle = GeoButtonStyle.Tertiary, color: Color? = null, edge: GeoButtonEdge = GeoButtonEdge.None) {
     GeoButton(action.label, action.onClick, modifier.width(IntrinsicSize.Max), style, action.enabled, action.busy,
-        busyLabel = action.label.takeIf { action.busy }, contentColor = color, edge = edge,
+        busyLabel = action.label.takeIf { action.busy }, disabledReason = action.disabledReason, contentColor = color, edge = edge,
         actionArea = style == GeoButtonStyle.Primary || style == GeoButtonStyle.DangerFilled)
 }
 
@@ -94,10 +94,10 @@ internal fun GeoOverlayActions(primary: GeoOverlayAction, secondary: GeoOverlayA
     equal: Boolean = false, danger: Boolean = false) {
     GeoButtonActions(listOfNotNull(secondary?.let {
         GeoButtonAction(it.label, it.onClick, if (equal) GeoButtonStyle.Secondary else GeoButtonStyle.Tertiary,
-            it.enabled, it.busy, it.label.takeIf { _ -> it.busy })
+            it.enabled, it.busy, it.label.takeIf { _ -> it.busy }, disabledReason = it.disabledReason)
     }, GeoButtonAction(primary.label, primary.onClick,
         if (danger) GeoButtonStyle.DangerFilled else GeoButtonStyle.Primary,
-        primary.enabled, primary.busy, primary.label.takeIf { primary.busy })),
+        primary.enabled, primary.busy, primary.label.takeIf { primary.busy }, disabledReason = primary.disabledReason)),
         layout = if (equal) GeoActionLayout.EqualShares else GeoActionLayout.Dialog)
 }
 

@@ -6,9 +6,23 @@ import java.time.Instant
 import java.time.ZoneId
 import javax.net.ssl.SSLException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import com.example.jetsoncontroller.ui.components.geo.r8UiSource
 import org.junit.Test
 
 class ServerConnectionPresentationTest {
+    @Test fun reloginUsesTheSharedPasswordFieldWithoutARevealOrSavedToken() {
+        val screen = r8UiSource("settings/ServerConnectionScreen.kt")
+        val field = screen.substringAfter("private fun MaskedEmployeeTokenField")
+        assertTrue(field.contains("GeoTextField(value, onValueChange, label = \"직원 토큰\", password = true, allowPasswordReveal = false"))
+        assertTrue(field.contains("inputKind = GeoInputKind.IDENTIFIER"))
+        assertFalse(field.contains("BasicTextField("))
+        assertTrue(screen.contains("var token by remember(profile?.profile?.profileId)"))
+        assertTrue(screen.contains("onDispose { token = \"\" }"))
+        assertFalse(screen.contains("rememberSaveable(profile?.profile?.profileId) { mutableStateOf(\"\") }"))
+    }
+
     @Test
     fun failuresMapToOperatorMessagesWithoutExposingTheExceptionText() {
         assertEquals(

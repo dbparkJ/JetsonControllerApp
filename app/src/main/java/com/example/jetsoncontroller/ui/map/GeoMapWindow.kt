@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
@@ -42,16 +41,7 @@ internal fun GeoMapWindow(onBack: () -> Unit, content: @Composable () -> Unit) {
                 }
             }
         }
-        // Read this window's raw insets: the opener's shell has already consumed its own edges.
-        val safe = WindowInsets.safeDrawing
-        Column(Modifier.fillMaxSize().background(colors.surface)) {
-            Spacer(Modifier.fillMaxWidth().height(safe.asPaddingValues().calculateTopPadding()).background(colors.topBar))
-            Box(Modifier.weight(1f).fillMaxWidth()
-                .padding(safe.only(WindowInsetsSides.Horizontal).asPaddingValues())
-                .padding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom).asPaddingValues())
-                // The panel's hidden rows sit below the peek; the navigation bar is transparent, so they are clipped here.
-                .clipToBounds()
-                .consumeWindowInsets(safe)) { content() }
-        }
+        // The map draws beneath both system bars; its controls and sheet own safe insets.
+        Box(Modifier.fillMaxSize().background(colors.canvas)) { content() }
     }
 }

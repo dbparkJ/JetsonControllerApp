@@ -1,6 +1,8 @@
 package com.example.jetsoncontroller.ui
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,6 +15,8 @@ import com.example.jetsoncontroller.model.UploadJobState
 import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 import com.example.jetsoncontroller.ui.upload.UploadProgressScreen
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoBottomBar
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -57,9 +61,9 @@ class TransferResultScreenTest {
             }
         }
 
-        compose.onNodeWithText("서버 수신이 확인됐습니다").assertIsDisplayed()
-        compose.onNodeWithText("서울 도로관리 서버").assertIsDisplayed()
-        compose.onNodeWithText("서버 파일 보기").performScrollTo().performClick()
+        compose.onAllNodesWithText("내용 일치", substring = true).onFirst().performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("서울 도로관리 서버").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("서버에서 보기").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, serverOpens) }
         capture("transfer-receipt-verified")
 
@@ -67,23 +71,24 @@ class TransferResultScreenTest {
             job = completedJob(files = null, bytes = null)
             verification = null
         }
-        compose.onNodeWithText("진행률 미확인").assertIsDisplayed()
-        compose.onNodeWithText("전송 용량 미확인").assertIsDisplayed()
+        compose.onAllNodesWithText("보내기는 끝났고 서버 수신을 확인하고 있습니다.").onFirst().performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("파일") and hasText("미확인")).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("용량") and hasText("미확인")).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("0 B / 0 B").assertDoesNotExist()
-        compose.onNodeWithText("개수 미확인 · 용량 미확인").assertIsDisplayed()
-        compose.onNodeWithText("서버 파일 보기").assertDoesNotExist()
-        compose.onNode(hasText("서버 수신 확인") and hasClickAction())
-            .performScrollTo().performClick()
+        compose.onNodeWithText("서버에서 보기").assertDoesNotExist()
+        compose.onNode(hasText("수신 확인") and hasClickAction()).assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, verifyRequests) }
         capture("transfer-receipt-unverified")
     }
 
-    @Test fun activeUploadCanLeaveForHomeOrFilesWithoutCancelling() {
+    @Test fun activeUploadCanLeaveThroughWorkOrTransferNavigationWithoutCancelling() {
         var home = 0
         var files = 0
         var cancelled = 0
         compose.setContent {
             JetsonControllerTheme {
+                Column {
+                Box(Modifier.weight(1f)) {
                 UploadProgressScreen(
                     job = completedJob(files = 12, bytes = 2_400_000_000).copy(
                         state = UploadJobState.UPLOADING,
@@ -98,11 +103,17 @@ class TransferResultScreenTest {
                     onHome = { home++ },
                     onFiles = { files++ }
                 )
+                }
+                GeoBottomBar(GeoTab.TRANSFERS, { tab ->
+                    if (tab == GeoTab.TASKS) home++
+                    if (tab == GeoTab.TRANSFERS) files++
+                })
+                }
             }
         }
 
-        compose.onNodeWithContentDescription("홈으로").performClick()
-        compose.onNodeWithContentDescription("파일로").performClick()
+        compose.onNodeWithText("작업").performClick()
+        compose.onNodeWithText("전송").performClick()
         compose.runOnIdle {
             assertEquals(1, home)
             assertEquals(1, files)

@@ -1,6 +1,10 @@
 package com.example.jetsoncontroller.ui
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -31,8 +35,9 @@ class FieldStageScreenTest {
             ReadyWorkScreen { destination = FieldDestination.SURVEY_PREP }
 
         } }
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("수집 구간"))
         compose.onNodeWithText("수집 구간").assertIsDisplayed()
-        compose.onNodeWithText("구간 직접 고르기").performClick()
+        compose.onNodeWithText("준비하기").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(FieldDestination.SURVEY_PREP, destination) }
         capture("stage-action")
     }
@@ -49,7 +54,7 @@ class FieldStageScreenTest {
             }
         }
 
-        compose.onNodeWithText("구간 직접 고르기").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("준비하기").assertIsDisplayed().assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(FieldDestination.SURVEY_PREP, destination) }
     }
 
@@ -110,7 +115,7 @@ class FieldStageScreenTest {
             )
         } }
 
-        compose.onNodeWithText("수집 상태를 확인할 수 없습니다").assertIsDisplayed()
+        compose.onAllNodesWithText("시작 확인 중").onFirst().assertIsDisplayed()
         compose.onNodeWithText("수집이 진행 중입니다").assertDoesNotExist()
         compose.onNodeWithText("수집 종료").assertDoesNotExist()
         compose.onNodeWithText("상태 다시 확인").assertIsEnabled().performClick()
@@ -156,18 +161,19 @@ class FieldStageScreenTest {
         compose.onNodeWithText("수집 종료").assertIsDisplayed()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("장치 저장"))
         compose.onNodeWithText("장치 저장").assertIsDisplayed()
-        compose.onNodeWithText("저장 확인").assertIsDisplayed()
+        compose.onAllNodesWithText("저장 확인").onLast().assertIsDisplayed()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("서버 수신"))
         compose.onNodeWithText("서버 수신").assertIsDisplayed()
         compose.onAllNodesWithText("미확인")[0].assertIsDisplayed()
         capture("result-terminal")
-        compose.onNodeWithText("서버로 보내기").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("서버로 보내기").assertIsDisplayed().assertIsEnabled().performClick()
         compose.onNodeWithText("/data/raw/run-1").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, transfers) }
     }
 
     @Test fun confirmedActiveRunRequiresConfirmationAndCallsStopOnce() {
         var stops = 0
+        var cameras = 0
         compose.setContent { JetsonControllerTheme {
             ActiveRunScreen(
                 deviceName = "MMS-4DE0", connectionLabel = "연결됨",
@@ -175,7 +181,8 @@ class FieldStageScreenTest {
                 lastObservedLabel = "2초 전", sensorSummary = "GPS 신호 정상",
                 storageSummary = "확인 중", stopInProgress = false, online = true,
                 stopAvailable = true, unreadCount = 0, onDevices = {}, onAlerts = {}, onBack = {},
-                onRefresh = {}, onStop = { stops++ }, onCamera = {}, onMap = {}
+                onRefresh = {}, onStop = { stops++ }, onCamera = { cameras++ }, onMap = {},
+                mapCard = { Box(Modifier.fillMaxSize().testTag("active-map")) }
             )
         } }
 
@@ -183,7 +190,9 @@ class FieldStageScreenTest {
         compose.onNodeWithText("00:31").assertIsDisplayed()
         compose.onNodeWithText(Formats.size(2_232_703_765L)).assertIsDisplayed()
         compose.onNodeWithContentDescription("뒤로").assertIsDisplayed()
-        compose.onNodeWithText("지도 크게 보기").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("active-map").assertExists()
+        compose.onNodeWithText("카메라 영상").performScrollTo().assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, cameras) }
         capture("active-running")
         compose.onNodeWithText("수집 종료").assertIsEnabled().performClick()
         compose.onNodeWithText("강남대로 1구간 수집을 종료할까요?").assertIsDisplayed()
@@ -244,7 +253,8 @@ class FieldStageScreenTest {
         val state = com.example.jetsoncontroller.ui.tasks.buildTasksHomeUiState(
             com.example.jetsoncontroller.ui.tasks.TasksHomeInput("GEO-X-1", true,
                 com.example.jetsoncontroller.ui.survey.SurveyRunUiState(runStateConfirmed = true, restoringLocalState = false),
-                emptyList(), emptyList(), emptyList(), false))
+                emptyList(), emptyList(), emptyList(), false)).copy(
+                    ticketSection = com.example.jetsoncontroller.ui.tasks.ServerTicketUiState())
         com.example.jetsoncontroller.ui.tasks.TasksHomeScreen(state, {}, onPrepare, onPrepare, {}, {}, {}, {})
     }
 

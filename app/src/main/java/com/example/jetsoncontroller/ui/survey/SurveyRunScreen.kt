@@ -1,10 +1,10 @@
 package com.example.jetsoncontroller.ui.survey
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -12,8 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -27,7 +26,6 @@ import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.model.TaskState
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
-import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
 import kotlinx.coroutines.delay
 import java.time.Instant
 
@@ -61,7 +59,7 @@ internal fun SurveyRunScreen(
     ticketPreparationReady: Boolean = true,
     ticketPreparationKey: String? = null,
     zoneLine: String = "위치 미확인",
-    mapCard: @Composable () -> Unit = {},
+    mapCard: (@Composable () -> Unit)? = null,
     onDeviceFiles: (() -> Unit)? = null,
     onConnectionMethod: (() -> Unit)? = null,
     onDeviceDetails: (() -> Unit)? = null,
@@ -83,8 +81,8 @@ internal fun SurveyRunScreen(
     var sectionLabel by rememberSaveable(state.deviceId, ticketPreparationKey) { mutableStateOf("") }
     val startFocus = remember { FocusRequester() }
     val projectFocus = remember { FocusRequester() }
-    var topHeight by remember { mutableFloatStateOf(56f) }
-    val density = LocalDensity.current
+    val focusManager = LocalFocusManager.current
+    val gutter = if (LocalGeoPane.current) 0.dp else 24.dp
     val lockedReason = preparationEditDisabledReason(state)
     val editable = lockedReason == null
     val freshnessTick by produceState(System.currentTimeMillis(), state.deviceId) {
@@ -107,7 +105,8 @@ internal fun SurveyRunScreen(
             onDismissRequest = { showStart = false },
             modifier = Modifier.testTag("start-sheet"),
             openerFocusRequester = startFocus,
-            optionalChecks = optionalStartChecks(state)
+            optionalChecks = optionalStartChecks(state),
+            mapPreview = mapCard
         )
     }
     if (relayInfo) GeoInfoDialog("보정 정보 중계", onDismissRequest = { relayInfo = false }) {
@@ -115,7 +114,9 @@ internal fun SurveyRunScreen(
         GeoFactRow("상태", preparationReadiness(state, now).firstOrNull { it.label == "보정 정보 중계" }?.value ?: "미확인")
     }
     if (projectPicker) {
-        GeoSheet("프로젝트 선택", { projectPicker = false }, openerFocusRequester = projectFocus) {
+        GeoSheet("프로젝트 선택", { projectPicker = false }, kind = GeoSheetKind.CHOICE, openerFocusRequester = projectFocus) {
+            if (state.projects.isEmpty()) GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                "등록된 프로젝트가 없습니다", "새 프로젝트를 선택해 수집을 준비하세요."))
             state.projects.forEach { project ->
                 GeoRadioRow(project.label, state.selectedProject?.surveyProjectId == project.surveyProjectId,
                     { projectPicker = false; newProject = false; onSelectProject(project) })
@@ -124,126 +125,119 @@ internal fun SurveyRunScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(c.canvas)) {
-        GeoTopBar {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                .onSizeChanged { topHeight = it.height / density.density }.padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                GeoIconButton(GeoIcons.back, "뒤로", onBack, chrome = true)
-                Text("수집 준비", Modifier.weight(1f).padding(start = 12.dp), color = c.onTopBar, style = type.title)
-                GeoIconButton(GeoIcons.refresh, "다시 확인", onRefresh, chrome = true,
+    val primary = when {
+        state.pendingStart != null -> GeoButtonAction("시작 결과 확인", onRetryPendingStart,
+            enabled = state.online && state.operation == null, disabledReason = "연결되면 시작 결과를 확인할 수 있습니다.")
+        state.unconfirmedRunId != null -> GeoButtonAction("상태 다시 확인", onRefresh,
+            enabled = state.online && state.operation == null, disabledReason = "연결되면 상태를 확인할 수 있습니다.")
+        else -> GeoButtonAction("수집 시작", beginCheck, enabled = state.canPreflight && ticketPreparationReady,
+            disabledReason = if (!ticketPreparationReady) ticketMessage ?: "수집 구간을 다시 확인하세요." else preparationActionReason(state))
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        GeoLargeTitleScaffold("수집 준비", Modifier.widthIn(max = 720.dp), subtitle = displayName, onBack = onBack,
+            actions = {
+                GeoIconButton(GeoIcons.refresh, "다시 확인", onRefresh,
                     enabled = state.online && state.operation == null,
                     disabledReason = "연결되면 다시 확인할 수 있습니다.")
-            }
-        }
-        GeoActionArea(
-            visibilityKey = listOf(state.deviceId, state.pipelineId),
-            chrome = LocalGeoChrome.current.let { it.copy(topDp = it.topDp + topHeight) },
-            action = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GeoReadinessLine("$displayName · ${preparationActionReason(state)}", preparationActionTone(state))
-                    when {
-                        state.pendingStart != null -> GeoButton("시작 결과 확인", onRetryPendingStart,
-                            Modifier.fillMaxWidth(), enabled = state.online && state.operation == null,
-                            disabledReason = "연결되면 시작 결과를 확인할 수 있습니다.", actionArea = true)
-                        state.unconfirmedRunId != null -> GeoButton("상태 다시 확인", onRefresh,
-                            Modifier.fillMaxWidth(), enabled = state.online && state.operation == null,
-                            disabledReason = "연결되면 상태를 확인할 수 있습니다.", actionArea = true)
-                        else -> GeoButton("수집 시작", beginCheck,
-                            Modifier.fillMaxWidth().focusRequester(startFocus).testTag("prepare-start"),
-                            enabled = state.canPreflight && ticketPreparationReady,
-                            actionArea = true)
-                    }
-                    if (!state.online && onConnectionMethod != null) {
-                        GeoButton("연결 방법", onConnectionMethod, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
-                    }
-                }
-            }
-        ) { inlineAction ->
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(
-                start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp,
-                top = 16.dp, bottom = 24.dp)) {
-                item {
-                    Text(ticketTitle ?: state.pipelineLabel.ifBlank { "수집 작업" },
-                        Modifier.semantics { heading() }, style = type.boardTitle, color = c.text)
-                    Spacer(Modifier.height(8.dp))
-                    val taskState = when {
-                        state.pendingStart != null || state.unconfirmedRunId != null -> TaskState.START_REQUESTED
-                        else -> taskChoiceState(state.preparationTaskState)
-                    }
-                    val lastExecution = state.lastExecutionStartedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+            }) {
+            Column(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(
+                    start = gutter, end = gutter, bottom = 24.dp)) {
+                    item {
+                        Text(ticketTitle ?: state.pipelineLabel.ifBlank { "수집 작업" },
+                            Modifier.semantics { heading() }, style = type.sectionTitle, color = c.text)
+                        val taskState = when {
+                            state.pendingStart != null || state.unconfirmedRunId != null -> TaskState.START_REQUESTED
+                            else -> taskChoiceState(state.preparationTaskState)
+                        }
+                        val lastExecution = state.lastExecutionStartedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
                         GeoBadge(taskState.word, taskState.tone)
-                        Text(listOfNotNull(displayName, lastExecution?.let { "마지막 실행 ${Formats.time(it)}" }).joinToString(" · "),
-                            Modifier.weight(1f), style = type.caption, color = c.textSecondary)
+                        lastExecution?.let { Text("마지막 실행 ${Formats.time(it)}", style = type.caption, color = c.textSecondary) }
                     }
-                    Spacer(Modifier.height(24.dp))
-                    mapCard()
-                }
-                ticketMessage?.let { item { GeoInlineNote(it, tone = Tone.WARNING) } }
-                state.error?.let { item {
-                    GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
-                        actionLabel = "다시 확인", onAction = onRefresh)
-                } }
-                if (state.pendingStart != null || state.unconfirmedRunId != null) item {
-                    GeoInlineNote("같은 수집의 시작 결과를 확인합니다. 확인이 끝날 때까지 새 수집을 시작할 수 없습니다.",
-                        tone = Tone.PENDING)
-                }
-                item {
-                    WorkSurfaceCard(Modifier.padding(top = 24.dp)) {
-                    GeoPickerField("프로젝트", state.preparationDraft?.project.preparationLabel(state.selectedProject?.label ?: "프로젝트 선택"),
-                        { projectPicker = true }, Modifier.focusRequester(projectFocus),
-                        enabled = editable, disabledReason = lockedReason)
-                    if (newProject) {
-                        GeoTextField(projectLabel, { projectLabel = it }, "새 프로젝트", enabled = editable,
-                            disabledReason = lockedReason)
-                        GeoButton("선택", { onCreateProject(projectLabel); newProject = false },
-                            enabled = editable && projectLabel.isNotBlank(), style = GeoButtonStyle.Secondary)
+                    ticketMessage?.let { item { GeoInlineNote(it, tone = Tone.WARNING) } }
+                    state.error?.let { item {
+                        GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
+                            actionLabel = "다시 확인", onAction = onRefresh)
+                    } }
+                    if (state.pendingStart != null || state.unconfirmedRunId != null) item {
+                        GeoInlineNote("같은 수집의 시작 결과를 확인합니다. 확인이 끝날 때까지 새 수집을 시작할 수 없습니다.",
+                            tone = Tone.PENDING)
                     }
-                    }
-                    GeoSection("구간") {
-                      WorkSurfaceCard {
-                        Column(Modifier.selectableGroup()) {
-                            if (state.isLoading && state.sections.isEmpty()) GeoSkeleton("수집 구간을 불러오는 중", kind = GeoSkeletonKind.Rows)
-                            state.sections.forEach { section ->
-                                GeoRadioRow(section.label, state.selectedSection?.surveySectionId == section.surveySectionId,
-                                    { newSection = false; onSelectSection(section) }, enabled = editable,
-                                    disabledReason = lockedReason)
+                    item {
+                        GeoSection("프로젝트") {
+                            GeoPickerField("프로젝트", state.preparationDraft?.project.preparationLabel(state.selectedProject?.label ?: "프로젝트 선택"),
+                                { projectPicker = true }, Modifier.focusRequester(projectFocus),
+                                enabled = editable, disabledReason = lockedReason)
+                            if (newProject) {
+                                val selectProject = {
+                                    if (editable && projectLabel.isNotBlank()) {
+                                        onCreateProject(projectLabel)
+                                        newProject = false
+                                        focusManager.clearFocus()
+                                    }
+                                }
+                                GeoTextField(projectLabel, { projectLabel = it }, "새 프로젝트", enabled = editable,
+                                    disabledReason = lockedReason, inputKind = GeoInputKind.TEXT, imeAction = ImeAction.Done,
+                                    keyboardActions = KeyboardActions(onDone = { selectProject() }))
+                                GeoButton("선택", selectProject, enabled = editable && projectLabel.isNotBlank(), style = GeoButtonStyle.Secondary)
                             }
-                            if (state.preparationDraft?.section is com.example.jetsoncontroller.model.PreparationSelection.CreateNew ||
-                                state.preparationDraft?.section is com.example.jetsoncontroller.model.PreparationSelection.CreateFromTicket) {
-                                GeoRadioRow(state.preparationDraft?.section.preparationLabel(null), true, {},
-                                    enabled = editable, disabledReason = lockedReason)
+                        }
+                    }
+                    item {
+                        GeoGroupedSection("구간") {
+                            Column(Modifier.selectableGroup()) {
+                                if (state.isLoading && state.sections.isEmpty()) GeoSkeleton("수집 구간을 불러오는 중", kind = GeoSkeletonKind.Rows)
+                                else if (state.sections.isEmpty() && state.preparationDraft?.section == null)
+                                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "아직 고른 구간이 없습니다", "구간을 고르면 점검을 시작할 수 있습니다."))
+                                state.sections.forEach { section ->
+                                    GeoRadioRow(section.label, state.selectedSection?.surveySectionId == section.surveySectionId,
+                                        { newSection = false; onSelectSection(section) }, Modifier.padding(horizontal = 16.dp),
+                                        enabled = editable, disabledReason = lockedReason)
+                                }
+                                if (state.preparationDraft?.section is com.example.jetsoncontroller.model.PreparationSelection.CreateNew ||
+                                    state.preparationDraft?.section is com.example.jetsoncontroller.model.PreparationSelection.CreateFromTicket) {
+                                    GeoRadioRow(state.preparationDraft?.section.preparationLabel(null), true, {},
+                                        Modifier.padding(horizontal = 16.dp), enabled = editable, disabledReason = lockedReason)
+                                }
+                                val newSectionReason = preparationNewSectionDisabledReason(state)
+                                PreparationAddRow("새 구간", { newSection = true },
+                                    enabled = newSectionReason == null, disabledReason = newSectionReason)
                             }
-                            val newSectionReason = preparationNewSectionDisabledReason(state)
-                            PreparationAddRow("새 구간", { newSection = true },
-                                enabled = newSectionReason == null, disabledReason = newSectionReason)
                         }
                         if (newSection) {
-                            GeoTextField(sectionLabel, { sectionLabel = it }, "새 구간", enabled = editable,
-                                disabledReason = lockedReason)
-                            GeoButton("선택", { onCreateSection(sectionLabel); newSection = false },
-                                style = GeoButtonStyle.Secondary, enabled = editable && sectionLabel.isNotBlank())
+                            val selectSection = {
+                                if (editable && sectionLabel.isNotBlank()) {
+                                    onCreateSection(sectionLabel)
+                                    newSection = false
+                                    focusManager.clearFocus()
+                                }
+                            }
+                            Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                GeoTextField(sectionLabel, { sectionLabel = it }, "새 구간", enabled = editable,
+                                    disabledReason = lockedReason, inputKind = GeoInputKind.TEXT, imeAction = ImeAction.Done,
+                                    keyboardActions = KeyboardActions(onDone = { selectSection() }))
+                                GeoButton("선택", selectSection, style = GeoButtonStyle.Secondary, enabled = editable && sectionLabel.isNotBlank())
+                            }
                         }
-                      }
                     }
-                    GeoSection("준비 상태") {
-                        WorkSurfaceCard {
-                          GeoRowList(GeoRowTrailing.Status) {
+                    mapCard?.let { preview -> item { GeoSection("지도 미리보기") { preview() } } }
+                    item {
+                        GeoGroupedSection("준비 상태", trailingColumn = GeoRowTrailing.Status) {
                             val rows = preparationReadiness(state, now)
                             rows.forEachIndexed { index, row ->
                                 val openRelay: (() -> Unit)? = if (row.label == "보정 정보 중계") {
                                     { if (onCorrectionRelay != null) onCorrectionRelay() else relayInfo = true }
                                 } else null
                                 GeoPreparationStatusRow(row.label, row.value, preparationStatusWord(row), row.tone,
-                                    onClick = openRelay,
-                                    divider = index < rows.lastIndex)
+                                    onClick = openRelay, divider = index < rows.lastIndex)
                             }
-                          }
                         }
+                        GeoReadinessLine("$displayName · ${preparationActionReason(state)}", preparationActionTone(state))
+                        if (!state.online && onConnectionMethod != null)
+                            GeoButton("연결 방법", onConnectionMethod, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                     }
-                    inlineAction()
                 }
+                GeoFixedActionBar(primary, modifier = Modifier.focusRequester(startFocus).testTag("prepare-start"))
             }
         }
     }
@@ -252,18 +246,8 @@ internal fun SurveyRunScreen(
 @Composable
 private fun PreparationAddRow(title: String, onClick: () -> Unit,
     enabled: Boolean = true, disabledReason: String? = null) {
-    require(enabled || !disabledReason.isNullOrBlank())
-    val c = LocalGeoColors.current
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).contentTarget(enabled, onClick).contentDivider()
-        .semantics(mergeDescendants = true) {}.padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(GeoIcons.add, null, Modifier.size(24.dp), tint = if (enabled) c.textSecondary else c.disabledText)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = LocalGeoType.current.titleSm, color = if (enabled) c.text else c.disabledText)
-            if (!enabled && disabledReason != null) Text(disabledReason,
-                style = LocalGeoType.current.caption, color = c.textSecondary)
-        }
-    }
+    GeoRow(title, onClick, enabled = enabled, disabledReason = disabledReason,
+        leading = { GeoIconTile(GeoIcons.add) }, divider = false)
 }
 
 internal fun preparationEditDisabledReason(state: SurveyRunUiState): String? = when {

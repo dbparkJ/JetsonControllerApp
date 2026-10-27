@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -110,15 +109,13 @@ internal fun FilePreview(content: RemoteFileContent, deviceName: String? = null,
     }
     val text = remember(content.bytes, image) { if (image) null else previewText(content.bytes) }
     if (text != null) {
-        SelectionContainer {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().background(LocalGeoColors.current.surface),
                 contentPadding = PaddingValues(storageGutter, 16.dp)
             ) {
                 item { PreviewFileInformation(content.name, details, Modifier.padding(bottom = 24.dp)) }
-                item { Text(text, style = LocalGeoType.current.mono, color = LocalGeoColors.current.text) }
+                item { SelectionContainer { Text(text, style = LocalGeoType.current.mono, color = LocalGeoColors.current.text) } }
             }
-        }
     } else {
         Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas).padding(storageGutter)
             .verticalScroll(rememberScrollState())) {
@@ -211,11 +208,11 @@ internal fun ZoomableImagePreview(
                 .background(GeoFixedColors.mediaPlate, GeoShape.badge).padding(8.dp),
                 style = LocalGeoType.current.caption, color = GeoFixedColors.mediaText)
         }
-        Box(Modifier.align(Alignment.TopEnd).padding(24.dp).background(GeoFixedColors.mediaBadge, GeoShape.control)) {
+        Box(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                GeoIconButton(GeoIcons.zoomOut, "축소", { updateTransform(scale / 1.5f) })
-                GeoIconButton(GeoIcons.fitZone, "화면에 맞춤", { updateTransform(1f, Offset.Zero) })
-                GeoIconButton(GeoIcons.zoomIn, "확대", { updateTransform(scale * 1.5f) })
+                GeoMediaIconButton(GeoIcons.zoomOut, "축소", { updateTransform(scale / 1.5f) })
+                GeoMediaIconButton(GeoIcons.fitZone, "화면에 맞춤", { updateTransform(1f, Offset.Zero) })
+                GeoMediaIconButton(GeoIcons.zoomIn, "확대", { updateTransform(scale * 1.5f) })
             }
         }
     }
@@ -227,8 +224,8 @@ internal fun ZoomableImagePreview(
 
 @Composable
 private fun PreviewFileInformation(name: String, details: List<Pair<String, String>>, modifier: Modifier = Modifier) {
-    R7Card(modifier) {
-        Text(breakableFileName(name), style = LocalGeoType.current.titleSm, color = LocalGeoColors.current.text)
+    R7Card(modifier, contentPadding = PaddingValues(16.dp)) {
+        GeoCopyableValue(name, label = "파일명")
         if (details.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             GeoPropertyList(details.map { it.first }) {
@@ -246,6 +243,13 @@ internal fun previewImageDimensions(bytes: ByteArray): String? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     return if (bounds.outWidth > 0 && bounds.outHeight > 0) "${bounds.outWidth} × ${bounds.outHeight}" else null
+}
+
+/** Text and unsupported files retain a detail header so floating media tools cannot cover them. */
+internal fun usesImageMediaFrame(content: RemoteFileContent): Boolean {
+    val image = content.mimeType.startsWith("image/") ||
+        content.name.substringAfterLast('.', "").lowercase() in setOf("jpg", "jpeg", "png", "webp", "bmp")
+    return image && previewImageDimensions(content.bytes) != null
 }
 
 private const val MAX_PREVIEW_DIMENSION = 2048

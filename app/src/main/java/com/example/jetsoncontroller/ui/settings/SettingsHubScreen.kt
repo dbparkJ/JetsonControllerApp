@@ -1,36 +1,23 @@
 package com.example.jetsoncontroller.ui.settings
 
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
-import androidx.compose.foundation.background
-import androidx.compose.foundation.Canvas
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.dashboard.*
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.Appearance
 import com.example.jetsoncontroller.ui.theme.rememberAppearance
 import com.example.jetsoncontroller.data.alerts.AlertSettings
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
-import com.example.jetsoncontroller.ui.theme.GeoShape
-import com.example.jetsoncontroller.ui.theme.LocalGeoPalette
-import com.example.jetsoncontroller.ui.theme.LocalGeoType
-import com.example.jetsoncontroller.ui.theme.geoWorkCardColors
+import com.example.jetsoncontroller.ui.components.geo.GeoGroupedSection as GeoSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleScaffold
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane
 import com.example.jetsoncontroller.ui.model.Tone
-import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
 
 /** Settings root and the local fallback used by isolated previews. */
 @Suppress("UNUSED_PARAMETER")
@@ -55,9 +42,9 @@ fun SettingsHubScreen(
     notificationPermissionGranted: Boolean = true,
     onRequestNotificationPermission: () -> Unit = {},
     serverStatusWord: String = "확인 전",
-    serverStatusTone: Tone = Tone.UNKNOWN
+    serverStatusTone: Tone = Tone.UNKNOWN,
+    selectedPage: String? = null
 ) {
-    val tablet = LocalGeoWindow.current.widthDp >= 600f
     val scroll = com.example.jetsoncontroller.ui.components.geo.shell.rememberGeoPaneListState("settings")
     var embeddedPage by rememberSaveable { mutableStateOf<String?>(null) }
     val appearance = if (LocalInspectionMode.current) Appearance() else rememberAppearance()
@@ -72,25 +59,26 @@ fun SettingsHubScreen(
             }
         )
         "help" -> SettingsHelpScreen(onBack = { embeddedPage = null })
-        else -> Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
-            DeviceTitleBar("설정", root = true)
+        else -> GeoLargeTitleScaffold("설정") {
             LazyColumn(
                 state = scroll,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = if (tablet) 24.dp else 16.dp, bottom = if (tablet) 32.dp else 40.dp)
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, bottom = 24.dp)
             ) {
                 item {
                     GeoSection("화면", first = true) {
-                        ThemeSettingsRow(appearance.summary) { onTheme?.invoke() }
+                        SettingsNavigationRow("테마", { onTheme?.invoke() }, selectedPage == "settings/theme", meta = appearance.summary,
+                            leading = { GeoIconTile(GeoIcons.tabSettings) })
                     }
                 }
                 item {
                     GeoSection("알림", trailingColumn = GeoRowTrailing.None) {
-                        GeoRow(
+                        SettingsNavigationRow(
                             title = "알림 기준",
                             meta = alertSettingsSummary(alertSettings),
                             leading = { GeoIconTile(GeoIcons.bell) },
-                            divider = !notificationPermissionGranted,
+                            selected = selectedPage == "alert_settings",
+                            rowCount = if (notificationPermissionGranted) 1 else 2,
                             onClick = onAlertSettings
                         )
                         if (!notificationPermissionGranted) {
@@ -107,28 +95,30 @@ fun SettingsHubScreen(
                 }
                 item {
                     GeoSection("서버", trailingColumn = GeoRowTrailing.Status) {
-                        GeoRow(
+                        SettingsNavigationRow(
                             title = "서버 연결",
                             meta = serverProfileName ?: "연결 정보 없음",
                             leading = { GeoIconTile(GeoIcons.router) },
                             badge = { GeoBadge(serverStatusWord, serverStatusTone) },
-                            divider = false,
+                            selected = selectedPage == "settings/server",
                             onClick = { onServerConnection?.invoke() ?: onServerStorage() }
                         )
                     }
                 }
                 item {
                     GeoSection("정보", trailingColumn = GeoRowTrailing.None) {
-                        GeoRow(
+                        SettingsNavigationRow(
                             title = "도움말",
                             leading = { GeoIconTile(GeoIcons.info) },
-                            onClick = { onHelp?.invoke() ?: run { embeddedPage = "help" } }
+                            onClick = { onHelp?.invoke() ?: run { embeddedPage = "help" } },
+                            selected = selectedPage == "settings/help", rowCount = 2,
+                            nextSelected = selectedPage == "settings/about"
                         )
-                        GeoRow(
+                        SettingsNavigationRow(
                             title = "앱 정보",
                             meta = com.example.jetsoncontroller.BuildConfig.VERSION_NAME,
                             leading = { GeoIconTile(GeoIcons.info) },
-                            divider = false,
+                            selected = selectedPage == "settings/about", index = 1, rowCount = 2,
                             onClick = { onAbout?.invoke() ?: run { embeddedPage = "about" } }
                         )
                     }
@@ -136,8 +126,8 @@ fun SettingsHubScreen(
                 if (developerModeEnabled) {
                     item {
                         GeoSection("고급", trailingColumn = GeoRowTrailing.None) {
-                            GeoRow(title = "개발자 도구", onClick = onDeveloper,
-                                leading = { GeoIconTile(GeoIcons.terminal) }, divider = false)
+                            SettingsNavigationRow(title = "개발자 도구", onClick = onDeveloper,
+                                selected = false, leading = { GeoIconTile(GeoIcons.terminal) })
                         }
                     }
                 }
@@ -147,26 +137,13 @@ fun SettingsHubScreen(
 }
 
 @Composable
-private fun ThemeSettingsRow(summary: String, onClick: () -> Unit) {
-    val c = LocalGeoColors.current
-    val work = geoWorkCardColors(LocalGeoPalette.current)
-    Row(Modifier.fillMaxWidth().contentTarget(onClick = onClick).padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Canvas(Modifier.size(76.dp, 104.dp).clip(GeoShape.control).clearAndSetSemantics {}) {
-            drawRect(c.canvas)
-            drawRoundRect(c.text, Offset(9.dp.toPx(), 9.dp.toPx()), Size(30.dp.toPx(), 8.dp.toPx()),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
-            drawRoundRect(work.background, Offset(9.dp.toPx(), 25.dp.toPx()), Size(58.dp.toPx(), 32.dp.toPx()),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
-            repeat(3) { index -> drawRoundRect(c.surface, Offset((9 + 20 * index).dp.toPx(), 65.dp.toPx()),
-                Size(17.dp.toPx(), 16.dp.toPx()), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())) }
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("테마", style = LocalGeoType.current.sectionTitle, color = c.text)
-            Text(summary, style = LocalGeoType.current.supporting, color = c.textSecondary)
-        }
-        Icon(GeoIcons.chevronRight, null, Modifier.size(24.dp), tint = c.textSecondary)
-    }
+private fun SettingsNavigationRow(title: String, onClick: () -> Unit, selected: Boolean,
+    index: Int = 0, rowCount: Int = 1, nextSelected: Boolean = false, meta: String? = null,
+    leading: (@Composable () -> Unit)? = null, badge: (@Composable () -> Unit)? = null) {
+    if (LocalGeoPane.current) GeoPaneListRow(title, onClick, selected, index, rowCount, nextSelected,
+        meta = meta, leading = leading, badge = badge)
+    else GeoRow(title, onClick, meta = meta, leading = leading, badge = badge,
+        divider = index < rowCount - 1)
 }
 
 internal fun serverConnectionWord(status: ServerConnectionStatus): String = when (status) {

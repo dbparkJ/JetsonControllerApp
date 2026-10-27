@@ -1,11 +1,14 @@
 package com.example.jetsoncontroller.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -56,9 +59,10 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("장치를 등록합니다").assertIsDisplayed()
-        composeRule.onNodeWithText("QR 확인").assertIsDisplayed()
-        composeRule.onNodeWithText("인증 완료").assertIsDisplayed()
+        composeRule.onNodeWithText("GEO-X에 장치를 등록하세요").assertIsDisplayed()
+        composeRule.onNodeWithText("장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다.").assertIsDisplayed()
+        composeRule.onNodeWithText("등록에 필요한 권한").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("QR 코드를 읽습니다.").assertIsDisplayed()
         composeRule.onNodeWithText("QR 코드 스캔").assertIsDisplayed()
     }
 
@@ -76,9 +80,11 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("등록 코드 직접 입력").performClick()
-        composeRule.onNodeWithText("QR을 읽기 어렵다면 QR 아래의 전체 등록 코드를 입력하세요.")
+        composeRule.onNodeWithContentDescription("코드 직접 입력").performClick()
+        composeRule.onNodeWithText("QR 아래에 있는 전체 코드를 입력하세요.")
             .assertIsDisplayed()
+        composeRule.onNodeWithText("다음").assertIsNotEnabled()
+        composeRule.onNodeWithText("등록 코드를 입력하세요.").assertIsDisplayed()
     }
 
     @Test
@@ -143,9 +149,23 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("장치 확인").assertIsDisplayed()
-        composeRule.onNodeWithText("인증 중...").assertIsDisplayed()
-        composeRule.onNodeWithText("상태 동기화").assertIsDisplayed()
+        composeRule.onNodeWithText("등록 점검").assertIsDisplayed()
+        composeRule.onAllNodesWithText("인증하는 중입니다.")[0].assertIsDisplayed()
+        composeRule.onNode(hasStateDescription("진행 중")).assertIsDisplayed()
+        composeRule.onNode(hasStateDescription("등록됨")).assertDoesNotExist()
+    }
+
+    @Test
+    fun pairingWithoutRegistrationCodeShowsWhyItsFooterIsDisabled() {
+        var starts = 0
+        composeRule.setContent {
+            JetsonControllerTheme {
+                PairingScreen(PairingUiState(phase = PairingPhase.QR_SCANNED), { starts++ }, {}, {})
+            }
+        }
+        composeRule.onNodeWithText("등록").assertIsNotEnabled()
+        composeRule.onNodeWithText("QR 코드로 다시 등록하세요.").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(0, starts) }
     }
 
     @Test
@@ -156,7 +176,7 @@ class CoreWorkflowScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("현재 장치").assertIsDisplayed()
+        composeRule.onNodeWithText("장치 목록").assertIsDisplayed()
         composeRule.onNodeWithText("GEO-X-1").assertIsDisplayed()
         composeRule.onNodeWithText("확인할 일이 없습니다.").assertIsDisplayed()
 

@@ -9,9 +9,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.theme.*
 
 /** Shared surfaces for the work, preparation and result screens. */
@@ -21,7 +23,7 @@ internal fun WorkSurfaceCard(
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(modifier.fillMaxWidth().geoCardShadow().clip(GeoShape.card)
+    Column(modifier.fillMaxWidth().clip(GeoShape.card)
         .background(LocalGeoColors.current.surface).padding(contentPadding), content = content)
 }
 
@@ -33,41 +35,18 @@ internal fun WorkSummaryCard(
 ) {
     val colors = LocalGeoColors.current
     val chosen = geoWorkCardColors(LocalGeoPalette.current)
-    Column(modifier.fillMaxWidth().geoCardShadow().background(chosen.background, GeoShape.card)
-        .padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxWidth().clip(GeoShape.card).background(chosen.background)
+        .padding(if (LocalGeoWindow.current.widthDp >= 600f) 24.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CompositionLocalProvider(LocalGeoColors provides colors.copy(
             text = chosen.content, textSecondary = chosen.content
         )) { content() }
     }
 }
 
-/** Result records have two large surface tiles per row rather than the device's four small tiles. */
+/** Result metrics use the same neutral grid and enlarged-text reflow as device metrics. */
 @Composable
 internal fun WorkFigureCards(figures: List<GeoFigure>, modifier: Modifier = Modifier) {
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val columns = if (LocalDensity.current.fontScale >= 2f || maxWidth < 280.dp) 1 else 2
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            figures.chunked(columns).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    row.forEach { figure ->
-                        WorkSurfaceCard(Modifier.weight(1f)) {
-                            val shown = figurePresentation(figure)
-                            val colors = LocalGeoColors.current
-                            Column(Modifier.semantics(mergeDescendants = true) {},
-                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(figure.label, style = LocalGeoType.current.supporting, color = colors.textSecondary)
-                                WorkFigureValue(shown.value, shown.unknown, shown.warning)
-                                shown.detail?.let { Text(it, style = LocalGeoType.current.caption,
-                                    color = if (shown.warning) colors.warning else colors.textSecondary) }
-                                shown.staleDetail?.let { Text(it, style = LocalGeoType.current.caption, color = colors.textSecondary) }
-                            }
-                        }
-                    }
-                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
-        }
-    }
+    GeoFigureGrid(figures, modifier, contained = true)
 }
 
 @Composable
@@ -77,10 +56,19 @@ internal fun WorkFigureValue(value: String, unknown: Boolean = false, warning: B
     val parts = Regex("^([+-]?[\\d.,]+)\\s*([A-Za-z°%가-힣]+)$").matchEntire(value)
     val number = parts?.groupValues?.get(1) ?: value
     val unit = if (unknown) null else parts?.groupValues?.get(2)
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
-        Text(number, Modifier.weight(1f, fill = false).alignByBaseline(),
-            style = if (unknown) type.body else if (large) type.clock else type.figure,
-            color = if (warning) colors.warning else colors.text)
-        unit?.let { Text(it, Modifier.alignByBaseline(), style = type.unit, color = colors.text) }
+    val style = (if (unknown) type.body else if (large) type.clock else if (LocalGeoWindow.current.widthDp >= 600f)
+        type.tabletFigure else type.phoneFigure).copy(fontFeatureSettings = "tnum")
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    BoxWithConstraints {
+        val required = measurer.measure(AnnotatedString(number), style, softWrap = false).size.width +
+            (unit?.let { measurer.measure(AnnotatedString(it), type.unit, softWrap = false).size.width } ?: 0) + with(density) { 2.dp.roundToPx() }
+        if (required > constraints.maxWidth) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(number, style = style, color = if (warning) colors.warning else colors.text)
+            unit?.let { Text(it, style = type.unit, color = colors.text) }
+        } else Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
+            Text(number, Modifier.alignByBaseline(), style = style, color = if (warning) colors.warning else colors.text)
+            unit?.let { Text(it, Modifier.alignByBaseline(), style = type.unit, color = colors.text) }
+        }
     }
 }

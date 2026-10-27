@@ -10,17 +10,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.GeoIcons
 import com.example.jetsoncontroller.ui.components.geo.GeoBadge
-import com.example.jetsoncontroller.ui.components.geo.GeoRow
-import com.example.jetsoncontroller.ui.components.geo.GeoRowList
-import com.example.jetsoncontroller.ui.components.geo.GeoRowTrailing
-import com.example.jetsoncontroller.ui.components.geo.GeoIconTile
-import com.example.jetsoncontroller.ui.components.geo.contentTarget
+import com.example.jetsoncontroller.ui.components.geo.GeoRadioRow
+import com.example.jetsoncontroller.ui.components.geo.geoClickable
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -29,32 +23,26 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoType
 internal fun WorkDeviceSwitcher(name: String, tone: Tone, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = LocalGeoColors.current
     val color = when (tone) {
-        Tone.SUCCESS -> c.chromeSuccess
-        Tone.WARNING -> c.chromeWarning
-        Tone.ERROR -> c.chromeDanger
-        Tone.INFO -> c.chromeInfo
-        Tone.PENDING -> c.chromePending
-        Tone.UNKNOWN -> c.chromeNeutral
+        Tone.SUCCESS -> c.success
+        Tone.WARNING -> c.warning
+        Tone.ERROR -> c.danger
+        Tone.INFO -> c.primary
+        Tone.PENDING -> c.pending
+        Tone.UNKNOWN -> c.neutral
     }
-    Row(modifier.contentTarget(onClick = onClick).heightIn(min = 48.dp)
+    Row(modifier.geoClickable(onClick = onClick).heightIn(min = 48.dp)
         .padding(horizontal = 8.dp, vertical = 12.dp).semantics(mergeDescendants = true) {
             contentDescription = "현재 장치 $name, 장치 바꾸기"
         }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).background(color, CircleShape))
-        Text(name, Modifier.weight(1f, fill = false), color = c.onTopBar, style = LocalGeoType.current.titleSm)
-        Icon(GeoIcons.chevronDown, null, Modifier.size(20.dp), tint = c.onTopBarIcon)
+        Box(Modifier.size(6.dp).background(color, CircleShape))
+        Text(name, Modifier.weight(1f, fill = false), color = c.text, style = LocalGeoType.current.titleSm)
+        Icon(GeoIcons.chevronDown, null, Modifier.size(24.dp), tint = c.textSecondary)
     }
 }
 
-/** Selection and connection state use separate, stable columns. */
+/** The choice sheet owns the edge-to-edge selection surface; connection remains a separate fact. */
 @Composable
 internal fun WorkDeviceChoiceRow(name: String, selected: Boolean, onClick: () -> Unit,
     word: String, tone: Tone, detail: String?) {
-    val colors = LocalGeoColors.current
-    GeoRowList(GeoRowTrailing.Status) {
-        GeoRow(name, onClick, Modifier.background(if (selected) colors.primaryTint else colors.surface)
-            .semantics { this.selected = selected; role = Role.RadioButton }, meta = detail,
-            leading = { GeoIconTile(GeoIcons.tabDevice, selected = selected) },
-            badge = { GeoBadge(word, tone) })
-    }
+    GeoRadioRow(name, selected, onClick, description = detail, badge = { GeoBadge(word, tone) })
 }

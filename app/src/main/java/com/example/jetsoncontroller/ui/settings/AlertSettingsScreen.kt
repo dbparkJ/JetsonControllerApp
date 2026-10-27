@@ -1,7 +1,6 @@
 package com.example.jetsoncontroller.ui.settings
 
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,20 +10,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.alerts.AlertSettings
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
-import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleScaffold
+import com.example.jetsoncontroller.ui.dev.DevSection as GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoStateBlock
 import com.example.jetsoncontroller.ui.components.geo.GeoStateContent
 import com.example.jetsoncontroller.ui.components.geo.GeoStateKind
 import com.example.jetsoncontroller.ui.components.geo.GeoSwitchRow
 import com.example.jetsoncontroller.ui.components.geo.GeoButton
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -45,11 +44,10 @@ fun AlertSettingsScreen(
     developerModeEnabled: Boolean = false,
     onBack: () -> Unit = {}
 ) {
-    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
-        SettingsPageHeader("알림 기준", onBack)
+    GeoLargeTitleScaffold("알림 기준", onBack = onBack) {
         LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             if (!notificationPermissionGranted) {
@@ -61,7 +59,8 @@ fun AlertSettingsScreen(
                             explanation = "켜 둔 알림을 받으려면 권한을 허용하세요."
                         )
                     )
-                    GeoButton("권한 허용", onRequestNotificationPermission, Modifier.padding(top = 8.dp))
+                    GeoButton("권한 허용", onRequestNotificationPermission, Modifier.fillMaxWidth().padding(top = 8.dp),
+                        style = com.example.jetsoncontroller.ui.components.geo.GeoButtonStyle.Secondary)
                 }
             }
             item {

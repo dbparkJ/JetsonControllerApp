@@ -1,6 +1,6 @@
 package com.example.jetsoncontroller.ui.dev
 
-import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
+import com.example.jetsoncontroller.ui.dev.DevSection as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,10 +15,9 @@ import java.time.Instant
 internal fun DevNetworkScreen(state: FieldState, onRefresh: () -> Unit, onBack: () -> Unit,
     deviceName: String = state.deviceId ?: "선택한 장치") {
     LaunchedEffect(state.deviceId, state.online) { if (state.online) onRefresh() }
-    DevPage("네트워크 주소", onBack, footer = {
-        GeoButton("다시 조회", onRefresh, Modifier.fillMaxWidth(), enabled = state.online && !state.networkBusy,
-            disabledReason = if (!state.online) "장치에 연결하면 조회할 수 있습니다." else "주소를 조회하고 있습니다.", actionArea = true)
-    }) {
+    DevPage("네트워크 주소", onBack, primaryAction = GeoButtonAction("다시 조회", onRefresh,
+        enabled = state.online && !state.networkBusy,
+        disabledReason = if (!state.online) "장치에 연결하면 조회할 수 있습니다." else "주소를 조회하고 있습니다.")) {
         DevIdentity(deviceName, state.network?.let { "조회 ${devTime(it.checkedAtEpochMillis)}" },
             if (state.online) "연결됨" else "연결 안 됨", if (state.online) Tone.SUCCESS else Tone.UNKNOWN)
         Spacer(Modifier.height(8.dp))
@@ -37,7 +36,7 @@ internal fun DevNetworkContent(state: FieldState) {
                 DevCopyValue(if (addresses.size > 1) "$label · $family" else label, address.address)
             }
         }
-        if (state.network?.interfaces?.isEmpty() == true) DevText("활성 네트워크 주소가 없습니다.")
+        if (state.network?.interfaces?.isEmpty() == true) DevEmpty("활성 네트워크 주소가 없습니다.", "조회한 장치에 활성 네트워크 주소가 없습니다.")
         DevFeedback(state.networkError, true)
     }
 }
@@ -57,14 +56,13 @@ internal fun DevSensorTestScreen(state: FieldState, onTest: (String) -> Unit,
             }
         }
     }
-    DevPage("카메라·GPS 테스트", onBack, footer = {
-        GeoButton("테스트", {
+    DevPage("카메라·GPS 테스트", onBack, primaryAction = GeoButtonAction("테스트", {
             batch = SensorTestBatch("camera", state.sensorTests["camera"])
             onTest("camera")
-        }, Modifier.fillMaxWidth(), enabled = state.online && state.testingSensor == null && batch == null,
-            busy = batch != null || state.testingSensor != null, busyLabel = "테스트 중", actionArea = true,
+        }, enabled = state.online && state.testingSensor == null && batch == null,
+            busy = batch != null || state.testingSensor != null, busyLabel = "테스트 중",
             disabledReason = if (!state.online) "장치에 연결하면 테스트할 수 있습니다." else "센서를 테스트하고 있습니다.")
-    }) {
+    ) {
         DevIdentity(deviceName, status = if (state.online) "연결됨" else "연결 안 됨",
             tone = if (state.online) Tone.SUCCESS else Tone.UNKNOWN)
         Spacer(Modifier.height(16.dp))
@@ -75,19 +73,24 @@ internal fun DevSensorTestScreen(state: FieldState, onTest: (String) -> Unit,
 
 @Composable
 internal fun DevSensorContent(state: FieldState) {
-    GeoSection("결과", first = true, modifier = Modifier.padding(top = 24.dp), note = state.sensorTests.values.maxByOrNull { it.checkedAtEpochMillis }?.let {
+    GeoSection("결과", first = true, modifier = Modifier.padding(top = 24.dp), trailingColumn = GeoRowTrailing.Status,
+        note = state.sensorTests.values.maxByOrNull { it.checkedAtEpochMillis }?.let {
         "${devTime(it.checkedAtEpochMillis)} 테스트 · ${it.durationSeconds.toBigDecimal().stripTrailingZeros().toPlainString()}초"
     }) {
         for ((sensor, label) in listOf("camera" to "카메라", "gps" to "GPS")) {
             val result = state.sensorTests[sensor]
-            GeoFactRow(label, when {
+            val word = when {
                 state.testingSensor == sensor -> "확인 중"
                 result?.state == "PASSED" -> "수신 확인"
                 else -> "미확인"
-            })
-            result?.let {
-                DevText(it.message)
             }
+            GeoRow(label, {}, navigable = false, meta = result?.message,
+                leading = { GeoIconTile(if (sensor == "camera") GeoIcons.camera else GeoIcons.myLocation) },
+                badge = { GeoBadge(word, when {
+                    state.testingSensor == sensor -> Tone.PENDING
+                    result?.state == "PASSED" -> Tone.SUCCESS
+                    else -> Tone.UNKNOWN
+                }) }, divider = sensor == "camera")
         }
         DevFeedback(state.sensorTestError, true)
     }

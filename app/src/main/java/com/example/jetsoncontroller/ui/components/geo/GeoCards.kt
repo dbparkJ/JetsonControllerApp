@@ -20,6 +20,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.ui.components.geo.shell.*
@@ -49,6 +51,7 @@ fun GeoTodayCard(
     clock: String? = null,
     status: String? = null,
     statusTone: Tone = Tone.UNKNOWN,
+    deadline: String? = null,
     content: @Composable ColumnScope.() -> Unit = {}
 ) {
     val chosen = geoWorkCardColors(LocalGeoPalette.current)
@@ -63,7 +66,29 @@ fun GeoTodayCard(
         CompositionLocalProvider(LocalGeoColors provides c.copy(text = chosen.content, textSecondary = chosen.content,
             neutral = chosen.content, success = chosen.content, warning = chosen.content,
             danger = chosen.content, primary = chosen.content, pending = chosen.content)) {
-            label?.let { Text(it, style = type.badge, color = chosen.content) }
+            if (label != null || deadline != null) {
+                val density = LocalDensity.current
+                val measurer = rememberTextMeasurer()
+                val labelWidth = with(density) {
+                    measurer.measure(AnnotatedString(label.orEmpty()), type.badge, softWrap = false).size.width.toDp().value
+                }
+                val deadlineWidth = with(density) {
+                    measurer.measure(AnnotatedString(deadline.orEmpty()), type.badge, softWrap = false).size.width.toDp().value
+                }
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    if (geoTodayLabelStacks(maxWidth.value, density.fontScale, labelWidth, deadlineWidth)) {
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            label?.let { Text(it, style = type.badge, color = chosen.content) }
+                            deadline?.let { Text(it, Modifier.align(Alignment.End), style = type.badge, color = chosen.content) }
+                        }
+                    } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        if (label != null) Text(label, Modifier.weight(1f), style = type.badge, color = chosen.content)
+                        else Spacer(Modifier.weight(1f))
+                        deadline?.let { Text(it, style = type.badge, color = chosen.content) }
+                    }
+                }
+            }
             val stacked = LocalDensity.current.fontScale >= 1.3f
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Text(title, Modifier.weight(1f), style = titleStyle, color = chosen.content,

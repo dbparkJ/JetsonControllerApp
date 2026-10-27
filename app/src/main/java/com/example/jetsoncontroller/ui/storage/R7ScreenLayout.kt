@@ -9,27 +9,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import com.example.jetsoncontroller.ui.components.geo.GeoRowList
 import com.example.jetsoncontroller.ui.components.geo.GeoRowTrailing
-import com.example.jetsoncontroller.ui.components.geo.GeoSection
 import com.example.jetsoncontroller.ui.components.geo.GeoInlineNote
 import com.example.jetsoncontroller.ui.components.geo.GeoNoteKind
+import com.example.jetsoncontroller.ui.components.geo.GeoGroupedSection
+import com.example.jetsoncontroller.ui.components.geo.GeoRow
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.dp
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.model.Tone
-import com.example.jetsoncontroller.ui.theme.AppSpacing
 import com.example.jetsoncontroller.ui.theme.GeoShape
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.geoCardShadow
 
-/** Screen adapter for the R7 card surface; dimensions and drawing come from the shared kit. */
+/** Compatibility name; R8 grouped surfaces own no row padding or shadow. */
 @Composable
 internal fun R7Card(
     modifier: Modifier = Modifier,
     color: Color = LocalGeoColors.current.surface,
-    contentPadding: PaddingValues = PaddingValues(AppSpacing.cardInset),
+    contentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(modifier.fillMaxWidth().geoCardShadow().background(color, GeoShape.card)
+    Column(modifier.fillMaxWidth().clip(GeoShape.card).background(color, GeoShape.card)
         .padding(contentPadding), content = content)
 }
 
@@ -64,11 +66,14 @@ internal fun R7Section(
     trailingColumn: GeoRowTrailing? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    GeoSection(title, modifier, first, danger, count, note, actionLabel, onAction) {
-        R7Card(color = if (danger) LocalGeoColors.current.dangerSoft else LocalGeoColors.current.surface,
-            contentPadding = if (trailingColumn == null) PaddingValues(AppSpacing.cardInset)
-                else PaddingValues(horizontal = AppSpacing.cardInset)) {
-            if (trailingColumn == null) content() else GeoRowList(trailingColumn, content = content)
+    val colors = LocalGeoColors.current
+    CompositionLocalProvider(LocalGeoColors provides if (danger) colors.copy(surface = colors.dangerSoft) else colors) {
+        GeoGroupedSection(listOfNotNull(title, count).joinToString(" · "), modifier, first,
+            trailingColumn ?: GeoRowTrailing.None) {
+            if (trailingColumn == null) Column(Modifier.padding(16.dp), content = content) else content()
+            note?.let { Text(it, Modifier.padding(16.dp), style = LocalGeoType.current.supporting,
+                color = colors.textSecondary) }
+            if (actionLabel != null && onAction != null) GeoRow(actionLabel, onAction, divider = false)
         }
     }
 }

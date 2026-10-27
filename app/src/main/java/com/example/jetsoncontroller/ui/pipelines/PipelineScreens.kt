@@ -1,9 +1,15 @@
 package com.example.jetsoncontroller.ui.pipelines
 
-import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
+import com.example.jetsoncontroller.ui.dev.DevSection as GeoSection
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
@@ -11,9 +17,7 @@ import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
 import com.example.jetsoncontroller.ui.model.Formats
-import com.example.jetsoncontroller.ui.theme.GeoSpace
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
-import com.example.jetsoncontroller.ui.storage.R7Card
 
 @Composable
 fun PipelineListScreen(
@@ -40,28 +44,28 @@ fun PipelineListScreen(
             { removal = null }, kind = GeoConfirmKind.DANGER, confirmEnabled = available,
             disabledReason = "장치의 현재 상태를 확인한 뒤 등록을 해제할 수 있습니다.")
     }
-    val footer: (@Composable () -> Unit)? = if (pipeline != null) ({
+    val action: GeoButtonAction? = if (pipeline != null) run {
         val running = pipeline.state in setOf(PipelineState.RUNNING, PipelineState.STARTING, PipelineState.RETRYING, PipelineState.WAITING_FOR_TIME_SYNC)
         val failed = pipeline.state == PipelineState.FAILED
-        GeoButton(if (running) "중지 요청" else if (failed) "다시 시작" else "수집 준비", {
+        GeoButtonAction(if (running) "중지 요청" else if (failed) "다시 시작" else "수집 준비", {
             if (running) onControl(pipeline, "stop") else onPrepareRun(pipeline)
-        }, Modifier.fillMaxWidth(), enabled = available && pipeline.id !in state.pendingActions &&
-            (running || (startCapability && pipeline.state in setOf(PipelineState.STOPPED, PipelineState.FAILED))), actionArea = true,
+        }, enabled = available && pipeline.id !in state.pendingActions &&
+            (running || (startCapability && pipeline.state in setOf(PipelineState.STOPPED, PipelineState.FAILED))),
             disabledReason = if (!fresh) "장치의 현재 상태를 확인한 뒤 실행할 수 있습니다." else "요청 결과를 확인하고 있습니다.")
-    }) else null
+    } else if (detailId == null && developerModeEnabled) GeoButtonAction("작업 등록", onAdd) else null
     DevPage(if (developerModeEnabled) "작업 관리" else "수집 작업 선택", onBack,
-        actions = { if (detailId == null && developerModeEnabled) GeoIconButton(GeoIcons.add, "작업 등록", onAdd, chrome = true) }, footer = footer) {
+        primaryAction = action) {
         DevFeedback(state.error, true)
+        if (developerModeEnabled) state.technicalError?.let { GeoCopyableValue(it, label = "오류 상세") }
         DevFeedback(state.message)
         if (state.isLoading) DevLoading()
         if (detailId == null) {
             if (state.pipelines.isEmpty() && !state.isLoading) DevEmpty("이 장치에 등록된 작업이 없습니다.", "작업 등록은 관리자에게 요청하세요.")
-            state.pipelines.forEach { item ->
+            if (state.pipelines.isNotEmpty()) GeoSection("등록된 작업", first = true, trailingColumn = GeoRowTrailing.Status) {
+              state.pipelines.forEachIndexed { index, item ->
                 val status = taskStateLabel(item, fresh, state.pendingActions[item.id])
-                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
-                    GeoRowList(GeoRowTrailing.Status) {
                         GeoRow(item.label, { onDetails(item) }, meta = status,
-                            leading = { GeoIconTile(GeoIcons.tabWork) }, divider = false,
+                            leading = { GeoIconTile(GeoIcons.tabWork) }, divider = index < state.pipelines.lastIndex,
                             badge = { GeoBadge(if (!fresh) "미확인" else status.substringBefore(" · "), when {
                                 !fresh -> Tone.UNKNOWN
                                 item.id in state.pendingActions -> Tone.PENDING
@@ -69,11 +73,10 @@ fun PipelineListScreen(
                                 item.state == PipelineState.RUNNING -> Tone.INFO
                                 else -> Tone.UNKNOWN
                             }) })
-                    }
-                }
+              }
             }
             GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !state.isLoading)
-            if (developerModeEnabled) R7Card(contentPadding = PaddingValues(horizontal = 16.dp)) {
+            if (developerModeEnabled) GeoSection("기록", trailingColumn = GeoRowTrailing.None) {
                 GeoRow("작업 이력", onHistory, leading = { GeoIconTile(GeoIcons.log) }, divider = false)
             }
         } else if (pipeline == null) DevEmpty("작업을 찾을 수 없습니다", "장치의 작업 목록을 다시 확인하세요.", "다시 시도", onRefresh)
@@ -123,20 +126,25 @@ fun PipelineListScreen(
 @Composable
 fun PipelineEditorScreen(state: PipelineUiState, onBack: () -> Unit, onPick: (PipelinePickerTarget) -> Unit,
     onLabelChange: (String) -> Unit, onAutostartChange: (Boolean) -> Unit, onRegister: () -> Unit) {
-    DevPage("작업 등록", onBack, footer = {
-        GeoButton("작업 등록", onRegister, Modifier.fillMaxWidth(), enabled = state.controlAvailable && state.draft.canSubmit &&
-            state.discoveredFolder != null && !state.isLoading && !state.isDiscoveringFolder, actionArea = true,
-            disabledReason = "장치에 연결하고 표시 이름과 작업 폴더를 확인하세요.")
-    }) {
+    val focus = LocalFocusManager.current
+    DevPage("작업 등록", onBack, primaryAction = GeoButtonAction("작업 등록", onRegister,
+        enabled = state.controlAvailable && state.draft.canSubmit && state.discoveredFolder != null &&
+            !state.isLoading && !state.isDiscoveringFolder,
+        disabledReason = "장치에 연결하고 표시 이름과 작업 폴더를 확인하세요.")) {
         DevFeedback(state.error, true)
-        GeoSection("작업 정보", first = true) { GeoTextField(state.draft.label, onLabelChange, "표시 이름") }
+        GeoSection("작업 정보", first = true) {
+            GeoTextField(state.draft.label, onLabelChange, "표시 이름", inputKind = GeoInputKind.TEXT,
+                imeAction = ImeAction.Next, keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Next) }))
+        }
         GeoSection("실행 소스") {
             GeoPickerField("작업 폴더", selectionLabel(state.draft.repositoryRoot, state.draft.repositoryPath),
                 { onPick(PipelinePickerTarget.REPOSITORY) }, enabled = !state.isLoading, disabledReason = "등록하고 있습니다.")
             if (state.isDiscoveringFolder) DevLoading()
             state.discoveredFolder?.let {
                 DevText("작업 폴더에서 실행 정보를 찾았습니다.")
-                DevText("${it.pipelineId} · ${it.entrypoint} · ${it.config}", mono = true)
+                GeoCopyableValue(it.pipelineId, label = "작업 ID")
+                GeoCopyableValue(it.entrypoint, label = "실행 파일")
+                GeoCopyableValue(it.config, label = "설정 파일")
                 DevText("결과 폴더는 자동으로 정합니다.", secondary = true)
             }
         }
@@ -154,21 +162,20 @@ fun PipelinePickerScreen(roots: List<RemoteRoot>, state: PipelinePickerState, on
     onFileClick: (RemoteFileEntry) -> Unit, onSelectCurrentDirectory: () -> Unit) {
     val directory = state.target == PipelinePickerTarget.REPOSITORY || state.target == PipelinePickerTarget.VIRTUALENV
     val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || fileMatches(it, state.target) }
-    DevPage("폴더 선택", onBack, footer = if (directory && state.root != null) ({
-        GeoButton("이 폴더 선택", onSelectCurrentDirectory, Modifier.fillMaxWidth(), enabled = !state.isLoading, actionArea = true)
-    }) else null) {
-        Row(Modifier.fillMaxWidth()) {
-            val label = state.root?.label ?: "저장소"
-            GeoButton(label, { state.root?.let(onRootClick) ?: onRefresh() }, Modifier.weight(1f),
-                style = GeoButtonStyle.Tertiary, icon = GeoIcons.folder, enabled = !state.isLoading)
-            if (state.currentPath.isNotBlank()) GeoButton(state.currentPath, onBack, Modifier.weight(1f), style = GeoButtonStyle.Tertiary)
-        }
+    DevPage("폴더 선택", onBack, primaryAction = if (directory && state.root != null)
+        GeoButtonAction("이 폴더 선택", onSelectCurrentDirectory, enabled = !state.isLoading) else null) {
+        GeoButtonActions(buildList {
+            add(GeoButtonAction(state.root?.label ?: "저장소", { state.root?.let(onRootClick) ?: onRefresh() },
+                style = GeoButtonStyle.Secondary, icon = GeoIcons.folder, enabled = !state.isLoading))
+            if (state.currentPath.isNotBlank()) add(GeoButtonAction("상위 폴더", onBack, style = GeoButtonStyle.Secondary))
+        })
+        if (state.root != null) GeoCopyableValue(state.currentPath.ifBlank { "/" }, label = "현재 경로")
         if (state.isLoading) DevLoading()
         if (state.error != null) DevEmpty("폴더를 불러오지 못했습니다", state.error, "다시 시도", onRefresh)
-        if (state.root == null) roots.forEach { root ->
-            R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+        if (state.root == null) GeoSection("저장소", trailingColumn = GeoRowTrailing.None) {
+          roots.forEachIndexed { index, root ->
                 GeoRow(root.label, { onRootClick(root) }, enabled = !state.isLoading,
-                    leading = { GeoIconTile(GeoIcons.folder) }, divider = false, disabledReason = "폴더를 확인하고 있습니다.")
+                    leading = { GeoIconTile(GeoIcons.folder) }, divider = index < roots.lastIndex, disabledReason = "폴더를 확인하고 있습니다.")
             }
         }
         else {
@@ -192,7 +199,7 @@ fun PipelineLogScreen(state: PipelineUiState, onBack: () -> Unit, onRefresh: () 
     val deviceName = state.deviceName
     val selected = state.logFiles.firstOrNull { it.id == state.selectedLogId }
     val content = pipelineDetailContent(state.controlAvailable, state.detailLoading, state.error, state.logContent.isNotEmpty())
-    if (picker) GeoSheet("실행 로그 선택", { picker = false },
+    if (picker) GeoSheet("실행 로그 선택", { picker = false }, kind = GeoSheetKind.CHOICE,
         subtitle = "${pipeline?.label ?: "수집 작업"} · $deviceName") {
         state.logFiles.forEach { file ->
             GeoRadioRow(logKind(file, state), file.id == state.selectedLogId,
@@ -200,34 +207,36 @@ fun PipelineLogScreen(state: PipelineUiState, onBack: () -> Unit, onRefresh: () 
         }
     }
     DevFrame("실행 로그", onBack) {
-        val gutter = GeoSpace.gutterForPane(LocalGeoWindow.current.paneWidthDp)
-        Column(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 16.dp)) {
-            GeoPickerField("실행 로그", state.logFiles.firstOrNull { it.id == state.selectedLogId }?.let { "${logKind(it, state)} · ${devTimestamp(it.startedAt)} 시작" } ?: "선택 안 됨",
-                { picker = true }, enabled = state.logFiles.isNotEmpty(), disabledReason = when (content) {
-                    PipelineDetailContent.OFFLINE -> "장치에 연결하면 실행 로그를 불러올 수 있습니다."
-                    PipelineDetailContent.ERROR -> "실행 로그를 불러오지 못했습니다."
-                    PipelineDetailContent.LOADING -> "실행 로그를 확인하고 있습니다."
-                    else -> "저장된 실행 로그가 없습니다."
-                })
-            if (content == PipelineDetailContent.CONTENT) {
-                if (!state.controlAvailable) DevFeedback("마지막으로 불러온 로그입니다. 장치를 같은 네트워크나 직접 연결로 연결하면 다시 조회할 수 있습니다.")
-                DevFeedback(state.error, true)
-            }
-            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
-                enabled = state.controlAvailable && !state.detailLoading)
-        }
-        when (content) {
-            PipelineDetailContent.CONTENT -> key(state.selectedLogId) {
-                DevLogView(state.logContent.lines().mapIndexed { index, line -> GeoLogLine(index.toString(), line) },
-                    pipelineLogIsLive(state.controlAvailable, state.logLive, selected?.active == true), selected?.sizeBytes,
-                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = gutter))
-            }
-            else -> Column(Modifier.padding(horizontal = gutter)) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val logHeight = maxHeight / 2
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(bottom = 24.dp)) {
+                GeoSection("실행", first = true) {
+                    GeoPickerField("실행 로그", selected?.let { "${logKind(it, state)} · ${devTimestamp(it.startedAt)} 시작" } ?: "선택 안 됨",
+                        { picker = true }, enabled = state.logFiles.isNotEmpty(), disabledReason = when (content) {
+                            PipelineDetailContent.OFFLINE -> "장치에 연결하면 실행 로그를 불러올 수 있습니다."
+                            PipelineDetailContent.ERROR -> "실행 로그를 불러오지 못했습니다."
+                            PipelineDetailContent.LOADING -> "실행 로그를 확인하고 있습니다."
+                            else -> "저장된 실행 로그가 없습니다."
+                        })
+                    if (content == PipelineDetailContent.CONTENT) {
+                        if (!state.controlAvailable) DevFeedback("마지막으로 불러온 로그입니다. 장치를 같은 네트워크나 직접 연결로 연결하면 다시 조회할 수 있습니다.")
+                        DevFeedback(state.error, true)
+                    }
+                    GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
+                        enabled = state.controlAvailable && !state.detailLoading)
+                }
+                Spacer(Modifier.height(24.dp))
                 when (content) {
+                    PipelineDetailContent.CONTENT -> key(state.selectedLogId) {
+                        DevLogView(state.logContent.lines().mapIndexed { index, line -> GeoLogLine(index.toString(), line) },
+                            pipelineLogIsLive(state.controlAvailable, state.logLive, selected?.active == true), selected?.sizeBytes,
+                            Modifier.fillMaxWidth().height(logHeight))
+                    }
                     PipelineDetailContent.OFFLINE -> GeoStateBlock(GeoStateContent(GeoStateKind.OFFLINE,
-                        "$deviceName 실행 로그를 불러올 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 실행 로그를 불러올 수 있습니다."), fullScreen = true)
+                        "$deviceName 실행 로그를 불러올 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 실행 로그를 불러올 수 있습니다."))
                     PipelineDetailContent.ERROR -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
-                        "실행 로그를 불러오지 못했습니다", "장치 연결을 확인하고 다시 시도하세요.", "다시 시도"), fullScreen = true, onAction = onRefresh)
+                        "실행 로그를 불러오지 못했습니다", state.error ?: "장치 연결을 확인하고 다시 시도하세요.", "다시 시도"), onAction = onRefresh)
                     PipelineDetailContent.LOADING -> DevLoading()
                     else -> if (state.logFiles.isEmpty()) DevEmpty("저장된 실행 로그가 없습니다", "작업을 시작하면 실행마다 로그가 따로 남습니다.")
                         else DevEmpty("로그 내용이 없습니다", "선택한 실행에서는 아직 결과가 기록되지 않았습니다.")
@@ -240,6 +249,7 @@ fun PipelineLogScreen(state: PipelineUiState, onBack: () -> Unit, onRefresh: () 
 @Composable
 fun PipelineConfigScreen(state: PipelineUiState, onBack: () -> Unit, onValueChange: (String, String) -> Unit,
     onSave: () -> Unit, onReload: () -> Unit = {}) {
+    val focus = LocalFocusManager.current
     var reload by remember(state.deviceId, state.controlAvailable) { mutableStateOf(false) }
     val pipeline = state.pipelines.firstOrNull { it.id == state.detailPipelineId }
     val deviceName = state.deviceName
@@ -248,12 +258,11 @@ fun PipelineConfigScreen(state: PipelineUiState, onBack: () -> Unit, onValueChan
         { reload = false; if (state.controlAvailable && !state.configSaving) onReload() }, { reload = false },
         dismissLabel = "초안 유지", confirmEnabled = state.controlAvailable && !state.configSaving,
         disabledReason = "장치에 연결되고 저장이 끝나야 다시 불러올 수 있습니다.")
-    DevPage("작업 설정", onBack, footer = {
-        GeoButton("설정 저장", onSave, Modifier.fillMaxWidth(), enabled = state.controlAvailable && !state.configNeedsReview &&
+    DevPage("작업 설정", onBack, primaryAction = GeoButtonAction("설정 저장", onSave, enabled = state.controlAvailable && !state.configNeedsReview &&
             !state.detailLoading && !state.configSaving && state.configHasChanges && state.configValuesValid,
-            actionArea = true, disabledReason = if (state.configNeedsReview) "장치의 설정을 다시 불러온 뒤 저장할 수 있습니다." else "변경한 설정 값을 확인하세요.")
-    }) {
-        DevIdentity(pipeline?.label ?: "수집 작업", listOf(deviceName, state.configPath).filter { it.isNotBlank() }.joinToString(" · "))
+            disabledReason = if (state.configNeedsReview) "장치의 설정을 다시 불러온 뒤 저장할 수 있습니다." else "변경한 설정 값을 확인하세요.")) {
+        DevIdentity(pipeline?.label ?: "수집 작업", deviceName)
+        if (state.configPath.isNotBlank()) GeoCopyableValue(state.configPath, label = "설정 파일")
         Spacer(Modifier.height(32.dp))
         if (content == PipelineDetailContent.CONTENT) {
             if (!state.controlAvailable) DevFeedback("마지막으로 불러온 설정입니다. 장치를 같은 네트워크나 직접 연결로 연결하면 다시 조회할 수 있습니다.")
@@ -273,7 +282,7 @@ fun PipelineConfigScreen(state: PipelineUiState, onBack: () -> Unit, onValueChan
         else if (content == PipelineDetailContent.EMPTY) DevEmpty("바꿀 수 있는 설정 값이 없습니다",
             "이 작업의 설정 파일에는 앱에서 바꿀 수 있는 키와 값이 없습니다.")
         else GeoSection("설정 값", first = true, modifier = Modifier.padding(top = 24.dp)) {
-            state.configFields.forEach { field ->
+            state.configFields.forEachIndexed { index, field ->
                 val caption = configFieldCaption(field.path, field.label)
                 val enabled = state.controlAvailable && !state.detailLoading && !state.configSaving
                 if (field.type == PipelineConfigValueType.BOOLEAN) GeoSwitchRow(caption.label, field.value == "true",
@@ -283,9 +292,12 @@ fun PipelineConfigScreen(state: PipelineUiState, onBack: () -> Unit, onValueChan
                         enabled = enabled, disabledReason = "장치 연결과 저장 상태를 확인하세요.",
                         singleLine = field.type != PipelineConfigValueType.STRING,
                         numeric = field.type in setOf(PipelineConfigValueType.INTEGER, PipelineConfigValueType.DECIMAL),
+                        inputKind = GeoInputKind.TEXT,
+                        imeAction = if (index == state.configFields.lastIndex) ImeAction.Done else ImeAction.Next,
+                        keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Next) }, onDone = { focus.clearFocus() }),
                         error = if (configFieldValueValid(field.type, field.value)) null else "유효한 값을 입력하세요.")
                 }
-                caption.key?.let { Spacer(Modifier.height(4.dp)); DevText(it, secondary = true, mono = true) }
+                caption.key?.let { Spacer(Modifier.height(4.dp)); GeoCopyableValue(it) }
                 Spacer(Modifier.height(16.dp))
             }
         }

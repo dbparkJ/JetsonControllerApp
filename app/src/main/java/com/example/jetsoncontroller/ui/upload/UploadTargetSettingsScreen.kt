@@ -2,22 +2,17 @@ package com.example.jetsoncontroller.ui.upload
 
 import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import java.net.URI
 
 @Composable
@@ -61,6 +56,8 @@ fun UploadTargetSettingsScreen(
 internal fun UploadTargetEditorScreen(target: UploadTarget?, isSaving: Boolean, controlAvailable: Boolean,
     deviceId: String?, deviceName: String, message: String?, error: String?,
     onSave: (String, String, String, String?) -> Unit, onDelete: (String) -> Unit, onBack: () -> Unit) {
+    val focus = LocalFocusManager.current
+    val next = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Next) })
     var id by rememberSaveable(deviceId, target?.id) { mutableStateOf(target?.id ?: "") }
     var label by rememberSaveable(deviceId, target?.id) { mutableStateOf(target?.label ?: "") }
     var url by rememberSaveable(deviceId, target?.id) { mutableStateOf(target?.baseUrl ?: "") }
@@ -80,25 +77,28 @@ internal fun UploadTargetEditorScreen(target: UploadTarget?, isSaving: Boolean, 
             { pending = null }, kind = GeoConfirmKind.DANGER, confirmEnabled = controlAvailable && !isSaving,
             disabledReason = "장치에 연결하면 삭제할 수 있습니다.")
     }
-    DevPage(if (target == null) "업로드 서버 추가" else "업로드 서버 수정", { token = ""; onBack() }, footer = {
-        GeoButton("저장", {
+    DevPage(if (target == null) "업로드 서버 추가" else "업로드 서버 수정", { token = ""; onBack() }, primaryAction =
+        GeoButtonAction("저장", {
             val credential = secret.consume().trim().ifEmpty { null }
             submitted = true
             onSave(id.trim(), label.trim(), url.trim().trimEnd('/'), credential)
-        }, Modifier.fillMaxWidth(), enabled = valid && controlAvailable && !isSaving,
-            busy = isSaving, busyLabel = "저장 중", actionArea = true,
-            disabledReason = if (!controlAvailable) "장치에 연결하면 저장할 수 있습니다." else "서버 정보를 입력하세요.")
-    }) {
+        }, enabled = valid && controlAvailable && !isSaving,
+            busy = isSaving, busyLabel = "저장 중",
+            disabledReason = if (!controlAvailable) "장치에 연결하면 저장할 수 있습니다." else "서버 정보를 입력하세요.")) {
         DevFeedback(if (submitted && error != null) "서버 정보를 저장하지 못했습니다. 입력과 연결을 확인하세요." else null, true)
         if (target != null) UploadTargetIdFactRow(id)
-        else GeoTextField(id, { id = it.lowercase().take(64) }, "서버 ID")
+        else GeoTextField(id, { id = it.lowercase().take(64) }, "서버 ID",
+            inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
-        GeoTextField(label, { label = it.take(64) }, "표시 이름")
+        GeoTextField(label, { label = it.take(64) }, "표시 이름", imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
-        GeoTextField(url, { url = it.take(2048) }, "HTTPS 주소", error = if (url.isNotBlank() && !isValidHttpsUrl(url)) "HTTPS 주소를 확인하세요." else null)
+        GeoTextField(url, { url = it.take(2048) }, "HTTPS 주소", error = if (url.isNotBlank() && !isValidHttpsUrl(url)) "HTTPS 주소를 확인하세요." else null,
+            inputKind = GeoInputKind.SERVER_ADDRESS, imeAction = ImeAction.Next, keyboardActions = next)
         Spacer(Modifier.height(16.dp))
         GeoTextField(token, { token = it.take(4096) }, "접근 토큰", password = true,
-            helper = "저장된 토큰은 다시 표시하지 않습니다. 바꾸려면 새 토큰을 입력하세요.")
+            helper = "저장된 토큰은 다시 표시하지 않습니다. 바꾸려면 새 토큰을 입력하세요.",
+            inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Done,
+            keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }))
         if (target != null) GeoSection("관리", danger = true) {
             DevText("${deviceName}에 저장된 서버 주소와 접근 토큰을 지웁니다.")
             GeoButton("서버 삭제", { pending = target }, Modifier.fillMaxWidth(), style = GeoButtonStyle.DangerOutline,
@@ -114,29 +114,5 @@ internal fun isValidHttpsUrl(value: String): Boolean = runCatching {
 
 @Composable
 private fun UploadTargetIdFactRow(value: String) {
-    val colors = LocalGeoColors.current
-    val type = LocalGeoType.current
-    val measurer = rememberTextMeasurer()
-    BoxWithConstraints(Modifier.fillMaxWidth().contentDivider().semantics(mergeDescendants = true) {}) {
-        val available = (constraints.maxWidth - with(LocalDensity.current) { 16.dp.roundToPx() }).coerceAtLeast(0)
-        val labelLayout = measurer.measure(AnnotatedString("서버 ID"), type.body,
-            constraints = Constraints(maxWidth = (available * 0.4f).toInt()))
-        val valueLayout = measurer.measure(AnnotatedString(value), type.mono,
-            constraints = Constraints(maxWidth = (available * 0.6f).toInt()))
-        val stacked = LocalDensity.current.fontScale >= 1.5f || maxWidth < 320.dp ||
-            labelLayout.lineCount > 2 || valueLayout.lineCount > 2
-        if (stacked) {
-            Column(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("서버 ID", color = colors.textSecondary, style = type.body)
-                Text(value, color = colors.text, style = type.mono)
-            }
-        } else {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = androidx.compose.ui.Alignment.Top) {
-                Text("서버 ID", Modifier.weight(0.4f), color = colors.textSecondary, style = type.body)
-                Text(value, Modifier.weight(0.6f), color = colors.text, style = type.mono, textAlign = TextAlign.End)
-            }
-        }
-    }
+    GeoCopyableValue(value, label = "서버 ID")
 }

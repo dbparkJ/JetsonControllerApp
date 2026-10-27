@@ -116,36 +116,73 @@ class R7LandscapeLayoutTest {
             compose.onNodeWithText(it).assertExists()
         }
         compose.onAllNodesWithText("전시 수집 구간").assertCountEquals(1)
-        compose.onNodeWithText("최근 수집 3").assertDoesNotExist()
-        compose.onNode(hasText("구간 직접 고르기") and hasClickAction()).assertWidthIsEqualTo(608.dp)
+        compose.onNodeWithText("최근 수집 3").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("구간 직접 고르기") and hasClickAction()).performScrollTo().assertWidthIsEqualTo(608.dp)
         compose.onNodeWithText("장치 파일").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("준비하기").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("today", opened) }
     }
 
-    @Test fun cameraGrowsBeyond720DpAndKeepsControlsBesideTheImage() {
+    @Test fun cameraFillsTheViewportAndKeepsCircularControlsOverTheImage() {
         var width by mutableFloatStateOf(1280f)
         var height by mutableFloatStateOf(776f)
         val frame = Bitmap.createBitmap(1280, 800, Bitmap.Config.ARGB_8888)
         compose.setContent {
             Viewport(width, height, rail = false) {
+                Box(Modifier.fillMaxSize().testTag("camera-viewport")) {
                 CameraPreviewScreen(CameraPreviewUiState(frame = frame, targetConnected = true,
                     checkedAtElapsedMillis = 10_000L, frameFreshness = CameraFrameFreshness(receivedAt = 0L),
                     targetStillCurrent = { true }), CameraSensorStatus(frameWidth = 1280, frameHeight = 800), {}, {})
+                }
             }
         }
         val image = compose.onNodeWithContentDescription("장치 카메라 마지막 수신 영상").fetchSemanticsNode().boundsInRoot
-        val capture = compose.onNodeWithText("캡처").assertIsNotEnabled().fetchSemanticsNode().boundsInRoot
+        val captureNode = compose.onNodeWithContentDescription("캡처").assertIsNotEnabled()
+            .assertWidthIsEqualTo(80.dp).assertHeightIsEqualTo(80.dp)
+        val capture = captureNode.fetchSemanticsNode().boundsInRoot
         assertTrue(image.width > 720f * .5f)
-        assertTrue(capture.left >= image.right)
+        assertEquals(compose.onNodeWithTag("camera-viewport").fetchSemanticsNode().boundsInRoot, image)
+        assertTrue(capture.center.x > image.center.x)
+        assertTrue(capture.left >= image.left && capture.right <= image.right)
+        assertTrue(capture.top >= image.top && capture.bottom <= image.bottom)
+        compose.onNodeWithContentDescription("뒤로").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp)
         compose.onNodeWithText("카메라 영상").assertDoesNotExist()
         compose.onNodeWithText("1280 × 800").assertIsDisplayed()
-        compose.onNodeWithText("저장 위치").performClick()
+        compose.onNodeWithContentDescription("캡처 저장 위치").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp).performClick()
         compose.onNodeWithText("캡처 저장 위치").assertIsDisplayed()
+        compose.onNodeWithText("실시간 영상을 받으면 캡처할 수 있습니다.").assertIsDisplayed()
+        compose.onNode(hasText("캡처") and hasClickAction()).assertIsNotEnabled()
         compose.onNodeWithText("취소").performClick()
         compose.runOnIdle { width = 800f; height = 1280f }
-        compose.onNodeWithText("카메라 영상").assertExists()
+        compose.onNodeWithText("카메라 영상").assertDoesNotExist()
         compose.onNodeWithContentDescription("뒤로").assertExists()
+        compose.onNodeWithContentDescription("캡처").assertWidthIsEqualTo(80.dp).assertHeightIsEqualTo(80.dp)
+        val portrait = compose.onNodeWithTag("camera-viewport").fetchSemanticsNode().boundsInRoot
+        val bottomCapture = compose.onNodeWithContentDescription("캡처").fetchSemanticsNode().boundsInRoot
+        assertEquals(portrait.center.x, bottomCapture.center.x, 1f)
+        assertTrue(bottomCapture.center.y > portrait.center.y)
+    }
+
+    @Test fun tabletMediaNavigationFloatsAtTheLowerLeftAndKeepsAllDestinations() {
+        var selected by mutableStateOf(GeoTab.DEVICES)
+        compose.setContent {
+            Viewport(1280f, 800f, rail = false) {
+                Box(Modifier.fillMaxSize().testTag("media-viewport")) {
+                    GeoImmersiveMediaFrame(captureAction = {}) {}
+                    GeoFloatingMediaNavigation(selected, { selected = it },
+                        Modifier.align(androidx.compose.ui.Alignment.BottomStart).padding(24.dp).testTag("floating-navigation"))
+                }
+            }
+        }
+        val viewport = compose.onNodeWithTag("media-viewport").fetchSemanticsNode().boundsInRoot
+        val navigation = compose.onNodeWithTag("floating-navigation").fetchSemanticsNode().boundsInRoot
+        assertTrue(navigation.right < viewport.center.x)
+        assertTrue(navigation.top > viewport.center.y)
+        assertTrue(navigation.left >= viewport.left && navigation.bottom <= viewport.bottom)
+        listOf("작업" to GeoTab.TASKS, "장치" to GeoTab.DEVICES, "전송" to GeoTab.TRANSFERS, "설정" to GeoTab.SETTINGS).forEach { (label, tab) ->
+            compose.onNodeWithContentDescription(label).assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp).performClick().assertIsSelected()
+            compose.runOnIdle { assertEquals(tab, selected) }
+        }
     }
 
     @Test fun settingsDetailBackReturnsWhenNarrowed() {

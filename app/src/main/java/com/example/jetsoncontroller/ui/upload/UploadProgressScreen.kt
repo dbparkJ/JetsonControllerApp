@@ -17,7 +17,8 @@ import com.example.jetsoncontroller.model.UploadVerification
 import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
+import com.example.jetsoncontroller.ui.storage.StorageActionLayout
+import com.example.jetsoncontroller.ui.storage.StorageMenuSheet
 import com.example.jetsoncontroller.ui.transfers.*
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
@@ -120,11 +121,20 @@ fun UploadProgressScreen(
             onConfirm = { confirmation = null; perform(target, mutation) },
             onDismissRequest = { confirmation = null },
             dismissLabel = if (cancel) "계속 보내기" else "취소",
-            kind = if (cancel) GeoConfirmKind.DANGER else GeoConfirmKind.STANDARD,
+            kind = if (cancel || cleanUp || mutation == TransferMutation.DELETE_RECORD) GeoConfirmKind.DANGER else GeoConfirmKind.STANDARD,
             confirmEnabled = !isLoading && job?.let { transferMutationAllowed(target, deviceId,
                 it.copy(verification = matchingTransferVerification(it, verification)), mutation,
                 deviceDeletionEnabled, serverMutationEnabled) } == true,
-            disabledReason = if (cleanUp) "서버 수신 내용이 바뀌어 정리할 수 없습니다." else "장치 연결과 전송 대상을 다시 확인하세요."
+            disabledReason = if (cleanUp) "서버 수신 내용이 바뀌어 정리할 수 없습니다." else "장치 연결과 전송 대상을 다시 확인하세요.",
+            facts = {
+                GeoCopyableValue(target.path, label = "원본 경로")
+                GeoPropertyRow("보내는 장치", deviceName)
+                GeoPropertyRow("받는 서버", targetLabel?.takeIf { fixedTarget == target } ?: target.targetId)
+                if (cleanUp) job?.takeIf { target.matches(deviceId, it) }?.let { current -> matchingTransferVerification(current, verification)?.let { receipt ->
+                    GeoPropertyRow("파일", Formats.itemCount(receipt.filesTotal?.toLong()), numeric = true)
+                    GeoPropertyRow("용량", Formats.size(receipt.bytesTotal), numeric = true)
+                } }
+            }
         )
     }
     reportTarget?.let { target ->
@@ -138,27 +148,34 @@ fun UploadProgressScreen(
             onDismissRequest = { reportTarget = null },
             confirmEnabled = reportEnabled && !reported && !reportPending && fixedTarget == target && reportKey == ticketReportTargetKey &&
                 actions?.primary == TransferDetailAction.REPORT,
-            disabledReason = reportMessage ?: "보고 대상을 다시 확인하세요.")
+            disabledReason = reportMessage ?: "보고 대상을 다시 확인하세요.", facts = {
+                GeoCopyableValue(target.path, label = "보낸 자료")
+                GeoPropertyRow("받는 서버", targetLabel?.takeIf { fixedTarget == target } ?: target.targetId)
+                job?.takeIf { target.matches(deviceId, it) }?.let { current -> matchingTransferVerification(current, verification)?.let { receipt ->
+                    GeoPropertyRow("검증 시각", Formats.time(receipt.verifiedAt?.let {
+                        runCatching { java.time.Instant.parse(it) }.getOrNull() }))
+                } }
+            })
     }
-    Box(Modifier.fillMaxSize()) {
-        TransferPage("전송 상세", onBack, actions = {
-            if (job != null && isDeletableUploadJob(job)) Box {
-                GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
-                GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
+    if (job != null && isDeletableUploadJob(job))
+        StorageMenuSheet("전송 메뉴", menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
                     fixedTarget?.let { confirmation = it to TransferMutation.DELETE_RECORD }
                 }, destructive = true, enabled = deviceDeletionEnabled,
                     disabledReason = "장치 연결을 확인하세요.")))
-            }
+    Box(Modifier.fillMaxSize()) {
+        TransferPage("전송 상세", onBack, actions = {
+            if (job != null && isDeletableUploadJob(job))
+                GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
         }) {
             if (job == null || actions == null) {
                 Column(Modifier.padding(transferGutter)) {
                     if (isLoading) GeoSkeleton("전송을 확인하고 있습니다", kind = GeoSkeletonKind.Rows)
                     else GeoStateBlock(GeoStateContent(if (error == null) GeoStateKind.EMPTY else GeoStateKind.ERROR,
                         if (error == null && com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current)
-                            "전송 내역을 선택하세요" else if (error == null) "전송을 확인하고 있습니다" else "전송을 확인하지 못했습니다",
+                            "전송 내역을 선택하세요" else if (error == null) "전송 정보가 없습니다" else "전송을 확인하지 못했습니다",
                         error ?: if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current)
                             "왼쪽에서 전송을 고르면 수신 확인과 완료 보고 상태를 볼 수 있습니다. 보낸 파일이 없으면 파일 보내기로 시작하세요."
-                            else "전송 정보가 도착하면 표시됩니다."), fullScreen = true)
+                            else "전송 기록에서 확인할 자료를 선택하세요."), fullScreen = true)
                 }
             } else {
                 val receipt = matchingTransferVerification(job, verification)
@@ -174,7 +191,23 @@ fun UploadProgressScreen(
                 val receiptState = uploadReceiptState(job, verification, sourceReceipt, linkedToTicket,
                     ticketTitle, reported, reportPending, reportFailed, reportMessage)
                 val serverMeta = receiptState.server.meta.orEmpty()
-                GeoActionArea(visibilityKey = "$deviceId:${job.id}:${actions.primary}", action = {
+                val progressAction = GeoButtonAction(
+                    if (actions.primary == TransferDetailAction.REPORT && reportFailed) "다시 보고" else actions.primary.label, {
+                        fixedTarget?.let { target -> when (actions.primary) {
+                            TransferDetailAction.CANCEL -> confirmation = target to TransferMutation.CANCEL
+                            TransferDetailAction.RETRY -> perform(target, TransferMutation.RETRY)
+                            TransferDetailAction.VERIFY -> perform(target, TransferMutation.VERIFY)
+                            TransferDetailAction.REPORT -> { reportKey = ticketReportTargetKey; reportTarget = target }
+                            TransferDetailAction.RESULT -> onResult()
+                            TransferDetailAction.SERVER -> onServerData()
+                            TransferDetailAction.NONE -> Unit
+                        } }
+                    }, style = if (actions.primary == TransferDetailAction.CANCEL)
+                        GeoButtonStyle.DangerOutline else GeoButtonStyle.Primary,
+                    enabled = primaryEnabled, disabledReason = primaryReason,
+                    busy = isLoading || (reportPending && actions.primary == TransferDetailAction.REPORT),
+                    busyLabel = "확인 중")
+                StorageActionLayout(visible = actions.primary != TransferDetailAction.NONE, primaryAction = progressAction, action = {
                     if (actions.primary != TransferDetailAction.NONE) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         GeoReadinessLine(when (actions.primary) {
                             TransferDetailAction.CANCEL -> "$deviceName · 취소하면 처음부터 다시 보내야 합니다."
@@ -188,23 +221,8 @@ fun UploadProgressScreen(
                         if (!primaryEnabled && actions.primary in setOf(TransferDetailAction.RETRY, TransferDetailAction.VERIFY)) {
                             GeoButton("장치 Wi-Fi 설정", onConnectionRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                         }
-                        GeoButton(if (actions.primary == TransferDetailAction.REPORT && reportFailed) "다시 보고" else actions.primary.label, {
-                            fixedTarget?.let { target -> when (actions.primary) {
-                                TransferDetailAction.CANCEL -> confirmation = target to TransferMutation.CANCEL
-                                TransferDetailAction.RETRY -> perform(target, TransferMutation.RETRY)
-                                TransferDetailAction.VERIFY -> perform(target, TransferMutation.VERIFY)
-                                TransferDetailAction.REPORT -> { reportKey = ticketReportTargetKey; reportTarget = target }
-                                TransferDetailAction.RESULT -> onResult()
-                                TransferDetailAction.SERVER -> onServerData()
-                                TransferDetailAction.NONE -> Unit
-                            } }
-                        }, Modifier.fillMaxWidth(), style = if (actions.primary == TransferDetailAction.CANCEL)
-                            GeoButtonStyle.DangerOutline else GeoButtonStyle.Primary,
-                            enabled = primaryEnabled, disabledReason = primaryReason,
-                            busy = isLoading || (reportPending && actions.primary == TransferDetailAction.REPORT),
-                            busyLabel = "확인 중", actionArea = true)
                     }
-                }) { inlineAction ->
+                }) {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = transferGutter, end = transferGutter,
                         top = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 24.dp else 16.dp,
                         bottom = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 32.dp else 16.dp)) {
@@ -230,6 +248,8 @@ fun UploadProgressScreen(
                                 GeoReceipt(receiptState)
                             }
                             GeoSection("수신 증거") {
+                                GeoCopyableValue(job.id, label = "전송 ID")
+                                GeoCopyableValue(job.relativePath, label = "원본 경로")
                                 GeoPropertyList(listOf("받는 서버", "파일", "용량", "검증 시각", "상태")) {
                                     GeoFactRow("받는 서버", targetLabel ?: "받는 서버")
                                     GeoFactRow("파일", Formats.itemCount(receipt?.filesTotal?.toLong()), numeric = true)
@@ -257,7 +277,6 @@ fun UploadProgressScreen(
                                 GeoTechnicalValue("작업", job.id), GeoTechnicalValue("원본", job.relativePath)),
                                 developerMode = developerModeEnabled, showTechnicalInfo = com.example.jetsoncontroller.ui.dev.rememberTechnicalInfo().value)
                         }
-                        item { inlineAction() }
                     }
                 }
             }

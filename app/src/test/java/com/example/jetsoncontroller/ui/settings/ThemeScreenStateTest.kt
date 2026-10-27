@@ -6,6 +6,19 @@ import org.junit.Test
 
 class ThemeScreenStateTest {
     @Test
+    fun `palette previews reflow for phone tablet panes and enlarged text`() {
+        val cases = listOf(
+            Triple(280f, 1f, 1),
+            Triple(364f, 1f, 2),
+            Triple(696f, 1f, 3),
+            Triple(696f, 1.3f, 2),
+            Triple(696f, 1.5f, 2),
+            Triple(696f, 2f, 1)
+        )
+        cases.forEach { (width, scale, columns) -> assertEquals(columns, themeGridColumns(width, scale)) }
+    }
+
+    @Test
     fun `picker offers exactly three distinct palettes in each labelled mode group`() {
         assertEquals(listOf(GeoPalette.STANDARD, GeoPalette.NAVY_LIGHT, GeoPalette.HIGH_CONTRAST), lightThemeOptions.map { it.palette })
         assertEquals(listOf(GeoPalette.GRAPHITE, GeoPalette.NAVY_DARK, GeoPalette.MIST), darkThemeOptions.map { it.palette })
@@ -13,7 +26,7 @@ class ThemeScreenStateTest {
         assertEquals(listOf("그래파이트", "네이비", "흐림"), darkThemeOptions.map { it.label })
         assertEquals(listOf("시스템 따름", "밝게", "어둡게"), ThemeMode.entries.map { it.label })
         assertEquals(listOf(
-            "GEO& Work와 같은 기본 화면입니다.", "위아래 막대를 네이비로 칠한 화면입니다.",
+            "GEO& Work와 같은 기본 화면입니다.", "푸른빛이 도는 밝은 화면입니다.",
             "햇빛 아래에서 읽기 쉽도록 글자와 선을 진하게 합니다.", "기본 어두운 화면입니다.",
             "푸른빛이 도는 어두운 화면입니다.", "밝기 차이를 줄인 회색 화면입니다."
         ), (lightThemeOptions + darkThemeOptions).map { it.description })
@@ -67,13 +80,13 @@ class ThemeScreenStateTest {
     }
 
     @Test
-    fun `each swatch uses its own real surface text primary navigation and boundary tokens`() {
+    fun `each swatch uses R8 canvas and surface instead of legacy chrome tokens`() {
         (lightThemeOptions + darkThemeOptions).forEach { option ->
             val c = option.palette.colors
-            assertEquals(ThemeSwatch(c.surface, c.text, c.primary, c.nav, c.borderStrong), option.swatch)
+            assertEquals(ThemeSwatch(c.canvas, c.text, c.primary, c.surface, c.borderStrong), option.swatch)
         }
-        assertNotEquals(lightThemeOptions[0].swatch.nav, lightThemeOptions[1].swatch.nav)
-        assertEquals(6, (lightThemeOptions + darkThemeOptions).map { it.swatch }.distinct().size)
+        assertEquals(lightThemeOptions[0].swatch, lightThemeOptions[1].swatch)
+        assertEquals(6, (lightThemeOptions + darkThemeOptions).map { it.palette }.distinct().size)
     }
 
     @Test

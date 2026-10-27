@@ -12,9 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
@@ -24,6 +22,7 @@ import com.example.jetsoncontroller.model.RemoteFileContent
 import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -77,6 +76,9 @@ internal fun DirectServerScreen(
     var menu by remember(state.selectedProfileId, state.selectedJob?.sessionId) { mutableStateOf(false) }
     val menuOpener = remember { FocusRequester() }
     val trash = state.section == DirectServerSection.TRASH
+    val twoPanes = LocalGeoWindow.current.twoPane && !LocalGeoPane.current && !trash &&
+        !state.requiresLogin && state.profiles.isNotEmpty() &&
+        !(state.capabilities == null && state.jobsSource == null && !state.isConnecting)
     val canMutate = directServerRoleCanMutate(state.capabilities?.employee?.role)
     candidate?.let { target ->
         GeoConfirmDialog("${storageObjectName(target.job.sourceName)} 서버 휴지통으로 옮길까요?",
@@ -84,25 +86,31 @@ internal fun DirectServerScreen(
                 if (target.matches(state)) onMoveToTrash(target.job)
                 candidate = null
             }, { candidate = null }, confirmEnabled = target.matches(state),
-            disabledReason = "서버와 수신 결과를 다시 확인하세요.", openerFocusRequester = menuOpener)
+            disabledReason = "서버와 수신 결과를 다시 확인하세요.", openerFocusRequester = menuOpener,
+            kind = GeoConfirmKind.DANGER, facts = {
+                GeoCopyableValue(target.job.sourceName, label = "원본 파일명")
+                GeoPropertyRow("서버", profile?.displayName.orEmpty())
+            })
     }
     state.receipt?.let { receipt -> ReceiptDialog(receipt, profile?.displayName.orEmpty(), onBack,
         developerModeEnabled, showTechnicalInfo) }
     state.preview?.let { preview ->
-        StoragePage("파일 미리보기", onBack, media = true) { PreviewPane(preview, Modifier.fillMaxSize()) }
+        val media = preview.mediaType?.startsWith("video/") == true || serverFileCategory(preview.fileName) == "영상" ||
+            usesImageMediaFrame(RemoteFileContent(preview.fileName, preview.mediaType.orEmpty(), preview.bytes))
+        StoragePage("파일 미리보기", onBack, media = media) { PreviewPane(preview, Modifier.fillMaxSize()) }
         return
     }
-    StoragePage("서버 수신 결과", onBack, actions = {
-        state.selectedJob?.takeIf { !trash }?.let { job ->
-            Box {
-                GeoIconButton(GeoIcons.more, "서버 작업 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
-                GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("서버 휴지통으로 이동", {
+    state.selectedJob?.takeIf { !trash }?.let { job ->
+        StorageMenuSheet("서버 작업 메뉴", menu, { menu = false }, listOf(GeoMenuItem("서버 휴지통으로 이동", {
                     candidate = serverTrashTarget(state, job)
                 }, enabled = serverTrashTarget(state, job) != null, destructive = true,
                     disabledReason = "수신 완료 상태와 서버 권한을 확인하세요.")), openerFocusRequester = menuOpener)
-            }
-        }
-    }) {
+    }
+    val serverActions: @Composable RowScope.() -> Unit = {
+        if (state.selectedJob != null && !trash)
+            GeoIconButton(GeoIcons.more, "서버 작업 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
+    }
+    StoragePage("서버 수신 결과", onBack, actions = serverActions, showHeader = !twoPanes) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
                 ongoingRun()
@@ -116,9 +124,10 @@ internal fun DirectServerScreen(
                             Column(Modifier.padding(horizontal = storageGutter)) {
                                 StorageFreshness(state.refreshedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
                                     ?: state.cachedAtEpochMillis, refresh, profile?.displayName ?: "서버")
-                                GeoFilters(listOf("수신 결과", "휴지통"), if (trash) 1 else 0,
-                                    { onSection(if (it == 0) DirectServerSection.DATA else DirectServerSection.TRASH) })
                             }
+                            GeoFilterChipRow(listOf("수신 결과", "휴지통"), if (trash) 1 else 0,
+                                { onSection(if (it == 0) DirectServerSection.DATA else DirectServerSection.TRASH) },
+                                contentPadding = PaddingValues(horizontal = storageGutter))
                         }
                         state.message?.let { message ->
                             GeoInlineNote(if (!state.messageIsError || message == UNKNOWN_SERVER_MUTATION) message
@@ -133,17 +142,17 @@ internal fun DirectServerScreen(
                             developerModeEnabled, onDeveloperTrash)
                         else if (state.capabilities == null && state.jobsSource == null && !state.isConnecting) {
                             ServerState("서버 연결 확인 필요", "서버 연결을 확인한 뒤 수신 결과를 볼 수 있습니다.", "연결 확인", onConnect)
-                        } else BoxWithConstraints(Modifier.fillMaxSize()) {
-                            val minimum = (320 + 360) * LocalDensity.current.fontScale.coerceAtLeast(1f)
-                            val twoPanes = maxWidth - storageGutter * 2 - 24.dp >= minimum.dp
-                            if (twoPanes) Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                                JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.weight(1f))
+                        } else if (twoPanes) GeoPaneLayout(singlePane = if (state.selectedJob == null) GeoPaneSelection.LIST else GeoPaneSelection.DETAIL,
+                            list = { GeoLargeTitleScaffold("서버 수신 결과", onBack = onBack) {
+                                JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.fillMaxSize())
+                            } },
+                            detail = { GeoLargeTitleScaffold("수신 상세", actions = serverActions) {
                                 JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory, onOpenFile, onReceipt,
-                                    Modifier.weight(1f), developerModeEnabled, showTechnicalInfo)
-                            } else if (state.selectedJob != null) JobDetail(state, profile?.displayName.orEmpty(),
-                                onOpenDirectory, onOpenFile, onReceipt, Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
-                            else JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.fillMaxSize())
-                        }
+                                    Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
+                            } })
+                        else if (state.selectedJob != null) JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory,
+                            onOpenFile, onReceipt, Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
+                        else JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.fillMaxSize())
                     }
                 }
             }
@@ -170,12 +179,13 @@ private fun JobsList(state: DirectServerUiState, onRefresh: () -> Unit, onJob: (
             if (state.isLoading || state.isConnecting) item { GeoSkeleton("수신 결과를 불러오는 중", kind = GeoSkeletonKind.Rows) }
             items(state.jobs, key = { it.sessionId }) { job ->
                 val status = serverJobState(job.state)
-                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(0.dp)) {
                 GeoRowList(GeoRowTrailing.Status) {
-                GeoRow(job.sourceName, { onJob(job) },
+                GeoPaneListRow(job.sourceName, { onJob(job) },
+                    selected = state.selectedJob?.sessionId == job.sessionId, index = 0, rowCount = 1, nextSelected = false,
                     meta = if (job.state == "UPLOADING") "${Formats.size(job.receivedBytes)} / ${Formats.size(job.totalBytes)}"
                         else "${browserDay(job.completedAt ?: job.updatedAt)} 수신 · ${Formats.size(job.totalBytes)}",
-                    badge = { GeoBadge(status.word, status.tone) }, leading = { GeoIconTile(GeoIcons.folder) }, divider = false)
+                    badge = { GeoBadge(status.word, status.tone) }, leading = { GeoIconTile(GeoIcons.folder) })
                 }
                 }
             }
@@ -200,19 +210,30 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
             "수신 결과를 선택하세요", "파일과 서버 수신 영수증을 볼 수 있습니다.")) }
         return
     }
+    var information by remember(job.sessionId) { mutableStateOf(false) }
+    if (information) GeoInfoDialog("작업 정보", { information = false }) {
+        GeoCopyableValue(job.sourceName, label = "원본 파일명")
+        GeoPropertyList(listOf("서버", "수신", "용량", "파일")) {
+            GeoPropertyRow("서버", server)
+            GeoPropertyRow("수신", Formats.time(job.completedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }))
+            GeoPropertyRow("용량", Formats.size(job.totalBytes), numeric = true)
+            GeoPropertyRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)
+        }
+    }
     LazyColumn(modifier, contentPadding = PaddingValues(storageGutter, 16.dp)) {
         item {
-            Text(job.sourceName, style = LocalGeoType.current.boardTitle, color = LocalGeoColors.current.text)
+            GeoCopyableValue(job.sourceName, label = "원본 파일명")
             Spacer(Modifier.height(8.dp))
             val status = serverJobState(job.state)
             GeoBadge(status.word, status.tone)
             Text("${job.deviceId.takeIf { it.startsWith("GEO-X-", true) } ?: "장치"} → $server",
                 style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
-            GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp)) {
-                GeoFactRow("수신", Formats.time(job.completedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }))
-                GeoFactRow("용량", Formats.size(job.totalBytes), numeric = true)
-                GeoFactRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)
-                if (job.state == "COMPLETED") GeoRow("서버 수신 영수증", { onReceipt(job) })
+            GeoSection("정보", first = true, modifier = Modifier.padding(top = 24.dp), trailingColumn = GeoRowTrailing.None) {
+                GeoRow("작업 정보", { information = true },
+                    meta = "${Formats.itemCount(job.fileCount.toLong())} · ${Formats.size(job.totalBytes)}",
+                    leading = { GeoIconTile(GeoIcons.info) }, divider = job.state == "COMPLETED")
+                if (job.state == "COMPLETED") GeoRow("서버 수신 영수증", { onReceipt(job) },
+                    leading = { GeoIconTile(GeoIcons.file) }, divider = false)
             }
             com.example.jetsoncontroller.ui.components.geo.GeoSection(if (state.currentPath.isBlank()) "파일" else "파일 / ${state.currentPath.substringAfterLast('/')}") {}
             if (state.isLoading) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
@@ -220,11 +241,12 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
         }
         items(state.files, key = { it.relativePath }) { file ->
             val directory = file.type.equals("directory", true)
-            R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+            R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(0.dp)) {
             GeoRowList(GeoRowTrailing.Status) {
             GeoRow(breakableFileName(file.name), { if (directory) onDirectory(file) else onFile(file) },
                 meta = if (directory) "폴더" else serverFileCategory(file.name), value = file.sizeBytes?.let(Formats::size),
-                leading = { GeoIconTile(if (directory) GeoIcons.folder else GeoIcons.file) }, divider = false)
+                leading = { GeoIconTile(if (directory) GeoIcons.folder else GeoIcons.file) }, divider = false,
+                extra = { GeoCopyableValue(file.name) })
             }
             }
         }
@@ -245,6 +267,7 @@ private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> U
     var detail by remember(state.selectedProfileId) { mutableStateOf<ServerTrashJob?>(null) }
     detail?.let { job ->
         GeoInfoDialog(job.sourceName, { detail = null }) {
+            GeoCopyableValue(job.sourceName, label = "원본 파일명")
             GeoBadge(serverTrashStatus(job), if (serverTrashCanRestore(job)) Tone.UNKNOWN else Tone.PENDING)
             GeoFactRow("파일", Formats.itemCount(job.fileCount.toLong()), numeric = true)
             GeoFactRow("용량", Formats.size(job.totalBytes), numeric = true)
@@ -261,7 +284,7 @@ private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> U
             }
             items(state.trash, key = { it.sessionId }) { job ->
                 val restorable = serverTrashCanRestore(job)
-                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(0.dp)) {
                 GeoActionRow(job.sourceName, if (restorable) "서버 작업 복원" else serverTrashStatus(job), { detail = job },
                     { onRestore(job.sessionId) }, meta = "${Formats.itemCount(job.fileCount.toLong())} · ${Formats.size(job.totalBytes)}",
                     leading = { GeoIconTile(GeoIcons.trash) }, divider = false,
@@ -282,11 +305,14 @@ private fun ReceiptDialog(receipt: ServerReceipt, server: String, onDismiss: () 
     GeoInfoDialog("서버 수신 영수증", onDismiss) {
         GeoBadge(if (receipt.matched) "내용 일치" else "내용 불일치",
             if (receipt.matched) Tone.SUCCESS else Tone.ERROR)
-        Text("${receipt.sourceName} · $server", style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
+        GeoCopyableValue(receipt.sourceName, label = "원본 파일명")
+        GeoPropertyList(listOf("서버", "파일", "용량", "완료", "검증 시각")) {
+        GeoPropertyRow("서버", server)
         GeoFactRow("파일", Formats.itemCount(receipt.fileCount.toLong()), numeric = true)
         GeoFactRow("용량", Formats.size(receipt.totalBytes), numeric = true)
         GeoFactRow("완료", Formats.time(runCatching { Instant.parse(receipt.completedAt) }.getOrNull()))
         GeoFactRow("검증 시각", Formats.time(runCatching { Instant.parse(receipt.verifiedAt) }.getOrNull()))
+        }
         GeoTechInfo(listOf(GeoTechnicalValue("세션", receipt.sessionId), GeoTechnicalValue("SHA-256", receipt.contentSha256)), developer, technical)
     }
 }
@@ -300,16 +326,17 @@ private fun PreviewPane(preview: DirectServerPreview, modifier: Modifier) {
             val bitmap = remember(preview.bytes) { decodePreviewBitmap(preview.bytes) }
             if (bitmap != null) ZoomableImagePreview(preview.fileName, bitmap.asImageBitmap(),
                 remember(preview.bytes) { previewImageDimensions(preview.bytes) },
-                listOf("크기" to Formats.size(preview.bytes.size.toLong()))) else UnsupportedServerPreview(modifier)
+                listOf("크기" to Formats.size(preview.bytes.size.toLong()))) else UnsupportedServerPreview(modifier, preview.fileName)
         }
         text != null -> FilePreview(RemoteFileContent(preview.fileName, preview.mediaType.orEmpty(), preview.bytes))
-        else -> UnsupportedServerPreview(modifier)
+        else -> UnsupportedServerPreview(modifier, preview.fileName)
     }
 }
 
 @Composable
-private fun UnsupportedServerPreview(modifier: Modifier) {
-    Box(modifier.background(LocalGeoColors.current.surface).padding(storageGutter)) {
+private fun UnsupportedServerPreview(modifier: Modifier, name: String) {
+    Column(modifier.background(LocalGeoColors.current.surface).padding(storageGutter)) {
+        GeoCopyableValue(name, label = "파일명")
         GeoStateBlock(GeoStateContent(GeoStateKind.UNSUPPORTED, "앱에서 볼 수 없는 파일입니다",
             "이미지, 영상, 텍스트 파일만 앱에서 볼 수 있습니다."), fullScreen = true)
     }
@@ -346,6 +373,11 @@ private fun VideoPreview(preview: DirectServerPreview, modifier: Modifier) {
     var prepared by remember(preview, retry) { mutableStateOf(false) }
     var playing by remember(preview, retry) { mutableStateOf(false) }
     var video by remember(preview, retry) { mutableStateOf<android.widget.VideoView?>(null) }
+    var information by remember(preview) { mutableStateOf(false) }
+    if (information) GeoInfoDialog("파일 정보", { information = false }) {
+        GeoCopyableValue(preview.fileName, label = "파일명")
+        GeoPropertyRow("크기", Formats.size(preview.bytes.size.toLong()), numeric = true)
+    }
     val suffix = when {
         preview.mediaType?.contains("webm") == true -> ".webm"
         preview.mediaType?.contains("quicktime") == true -> ".mov"
@@ -399,13 +431,15 @@ private fun VideoPreview(preview: DirectServerPreview, modifier: Modifier) {
                     }
                 }, modifier = Modifier.fillMaxSize())
                 Box(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
-                    GeoButton(if (playing) "일시 정지" else "재생", {
+                    GeoMediaIconButton(if (playing) GeoIcons.pause else GeoIcons.play, if (playing) "일시 정지" else "재생", {
                         if (playing) video?.pause() else video?.start()
                         playing = !playing
-                    }, enabled = prepared, disabledReason = "영상을 준비하고 있습니다.")
+                    }, enabled = prepared)
                 }
             }
             else -> Box(Modifier.align(Alignment.Center).padding(storageGutter)) { GeoProgress() }
         }
+        GeoMediaIconButton(GeoIcons.info, "파일 정보", { information = true },
+            Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(24.dp))
     }
 }

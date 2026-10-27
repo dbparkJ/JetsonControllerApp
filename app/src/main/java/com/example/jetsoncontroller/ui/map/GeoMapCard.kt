@@ -1,7 +1,6 @@
 package com.example.jetsoncontroller.ui.map
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -34,6 +33,10 @@ import com.example.jetsoncontroller.ui.field.FieldState
 import com.example.jetsoncontroller.ui.field.ResultZoneObservation
 import com.example.jetsoncontroller.ui.components.geo.GeoBadge
 import com.example.jetsoncontroller.ui.components.geo.GeoBadgeVariant
+import com.example.jetsoncontroller.ui.components.geo.GeoInlineNote
+import com.example.jetsoncontroller.ui.components.geo.GeoSkeleton
+import com.example.jetsoncontroller.ui.components.geo.GeoSkeletonKind
+import com.example.jetsoncontroller.ui.components.geo.geoClickable
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -60,6 +63,10 @@ fun GeoMapCard(
     compactHeight: Boolean = LocalGeoWindow.current.compactHeight,
     mapClientId: String = BuildConfig.NAVER_MAP_CLIENT_ID
 ) {
+    if (LocalGeoMapBackground.current) {
+        GeoRunMapBackdrop(data, onOpen, modifier, mapClientId)
+        return
+    }
     if ((data.geometry == null || data.geometry.state == GeoGeometryState.ABSENT) &&
         (mode != GeoMapMode.ROUTE || data.trail.isEmpty())) return
     val c = LocalGeoColors.current
@@ -83,7 +90,7 @@ fun GeoMapCard(
     val rendered = data.copy(device = data.device.takeUnless { mode == GeoMapMode.ROUTE },
         phone = null, phoneAccuracyM = null,
         trail = if (mode == GeoMapMode.ZONE) emptyList() else data.trail)
-    Column(modifier.fillMaxWidth().clickable(onClickLabel = "지도 크게 보기", onClick = onOpen)
+    Column(modifier.fillMaxWidth().geoClickable(onClick = onOpen)
         .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick("지도 크게 보기") { onOpen(); true } }) {
         val shape = GeoShape.card
         Box(Modifier.fillMaxWidth().height((LocalGeoMapCardHeight.current ?: mapCardHeight(mode, compactHeight).toFloat()).dp).geoCardShadow(shape).clip(shape).background(c.sunken)
@@ -95,13 +102,13 @@ fun GeoMapCard(
             GeoMapRenderer(rendered, Modifier.fillMaxSize(), interactive = false,
                 active = mapCardActive(visible, resumed, fullMapOpen || GeoMapSessions.fullMaps > 0), clientId = mapClientId,
                 onLoading = { loading = it }, onBaseMapFailureChanged = { baseFailure = it })
-            if (loading) Text("지도를 불러오는 중입니다", Modifier.align(Alignment.Center).background(c.mapPlate).padding(8.dp),
-                style = type.body, color = c.textSecondary)
+            if (loading) GeoSkeleton("지도를 불러오는 중입니다", Modifier.align(Alignment.Center)
+                .background(c.mapPlate, GeoShape.card).padding(16.dp), kind = GeoSkeletonKind.Rows, rowCount = 0)
             badge?.let { GeoBadge(it.first, it.second, Modifier.align(Alignment.TopStart).padding(12.dp), GeoBadgeVariant.ON_MAP) }
-            Box(Modifier.matchParentSize().clickable(onClick = onOpen))
-            com.example.jetsoncontroller.ui.components.geo.GeoIconButton(
+            Box(Modifier.matchParentSize().geoClickable(onClick = onOpen))
+            GeoMapControl(
                 com.example.jetsoncontroller.ui.components.geo.GeoIcons.fitZone, "지도 크게 보기", onOpen,
-                Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp).background(c.mapPlate, GeoShape.control))
+                Modifier.align(Alignment.TopEnd).padding(12.dp))
         }
         Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
             if (summary.isNotEmpty()) Text(summary, color = c.textSecondary, style = type.caption)
@@ -112,7 +119,7 @@ fun GeoMapCard(
                 mapClientId.isBlank() -> "배경 지도를 쓸 수 없습니다. 구역은 그대로 표시합니다."
                 else -> null
             }
-            notice?.let { Text(it, color = c.textSecondary, style = type.caption) }
+            notice?.let { GeoInlineNote(it) }
             if (data.deviceStale) Text("마지막 위치 ${mapSampleTime(data.lastPositionAtMillis)}", color = c.textSecondary, style = type.caption)
             if (data.geometryChanged) Text("수집 구역이 바뀌었습니다. 이 수집은 시작할 때의 구역으로 표시합니다.", color = c.textSecondary, style = type.caption)
         }

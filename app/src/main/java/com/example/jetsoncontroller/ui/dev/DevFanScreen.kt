@@ -1,6 +1,6 @@
 package com.example.jetsoncontroller.ui.dev
 
-import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
+import com.example.jetsoncontroller.ui.dev.DevSection as GeoSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -11,7 +11,6 @@ import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
 import com.example.jetsoncontroller.ui.dashboard.metricIsValid
-import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.model.Formats
 import java.text.NumberFormat
 import java.util.Locale
@@ -38,10 +37,9 @@ internal fun fanManualPercent(percent: Int, minimum: Int): Int =
 internal fun DevFanScreen(state: DashboardUiState, onBack: () -> Unit, onRefresh: () -> Unit,
     onAuto: () -> Unit, onManual: (Int) -> Unit, deviceId: String? = null) {
     val selection = rememberFanSelection(state.fanStatus, deviceId)
-    DevPage("팬 제어", onBack, footer = if (selection.manual.value && fanPageState(state) == FanPageState.READY) ({
-        GeoButton("적용", { onManual(fanManualPercent(selection.percent.value, state.fanStatus!!.minimumManualPercent)) },
-            Modifier.fillMaxWidth(), actionArea = true)
-    }) else null) {
+    DevPage("팬 제어", onBack, primaryAction = if (selection.manual.value && fanPageState(state) == FanPageState.READY)
+        GeoButtonAction("적용", { onManual(fanManualPercent(selection.percent.value, state.fanStatus!!.minimumManualPercent)) })
+        else null) {
         FanBody(state, selection, onRefresh, onAuto)
     }
 }
@@ -52,7 +50,8 @@ internal fun FanControls(state: DashboardUiState, onRefresh: () -> Unit, onAuto:
     val selection = rememberFanSelection(state.fanStatus, deviceId)
     FanBody(state, selection, onRefresh, onAuto)
     if (selection.manual.value && fanPageState(state) == FanPageState.READY) {
-        GeoButton("적용", { onManual(fanManualPercent(selection.percent.value, state.fanStatus!!.minimumManualPercent)) }, Modifier.fillMaxWidth())
+        com.example.jetsoncontroller.ui.components.geo.shell.GeoFixedActionBar(GeoButtonAction("적용",
+            { onManual(fanManualPercent(selection.percent.value, state.fanStatus!!.minimumManualPercent)) }))
     }
 }
 
@@ -85,7 +84,8 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
             GeoButton("다시 시도", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = false,
                 disabledReason = "장치를 같은 네트워크나 직접 연결로 연결한 뒤 다시 시도하세요.")
         }
-        FanPageState.ERROR -> DevEmpty("팬 상태를 확인하지 못했습니다.", "${state.deviceName}에서 팬 정보를 받지 못했습니다.", "다시 시도", onRefresh)
+        FanPageState.ERROR -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "팬 상태를 확인하지 못했습니다.",
+            state.fanError ?: "${state.deviceName}에서 팬 정보를 받지 못했습니다.", "다시 시도"), onAction = onRefresh)
         FanPageState.UNAVAILABLE -> DevEmpty("이 장치에서는 팬 제어를 사용할 수 없습니다", "${state.deviceName}은 팬 속도 조회와 제어를 지원하지 않습니다.")
         FanPageState.READY -> {
             val status = requireNotNull(fan)
@@ -94,7 +94,7 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
                 GeoFactRow("제어 방식", if (status.mode == "AUTO") "자동 온도 제어" else "수동 ${status.percent?.let { "$it%" } ?: "미확인"}")
                 GeoFactRow("회전 속도", status.rpm?.let { "${NumberFormat.getIntegerInstance(Locale.KOREA).format(it)} RPM" } ?: "미확인", numeric = true)
             }
-            Column(Modifier.padding(top = 24.dp)) {
+            GeoSection("팬 설정") {
                 DevChoice("제어 방식", listOf("자동", "수동"), if (manual) 1 else 0, { index ->
                     manual = index == 1
                     if (!manual && status.mode != "AUTO" && status.autoAvailable) onAuto()

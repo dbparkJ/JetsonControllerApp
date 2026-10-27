@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.R
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.localDeviceWord
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.permissions.bluetoothPermissionText
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -52,13 +53,33 @@ fun PairingScreen(
         val colors = LocalGeoColors.current
         val type = LocalGeoType.current
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.geo_device), null, Modifier.size(72.dp, 64.dp))
+            Image(painterResource(R.drawable.geo_device), null, Modifier.size(40.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(state.displayDeviceName ?: "장치", style = type.deviceName, color = colors.text)
                 Text(maskedPairingCode(state.pairingInfo), style = type.caption, color = colors.textSecondary)
             }
         }
-        Spacer(Modifier.height(20.dp))
+        GeoGroupedSection("등록 점검", trailingColumn = GeoRowTrailing.Status) {
+            GeoRow("등록 코드", {}, meta = maskedPairingCode(state.pairingInfo), navigable = false,
+                leading = { GeoIconTile(GeoIcons.qr) },
+                badge = { GeoBadge(if (state.pairingInfo != null) "확인됨" else "미확인",
+                    if (state.pairingInfo != null) Tone.SUCCESS else Tone.UNKNOWN) })
+            GeoRow("장치 등록", {}, navigable = false, divider = false,
+                meta = if (state.phase == PairingPhase.ERROR) pairingFailureText(state.errorMessage)
+                    else pairingProgressText(state.phase, state.connectionAttempt),
+                leading = { GeoIconTile(GeoIcons.bluetooth) },
+                badge = { GeoBadge(when (state.phase) {
+                    PairingPhase.READY -> "등록됨"
+                    PairingPhase.ERROR -> "실패"
+                    PairingPhase.QR_SCANNED -> "대기 중"
+                    else -> "진행 중"
+                }, when (state.phase) {
+                    PairingPhase.READY -> Tone.SUCCESS
+                    PairingPhase.ERROR -> Tone.ERROR
+                    else -> Tone.PENDING
+                }) })
+        }
+        Spacer(Modifier.height(24.dp))
         Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (state.phase) {
                 PairingPhase.QR_SCANNED -> {

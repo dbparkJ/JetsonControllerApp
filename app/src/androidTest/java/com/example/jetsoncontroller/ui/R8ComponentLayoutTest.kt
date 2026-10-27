@@ -126,4 +126,78 @@ class R8ComponentLayoutTest {
         // Safe padding belongs to the outer placement; the clickable capture itself stays 80dp.
         capture.assertWidthIsEqualTo(80.dp).assertHeightIsEqualTo(80.dp)
     }
+
+    @Test fun photoWrappersKeepTheirFortyDpImageAndSixtyEightDpTextInset() {
+        var pixelsPerDp = 1f
+        var selected by mutableStateOf(false)
+        compose.setContent {
+            pixelsPerDp = LocalDensity.current.density
+            JetsonControllerTheme {
+                GeoRowList(GeoRowTrailing.None, Modifier.width(364.dp)) {
+                    GeoPaneListRow("선택 사진", { selected = !selected }, selected, 0, 2, false,
+                        Modifier.testTag("photo-pane"), meta = "장치 상태", leadingIsPhoto = true,
+                        leading = { Box(Modifier.size(40.dp).testTag("pane-photo")) })
+                    GeoActionRow("행동 사진", "등록", {}, {}, Modifier.testTag("photo-action"),
+                        meta = "주변 장치", leadingIsPhoto = true,
+                        leading = { Box(Modifier.size(40.dp).testTag("action-photo")) }, divider = false)
+                }
+            }
+        }
+        listOf(Triple("선택 사진", "photo-pane", "pane-photo"), Triple("행동 사진", "photo-action", "action-photo")).forEach { (title, rowTag, photoTag) ->
+            val row = compose.onNodeWithTag(rowTag, true).fetchSemanticsNode().boundsInRoot
+            val text = compose.onNodeWithText(title, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val photo = compose.onNodeWithTag(photoTag, true).assertWidthIsEqualTo(40.dp).assertHeightIsEqualTo(40.dp)
+                .fetchSemanticsNode().boundsInRoot
+            assertEquals(16f * pixelsPerDp, photo.left - row.left, 1f)
+            assertEquals(68f * pixelsPerDp, text.left - row.left, 1f)
+        }
+        val before = compose.onNodeWithText("선택 사진", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        compose.onNode(hasText("선택 사진") and hasClickAction()).performClick().assertIsSelected()
+        assertEquals(before, compose.onNodeWithText("선택 사진", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot)
+    }
+
+    @Test fun titlePhotoCentersBesideTheWholeTitleBlockStacksAndDisappearsWhenCollapsed() {
+        var width by mutableFloatStateOf(412f)
+        var scale by mutableFloatStateOf(1f)
+        lateinit var header: GeoLargeTitleState
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(.5f, scale)) {
+                JetsonControllerTheme {
+                    header = rememberGeoLargeTitleState()
+                    GeoLargeTitleHeader("장치 이름", header, Modifier.requiredWidth(width.dp), subtitle = "마지막 응답",
+                        titleTrailingContent = { Box(Modifier.size(80.dp).testTag("title-photo")) })
+                }
+            }
+        }
+        val title = compose.onNodeWithText("장치 이름").fetchSemanticsNode().boundsInRoot
+        val subtitle = compose.onNodeWithText("마지막 응답").fetchSemanticsNode().boundsInRoot
+        val photo = compose.onNodeWithTag("title-photo").assertWidthIsEqualTo(80.dp).fetchSemanticsNode().boundsInRoot
+        assertTrue(photo.left >= title.right)
+        assertEquals((title.top + subtitle.bottom) / 2f, photo.center.y, 1f)
+        listOf(412f to 1.3f, 412f to 2f, 240f to 1f).forEach { (w, font) ->
+            compose.runOnIdle { width = w; scale = font }
+            val supporting = compose.onNodeWithText("마지막 응답").fetchSemanticsNode().boundsInRoot
+            val below = compose.onNodeWithTag("title-photo").fetchSemanticsNode().boundsInRoot
+            assertTrue(below.top >= supporting.bottom)
+        }
+        compose.runOnIdle { header.connection.onPreScroll(Offset(0f, -10_000f), NestedScrollSource.UserInput) }
+        compose.onNodeWithTag("title-photo").assertDoesNotExist()
+        compose.onNodeWithTag("geo-compact-bar").assertHeightIsEqualTo(64.dp)
+    }
+
+    @Test fun bothOverlayFooterActionsAndStandaloneButtonShowTheirDisabledReasons() {
+        compose.setContent {
+            JetsonControllerTheme {
+                Column(Modifier.width(364.dp)) {
+                    GeoSheetFooter(GeoOverlayAction("저장", {}, enabled = false, disabledReason = "저장 위치를 고르세요."),
+                        GeoOverlayAction("다음", {}, enabled = false, disabledReason = "등록 코드를 확인하세요."))
+                    GeoOverlayButton(GeoOverlayAction("실행", {}, enabled = false, disabledReason = "연결을 확인하세요."))
+                }
+            }
+        }
+        listOf("저장", "다음", "실행").forEach { compose.onNode(hasText(it) and hasClickAction()).assertIsNotEnabled() }
+        listOf("저장 위치를 고르세요.", "등록 코드를 확인하세요.", "연결을 확인하세요.").forEach {
+            compose.onNodeWithText(it).assertIsDisplayed()
+        }
+    }
 }

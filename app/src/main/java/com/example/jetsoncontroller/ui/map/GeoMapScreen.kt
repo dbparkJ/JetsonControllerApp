@@ -1,7 +1,5 @@
 package com.example.jetsoncontroller.ui.map
 
-import com.example.jetsoncontroller.ui.zone.runPresentation
-
 import android.Manifest
 import android.content.Intent
 import android.provider.Settings
@@ -10,23 +8,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -40,9 +36,7 @@ import com.example.jetsoncontroller.ui.sensors.MobileLocationAvailability
 import com.example.jetsoncontroller.ui.sensors.MobileLocationViewModel
 import com.example.jetsoncontroller.ui.sensors.mobileLocationAvailability
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.GeoShape
-import com.example.jetsoncontroller.ui.theme.geoCardShadow
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,7 +52,6 @@ fun GeoMapScreen(
     mapClientId: String = BuildConfig.NAVER_MAP_CLIENT_ID
 ) {
     val colors = LocalGeoColors.current
-    val type = LocalGeoType.current
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val mobile: MobileLocationViewModel = viewModel(factory = remember(context.applicationContext) {
@@ -112,15 +105,11 @@ fun GeoMapScreen(
         onDispose { GeoMapSessions.fullMaps-- }
     }
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(colors.surface)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).background(colors.topBar).padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            GeoIconButton(GeoIcons.back, "뒤로", onBack, chrome = true)
-            Text(mode.title, style = type.title, color = colors.onTopBar, modifier = Modifier.weight(1f))
-        }
-        if (mode == GeoMapMode.RUN) GeoStatusStrip(listOfNotNull(data.zone.runPresentation(deviceName).strip))
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val side = mapUsesSidePanel(maxWidth.value, maxHeight.value)
+    Column(Modifier.fillMaxSize().background(colors.canvas).semantics { paneTitle = mode.title }) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().then(
+            if (mode == GeoMapMode.RUN && onStopRequest != null) Modifier.consumeWindowInsets(WindowInsets.navigationBars)
+            else Modifier)) {
+            val side = mapUsesSidePanel(maxWidth.value, maxHeight.value) && LocalDensity.current.fontScale < 1.5f
             val largeType = LocalDensity.current.fontScale >= 1.5f
             LaunchedEffect(side, largeType) { if (!side && largeType) sheetState.expand() }
             val expanded = if (side) sideExpanded else sheetState.currentValue == SheetValue.Expanded
@@ -135,7 +124,7 @@ fun GeoMapScreen(
                         if (enabled && !phone.permissionGranted) requestPermission()
                         if (!enabled) mobile.setTrackingRequested(false)
                     }, modifier = modifier,
-                    runElapsed = runElapsed, onStopRequest = onStopRequest, stopEnabled = stopEnabled, stopBusy = stopBusy,
+                    runElapsed = runElapsed, onStopRequest = null, stopEnabled = stopEnabled, stopBusy = stopBusy,
                     stopError = stopError, stopOpener = stopOpener,
                     phoneMessage = phoneMessage, phoneRemedy = phoneRemedy, developerMode = developerMode, deviceName = deviceName,
                     // The peek is the summary itself; a taller floor showed the top of the next section.
@@ -147,48 +136,65 @@ fun GeoMapScreen(
                         panelBottomDp = bottom, panelEndDp = end, camera = camera, clientId = mapClientId,
                         onLoading = { loading = it }, onBaseMapFailureChanged = { baseFailed = it })
                     val controlsEnd = end.dp + 12.dp
-                    Column(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = controlsEnd),
+                    GeoMapControl(GeoIcons.back, "뒤로", onBack,
+                        Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(12.dp))
+                    Column(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 12.dp, end = controlsEnd),
                         horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         MapBasePicker(base) { base = it }
-                        MapControl(GeoIcons.myLocation, "장치 위치로", camera::device, selected = camera.following,
+                        GeoMapControl(GeoIcons.myLocation, "장치 위치로", camera::device, selected = camera.following,
                             enabled = renderedData.device != null)
-                        if (renderedData.geometry?.positions?.isNotEmpty() == true) MapControl(GeoIcons.fitZone, "구역 전체 보기", camera::fitZone)
+                        if (renderedData.geometry?.positions?.isNotEmpty() == true) GeoMapControl(GeoIcons.fitZone, "구역 전체 보기", camera::fitZone)
                     }
-                    Column(Modifier.align(Alignment.BottomEnd).padding(end = controlsEnd, bottom = bottom.dp + 12.dp),
+                    Column(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(end = controlsEnd, bottom = bottom.dp + 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MapControl(GeoIcons.zoomIn, "확대", camera::zoomIn)
-                        MapControl(GeoIcons.zoomOut, "축소", camera::zoomOut)
+                        GeoMapControl(GeoIcons.zoomIn, "확대", camera::zoomIn)
+                        GeoMapControl(GeoIcons.zoomOut, "축소", camera::zoomOut)
                     }
                     val message = when {
-                        loading -> "지도를 불러오는 중입니다"
+                        loading -> null
                         baseFailed -> "배경 지도를 불러오지 못했습니다. 구역은 그대로 표시합니다."
                         mapClientId.isBlank() -> "배경 지도를 쓸 수 없습니다. 구역은 그대로 표시합니다."
                         renderedData.deviceStale -> "마지막 위치 ${mapSampleTime(gnss.lastSampleAtEpochMillis)}"
                         renderedData.device == null && mode != GeoMapMode.ROUTE -> "장치 위치를 확인할 수 없습니다."
                         else -> null
                     }
-                    message?.let {
-                        Text(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, end = end.dp + 72.dp, bottom = bottom.dp + 40.dp)
-                            .background(colors.mapPlate, GeoShape.badge).padding(8.dp), color = colors.textSecondary, style = type.caption)
-                    }
+                    if (loading) GeoSkeleton("지도를 불러오는 중입니다", Modifier.align(Alignment.Center)
+                        .safeDrawingPadding().padding(start = 12.dp, end = end.dp + 72.dp, bottom = bottom.dp)
+                        .background(colors.mapPlate, GeoShape.card).padding(16.dp), kind = GeoSkeletonKind.Rows, rowCount = 0)
+                    message?.let { GeoInlineNote(it, Modifier.align(Alignment.BottomStart).safeDrawingPadding()
+                        .padding(start = 12.dp, end = end.dp + 72.dp, bottom = bottom.dp + 12.dp)) }
                 }
             }
             if (side) {
                 val panelWidth = if (sideExpanded) 320.dp else 56.dp
                 Box(Modifier.fillMaxSize()) {
                     map(0, panelWidth.value.toInt())
-                    if (sideExpanded) panel(Modifier.align(Alignment.CenterEnd).width(panelWidth).fillMaxHeight())
-                    else Box(Modifier.align(Alignment.CenterEnd).width(panelWidth).fillMaxHeight().background(colors.surface)) {
+                    if (sideExpanded) panel(Modifier.align(Alignment.CenterEnd).width(panelWidth).fillMaxHeight()
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+                    else Box(Modifier.align(Alignment.CenterEnd).width(panelWidth).fillMaxHeight().background(colors.surface)
+                        .safeDrawingPadding()) {
                         GeoIconButton(GeoIcons.expandPanel, "패널 펼치기", toggle)
                     }
                 }
             } else {
                 val height = maxHeight
-                BottomSheetScaffold(scaffoldState = scaffold, sheetPeekHeight = peekDp.dp.coerceAtMost(height),
-                    sheetDragHandle = null, sheetContainerColor = colors.surface, sheetContentColor = colors.text,
+                val peek = mapSheetPeekHeight(height.value, peekDp.toFloat()).dp
+                BottomSheetScaffold(scaffoldState = scaffold, sheetPeekHeight = peek,
+                    sheetDragHandle = { GeoSheetDragHandle() }, sheetContainerColor = colors.surface, sheetContentColor = colors.text,
+                    sheetTonalElevation = 0.dp, sheetShadowElevation = 0.dp,
                     sheetShape = GeoShape.sheetTop,
-                    sheetContent = { panel(Modifier.fillMaxWidth().height((height - 48.dp).coerceAtLeast(128.dp))) },
-                    containerColor = colors.sunken) { map(peekDp, 0) }
+                    sheetContent = { panel(Modifier.fillMaxWidth().height((height * .85f - 28.dp).coerceAtLeast(0.dp))) },
+                    containerColor = colors.sunken) { map(peek.value.toInt(), 0) }
+            }
+        }
+        if (mode == GeoMapMode.RUN && onStopRequest != null) {
+            Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding()
+                .padding(start = 24.dp, end = 24.dp, top = 12.dp)) {
+                GeoButton("수집 종료", onStopRequest, Modifier.fillMaxWidth()
+                    .then(if (stopOpener != null) Modifier.focusRequester(stopOpener) else Modifier),
+                    style = GeoButtonStyle.DangerOutline, enabled = stopEnabled, busy = stopBusy,
+                    busyLabel = "종료 확인 중", actionArea = true,
+                    disabledReason = if (!stopEnabled) "수집 상태와 연결을 다시 확인하세요." else null)
             }
         }
     }
@@ -196,23 +202,13 @@ fun GeoMapScreen(
 
 @Composable
 private fun MapBasePicker(base: GeoMapBase, onSelect: (GeoMapBase) -> Unit) {
-    val colors = LocalGeoColors.current
-    Row(Modifier.width(IntrinsicSize.Max).geoCardShadow(GeoShape.control)
-        .background(colors.mapPlate, GeoShape.control).selectableGroup()
-        .semantics { contentDescription = "지도 종류" }.padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    val opener = remember { androidx.compose.ui.focus.FocusRequester() }
+    GeoMapControl(GeoIcons.layers, "지도 종류", { open = true }, Modifier.focusRequester(opener))
+    if (open) GeoSheet("지도 종류", { open = false }, kind = GeoSheetKind.CHOICE, openerFocusRequester = opener) {
         GeoMapBase.entries.forEach { option ->
-            GeoFilterChip(if (option == GeoMapBase.GENERAL) "일반" else "위성", base == option, { onSelect(option) })
+            GeoRadioRow(if (option == GeoMapBase.GENERAL) "일반" else "위성", base == option,
+                { onSelect(option); open = false })
         }
     }
-}
-
-@Composable
-private fun MapControl(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, action: () -> Unit,
-                       selected: Boolean = false, enabled: Boolean = true) {
-    val c = LocalGeoColors.current
-    GeoIconButton(icon, label, action,
-        Modifier.size(48.dp).geoCardShadow(GeoShape.control)
-            .background(if (selected) c.primaryTint else c.mapPlate, GeoShape.control)
-            .semantics { this.selected = selected }, enabled = enabled)
 }

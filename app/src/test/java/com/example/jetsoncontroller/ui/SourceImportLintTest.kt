@@ -55,7 +55,7 @@ class SourceImportLintTest {
             assertFalse("Borrowed section type in $path", ui.resolve(path).lfText().contains(".sectionTitle"))
         }
         val work = ui.resolve("tasks/TasksHomeScreen.kt").lfText()
-        assertTrue(work.contains("extra = {"))
+        assertTrue(work.contains("GeoReceiptLine(row.receipt, compact = true)"))
         assertFalse(work.contains("Column(Modifier.clickable"))
     }
 

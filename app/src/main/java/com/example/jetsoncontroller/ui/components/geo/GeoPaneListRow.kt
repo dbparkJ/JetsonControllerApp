@@ -39,7 +39,8 @@ internal fun GeoPaneListRow(
     modifier: Modifier = Modifier,
     meta: String? = null,
     leading: (@Composable () -> Unit)? = null,
-    badge: (@Composable () -> Unit)? = null
+    badge: (@Composable () -> Unit)? = null,
+    leadingIsPhoto: Boolean = false
 ) {
     val corners = paneListRowCorners(index, rowCount)
     val square = CornerSize(0.dp)
@@ -54,7 +55,7 @@ internal fun GeoPaneListRow(
         .background(if (selected) LocalGeoColors.current.primaryTint else Color.Transparent)) {
         GeoRow(title, onClick,
             modifier = Modifier.semantics { this.selected = selected },
-            meta = meta, leading = leading, badge = badge,
+            meta = meta, leading = leading, badge = badge, leadingIsPhoto = leadingIsPhoto,
             divider = paneListRowDivider(index, rowCount, selected, nextSelected))
     }
 }

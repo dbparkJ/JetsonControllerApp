@@ -1,45 +1,30 @@
 package com.example.jetsoncontroller.ui.settings
 
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.password
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.ServerEndpointProfile
 import com.example.jetsoncontroller.data.server.StoredServerProfile
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.GeoBadge
-import com.example.jetsoncontroller.ui.components.geo.GeoButton
 import com.example.jetsoncontroller.ui.components.geo.GeoPropertyList
 import com.example.jetsoncontroller.ui.components.geo.GeoFactRow
 import com.example.jetsoncontroller.ui.components.geo.GeoOverlayAction
@@ -49,13 +34,14 @@ import com.example.jetsoncontroller.ui.components.geo.GeoSheetKind
 import com.example.jetsoncontroller.ui.components.geo.GeoStateBlock
 import com.example.jetsoncontroller.ui.components.geo.GeoStateContent
 import com.example.jetsoncontroller.ui.components.geo.GeoStateKind
-import com.example.jetsoncontroller.ui.components.geo.GeoControlShape
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.components.geo.geoFocusRing
-import com.example.jetsoncontroller.ui.components.geo.geoInputTextStyle
-import com.example.jetsoncontroller.ui.components.geo.geoLabelTextStyle
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
-import com.example.jetsoncontroller.ui.storage.R7Card
+import com.example.jetsoncontroller.ui.components.geo.*
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleScaffold
+import com.example.jetsoncontroller.ui.dev.DevSection
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 
 @Composable
 internal fun ServerConnectionScreen(
@@ -103,10 +89,17 @@ internal fun ServerConnectionScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(LocalGeoColors.current.canvas)) {
-        SettingsPageHeader("서버 연결", onBack)
+    GeoLargeTitleScaffold("서버 연결", onBack = onBack,
+        primaryAction = profile?.let { stored -> GeoButtonAction(
+            if (state.status == ServerConnectionStatus.LOGIN_REQUIRED) "다시 로그인" else "연결 확인",
+            {
+                if (state.status == ServerConnectionStatus.LOGIN_REQUIRED) {
+                    token = ""
+                    reloginOpen = true
+                } else onCheck(stored.profile)
+            }, enabled = !state.isBusy, busy = state.isBusy, busyLabel = "확인하는 중") }) {
         if (profile == null) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = LocalGeoWindow.current.gutterDp.dp, vertical = 56.dp)) {
+            Box(Modifier.fillMaxSize().padding(horizontal = LocalGeoWindow.current.gutterDp.dp), contentAlignment = Alignment.Center) {
                 GeoStateBlock(
                     GeoStateContent(
                         kind = GeoStateKind.MISSING,
@@ -117,14 +110,15 @@ internal fun ServerConnectionScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, top = 16.dp, bottom = 40.dp)
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = LocalGeoWindow.current.gutterDp.dp, end = LocalGeoWindow.current.gutterDp.dp, bottom = 24.dp)
             ) {
                 item {
-                    R7Card {
+                    DevSection("연결 정보", first = true) {
                     ServerConnectionStatusRow(state)
-                    GeoPropertyList(listOf("서버", "환경", "직원", "프로젝트")) {
+                    GeoPropertyList(listOf("서버", "주소", "환경", "직원", "프로젝트")) {
                     GeoFactRow("서버", profile.profile.displayName)
+                    GeoPropertyRow("주소", profile.profile.baseUrl, valueContent = { GeoCopyableValue(profile.profile.baseUrl) })
                     GeoFactRow("환경", serverEnvironmentLabel(profile.profile.environment))
                     GeoFactRow("직원", profile.profile.employeeId)
                     GeoFactRow("프로젝트", profile.profile.projectId)
@@ -133,34 +127,10 @@ internal fun ServerConnectionScreen(
                 }
                 if (state.errorMessage != null) {
                     item {
-                        GeoStateBlock(
-                            GeoStateContent(
-                                kind = GeoStateKind.ERROR,
-                                title = connectionErrorTitle(state.status),
-                                explanation = state.errorMessage
-                            ),
-                            modifier = Modifier.padding(top = 24.dp)
-                        )
+                        GeoInlineNote(connectionErrorTitle(state.status) + " · " + state.errorMessage,
+                            modifier = Modifier.padding(top = 24.dp), tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR)
                     }
                 }
-            }
-            Box(Modifier.fillMaxWidth().padding(horizontal = LocalGeoWindow.current.gutterDp.dp, vertical = 12.dp)) {
-                GeoButton(
-                    label = if (state.status == ServerConnectionStatus.LOGIN_REQUIRED) "다시 로그인" else "연결 확인",
-                    onClick = {
-                        if (state.status == ServerConnectionStatus.LOGIN_REQUIRED) {
-                            token = ""
-                            reloginOpen = true
-                        } else {
-                            onCheck(profile.profile)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.isBusy,
-                    busy = state.isBusy,
-                    busyLabel = "확인하는 중",
-                    actionArea = true
-                )
             }
         }
     }
@@ -170,14 +140,8 @@ internal fun ServerConnectionScreen(
 private fun ServerConnectionStatusRow(state: ServerConnectionUiState) {
     val word = serverConnectionWord(state.status)
     val tone = serverConnectionTone(state.status)
-    Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text("상태", Modifier.weight(1f), color = LocalGeoColors.current.textSecondary,
-            style = LocalGeoType.current.body)
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    GeoPropertyRow("상태", word, valueContent = {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             GeoBadge(word, tone, variant = com.example.jetsoncontroller.ui.components.geo.GeoBadgeVariant.INLINE)
             state.lastCheckedAtEpochMillis?.let {
                 Text(
@@ -187,7 +151,7 @@ private fun ServerConnectionStatusRow(state: ServerConnectionUiState) {
                 )
             }
         }
-    }
+    })
 }
 
 private fun connectionErrorTitle(status: ServerConnectionStatus): String =
@@ -195,37 +159,8 @@ private fun connectionErrorTitle(status: ServerConnectionStatus): String =
 
 @Composable
 private fun MaskedEmployeeTokenField(value: String, onValueChange: (String) -> Unit) {
-    val colors = LocalGeoColors.current
-    var focused by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth()) {
-        Text("직원 토큰", color = colors.text, style = geoLabelTextStyle())
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth()
-                .padding(top = 8.dp)
-                .onFocusChanged { focused = it.hasFocus }
-                .geoFocusRing(GeoControlShape, focused)
-                .clip(GeoControlShape)
-                .background(colors.field)
-                .border(1.dp, colors.borderStrong, GeoControlShape)
-                .heightIn(min = 56.dp)
-                .padding(horizontal = 16.dp, vertical = 16.dp)
-                .semantics {
-                    contentDescription = "직원 토큰"
-                    password()
-                },
-            textStyle = geoInputTextStyle().copy(color = colors.text),
-            cursorBrush = SolidColor(colors.primary),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            visualTransformation = PasswordVisualTransformation()
-        )
-        Text(
-            "관리자에게 받은 토큰을 입력하세요.",
-            Modifier.padding(top = 8.dp),
-            color = colors.textSecondary,
-            style = LocalGeoType.current.caption
-        )
-    }
+    val focus = LocalFocusManager.current
+    GeoTextField(value, onValueChange, label = "직원 토큰", password = true, allowPasswordReveal = false,
+        helper = "관리자에게 받은 토큰을 입력하세요.", inputKind = GeoInputKind.IDENTIFIER,
+        imeAction = ImeAction.Done, keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }))
 }

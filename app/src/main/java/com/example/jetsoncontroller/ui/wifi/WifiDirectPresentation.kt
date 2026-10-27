@@ -56,6 +56,12 @@ internal fun canConnectDirectPeer(state: WifiDirectState, permissionGranted: Boo
             WifiP2pDevice.AVAILABLE, WifiP2pDevice.FAILED, WifiP2pDevice.CONNECTED
         ) }
 
+/** A refreshed discovery list never silently redirects the footer to another peer. */
+internal fun directSelectedPeer(state: WifiDirectState, permissionGranted: Boolean, address: String?): WifiDirectPeer? =
+    address?.let { target -> state.peers.firstOrNull {
+        it.deviceAddress == target && canConnectDirectPeer(state, permissionGranted, target)
+    } }
+
 internal fun directFailureText(message: String?): String = when {
     message?.contains("위치") == true -> "휴대폰의 위치 서비스를 켠 뒤 다시 찾으세요."
     message?.contains("Wi-Fi") == true || message?.contains("와이파이") == true -> "휴대폰의 Wi-Fi를 켠 뒤 다시 확인하세요."

@@ -13,6 +13,10 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.devices.DeviceSnapshot
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoDetailToolbar
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleScaffold
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
@@ -66,7 +70,7 @@ internal fun DeviceDetailScreen(
     bluetoothProgress: String? = null
 ) {
     val c = LocalGeoColors.current
-    val tablet = LocalGeoWindow.current.widthDp >= 600f
+    val gutter = if (LocalGeoPane.current) 0.dp else 24.dp
     val deviceWord = localDeviceWord()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -89,22 +93,20 @@ internal fun DeviceDetailScreen(
         }
     }
     val disabledReason = if (!targetSelected) "이 장치를 다시 선택하면 쓸 수 있습니다." else "연결되면 쓸 수 있습니다."
-    Column(Modifier.fillMaxSize().background(c.canvas)) {
-        val detailRoot = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot.current
-        DeviceTitleBar(if (detailRoot) "장치 상태" else "장치", if (detailRoot) null else onBack) {
-            Box {
-                GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
-                GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("연결 끊기", {
-                    onDisconnect()
-                    scope.launch {
-                        if (snackbar.showGeoSnackbar("$deviceName 연결을 끊었습니다.", "다시 연결") == SnackbarResult.ActionPerformed) onSameNetwork()
-                    }
-                },
-                    enabled = online, disabledReason = disabledReason)))
-            }
+    val detailRoot = LocalGeoDetailRoot.current
+    Box(Modifier.fillMaxSize().background(c.canvas)) {
+    Column(Modifier.fillMaxSize()) {
+        if (!detailRoot) GeoDetailToolbar(onBack) {
+            GeoIconButton(GeoIcons.more, "더 보기", { menu = true })
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = if (tablet) 32.dp else 40.dp)) {
+        GeoLargeTitleScaffold(deviceName, modifier = Modifier.weight(1f),
+            subtitle = if (online) listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · ")
+                else lastSeenText?.let { "마지막 응답 $it" } ?: "현재 상태 미확인",
+            titleTrailingContent = { DevicePhoto(80.dp) }, actions = {
+            if (detailRoot) GeoIconButton(GeoIcons.more, "더 보기", { menu = true })
+        }) {
+        Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 GeoStatusStrip(listOfNotNull(
                     if (!online) GeoStatusStripState(GeoStripKind.DISCONNECTED, deviceName,
@@ -114,48 +116,46 @@ internal fun DeviceDetailScreen(
                 ))
             }
             item {
-                Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp)) {
-                    Spacer(Modifier.height(if (tablet) 24.dp else 16.dp))
-                    GeoDevicePhotoCard(deviceName, connection.label, connection.tone,
-                        meta = if (online) listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · ")
-                            else lastSeenText?.let { "마지막 응답 $it" } ?: "현재 상태 미확인",
-                        figures = devicePhotoFigures(dashboard.status.takeIf { current }, snapshot))
+                Column(Modifier.padding(horizontal = gutter)) {
+                    GeoBadge(connection.label, connection.tone, variant = GeoBadgeVariant.INLINE)
+                    Spacer(Modifier.height(12.dp))
+                    DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+                        GeoMetricStrip(devicePhotoFigures(dashboard.status.takeIf { current }, snapshot))
+                    }
                     val sensors: @Composable () -> Unit = {
-                        GeoSection("센서") {
-                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                        GeoGroupedSection("센서", trailingColumn = GeoRowTrailing.Status) {
                                 DeviceSensorRows(dashboard.status, current, control, onCamera, onGnss)
-                            }
                         }
                     }
                     val connectionSection: @Composable () -> Unit = {
-                        GeoSection("연결") {
-                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                                GeoRowList(GeoRowTrailing.None) {
+                        GeoGroupedSection("연결과 장치 정보") {
                                     GeoRow("연결 방법", { sheet = true }, meta = deviceTransportLabel(dashboard.transportType),
                                         leading = { GeoIconTile(GeoIcons.link) })
                                     GeoRow("장치 Wi-Fi", onNetwork,
                                         meta = dashboard.status.wifiSsid?.takeIf(String::isNotBlank) ?: "미확인",
                                         leading = { GeoIconTile(GeoIcons.wifi) }, enabled = online,
-                                        disabledReason = disabledReason, divider = false)
-                                }
-                            }
+                                        disabledReason = disabledReason)
+                                    DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                                        GeoPropertyList(listOf("장치 ID")) {
+                                            GeoPropertyRow("장치 ID", deviceId.ifBlank { "미확인" }, valueContent = {
+                                                GeoCopyableValue(deviceId.ifBlank { "미확인" },
+                                                    showCopyButton = deviceId.isNotBlank())
+                                            })
+                                        }
+                                    }
                         }
                     }
                     val dataSection: @Composable () -> Unit = {
-                        GeoSection("데이터") {
-                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                                GeoRowList(GeoRowTrailing.Status) {
+                        GeoGroupedSection("데이터", trailingColumn = GeoRowTrailing.Status) {
                                     DeviceNavigationRow("장치 파일", onFiles, enabled = control, disabledReason = disabledReason,
                                         leading = { GeoIconTile(GeoIcons.folder) })
                                     DeviceNavigationRow("휴지통", { onTrash?.invoke() }, value = trashCount?.let { "${it}개" },
                                         enabled = control && onTrash != null, disabledReason = disabledReason, divider = false,
                                         leading = { GeoIconTile(GeoIcons.trash) })
-                                }
-                            }
                         }
                     }
                     val statusSection: @Composable () -> Unit = {
-                        GeoSection("상태") {
+                        GeoGroupedSection("상태") {
                             DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
                                 val memory = deviceFigureItems(dashboard.status.takeIf { current }, snapshot).last()
                                 val shown = deviceFigurePresentation(memory)
@@ -164,9 +164,11 @@ internal fun DeviceDetailScreen(
                         }
                     }
                     val management: @Composable () -> Unit = {
-                        GeoSection("관리", danger = true,
-                            note = "재부팅과 전원 종료는 수집 중에는 쓸 수 없습니다.") {
-                            DeviceSurface(tone = com.example.jetsoncontroller.ui.model.Tone.ERROR) {
+                        GeoGroupedSection("관리") {
+                            DeviceSurface(contentPadding = PaddingValues(16.dp)) {
+                                Text("재부팅과 전원 종료는 수집 중에는 쓸 수 없습니다.",
+                                    style = LocalGeoType.current.supporting, color = c.textSecondary)
+                                Spacer(Modifier.height(12.dp))
                                 DevicePowerButtons(powerEnabled, { confirmation = "reboot" }, { confirmation = "shutdown" })
                                 if (!powerEnabled) Text(powerReason.ifEmpty { disabledReason },
                                     Modifier.padding(top = 12.dp), style = LocalGeoType.current.body, color = c.textSecondary)
@@ -174,8 +176,11 @@ internal fun DeviceDetailScreen(
                         }
                     }
                     val registration: @Composable () -> Unit = {
-                        GeoSection("이 $deviceWord", danger = true, note = "이 ${deviceWord}에 저장된 인증 정보만 지웁니다.") {
-                            DeviceSurface {
+                        GeoGroupedSection("이 $deviceWord") {
+                            DeviceSurface(contentPadding = PaddingValues(16.dp)) {
+                                Text("이 ${deviceWord}에 저장된 인증 정보만 지웁니다.",
+                                    style = LocalGeoType.current.supporting, color = c.textSecondary)
+                                Spacer(Modifier.height(12.dp))
                                 GeoButton("등록 해제", { confirmation = "forget" }, Modifier.fillMaxWidth(),
                                     style = GeoButtonStyle.DangerOutline, actionArea = true, enabled = onForget != null,
                                     disabledReason = if (onForget == null) "등록된 장치를 먼저 선택하세요." else null)
@@ -197,6 +202,16 @@ internal fun DeviceDetailScreen(
         }
         GeoSnackbar(snackbar, Modifier.align(androidx.compose.ui.Alignment.BottomCenter))
         }
+        }
+    }
+    Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).size(48.dp)) {
+    GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("연결 끊기", {
+        onDisconnect()
+        scope.launch {
+            if (snackbar.showGeoSnackbar("$deviceName 연결을 끊었습니다.", "다시 연결") == SnackbarResult.ActionPerformed) onSameNetwork()
+        }
+    }, enabled = online, disabledReason = disabledReason)))
+    }
     }
     confirmation?.let { action ->
         val forget = action == "forget"
@@ -226,6 +241,24 @@ internal fun DeviceDetailScreen(
         onBluetooth = onBluetooth,
         bluetoothPermissionGranted = bluetoothPermissionGranted, onRequestBluetoothPermission = onRequestBluetoothPermission,
         bluetoothBusy = bluetoothBusy, bluetoothError = bluetoothError, bluetoothProgress = bluetoothProgress)
+}
+
+/** An unselected detail is an empty state, not an offline device or an endless loader. */
+@Composable
+internal fun DeviceDetailPlaceholder(loading: Boolean, hasDevices: Boolean, onBack: () -> Unit, onRegister: () -> Unit) {
+    GeoLargeTitleScaffold("장치", onBack = onBack,
+        primaryAction = if (!loading && !hasDevices) GeoButtonAction("장치 등록", onRegister) else null) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(
+            horizontal = if (LocalGeoPane.current) 0.dp else 24.dp, vertical = 24.dp)) {
+            item {
+                if (loading) GeoSkeleton("장치를 불러오고 있습니다", kind = GeoSkeletonKind.DeviceCard)
+                else GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                    if (hasDevices) "선택된 장치 없음" else "등록된 장치가 없습니다",
+                    if (hasDevices) "장치 목록에서 장치를 선택하세요."
+                    else "장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다."))
+            }
+        }
+    }
 }
 
 internal fun powerUnavailableReason(dashboard: DashboardUiState, runActive: Boolean): String = when {

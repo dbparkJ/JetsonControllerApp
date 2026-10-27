@@ -30,4 +30,4 @@ fun DataHubScreen(
     onReconnect: () -> Unit = onDevices
 ) = FileBrowser(state, "device", onNavigateBack, onNavigateBack, onRefresh,
     onDirectoryClick, onFileClick, onDeleteClick, onTrash, onDevices,
-    onDismissMessage, onUndoDelete, ongoingRun = ongoingRun, onReconnect = onReconnect)
+    onDismissMessage, onUndoDelete, ongoingRun = ongoingRun, onReconnect = onReconnect, onSend = onTransfer)

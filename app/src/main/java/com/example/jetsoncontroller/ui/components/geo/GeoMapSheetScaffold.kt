@@ -35,6 +35,7 @@ fun GeoMapSheetScaffold(
     peekHeight: Dp = 452.dp,
     controls: @Composable BoxScope.() -> Unit = {},
     map: @Composable BoxScope.() -> Unit,
+    primaryActionModifier: Modifier = Modifier,
     sheetContent: @Composable ColumnScope.() -> Unit
 ) {
     if (!com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane.current) {
@@ -68,7 +69,10 @@ fun GeoMapSheetScaffold(
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(c.surface)
             .onSizeChanged { footerHeight = with(density) { it.height.toDp() } }
             .navigationBarsPadding().padding(start = 24.dp, end = 24.dp, top = 12.dp)) {
-            GeoButtonActions(listOf(primaryAction))
+            GeoButton(primaryAction.label, primaryAction.onClick, primaryActionModifier.fillMaxWidth(),
+                primaryAction.style, primaryAction.enabled, primaryAction.busy, primaryAction.busyLabel,
+                primaryAction.icon, primaryAction.disabledReason,
+                actionArea = primaryAction.style == GeoButtonStyle.Primary || primaryAction.style == GeoButtonStyle.DangerFilled)
         }
     }
 }

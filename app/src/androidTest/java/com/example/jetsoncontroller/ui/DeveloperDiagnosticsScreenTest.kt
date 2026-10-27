@@ -3,6 +3,8 @@ package com.example.jetsoncontroller.ui
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -27,6 +29,7 @@ class DeveloperDiagnosticsScreenTest {
         var refreshes = 0
         var requested = ""
         var sensors by mutableStateOf(false)
+        var sensorState by mutableStateOf(FieldState(deviceId = "jetson", online = true))
         compose.setContent {
             JetsonControllerTheme {
                 if (!sensors) DevNetworkScreen(
@@ -36,18 +39,18 @@ class DeveloperDiagnosticsScreenTest {
                             DeviceNetworkAddress("tailscale0", "Tailscale", "100.76.81.78", "IPv4", "https://100.76.81.78:8765")
                         ))),
                     onBack = {}, onRefresh = { refreshes++ }
-                ) else DevSensorTestScreen(FieldState(deviceId = "jetson", online = true),
+                ) else DevSensorTestScreen(sensorState,
                     { requested = it }, {}, {}, {})
             }
         }
         compose.onNodeWithText("111.111.111.45").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("100.76.81.78").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("다시 조회").performScrollTo().performClick()
+        compose.onNodeWithText("다시 조회").performClick()
         compose.runOnIdle { assertTrue(refreshes >= 2) }
         compose.runOnIdle { sensors = true }
-        compose.onNodeWithText("카메라 테스트").performScrollTo().performClick()
+        compose.onNodeWithText("테스트").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals("camera", requested) }
-        compose.onNodeWithText("GPS 테스트").performScrollTo().performClick()
+        compose.runOnIdle { sensorState = sensorState.copy(sensorTests = mapOf("camera" to SensorTestResult("camera", "PASSED", "수신 확인"))) }
         compose.runOnIdle { assertEquals("gps", requested) }
     }
 
@@ -57,8 +60,8 @@ class DeveloperDiagnosticsScreenTest {
                 DevSensorTestScreen(FieldState(), {}, {}, {}, {})
             }
         }
-        compose.onNodeWithText("카메라 테스트").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithText("GPS 테스트").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("테스트").assertIsNotEnabled()
+        compose.onNodeWithText("장치에 연결하면 테스트할 수 있습니다.").assertIsDisplayed()
     }
 
     @Test fun gpsNoFixIsShownSeparatelyFromReceiverFailure() {
@@ -71,7 +74,7 @@ class DeveloperDiagnosticsScreenTest {
                 )
             }
         }
-        compose.onNodeWithText("수신 확인").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasStateDescription("수신 확인")).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("위성 위치는 아직 확정되지 않았습니다.").performScrollTo().assertIsDisplayed()
     }
 }

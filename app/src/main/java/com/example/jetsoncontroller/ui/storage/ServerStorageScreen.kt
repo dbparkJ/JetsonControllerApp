@@ -6,8 +6,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.text.font.FontFamily
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.geo.*
@@ -31,17 +29,17 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
                 if (deletionEnabled && state.controlAvailable && !state.isDeleting && state.sessions.any { it.sessionId == frozen.sessionId }) onDeleteSession(frozen)
             }, { pending = null }, kind = GeoConfirmKind.DANGER,
             confirmEnabled = deletionEnabled && state.controlAvailable && !state.isDeleting,
-            disabledReason = "이 화면에서는 서버 데이터를 지울 수 없습니다.")
+            disabledReason = "이 화면에서는 서버 데이터를 지울 수 없습니다.", facts = {
+                GeoCopyableValue(frozen.displayFolderName, label = "저장 폴더")
+                GeoPropertyRow("서버", state.selectedTarget?.label ?: "선택 안 됨")
+            })
     }
-    if (picker) GeoSheet("서버 선택", { picker = false }, subtitle = "${deviceName}에 저장된 서버입니다.") {
-        val type = MaterialTheme.typography
-        MaterialTheme(typography = type.copy(bodySmall = type.bodySmall.copy(fontFamily = FontFamily.Monospace))) {
+    if (picker) GeoSheet("서버 선택", { picker = false }, kind = GeoSheetKind.CHOICE, subtitle = "${deviceName}에 저장된 서버입니다.") {
             state.targets.forEach { target -> GeoRadioRow(target.label, target.id == state.selectedTarget?.id,
                 { picker = false; onTargetSelected(target) }, description = target.baseUrl) }
-        }
     }
     if (state.preview != null) {
-        StoragePage("파일 미리보기", onBack, media = true) {
+        StoragePage("파일 미리보기", onBack, media = usesImageMediaFrame(state.preview)) {
             FilePreview(state.preview, deviceName, state.entries.firstOrNull { it.name == state.preview.name })
         }
         return
@@ -71,13 +69,16 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
             } else {
                 DevIdentity(proxySessionTitle(state.selectedSession.displayFolderName, state.selectedSession.completedAt ?: state.selectedSession.createdAt),
                     state.currentPath.ifEmpty { "맨 위" })
+                GeoCopyableValue(state.selectedSession.displayFolderName, label = "저장 폴더")
                 MediaFilters(category) { category = it }
                 GeoSection("파일", first = true, modifier = Modifier.padding(top = 24.dp), trailingColumn = GeoRowTrailing.None) {
                     val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
                     visible.forEach { entry -> GeoRow(breakableFileName(entry.name),
                         { if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry) },
                         meta = if (entry.type == RemoteEntryType.DIRECTORY) "폴더" else Formats.size(entry.sizeBytes),
-                        leading = { MediaThumbnail(entry, "${state.deviceId}/${state.selectedTarget?.id}/${state.selectedSession.sessionId}", thumbnailLoader) }) }
+                        leading = { MediaThumbnail(entry, "${state.deviceId}/${state.selectedTarget?.id}/${state.selectedSession.sessionId}", thumbnailLoader) },
+                        leadingIsPhoto = mediaCategory(entry) == "이미지",
+                        extra = { GeoCopyableValue(entry.name) }) }
                     if (visible.isEmpty() && !state.isLoading && state.error == null) DevEmpty("빈 폴더입니다", "이 위치에는 표시할 파일이 없습니다.")
                     if (state.listingTruncated) DevText("항목이 많아 현재 폴더의 처음 500개만 표시합니다.")
                 }

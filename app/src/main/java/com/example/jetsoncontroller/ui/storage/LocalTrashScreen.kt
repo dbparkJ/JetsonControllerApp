@@ -4,7 +4,6 @@ import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -12,10 +11,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
@@ -27,8 +22,6 @@ import com.example.jetsoncontroller.ui.field.runNameInstant
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
-import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import java.time.Instant
 
 @Composable
@@ -61,15 +54,13 @@ fun LocalTrashScreen(
             disabledReason = "장치와 휴지통 상태를 다시 확인하세요.", busy = state.emptying,
             openerFocusRequester = menuOpener)
     }
-    StoragePage("휴지통", onBack, actions = {
-        Box {
-            GeoIconButton(GeoIcons.more, "휴지통 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
-            GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("휴지통 비우기", {
+    StorageMenuSheet("휴지통 메뉴", menu, { menu = false }, listOf(GeoMenuItem("휴지통 비우기", {
                 emptySnapshot = localTrashEmptySnapshot(state)
             }, destructive = true, enabled = localTrashEmptySnapshot(state) != null && !busy,
                 disabledReason = if (!state.emptySupported) "이 장치는 휴지통 비우기를 지원하지 않습니다."
                     else "장치와 휴지통 상태를 다시 확인하세요.")), openerFocusRequester = menuOpener)
-        }
+    StoragePage("휴지통", onBack, actions = {
+        GeoIconButton(GeoIcons.more, "휴지통 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
     }) {
         Box(Modifier.fillMaxSize()) {
             StorageRefresh(state.loading, state.online && !busy, onRefresh) {
@@ -107,44 +98,25 @@ fun LocalTrashScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LocalTrashEntry(entry: TrashEntry, online: Boolean, busy: Boolean, onRestore: () -> Unit) {
-    val colors = LocalGeoColors.current
-    val type = LocalGeoType.current
+    var detail by remember(entry.trashId) { mutableStateOf(false) }
     val restorable = localTrashCanRestore(entry)
-    val actionLabel = if (restorable) "원래 위치로 복원" else "복원할 수 없음"
-    val actionWidth = 88.dp
-    R7Card(Modifier.padding(bottom = 12.dp)) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val body: @Composable (Modifier) -> Unit = { modifier ->
-            Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                GeoIconTile(GeoIcons.trash)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(breakableFileName(localTrashTitle(entry)), style = type.titleSm, color = colors.text)
-                    GeoBadge(localTrashStateLabel(entry), when (entry.state) {
-                        "PURGING", "RESTORING", "MOVING_TO_TRASH" -> Tone.PENDING
-                        "TRASHED" -> if (entry.restoreSupported) Tone.UNKNOWN else Tone.WARNING
-                        else -> Tone.WARNING
-                    }, variant = GeoBadgeVariant.INLINE)
-                    Text(localTrashMeta(entry), style = type.caption, color = colors.textSecondary)
-                }
-            }
-        }
-        val action: @Composable (Modifier) -> Unit = { modifier ->
-            if (restorable) GeoButton(actionLabel, onRestore, modifier, style = GeoButtonStyle.Tertiary, actionArea = true,
-                enabled = online && !busy,
-                disabledReason = if (!online) "장치에 연결되면 쓸 수 있습니다." else "복원 상태를 확인하고 있습니다.")
-            else Text(actionLabel, modifier, style = type.caption, color = colors.textSecondary)
-        }
-        if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            body(Modifier.fillMaxWidth())
-            Box(Modifier.align(Alignment.End).width(actionWidth)) { action(Modifier.fillMaxWidth()) }
-        } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-            body(Modifier.weight(1f))
-            action(Modifier.width(actionWidth))
-        }
+    if (detail) GeoInfoDialog(localTrashTitle(entry), { detail = false }) {
+        entry.name?.let { GeoCopyableValue(it, label = "원본 파일명") }
+        GeoPropertyRow("상태", localTrashStateLabel(entry))
+        GeoPropertyRow("정보", localTrashMeta(entry))
     }
+    R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(0.dp)) {
+        GeoActionRow(localTrashTitle(entry), if (restorable) "복원" else "복원 불가",
+            { detail = true }, onRestore, meta = listOf(localTrashStateLabel(entry), localTrashMeta(entry)).joinToString(" · "),
+            leading = { GeoIconTile(GeoIcons.trash) }, divider = false,
+            actionEnabled = restorable && online && !busy,
+            disabledReason = when {
+                !restorable -> localTrashStateLabel(entry)
+                !online -> "장치에 연결되면 쓸 수 있습니다."
+                else -> "복원 상태를 확인하고 있습니다."
+            })
     }
 }
 

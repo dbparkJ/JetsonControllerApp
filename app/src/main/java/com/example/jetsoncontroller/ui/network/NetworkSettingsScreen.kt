@@ -1,30 +1,30 @@
 package com.example.jetsoncontroller.ui.network
 
-import com.example.jetsoncontroller.ui.model.Tone
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
-import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
-import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoChrome
-import com.example.jetsoncontroller.ui.devices.DeviceTitleBar
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleScaffold
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane
 import com.example.jetsoncontroller.ui.devices.DeviceSurface
 import com.example.jetsoncontroller.ui.devices.deviceTransportLabel
 import com.example.jetsoncontroller.ui.devices.rememberDeviceOverlayHost
+import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
@@ -48,9 +48,7 @@ fun NetworkSettingsScreen(
     val c = LocalGeoColors.current
     val type = LocalGeoType.current
     val focus = LocalFocusManager.current
-    val density = LocalDensity.current
-    val chrome = LocalGeoChrome.current
-    var titleHeight by remember { mutableFloatStateOf(56f) }
+    val gutter = if (LocalGeoPane.current) 0.dp else 24.dp
     var manual by rememberSaveable(state.deviceId) { mutableStateOf(false) }
     var menu by rememberSaveable(state.deviceId) { mutableStateOf(false) }
     var info by rememberSaveable(state.deviceId) { mutableStateOf(false) }
@@ -66,102 +64,104 @@ fun NetworkSettingsScreen(
         focus.clearFocus()
         confirmation = state.applyTarget()
     }
-    Column(Modifier.fillMaxSize().background(c.canvas)) {
-        DeviceTitleBar("장치 Wi-Fi", onBack, modifier = Modifier.onSizeChanged { titleHeight = it.height / density.density }) {
-            Box {
-                GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
-                GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("연결 상태", { info = true })))
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-        GeoActionArea(
-            visibilityKey = state.deviceId to editing,
-            modifier = Modifier.fillMaxSize(),
-            chrome = chrome.copy(topDp = chrome.topDp + titleHeight),
-            action = {
-                if (editing) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GeoReadinessLine("$deviceName · ${deviceTransportLabel(state.transportType)} · ${unavailable ?: "적용할 수 있습니다."}",
-                        if (unavailable == null) Tone.SUCCESS else Tone.WARNING)
-                    GeoButton("적용", { requestApply() }, Modifier.testTag("wifi-connect-button"), enabled = unavailable == null,
-                        busy = state.sending, busyLabel = "적용 중", actionArea = true)
-                }
-            }
-        ) { inlineAction ->
+    val finishInput = KeyboardActions(onDone = { if (unavailable == null) requestApply() else focus.clearFocus() })
+    Box(Modifier.fillMaxSize()) {
+        GeoLargeTitleScaffold("장치 Wi-Fi", subtitle = deviceName, onBack = onBack,
+            primaryAction = if (editing) GeoButtonAction("적용", requestApply,
+                enabled = unavailable == null, busy = state.sending, busyLabel = "적용 중",
+                disabledReason = unavailable) else null,
+            actions = { GeoIconButton(GeoIcons.more, "더 보기", { menu = true }) }) {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 item { GeoStatusStrip(listOfNotNull(ongoingStrip)) }
                 item {
-                    Column(Modifier.padding(horizontal = LocalGeoWindow.current.gutterDp.dp).padding(top = 16.dp)) {
-                        Text(deviceName, style = type.caption, color = c.textSecondary)
-                        GeoSection("현재 네트워크", first = true, modifier = Modifier.padding(top = 24.dp)) {
-                            DeviceSurface {
-                                GeoFactRow(state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "연결된 Wi-Fi 없음",
-                                    if (connected && state.wifiConnected) "연결됨" else "미확인",
-                                    Modifier.testTag("wifi-access-point-${state.currentWifiSsid}").semantics { disabled() })
-                                if (connected && state.sameWifi) Text("$deviceName · 휴대폰과 같은 네트워크",
-                                    style = type.caption, color = c.textSecondary)
-                            }
+                    Column(Modifier.padding(horizontal = gutter)) {
+                        GeoGroupedSection("현재 네트워크", first = true, trailingColumn = GeoRowTrailing.Status) {
+                            GeoRow(state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "연결된 Wi-Fi 없음",
+                                {}, navigable = false, divider = false,
+                                modifier = Modifier.testTag("wifi-access-point-${state.currentWifiSsid}").semantics { disabled() },
+                                meta = if (connected && state.sameWifi) "$deviceName · 휴대폰과 같은 네트워크" else null,
+                                leading = { GeoIconTile(GeoIcons.wifi) },
+                                badge = { GeoBadge(if (connected && state.wifiConnected) "연결됨" else "미확인",
+                                    if (connected && state.wifiConnected) Tone.SUCCESS else Tone.UNKNOWN) })
                         }
-                        GeoSection("주변 네트워크", actionLabel = if (wifiScanPermissionGranted) "다시 검색" else null,
-                            onAction = if (wifiScanPermissionGranted) onScanAccessPoints else null) {
-                            DeviceSurface {
-                                if (!wifiScanPermissionGranted) {
-                                    GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "위치 권한이 꺼져 있습니다",
-                                        "주변 네트워크를 찾으려면 위치 권한이 필요합니다.", "권한 허용"),
-                                        onAction = onRequestWifiScanPermission)
-                                } else {
-                                    if (state.scanningAccessPoints) GeoSkeleton("주변 네트워크를 찾고 있습니다.", kind = GeoSkeletonKind.Rows)
-                                    state.accessPointError?.let {
-                                        GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "네트워크를 찾지 못했습니다",
-                                            "연결을 확인하고 다시 시도하세요.", "다시 시도"), onAction = onScanAccessPoints)
-                                    }
-                                    if (!state.scanningAccessPoints && state.accessPointError == null && state.accessPoints.isEmpty()) {
-                                        Text("주변 네트워크가 없습니다.", style = type.body, color = c.textSecondary)
-                                    }
-                                    Column(Modifier.selectableGroup()) {
-                                        state.accessPoints.filterNot { state.isCurrentJetsonWifi(it.ssid) }.forEach { accessPoint ->
-                                            val expanded = !manual && accessPoint.ssid == state.selectedAccessPointSsid
-                                            GeoRadioRow(accessPoint.ssid, expanded, {
-                                                manual = false
-                                                onSelectAccessPoint(accessPoint)
-                                            }, enabled = connected && !state.sending && accessPoint.provisionable,
-                                                disabledReason = if (!accessPoint.provisionable) "이 네트워크의 인증 방식은 지원하지 않습니다."
-                                                    else "연결되면 쓸 수 있습니다.")
-                                            if (expanded && accessPoint.requiresPassword) {
+                        GeoGroupedSection("주변 네트워크") {
+                            if (!wifiScanPermissionGranted) {
+                                GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "위치 권한이 꺼져 있습니다",
+                                    "주변 네트워크를 찾으려면 위치 권한이 필요합니다.", "권한 허용"),
+                                    Modifier.padding(16.dp), onAction = onRequestWifiScanPermission)
+                            } else {
+                                GeoActionRow("주변 네트워크", "다시 검색", onScanAccessPoints, onScanAccessPoints,
+                                    leading = { GeoIconTile(GeoIcons.search) })
+                                if (state.scanningAccessPoints) GeoSkeleton("주변 네트워크를 찾고 있습니다.",
+                                    Modifier.padding(16.dp), kind = GeoSkeletonKind.Rows)
+                                state.accessPointError?.let {
+                                    GeoInlineNote(it, Modifier.padding(16.dp), tone = Tone.ERROR,
+                                        kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 시도", onAction = onScanAccessPoints)
+                                }
+                                if (!state.scanningAccessPoints && state.accessPointError == null && state.accessPoints.isEmpty()) {
+                                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "주변 네트워크가 없습니다.", ""),
+                                        Modifier.padding(16.dp))
+                                }
+                                Column(Modifier.selectableGroup()) {
+                                    state.accessPoints.filterNot { state.isCurrentJetsonWifi(it.ssid) }.forEach { accessPoint ->
+                                        val expanded = !manual && accessPoint.ssid == state.selectedAccessPointSsid
+                                        GeoRadioRow(accessPoint.ssid, expanded, {
+                                            manual = false
+                                            onSelectAccessPoint(accessPoint)
+                                        }, enabled = connected && !state.sending && accessPoint.provisionable,
+                                            disabledReason = if (!accessPoint.provisionable) "이 네트워크의 인증 방식은 지원하지 않습니다."
+                                                else "연결되면 쓸 수 있습니다.")
+                                        if (expanded && accessPoint.requiresPassword) {
+                                            DeviceSurface(contentPadding = PaddingValues(16.dp)) {
                                                 GeoTextField(state.password, onPasswordChange, "비밀번호",
-                                                    Modifier.testTag("wifi-selected-network-form").padding(start = 36.dp, bottom = 16.dp), password = true,
+                                                    Modifier.testTag("wifi-selected-network-form"), password = true,
                                                     helper = "대소문자를 구분합니다.", enabled = connected && !state.sending,
-                                                    disabledReason = "연결되면 쓸 수 있습니다.")
+                                                    disabledReason = "연결되면 쓸 수 있습니다.",
+                                                    inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Done,
+                                                    keyboardActions = finishInput)
                                             }
                                         }
                                     }
                                 }
-                                GeoRow("숨겨진 네트워크 추가", {
-                                    manual = !manual
-                                    if (manual) { onSsidChange(""); onPasswordChange(""); onHiddenChange(true) }
-                                }, leading = { GeoIconTile(GeoIcons.wifi) }, enabled = connected && !state.sending,
-                                    disabledReason = "연결되면 쓸 수 있습니다.", divider = false)
-                                if (manual) {
-                                    GeoTextField(state.ssid, onSsidChange, "네트워크 이름", enabled = connected && !state.sending,
-                                        disabledReason = "연결되면 쓸 수 있습니다.")
+                            }
+                            GeoRow("숨겨진 네트워크 추가", {
+                                manual = !manual
+                                if (manual) { onSsidChange(""); onPasswordChange(""); onHiddenChange(true) }
+                            }, leading = { GeoIconTile(GeoIcons.wifi) }, enabled = connected && !state.sending,
+                                disabledReason = "연결되면 쓸 수 있습니다.", divider = false)
+                            if (manual) {
+                                DeviceSurface(contentPadding = PaddingValues(16.dp)) {
+                                    GeoTextField(state.ssid, onSsidChange, "네트워크 이름",
+                                        enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.",
+                                        inputKind = GeoInputKind.TEXT, imeAction = ImeAction.Next,
+                                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Next),
+                                        keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }))
                                     Spacer(Modifier.height(12.dp))
                                     GeoTextField(state.password, onPasswordChange, "비밀번호", password = true,
                                         helper = "비밀번호가 없는 네트워크는 비워 두세요.", enabled = connected && !state.sending,
-                                        disabledReason = "연결되면 쓸 수 있습니다.")
-                                    GeoSwitchRow("숨겨진 네트워크", state.hidden, onHiddenChange,
-                                        enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.")
+                                        disabledReason = "연결되면 쓸 수 있습니다.",
+                                        inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Done,
+                                        keyboardActions = finishInput)
                                 }
+                                GeoSwitchRow("숨겨진 네트워크", state.hidden, onHiddenChange,
+                                    enabled = connected && !state.sending, disabledReason = "연결되면 쓸 수 있습니다.")
                             }
                         }
                         state.message?.let {
-                            Text(it, style = type.body, color = if (state.isError) c.danger else c.textSecondary)
+                            GeoInlineNote(it, tone = if (state.isError) Tone.ERROR else Tone.INFO,
+                                kind = if (state.isError) GeoNoteKind.LIVE_ERROR else GeoNoteKind.HELP)
                         }
+                        if (editing) GeoReadinessLine(
+                            "$deviceName · ${deviceTransportLabel(state.transportType)} · ${unavailable ?: "적용할 수 있습니다."}",
+                            if (unavailable == null) Tone.SUCCESS else Tone.WARNING)
                     }
                 }
-                item { inlineAction() }
             }
         }
-        GeoSnackbar(host, Modifier.align(androidx.compose.ui.Alignment.BottomCenter))
+        Box(Modifier.align(Alignment.TopEnd).size(48.dp)) {
+            GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("연결 상태", { info = true })))
         }
+        GeoSnackbar(host, Modifier.align(Alignment.BottomCenter))
     }
     confirmation?.let { target ->
         val valid = state.matches(target)
@@ -171,8 +171,10 @@ fun NetworkSettingsScreen(
             disabledReason = if (!valid) "연결과 네트워크 선택을 다시 확인하세요." else null)
     }
     if (info) GeoInfoDialog("연결 상태", { info = false }) {
-        GeoFactRow("휴대폰 Wi-Fi", state.mobileWifiSsid ?: "미확인")
-        GeoFactRow("장치 Wi-Fi", state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "미확인")
+        GeoPropertyList(listOf("휴대폰 Wi-Fi", "장치 Wi-Fi")) {
+            GeoPropertyRow("휴대폰 Wi-Fi", state.mobileWifiSsid ?: "미확인")
+            GeoPropertyRow("장치 Wi-Fi", state.currentWifiSsid.takeIf { connected && state.wifiConnected } ?: "미확인")
+        }
         Text(when {
             !connected || state.mobileWifiSsid.isNullOrBlank() || state.currentWifiSsid.isNullOrBlank() -> "연결 상태를 확인할 수 없습니다."
             state.sameWifi -> "같은 네트워크입니다."

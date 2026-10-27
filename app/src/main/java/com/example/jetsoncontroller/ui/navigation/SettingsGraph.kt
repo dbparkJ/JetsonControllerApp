@@ -167,7 +167,8 @@ private fun SettingsRootRoute(state: State<AppNavigationState>, entry: NavBackSt
                 serverStatusTone = serverConnectionTone(connectionState.status),
                 alertSettings = alertSettings,
                 notificationPermissionGranted = notificationPermissionGranted,
-                onRequestNotificationPermission = onRequestNotificationPermission
+                onRequestNotificationPermission = onRequestNotificationPermission,
+                selectedPage = entry.destination.route?.takeUnless { it == Routes.SETTINGS } ?: Routes.THEME
             )
         }
     }

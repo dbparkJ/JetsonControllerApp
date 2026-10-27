@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.GnssSensorStatus
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.field.runQualityPresentation
+import com.example.jetsoncontroller.ui.zone.runPresentation
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
@@ -65,13 +67,17 @@ fun GeoMapPanel(
     }
     if (qualityDetails) {
         GeoSheet("위치 품질", { qualityDetails = false }, kind = GeoSheetKind.INFO, openerFocusRequester = qualityFocus) {
-            if (presentation.slices.isEmpty()) GeoInlineNote(presentation.detail)
-            presentation.slices.forEach { GeoFactRow(it.label, mapObservationDuration(it.durationMillis)) }
-            presentation.problems.forEach { GeoInlineNote(it) }
+            if (presentation.slices.isEmpty()) SelectionContainer { GeoInlineNote(presentation.detail) }
+            GeoPropertyList(presentation.slices.map { it.label }) {
+                presentation.slices.forEach { GeoPropertyRow(it.label, mapObservationDuration(it.durationMillis), numeric = true) }
+            }
+            SelectionContainer {
+                Column { presentation.problems.forEach { GeoInlineNote(it) } }
+            }
             if (data.geometry?.hasRange == true) {
                 GeoSection("수집 구역", first = true, modifier = Modifier.padding(top = 24.dp)) {
                     val caption = mapResultCaption(data.zone)
-                    if (caption.isNotEmpty()) Text(caption, style = type.body, color = c.text)
+                    if (caption.isNotEmpty()) SelectionContainer { Text(caption, style = type.body, color = c.text) }
                     if (data.zone.phoneObserved) Text("구역 밖 기록은 관찰한 시간 기준입니다.", style = type.caption, color = c.textSecondary)
                 }
             }
@@ -81,11 +87,8 @@ fun GeoMapPanel(
         Column(Modifier.fillMaxWidth().onSizeChanged {
             if (!expanded) onPeekHeight(with(density) { it.height.toDp().value.toInt() })
         }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(32.dp, 4.dp).background(c.borderStrong, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                Text(deviceName, Modifier.weight(1f).padding(top = 10.dp), style = type.deviceName, color = c.text)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(deviceName, Modifier.weight(1f), style = type.sectionTitle, color = c.text)
                 GeoIconButton(if (expanded) GeoIcons.collapsePanel else GeoIcons.expandPanel,
                     if (expanded) "패널 접기" else "패널 펼치기", onToggle,
                     Modifier.semantics { stateDescription = if (expanded) "펼쳐짐" else "접힘" })
@@ -100,21 +103,23 @@ fun GeoMapPanel(
                 Text(mapPositionSentence(data), style = type.body, color = c.text)
             } else Text(presentation.headline, style = type.body, color = c.text)
             data.geometry?.summary?.takeIf { it.isNotEmpty() }?.let { Text(it, style = type.caption, color = c.textSecondary) }
-            GeoFactRow("좌표", Formats.coordinate(data.device?.latitude, data.device?.longitude))
-            GeoFactRow("마지막 위치", mapSampleTime(gnss.lastSampleAtEpochMillis))
-            GeoSwitchRow("휴대폰 위치 표시", phoneShown, onPhoneShown)
-            phoneMessage?.let { GeoInlineNote(it) }
-            phoneRemedy?.let { GeoButton(it.first, it.second, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
             if (mode == GeoMapMode.RUN) {
+                GeoStatusStrip(listOfNotNull(data.zone.runPresentation(deviceName).strip))
                 Text("수집 중 · ${runElapsed ?: "미확인"}", style = type.body, color = c.text)
                 stopError?.let { GeoInlineNote(it) }
-                if (!expanded) stop()
             }
             Spacer(Modifier.height(8.dp))
         }
     }
     val details: @Composable () -> Unit = {
         Column {
+            GeoPropertyList(listOf("좌표", "마지막 위치")) {
+                GeoPropertyRow("좌표", Formats.coordinate(data.device?.latitude, data.device?.longitude))
+                GeoPropertyRow("마지막 위치", mapSampleTime(gnss.lastSampleAtEpochMillis))
+            }
+            GeoRowList(GeoRowTrailing.None) { GeoSwitchRow("휴대폰 위치 표시", phoneShown, onPhoneShown) }
+            phoneMessage?.let { GeoInlineNote(it) }
+            phoneRemedy?.let { GeoButton(it.first, it.second, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
             if (data.geometryChanged) GeoInlineNote("수집 구역이 바뀌었습니다. 이 수집은 시작할 때의 구역으로 표시합니다.")
             data.geometry?.let {
                 if (it.state == GeoGeometryState.RANGE_PENDING || it.state == GeoGeometryState.INVALID) GeoInlineNote(mapPositionSentence(data))
@@ -123,8 +128,11 @@ fun GeoMapPanel(
             GeoSection("장치 위치") {
                 GeoFactRow("위성", gnss.satellites?.let { "${it}개" } ?: "미확인")
                 GeoFactRow("고도", gnss.altitudeM?.takeIf { it.isFinite() }?.let { "${String.format(Locale.US, "%.1f", it)} m" } ?: "미확인")
-                Text(presentation.detail, style = type.caption, color = c.textSecondary)
-                GeoRow("위치 품질 자세히", { qualityDetails = true }, modifier = Modifier.focusRequester(qualityFocus))
+                SelectionContainer { Text(presentation.detail, style = type.caption, color = c.textSecondary) }
+                GeoRowList(GeoRowTrailing.None) {
+                    GeoRow("위치 품질 자세히", { qualityDetails = true }, modifier = Modifier.focusRequester(qualityFocus),
+                        leading = { GeoIconTile(GeoIcons.myLocation) }, divider = false)
+                }
             }
             if (data.geometry?.hasRange == true && mode == GeoMapMode.ROUTE) {
                 val caption = mapResultCaption(data.zone)
@@ -136,15 +144,11 @@ fun GeoMapPanel(
             Spacer(Modifier.height(16.dp))
         }
     }
-    Column(modifier.background(c.surface).semantics { paneTitle = "지도 패널" }.padding(horizontal = 24.dp)) {
-        if (expanded) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { header(); details() }
-            stop()
-            Spacer(Modifier.height(12.dp))
-        } else {
-            header()
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { details() }
-        }
+    Column(modifier.background(c.surface).semantics { paneTitle = "지도 패널" }
+        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+        .padding(horizontal = 24.dp)) {
+        Column(Modifier.weight(1f).geoContainScroll().verticalScroll(rememberScrollState())) { header(); details() }
+        stop()
     }
 }
 
@@ -155,8 +159,10 @@ private fun GeoMapLegend() {
     val entries = listOf("수집 구역" to MapBlue, "경로" to MapBlue, "영역" to MapBlue, "지점" to MapBlue,
         "정밀 위치" to MapPrecise, "대략 위치" to MapApproximate, "위치 미확인" to MapUnknown,
         "관찰하지 못한 시간" to MapGap, "장치" to MapDevice)
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        entries.withIndex().chunked(2).forEach { pair ->
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+      val columns = mapLegendColumns(maxWidth.value, LocalDensity.current.fontScale)
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        entries.withIndex().chunked(columns).forEach { pair ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 pair.forEach { (index, entry) ->
                     val (label, color) = entry
@@ -181,9 +187,10 @@ private fun GeoMapLegend() {
                         Text(label, color = c.text, style = type.body, modifier = Modifier.weight(1f))
                     }
                 }
-                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                if (pair.size < columns) Spacer(Modifier.weight(1f))
             }
         }
+    }
     }
 }
 

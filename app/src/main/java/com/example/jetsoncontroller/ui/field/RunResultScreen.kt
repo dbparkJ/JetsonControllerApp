@@ -7,35 +7,27 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.geo.shell.GeoActionArea
-import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoFixedActionBar
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
-import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
-import com.example.jetsoncontroller.ui.tasks.WorkFigureCards
 
 @Suppress("UNUSED_PARAMETER") // Retain the graph signature until its owner wires the new seams.
 @Composable
@@ -97,7 +89,8 @@ internal fun RunResultScreen(
     if (run == null && historyEntry != null) {
         HistoryEntryScreen(historyEntry, deviceName, online, developerModeEnabled, onBack,
             onOpenFiles, onOpenLog, savedLog, onDismissLog, resultMessage, onTrashRecord, snackbar, statusStrip,
-            mapCard = { mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(null, historyEntry, historyState, observedZone, zoneRevisionChanged) })
+            mapCard = { mapCard?.invoke() ?: com.example.jetsoncontroller.ui.map.GeoResultMapCard(null, historyEntry, historyState, observedZone, zoneRevisionChanged) },
+            uploadJobs = uploadJobs)
         return
     }
     if (developerModeEnabled && savedLog != null) {
@@ -132,16 +125,25 @@ internal fun RunResultScreen(
                     }
                 },
                 onDismissRequest = { reportTarget = null },
-                openerFocusRequester = reportFocus
+                openerFocusRequester = reportFocus,
+                facts = {
+                    chain?.let { GeoReceipt(it.receipt, Modifier.padding(top = 16.dp)) }
+                    GeoCopyableValue(run.runId, label = "수집 ID")
+                    receipt?.let {
+                        GeoCopyableValue(it.targetId, label = "서버 ID")
+                        it.remoteSessionId?.let { session -> GeoCopyableValue(session, label = "서버 수신 ID") }
+                    }
+                }
             )
         }
-        FieldDetailFrame("수집 결과", onBack, onTrash = onTrashRecord,
+        FieldDetailFrame(run?.contextSnapshot?.surveySectionLabel ?: "수집 결과", onBack, onTrash = onTrashRecord,
+            subtitle = "수집 결과".takeIf { run != null },
             trashEnabled = online && run?.active != true && historyState?.deletingRunId == null,
             trashDisabledReason = if (!online) "장치에 연결한 뒤 기록을 휴지통으로 옮길 수 있습니다." else "수집 상태를 확인한 뒤 다시 시도하세요.",
             snackbar = snackbar, statusStrip = statusStrip) {
             if (run == null || chain == null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(horizontal = LocalGeoWindow.current.gutterDp.dp)) {
+                    .padding(horizontal = if (LocalGeoPane.current) 0.dp else 24.dp)) {
                     GeoStateBlock(GeoStateContent(GeoStateKind.MISSING,
                         "수집 결과를 찾을 수 없습니다", "수집 기록에서 다시 찾아보세요.", "수집 기록"),
                         fullScreen = true, onAction = onOpenHistory)
@@ -149,17 +151,14 @@ internal fun RunResultScreen(
                 return@FieldDetailFrame
             }
             val c = LocalGeoColors.current
-            val gutter = LocalGeoWindow.current.gutterDp.dp
-            GeoActionArea(visibilityKey = "${run.deviceId}:${run.runId}", action = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GeoReadinessLine("$deviceName · $connectionLabel · ${chain.explanation}",
-                        if (chain.enabled) Tone.SUCCESS else Tone.WARNING)
+            val gutter = if (LocalGeoPane.current) 0.dp else 24.dp
+            Column(Modifier.fillMaxSize()) {
                     val callbackAvailable = when (chain.action) {
                         ResultAction.TRANSFER -> onOpenTransfer != null
                         ResultAction.VERIFY -> onVerifyReceipt != null
                         else -> true
                     }
-                    GeoButton(chain.actionLabel, onClick = {
+                    val primary = GeoButtonAction(chain.actionLabel, onClick = {
                         when (chain.action) {
                             ResultAction.SEND -> onPrepareUpload()
                             ResultAction.TRANSFER -> chain.jobId?.let { onOpenTransfer?.invoke(it) }
@@ -167,38 +166,20 @@ internal fun RunResultScreen(
                             ResultAction.REPORT -> reportTarget = reportKey
                             ResultAction.NEXT -> onNewSurvey()
                         }
-                }, modifier = Modifier.fillMaxWidth().focusRequester(reportFocus), enabled = chain.enabled && callbackAvailable,
-                        actionArea = true)
-                    chain.remedy?.let { remedy ->
-                        GeoButton(remedy, {
-                            when (remedy) {
-                                "장치 Wi-Fi 설정" -> onDeviceWifi()
-                                "다시 확인" -> onRefresh()
-                                else -> onConnectionMethods()
-                            }
-                        }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
-                    }
-                }
-            }) { inlineAction ->
-                LazyColumn(Modifier.fillMaxSize().semantics {
+                    }, enabled = chain.enabled && callbackAvailable)
+                LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics {
                     customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
                 }, contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp)) {
                     item {
                         Column(Modifier.padding(horizontal = gutter)) {
                             resultMessage?.let { GeoInlineNote(it) }
-                            Text(run.contextSnapshot.surveySectionLabel, color = c.text,
-                                style = LocalGeoType.current.boardTitle, modifier = Modifier.semantics { heading() })
-                            Spacer(Modifier.height(8.dp))
                             Text("${resultTime(run.finishedAt)} 종료 · ${resultDuration(run)} · $deviceName",
                                 style = LocalGeoType.current.caption, color = c.textSecondary)
+                            GeoReadinessLine("$deviceName · $connectionLabel · ${chain.explanation}",
+                                if (chain.enabled) Tone.SUCCESS else Tone.WARNING)
                             Spacer(Modifier.height(24.dp))
-                            WorkSurfaceCard {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically) {
-                                    Text("수집 영수증", Modifier.weight(1f), style = LocalGeoType.current.sectionTitle, color = c.text)
-                                    Text("4단계", style = LocalGeoType.current.caption, color = c.textSecondary)
-                                }
-                                GeoReceipt(chain.receipt, Modifier.padding(top = 16.dp))
+                            GeoSection("수집 영수증", first = true) {
+                                GeoReceipt(chain.receipt)
                             }
                             GeoSection("수집 기록") {
                                 ResultMetrics(run, observedZone)
@@ -214,7 +195,6 @@ internal fun RunResultScreen(
                             }
                             if (zoneRevisionChanged) GeoInlineNote("수집 구역이 바뀌었습니다. 이 수집은 시작할 때의 구역으로 표시합니다.")
                             GeoSection("저장과 품질") {
-                              WorkSurfaceCard {
                                GeoRowList(GeoRowTrailing.None) {
                                 ResultFolderRow(runFolderDisplayName(run.output.path, run.startedAt, run.runId, run.output.manifest?.runId), onOpenFiles,
                                     enabled = online && runOutputStored(run),
@@ -222,8 +202,10 @@ internal fun RunResultScreen(
                                 RunQualityEvidence(run.quality, zoneObservation = observedZone,
                                     subtitle = "${run.contextSnapshot.surveySectionLabel} · ${resultDuration(run)}")
                                }
-                              }
                             }
+                            GeoCopyableValue(run.runId, label = "수집 ID")
+                            GeoCopyableValue("${run.output.rootId}/${run.output.path}", label = "경로")
+                            GeoCopyableValue(run.output.outputId, label = "출력 ID")
                             FieldTechnicalInfo(run.runId, buildList {
                                 add(GeoTechnicalValue("수집 ID", run.runId))
                                 add(GeoTechnicalValue("경로", "${run.output.rootId}/${run.output.path}"))
@@ -240,7 +222,17 @@ internal fun RunResultScreen(
                             }, developerModeEnabled, online, onOpenLog)
                         }
                     }
-                    item { inlineAction() }
+                }
+                Box(Modifier.fillMaxWidth().focusRequester(reportFocus)) {
+                    GeoFixedActionBar(primary, secondaryAction = chain.remedy?.let { remedy ->
+                        GeoButtonAction(remedy, {
+                            when (remedy) {
+                                "장치 Wi-Fi 설정" -> onDeviceWifi()
+                                "다시 확인" -> onRefresh()
+                                else -> onConnectionMethods()
+                            }
+                        }, style = GeoButtonStyle.Secondary)
+                    })
                 }
             }
         }
@@ -267,7 +259,7 @@ private fun ResultFolderRow(folder: String?, onOpen: () -> Unit, enabled: Boolea
 private fun ResultMetrics(run: PipelineRun, observation: ResultZoneObservation?) {
     val telemetry = verifiedRunTelemetry(run)
     val manifest = run.output.manifest?.takeIf { runOutputStored(run) }
-    WorkFigureCards(listOf(
+    GeoMetricStrip(listOf(
         GeoFigure("수집 시간", resultDuration(run)),
         GeoFigure("수집 용량", Formats.size(telemetry?.collectedBytes ?: manifest?.bytesTotal)),
         GeoFigure("정밀 위치", precisionMetricLabel(run.quality)),

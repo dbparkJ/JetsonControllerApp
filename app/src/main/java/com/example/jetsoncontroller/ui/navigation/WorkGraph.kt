@@ -2,6 +2,7 @@ package com.example.jetsoncontroller.ui.navigation
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -178,7 +179,8 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
             surveyRunViewModel.refresh()
             if (profile != null && selectedDeviceId != null) serverTicketViewModel.refresh(profile, selectedDeviceId)
         }
-        if (switcher) GeoSheet("장치 선택", { switcher = false }, openerFocusRequester = opener) {
+        if (switcher) GeoSheet("장치 선택", { switcher = false }, kind = GeoSheetKind.CHOICE, openerFocusRequester = opener) {
+          Column(Modifier.selectableGroup()) {
             deviceState.registeredDevices.forEach { device ->
                 val current = device.deviceId.equals(selectedDeviceId, true)
                 val snapshot = deviceSnapshots[device.deviceId.lowercase()]
@@ -192,9 +194,15 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                         "마지막 응답 ${com.example.jetsoncontroller.ui.devices.formatSeenAt(it, now.toEpochMilli())}"
                     } ?: "마지막 응답 미확인")
             }
+          }
             GeoButton("장치 관리", { switcher = false; navigateToDeviceRoot(navController) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
         }
         reportRun?.let { target ->
+            val targetLink = serverTicketViewModel.linkForRun(target.runId, target.deviceId)
+            val targetReceipt = serverReceiptPresentation(target, (listOfNotNull(uploadState.currentJob) + uploadState.queue)
+                .distinctBy { it.id }.filter {
+                    it.rootId == target.output.rootId && it.relativePath.trim('/') == target.output.path.trim('/')
+                }.map(::workUploadWithMatchingReceipt))
             val valid = target.deviceId.equals(selectedDeviceId, true) && target.runId == run?.runId &&
                 receipt.tone == Tone.SUCCESS && link != null && reportEnabled && confirmedReportKey == reportKey
             GeoConfirmDialog("${target.contextSnapshot.surveySectionLabel} 완료를 보고할까요?",
@@ -207,7 +215,19 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                     reportRun = null
                 },
                 onDismissRequest = { reportRun = null }, confirmEnabled = valid,
-                disabledReason = if (valid) null else "수집 결과와 서버 수신을 다시 확인하세요.")
+                disabledReason = if (valid) null else "수집 결과와 서버 수신을 다시 확인하세요.",
+                facts = {
+                    GeoPropertyList(listOf("장치", "프로젝트", "수집 구간", "서버 수신")) {
+                        GeoFactRow("장치", deviceState.registeredDevices.firstOrNull {
+                            it.deviceId.equals(target.deviceId, true)
+                        }?.deviceName ?: UnnamedDeviceLabel)
+                        GeoFactRow("프로젝트", target.contextSnapshot.surveyProjectLabel.ifBlank { "없음" })
+                        GeoFactRow("수집 구간", target.contextSnapshot.surveySectionLabel.ifBlank { "없음" })
+                        GeoPropertyRow("서버 수신", targetReceipt.label ?: "미확인", tone = targetReceipt.tone)
+                    }
+                    GeoCopyableValue(target.runId, label = "수집 ID")
+                    targetLink?.profileId?.let { GeoCopyableValue(it, label = "서버 ID") }
+                })
         }
         LaunchedEffect(selectedDeviceId) { reportRun = null }
         TasksHomeScreen(tasks, { switcher = true }, openSurveyPreparation, openSurveyPreparation,
@@ -263,7 +283,8 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                 }
             }, enabled = fullControlConnected && matchingStopTarget(survey.activeRun, pipelineState.pipelines) != null &&
                 survey.operation != "stop" && survey.pendingStart == null && survey.unconfirmedRunId == null,
-                disabledReason = "수집 상태를 다시 확인하세요."))
+                disabledReason = "수집 상태를 다시 확인하세요."),
+            focusTicketRowId = link?.rowId.takeIf { tasks.focus?.title != null && tasks.focus.primary != null })
     }
 }
 
@@ -389,7 +410,8 @@ private fun WorkTicketRoute(state: State<AppNavigationState>, entry: NavBackStac
                     choice = false
                     ticketJourneyDestination(WorkTicketEvent.SELECT_TASK)?.let { navController.navigateSingle(it) }
                     if (afterChoice) { afterChoice = false; beginCheck() }
-            }, onDismissRequest = { choice = false; afterChoice = false }, openerFocusRequester = opener)
+            }, onDismissRequest = { choice = false; afterChoice = false }, openerFocusRequester = opener,
+            selectedPipelineId = pipelineId)
         val connected = currentScope && fullControlConnected
         val blocked = when {
             !currentScope -> "화면에 표시된 장치를 다시 선택한 뒤 시작하세요."
@@ -487,6 +509,14 @@ private fun WorkTaskRoute(state: State<AppNavigationState>, entry: NavBackStackE
         }
         val outputRoot = lastRun?.output?.rootId ?: pipeline?.outputRootId
         val outputPath = lastRun?.output?.path ?: pipeline?.outputPath
+        val profileId = directServerState.selectedProfileId
+        val mapTicket = workMapTicket(deviceId, profileId, id, ticketPreparation,
+            serverTicketViewModel.pendingSelection(deviceId, id), serverTicketState)?.takeIf(::ticketHasMap)
+        val mapGnss = if (selectedDeviceId.equals(deviceId, true)) deviceDashboardState.status.gnssSensor
+            else com.example.jetsoncontroller.model.GnssSensorStatus()
+        val mapCard: (@Composable () -> Unit)? = mapTicket?.let { ticket ->
+            { WorkTargetMapCard(ticket, deviceId, profileId, id, mapGnss) }
+        }
         if (pipeline == null) WorkMissingScreen(false, { navController.popBackStack() }, { navigateToWorkRoot(navController) })
         else WorkTaskDetailScreen(pipeline,
             ticketPassiveReadiness(name, deviceDashboardState.status.takeIf { selectedDeviceId.equals(deviceId, true) },
@@ -499,12 +529,23 @@ private fun WorkTaskRoute(state: State<AppNavigationState>, entry: NavBackStackE
                 if (surveyRunState.contextLocked) "진행 중인 수집과 시작 요청을 먼저 확인하세요." else null),
             onBack = { navController.popBackStack() }, onPrepare = {
                 if (latestSelectedDeviceId.equals(deviceId, true)) openPipelinePreparation(pipeline)
-            }, ongoingRun = { WorkOngoingStrip(state.value, deviceId, name) }, lastRun = lastRun,
+            }, ongoingRun = { WorkOngoingStrip(state.value, deviceId, name) }, lastRun = lastRun, mapCard = mapCard,
             onOpenFiles = if (!outputRoot.isNullOrBlank() && !outputPath.isNullOrBlank()) ({
                 if (latestSelectedDeviceId.equals(deviceId, true) && fullControlConnected) {
                     navController.navigateSingle("storage?rootId=${Uri.encode(outputRoot)}&path=${Uri.encode(outputPath)}")
                 }
             }) else null)
+    }
+}
+
+@Composable
+private fun WorkTargetMapCard(ticket: ServerTicket, deviceId: String?, profileId: String?, pipelineId: String,
+    gnss: com.example.jetsoncontroller.model.GnssSensorStatus,
+    selectionKey: Any? = null) {
+    key(deviceId, profileId, pipelineId, ticket.rowId, ticket.revision, ticket.zoneRevision, ticket.zoneHash, selectionKey) {
+        val data = com.example.jetsoncontroller.ui.map.rememberTicketMapData(ticket, deviceId)
+        com.example.jetsoncontroller.ui.map.GeoMapCardWithDestination(
+            com.example.jetsoncontroller.ui.map.GeoMapMode.ZONE, data, gnss)
     }
 }
 
@@ -640,6 +681,25 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                         surveyRunViewModel.selectSection(matchingSection)
                     }
                 }
+                val mapTicket = workMapTicket(selectedDeviceId, directServerState.selectedProfileId, pipelineId,
+                    preparation, ticketSelection, serverTicketState)?.takeIf { ticket ->
+                    surveyRunState.deviceId.equals(selectedDeviceId, true) && surveyRunState.pipelineId == pipelineId &&
+                        surveyRunState.selectedSection != null &&
+                        (if (preparation != null) preparation.ticket.rowId == ticket.rowId && ticketPreparationContextMatches(preparation,
+                            surveyRunState.selectedProject, surveyRunState.selectedSection)
+                         else surveyRunState.preparationDraft?.let { draft ->
+                             draft.deviceId.equals(selectedDeviceId, true) && draft.pipelineId == pipelineId &&
+                                 draft.serverProfileId == directServerState.selectedProfileId && draft.ticketRowId == ticket.rowId &&
+                                 (draft.section as? com.example.jetsoncontroller.model.PreparationSelection.Existing)?.id ==
+                                     surveyRunState.selectedSection?.surveySectionId
+                         } == true) && ticketHasMap(ticket)
+                }
+                val mapSelectionKey = listOf(surveyRunState.selectedProject?.surveyProjectId,
+                    surveyRunState.selectedSection?.surveySectionId, surveyRunState.selectedSection?.revision)
+                val mapCard: (@Composable () -> Unit)? = mapTicket?.let { ticket ->
+                    { WorkTargetMapCard(ticket, selectedDeviceId, directServerState.selectedProfileId, pipelineId,
+                        deviceDashboardState.status.gnssSensor, mapSelectionKey) }
+                }
                 SurveyRunScreen(
                     state = surveyRunState,
                     onBack = {
@@ -696,6 +756,7 @@ internal fun NavGraphBuilder.workGraph(state: State<AppNavigationState>, include
                     onDismissMessage = surveyRunViewModel::clearMessage,
                     developerModeEnabled = developerModeEnabled,
                     deviceName = selectedRegisteredDeviceName,
+                    mapCard = mapCard,
                     ticketTitle = ticketSelection?.title,
                     ticketPreparationKey = preparation?.let { "${it.profileId}:${it.ticket.rowId}:${it.ticket.revision}" },
                     ticketPreparationReady = ticketPreparation == null || preparation?.let {

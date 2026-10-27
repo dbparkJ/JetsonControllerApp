@@ -51,7 +51,8 @@ fun GeoTextField(
     showLabel: Boolean = true,
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     inputKind: GeoInputKind = GeoInputKind.TEXT,
-    imeAction: ImeAction = ImeAction.Done
+    imeAction: ImeAction = ImeAction.Done,
+    allowPasswordReveal: Boolean = true
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled fields require a visible reason" }
     val c = LocalGeoColors.current
@@ -91,14 +92,14 @@ fun GeoTextField(
                 else -> inputOptions.keyboardType
             }),
             keyboardActions = keyboardActions,
-            visualTransformation = if (password && !passwordVisible) PasswordVisualTransformation()
+            visualTransformation = if (geoPasswordMasked(password, allowPasswordReveal, passwordVisible)) PasswordVisualTransformation()
                 else VisualTransformation.None,
             decorationBox = { input ->
                 Row(
                     Modifier.fillMaxWidth().heightIn(min = 56.dp)
                         .background(if (enabled) c.field else c.disabledFill, GeoControlShape)
                         .border(if (enabled && (focused || error != null)) 2.dp else 1.dp, outline, GeoControlShape)
-                        .padding(start = 16.dp, end = if (password) 4.dp else 16.dp),
+                        .padding(start = 16.dp, end = if (password && allowPasswordReveal) 4.dp else 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -112,7 +113,7 @@ fun GeoTextField(
                     if (unit != null) {
                         Text(unit, style = geoInputTextStyle(), color = textColor)
                     }
-                    if (password) {
+                    if (password && allowPasswordReveal) {
                         GeoIconButton(
                             if (passwordVisible) GeoIcons.eyeOff else GeoIcons.eye,
                             if (passwordVisible) "비밀번호 숨기기" else "비밀번호 표시",
@@ -125,6 +126,9 @@ fun GeoTextField(
         GeoFieldSupportingText(if (!enabled) disabledReason else error ?: helper, enabled && error != null)
     }
 }
+
+internal fun geoPasswordMasked(password: Boolean, allowPasswordReveal: Boolean, passwordVisible: Boolean): Boolean =
+    password && (!allowPasswordReveal || !passwordVisible)
 
 @Composable
 fun GeoPickerField(

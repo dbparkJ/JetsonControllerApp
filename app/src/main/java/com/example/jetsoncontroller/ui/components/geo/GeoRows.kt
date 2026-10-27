@@ -193,14 +193,16 @@ fun GeoActionRow(
     disabledReason: String? = null,
     divider: Boolean = true,
     tone: Tone? = null,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+    leadingIsPhoto: Boolean = false
 ) {
     require(actionEnabled || !disabledReason.isNullOrBlank()) { "Disabled actions need a visible reason" }
     val colors = LocalGeoColors.current
     val type = LocalGeoType.current
     val density = LocalDensity.current
     val titleAlignment = rememberFirstLineAlignment()
-    BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider(tone, 56.dp) else Modifier)) {
+    val anatomy = geoRowAnatomy(twoLine = true, photo = leadingIsPhoto)
+    BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider(tone, anatomy.dividerXDp.dp) else Modifier)) {
         val stacked = density.fontScale >= 1.3f || maxWidth < 280.dp ||
             (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f &&
                 density.fontScale >= 1.3f && maxWidth < 480.dp)
@@ -217,8 +219,8 @@ fun GeoActionRow(
                     }
                     .semantics(mergeDescendants = true) {
                         contentDescription = listOfNotNull(title, meta, "상세 보기").joinToString(", ")
-                    }, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Box(Modifier.size(24.dp).alignToFirstTitleLine(titleAlignment), contentAlignment = Alignment.TopCenter) { leading?.invoke() }
+                    }, horizontalArrangement = Arrangement.spacedBy((anatomy.textXDp - anatomy.leadingXDp - anatomy.leadingSizeDp).dp)) {
+                    Box(Modifier.size(anatomy.leadingSizeDp.dp).alignToFirstTitleLine(titleAlignment), contentAlignment = Alignment.TopCenter) { leading?.invoke() }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(title, color = tone?.let(colors::tone) ?: colors.text, style = type.titleSm,
                             onTextLayout = titleAlignment::onTextLayout)

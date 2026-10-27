@@ -486,7 +486,7 @@ private fun TransferRootRoute(state: State<AppNavigationState>) {
             )
         )
         var devicePicker by rememberSaveable(selectedDeviceId) { mutableStateOf(false) }
-        if (devicePicker) GeoSheet("장치 선택", { devicePicker = false }) {
+        if (devicePicker) GeoSheet("장치 선택", { devicePicker = false }, kind = GeoSheetKind.CHOICE) {
             deviceState.registeredDevices.forEach { device ->
                 val current = device.deviceId.equals(selectedDeviceId, true)
                 val snapshot = deviceSnapshots[device.deviceId.lowercase()]

@@ -1,5 +1,8 @@
 package com.example.jetsoncontroller.ui.components.geo
 
+internal fun geoTodayLabelStacks(widthDp: Float, fontScale: Float, labelWidthDp: Float, deadlineWidthDp: Float): Boolean =
+    fontScale >= 1.3f || labelWidthDp + 8f + deadlineWidthDp > widthDp
+
 /** Row geometry is relative to the edge of a zero-padding group surface. */
 data class GeoRowAnatomy(
     val minimumHeightDp: Int,

@@ -13,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -142,7 +141,7 @@ fun StartupErrorScene(cause: Throwable, onRetry: () -> Unit, modifier: Modifier 
             textAlign = TextAlign.Center)
         Spacer(Modifier.height(16.dp))
         Text(restoreFailureWords(cause), modifier = Modifier.fillMaxWidth(),
-            style = type.caption.copy(lineHeight = 24.sp, letterSpacing = (-0.25).sp),
+            style = type.body,
             color = colors.textSecondary, textAlign = TextAlign.Center)
         Spacer(Modifier.height(24.dp))
         GeoButton("다시 시도", onRetry, Modifier.fillMaxWidth().heightIn(min = 56.dp),

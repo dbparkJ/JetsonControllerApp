@@ -8,7 +8,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.jetsoncontroller.model.GnssSensorStatus
 import com.example.jetsoncontroller.ui.components.geo.GeoFactRow
-import com.example.jetsoncontroller.ui.storage.R7Section
+import com.example.jetsoncontroller.ui.components.geo.GeoPropertyList
 import kotlinx.coroutines.delay
 
 @Composable
@@ -28,9 +28,11 @@ internal fun GnssDiagnosticsSection(gnss: GnssSensorStatus, fresh: Boolean) {
     } else currentTime
     val presentation = gnssDiagnosticsPresentation(gnss, now, fresh)
     if (presentation.rows.isEmpty() && presentation.error == null) return
-    R7Section("기준국 진단") {
+    DevSection("기준국 진단") {
         if (presentation.lastKnown) DevText("마지막 값 기준", secondary = true)
-        presentation.rows.forEach { GeoFactRow(it.label, it.value) }
+        GeoPropertyList(presentation.rows.map { it.label }) {
+            presentation.rows.forEach { GeoFactRow(it.label, it.value) }
+        }
         DevFeedback(presentation.error, true)
     }
 }

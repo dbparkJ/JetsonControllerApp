@@ -15,6 +15,24 @@ class WifiDirectPresentationTest {
     private val peer = WifiDirectPeer("GEO-X-1", "peer-address", WifiP2pDevice.AVAILABLE)
     private val idle = WifiDirectState(enabled = true)
 
+    @Test fun `footer selection follows the address through reorder without choosing a replacement`() {
+        val other = peer.copy(name = "GEO-X-2", deviceAddress = "other-address")
+        val available = idle.copy(peers = listOf(peer, other))
+        assertEquals(peer, directSelectedPeer(available, true, peer.deviceAddress))
+        assertEquals(peer, directSelectedPeer(available.copy(peers = listOf(other, peer)), true, peer.deviceAddress))
+        assertEquals(null, directSelectedPeer(available.copy(peers = listOf(other)), true, peer.deviceAddress))
+        assertEquals(null, directSelectedPeer(available, true, null))
+    }
+
+    @Test fun `selected footer target is unavailable when permission or connection eligibility changes`() {
+        val available = idle.copy(peers = listOf(peer))
+        assertEquals(null, directSelectedPeer(available, false, peer.deviceAddress))
+        assertEquals(null, directSelectedPeer(available.copy(cleaningUp = true), true, peer.deviceAddress))
+        assertEquals(null, directSelectedPeer(available.copy(connected = true), true, peer.deviceAddress))
+        assertEquals(null, directSelectedPeer(available.copy(peers = listOf(peer.copy(status = WifiP2pDevice.UNAVAILABLE))),
+            true, peer.deviceAddress))
+    }
+
     @Test
     fun `pre-group preparation and failure are visible and block peer confirmation`() {
         val preparing = idle.copy(bootstrapPeer = peer, apiStatus = WifiDirectApiStatus.CHECKING,

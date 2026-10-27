@@ -99,7 +99,7 @@ fun GeoAppShell(
                             Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)), attentionSections)
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                                val column = if (fullBleed || (geoWindow.twoPane && paneLayout) ||
+                                val column = if (mapBackdrop || fullBleed || (geoWindow.twoPane && paneLayout) ||
                                     (landscapeMedia && geoWindow.landscapeLayout)) Modifier else Modifier.widthIn(max = 720.dp)
                                 Box(column.fillMaxSize().then(if (fullBleed) Modifier else Modifier
                                     .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))

@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.model.Tone
 
@@ -54,9 +55,21 @@ fun GeoReceipt(state: GeoReceiptState, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun GeoReceiptLine(state: GeoReceiptState, modifier: Modifier = Modifier) {
-    ReceiptTrack(state, modifier)
+fun GeoReceiptLine(state: GeoReceiptState, modifier: Modifier = Modifier, compact: Boolean = false) {
+    if (compact) {
+        val colors = LocalGeoColors.current
+        Canvas(modifier.size(44.dp, 8.dp).semantics { contentDescription = receiptDescription(state) }) {
+            state.rows().forEachIndexed { index, (step, item) ->
+                val center = Offset((4 + index * 12).dp.toPx(), size.height / 2)
+                if (receiptDone(step, item)) drawCircle(colors.tone(receiptTone(step, item)), 4.dp.toPx(), center)
+                else drawCircle(colors.borderStrong, 3.5.dp.toPx(), center, style = Stroke(1.dp.toPx()))
+            }
+        }
+    } else ReceiptTrack(state, modifier)
 }
+
+internal fun receiptDescription(state: GeoReceiptState): String =
+    state.rows().joinToString(", ") { (step, item) -> "${step.title}: ${item.word}" }
 
 internal fun receiptDone(step: GeoReceiptStep, item: GeoReceiptItem): Boolean =
     item.done && !(step == GeoReceiptStep.REPORT && item.word == "해당 없음")

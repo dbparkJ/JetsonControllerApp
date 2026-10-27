@@ -19,7 +19,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -27,11 +26,10 @@ import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane
 import com.example.jetsoncontroller.ui.model.Formats
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
-import com.example.jetsoncontroller.ui.tasks.WorkSurfaceCard
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
@@ -83,10 +81,11 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
         PullToRefreshBox(isRefreshing = state.loading, onRefresh = { if (state.online) onRefresh() }) {
             LazyColumn(Modifier.fillMaxSize().semantics {
                 customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
-            }, contentPadding = PaddingValues(horizontal = LocalGeoWindow.current.gutterDp.dp,
+            }, contentPadding = PaddingValues(horizontal = if (LocalGeoPane.current) 0.dp else 24.dp,
                 vertical = 16.dp)) {
                 item {
-                    GeoFilters(options, tab, { tab = it }, modifier = Modifier.focusRequester(filterFocus))
+                    GeoFilterChipRow(options, tab, { tab = it }, modifier = Modifier.focusRequester(filterFocus),
+                        contentPadding = PaddingValues(0.dp))
                     state.error?.let { GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR,
                         actionLabel = "다시 시도", onAction = onRefresh) }
                     if (!state.online && state.runs.isNotEmpty()) GeoInlineNote(
@@ -100,11 +99,9 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                     GeoSkeleton("수집 기록을 불러오는 중", Modifier.padding(top = 24.dp), kind = GeoSkeletonKind.Rows)
                 }
                 val groups = runs.groupBy { historyDayLabel(it.startedAt) }
-                groups.entries.forEachIndexed { groupIndex, (day, dayRuns) ->
+                groups.entries.forEach { (day, dayRuns) ->
                     item(key = "day-$day") {
-                        GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {
-                          WorkSurfaceCard {
-                           GeoRowList(GeoRowTrailing.None) {
+                        GeoGroupedSection(day) {
                             dayRuns.forEachIndexed { index, run ->
                                 key(state.deviceId, run.id) {
                                     val canDelete = state.online && state.deletingRunId == null && !run.isActiveRun()
@@ -119,8 +116,6 @@ fun GeoRunDashboard(state: FieldState, pipelines: List<ManagedPipeline>,
                                     }
                                 }
                             }
-                           }
-                          }
                         }
                     }
                 }
@@ -166,17 +161,19 @@ private fun HistoryRecordRow(run: TaskRun, receipt: GeoReceiptState, onOpen: () 
     val menuFocus = remember { FocusRequester() }
     LaunchedEffect(canDelete) { if (!canDelete) menu = false }
     val colors = LocalGeoColors.current
-    Row(Modifier.fillMaxWidth().background(colors.surface).then(if (divider) Modifier.contentDivider() else Modifier),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        GeoRow(historyRecordTitle(run), onOpen, Modifier.weight(1f), meta = historyRecordMeta(run),
-            leading = { GeoIconTile(GeoIcons.restore) }, divider = false,
-            extra = { GeoReceiptLine(receipt) })
-        Box(Modifier.padding(top = 4.dp)) {
-            GeoIconButton(GeoIcons.more, "${historyRecordTitle(run)} 메뉴", { menu = true },
-                modifier = Modifier.focusRequester(menuFocus))
-            GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("휴지통으로 이동", onTrash,
-                destructive = true, enabled = canDelete, disabledReason = disabledReason)), openerFocusRequester = menuFocus)
+    Column(Modifier.fillMaxWidth().background(colors.surface)
+        .then(if (divider) Modifier.contentDivider(startIndent = 56.dp) else Modifier)) {
+        Box(Modifier.focusRequester(menuFocus)) {
+            GeoActionRow(historyRecordTitle(run), "더 보기", onOpen, { menu = true },
+                meta = historyRecordMeta(run), leading = { GeoIconTile(GeoIcons.restore) }, divider = false)
         }
+        GeoReceiptLine(receipt, Modifier.geoClickable(onClick = onOpen)
+            .padding(start = 56.dp, end = 16.dp, bottom = 12.dp))
+    }
+    if (menu) GeoSheet(historyRecordTitle(run), { menu = false }, kind = GeoSheetKind.CHOICE,
+        openerFocusRequester = menuFocus) {
+        GeoRow("휴지통으로 이동", { menu = false; onTrash() }, enabled = canDelete,
+            disabledReason = disabledReason, leading = { GeoIconTile(GeoIcons.trash) }, divider = false)
     }
 }
 

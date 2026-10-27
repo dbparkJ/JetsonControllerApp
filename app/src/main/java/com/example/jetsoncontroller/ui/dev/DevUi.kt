@@ -1,57 +1,41 @@
 package com.example.jetsoncontroller.ui.dev
 
-import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import android.content.Context
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.model.Tone
 import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.theme.*
-import com.example.jetsoncontroller.ui.storage.R7Card
 
 internal val LocalDevOngoingStrip = staticCompositionLocalOf<@Composable () -> Unit> { {} }
 
 @Composable
 internal fun DevFrame(title: String, onBack: () -> Unit,
-    actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    val c = LocalGeoColors.current
+    actions: @Composable RowScope.() -> Unit = {},
+    primaryAction: GeoButtonAction? = null, secondaryAction: GeoButtonAction? = null,
+    content: @Composable ColumnScope.() -> Unit) {
     val density = LocalDensity.current
     val chrome = LocalGeoChrome.current
-    var headerHeight by remember { mutableFloatStateOf(56f) }
     var stripHeight by remember { mutableFloatStateOf(0f) }
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(c.canvas)) {
-        Row(Modifier.fillMaxWidth().background(c.topBar)
-            .onSizeChanged { headerHeight = it.height / density.density }
-            .heightIn(min = 56.dp).padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            CompositionLocalProvider(LocalGeoColors provides c.copy(textSecondary = c.onTopBarIcon,
-                primary = c.navFocus, field = c.onTopBar.copy(alpha = .08f))) {
-                GeoIconButton(GeoIcons.back, "뒤로", onBack, chrome = true)
-            }
-            Text(title, Modifier.weight(1f).padding(vertical = 12.dp).semantics { heading() },
-                style = LocalGeoType.current.title, color = c.onTopBar)
-            CompositionLocalProvider(LocalGeoColors provides c.copy(textSecondary = c.onTopBarIcon,
-                primary = c.navFocus, field = c.onTopBar.copy(alpha = .08f))) { actions() }
+    GeoLargeTitleScaffold(title, onBack = onBack, actions = actions,
+        primaryAction = primaryAction, secondaryAction = secondaryAction) {
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.onSizeChanged { stripHeight = it.height / density.density }) { LocalDevOngoingStrip.current() }
+            CompositionLocalProvider(LocalGeoChrome provides chrome.copy(topDp = chrome.topDp + stripHeight)) { content() }
         }
-        Column(Modifier.onSizeChanged { stripHeight = it.height / density.density }) { LocalDevOngoingStrip.current() }
-        CompositionLocalProvider(LocalGeoChrome provides chrome.copy(topDp = chrome.topDp + headerHeight + stripHeight)) { content() }
     }
 }
 
@@ -59,12 +43,13 @@ internal fun DevFrame(title: String, onBack: () -> Unit,
 internal fun DevPage(title: String, onBack: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {}, footer: (@Composable () -> Unit)? = null,
     overlay: @Composable () -> Unit = {},
+    primaryAction: GeoButtonAction? = null, secondaryAction: GeoButtonAction? = null,
     content: @Composable ColumnScope.() -> Unit) {
-    DevFrame(title, onBack, actions) {
-        val gutter = GeoSpace.gutterForPane(LocalGeoWindow.current.paneWidthDp)
+    DevFrame(title, onBack, actions, primaryAction, secondaryAction) {
+        val gutter = if (LocalGeoPane.current) 0.dp else 24.dp
         val body: @Composable (@Composable () -> Unit) -> Unit = { inline ->
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(horizontal = gutter).padding(top = 16.dp, bottom = 32.dp)) {
+                .padding(horizontal = gutter).padding(bottom = 24.dp)) {
                 content()
                 if (footer != null) { Spacer(Modifier.height(24.dp)); inline() }
             }
@@ -93,19 +78,10 @@ internal fun DevDivider() = HorizontalDivider(color = LocalGeoColors.current.bor
 @Composable
 internal fun DevIdentity(name: String, detail: String? = null, status: String? = null,
     tone: Tone = Tone.UNKNOWN, statusInDetail: Boolean = false) {
-    val line = with(LocalDensity.current) { LocalGeoType.current.heading.lineHeight.toDp() }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-        Text(name, Modifier.weight(1f), style = LocalGeoType.current.heading, color = LocalGeoColors.current.text)
-        if (status != null && !statusInDetail) Box(Modifier.heightIn(min = line), contentAlignment = Alignment.CenterEnd) {
-            GeoBadge(status, tone, Modifier.width(88.dp), minWidth = 88.dp)
-        }
-    }
-    if ((status != null && statusInDetail) || detail != null) {
-        Spacer(Modifier.height(4.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (status != null && statusInDetail) GeoBadge(status, tone, variant = GeoBadgeVariant.INLINE)
-            detail?.let { DevText(it, secondary = true) }
-        }
+    GeoRowList(if (status == null) GeoRowTrailing.None else GeoRowTrailing.Status) {
+        GeoRow(name, {}, meta = detail, navigable = false, divider = false,
+            leading = { GeoIconTile(GeoIcons.tabDevice) },
+            badge = { status?.let { GeoBadge(it, tone, variant = GeoBadgeVariant.INLINE) } })
     }
 }
 
@@ -119,10 +95,8 @@ internal fun DevFeedback(message: String?, error: Boolean = false) {
 
 @Composable
 internal fun DevAddressRow(label: String, address: String, onClick: () -> Unit) {
-    CompositionLocalProvider(LocalGeoType provides LocalGeoType.current.copy(
-        caption = LocalGeoType.current.mono)) {
-        GeoRow(label, onClick, meta = address, leading = { GeoIconTile(GeoIcons.router) })
-    }
+    GeoRow(label, onClick, leading = { GeoIconTile(GeoIcons.router) },
+        extra = { GeoCopyableValue(address) })
 }
 
 @Composable
@@ -136,35 +110,32 @@ internal fun DevChoice(label: String, options: List<String>, selected: Int, onSe
     var open by remember { mutableStateOf(false) }
     GeoSegmented(label, options, selected, onSelect, { open = true },
         enabled = enabled, disabledReason = if (enabled) null else reason)
-    if (open) GeoSheet(label, { open = false }) {
+    if (open) GeoSheet(label, { open = false }, kind = GeoSheetKind.CHOICE) {
         options.forEachIndexed { index, option -> GeoRadioRow(option, selected == index, { open = false; onSelect(index) }) }
     }
 }
 
 @Composable
 internal fun DevCopyValue(label: String, value: String) {
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    Column {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BoxWithConstraints(Modifier.weight(1f).padding(vertical = 12.dp)) {
-                if (LocalDensity.current.fontScale >= 1.5f || maxWidth < 280.dp) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        DevText(label, secondary = true)
-                        SelectionContainer { DevText(value, mono = true) }
-                    }
-                } else Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(label, Modifier.weight(1f), style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
-                    SelectionContainer(Modifier.weight(2f)) {
-                        Text(value, Modifier.fillMaxWidth(), style = LocalGeoType.current.mono,
-                            color = LocalGeoColors.current.text, textAlign = TextAlign.End)
-                    }
-                }
+    GeoCopyableValue(value, label = label)
+}
+
+/** Rows own their inset; forms and document facts get one shared content inset. */
+@Composable
+internal fun DevSection(title: String, modifier: Modifier = Modifier, first: Boolean = false,
+    danger: Boolean = false, count: String? = null, note: String? = null,
+    trailingColumn: GeoRowTrailing? = null, content: @Composable ColumnScope.() -> Unit) {
+    val colors = LocalGeoColors.current
+    CompositionLocalProvider(LocalGeoColors provides if (danger) colors.copy(surface = colors.dangerSoft) else colors) {
+        GeoGroupedSection(listOfNotNull(title, count).joinToString(" · "), modifier, first,
+            trailingColumn = trailingColumn ?: GeoRowTrailing.None) {
+            Column(if (trailingColumn == null) Modifier.padding(16.dp) else Modifier) {
+                note?.let { Text(it, Modifier.padding(start = if (trailingColumn == null) 0.dp else 16.dp,
+                    end = if (trailingColumn == null) 0.dp else 16.dp, bottom = 8.dp), color = colors.textSecondary,
+                    style = LocalGeoType.current.supporting) }
+                content()
             }
-            GeoIconButton(GeoIcons.copy, "$label 주소 복사",
-                { clipboard.setText(androidx.compose.ui.text.AnnotatedString(value)) })
         }
-        HorizontalDivider(color = LocalGeoColors.current.border)
     }
 }
 

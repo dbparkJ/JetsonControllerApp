@@ -16,6 +16,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.jetsoncontroller.model.*
 import com.example.jetsoncontroller.ui.pipelines.*
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoBottomBar
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
@@ -42,14 +44,14 @@ class CobaltFieldScreenTest {
                 compose.runOnIdle { screen = page; dark = theme; scale = font }
                 compose.waitForIdle()
                 if (page != "welcome") {
-                    compose.onNodeWithContentDescription("홈", useUnmergedTree = true).assertIsDisplayed()
-                    compose.onNodeWithContentDescription("장치와 서버 파일", useUnmergedTree = true).assertIsDisplayed()
+                    compose.onNode(hasText("장치") and hasClickAction()).assertIsDisplayed()
+                    compose.onNode(hasText("전송") and hasClickAction()).assertIsDisplayed()
                 }
                 if (page == "data") {
                     compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("야간 라인 검사"))
-                    compose.onNodeWithText("선택").performClick()
-                    compose.onNodeWithText("야간 라인 검사").performClick()
-                    compose.onNodeWithText("서버로 전송").assertIsEnabled()
+                    compose.onNodeWithText("보낼 파일 선택").performClick()
+                    selectFile("inspection")
+                    compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled()
                 }
                 if (page == "detail") {
                     compose.onNodeWithText("run-demo", substring = true).assertDoesNotExist()
@@ -83,27 +85,25 @@ class CobaltFieldScreenTest {
                 )
             }
         }
-        compose.onNodeWithText("서버로 전송").assertDoesNotExist()
-        compose.onNodeWithText("선택").performClick()
-        compose.onNodeWithText("검사 폴더").performScrollTo().performClick()
-        compose.onNodeWithText("서버로 전송").assertIsEnabled()
-        compose.onNodeWithTag("file-search").performTextInput("숨김")
+        compose.onNodeWithText("선택한 파일 보내기").assertDoesNotExist()
+        compose.onNodeWithText("보낼 파일 선택").performClick()
+        selectFile("inspection")
+        compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled()
+        compose.onNodeWithContentDescription("검색").performTextInput("숨김")
         compose.onNodeWithText("검색 결과가 없습니다").assertIsDisplayed()
-        // Filtering only changes the file list. The explicit transfer target remains
-        // visible in the selection summary until the operator clears it.
-        compose.onNodeWithText("검사 폴더", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("서버로 전송").performClick()
+        // Filtering keeps the pinned transfer target, verified by the callback below.
+        compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals("recordings" to "inspection", transfer) }
-        compose.onNodeWithText("취소").performClick()
-        compose.onNodeWithText("서버로 전송").assertDoesNotExist()
-        compose.onNodeWithTag("file-search").performTextClearance()
-        compose.onNodeWithText("선택").performClick()
-        compose.onNodeWithText("검사 폴더").performScrollTo().performClick()
-        compose.onNodeWithText("서버로 전송").assertIsEnabled()
+        clearFileSelection()
+        compose.onNodeWithText("선택한 파일 보내기").assertDoesNotExist()
+        compose.onNodeWithContentDescription("검색").performTextClearance()
+        compose.onNodeWithText("보낼 파일 선택").performClick()
+        selectFile("inspection")
+        compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled()
         compose.runOnIdle { device = "B" }
-        compose.onNodeWithText("서버로 전송").assertDoesNotExist()
+        compose.onNodeWithText("선택한 파일 보내기").assertDoesNotExist()
         restoration.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText("서버로 전송").assertDoesNotExist()
+        compose.onNodeWithText("선택한 파일 보내기").assertDoesNotExist()
     }
 
     @Test fun cachedFilesExplainOfflineStateAndRouteOpenToReconnect() {
@@ -118,6 +118,8 @@ class CobaltFieldScreenTest {
         )
         compose.setContent {
             JetsonControllerTheme {
+                Column {
+                Box(Modifier.weight(1f)) {
                 com.example.jetsoncontroller.ui.storage.DataHubScreen(
                     state = com.example.jetsoncontroller.ui.storage.DeviceStorageUiState(
                         deviceId = "A",
@@ -139,17 +141,19 @@ class CobaltFieldScreenTest {
                     onTransfer = { _, _ -> },
                     onSection = {}
                 )
+                }
+                GeoBottomBar(GeoTab.TRANSFERS, { if (it == GeoTab.TRANSFERS) uploadQueueOpens++ })
+                }
             }
         }
 
-        compose.onNodeWithText("연결 끊김 · 마지막으로 확인한 파일 목록입니다.").assertIsDisplayed()
-        compose.onNodeWithText("업로드 목록").assertIsDisplayed().performClick()
+        compose.onNodeWithText("연결이 끊겼습니다. 마지막으로 본 목록입니다.", substring = true).assertIsDisplayed()
+        compose.onNode(hasText("전송") and hasClickAction()).assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, uploadQueueOpens) }
-        compose.onNodeWithText("최근 수집").performClick()
+        compose.onNode(hasText("최근 수집") and hasClickAction()).performClick()
         compose.runOnIdle { assertEquals(1, reconnects) }
-        compose.onNodeWithText("선택").performClick()
-        compose.onNodeWithText("최근 수집").performClick()
-        compose.onNodeWithText("서버로 전송").assertIsNotEnabled()
+        compose.onNodeWithText("보낼 파일 선택").assertIsNotEnabled()
+        compose.onNodeWithText("장치에 연결되면 파일을 선택할 수 있습니다.").assertIsDisplayed()
     }
 
     @Test fun choosingPipelineOpensPreparationWithoutSendingLegacyCommand() {
@@ -158,16 +162,28 @@ class CobaltFieldScreenTest {
         var device by mutableStateOf("A")
         var calls = 0
         var preparations = 0
+        var detailId by mutableStateOf<String?>(null)
         compose.setContent {
             JetsonControllerTheme {
                 PipelineListScreen(PipelineUiState(deviceId = device, controlAvailable = true,
                     pipelines = listOf(task), observedAtMillis = 1000), {}, {}, {},
                     { _, _ -> calls++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001,
-                    onPrepareRun = { preparations++ })
+                    onPrepareRun = { preparations++ }, detailId = detailId, onDetails = { detailId = it.id })
             }
         }
-        compose.onNodeWithText("이 작업으로 수집 준비").performScrollTo().performClick()
+        compose.onNode(hasText(task.label) and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithText("수집 준비").assertIsDisplayed().assertIsEnabled().performClick()
         compose.runOnIdle { device = "B" }
         compose.runOnIdle { assertEquals(0, calls); assertEquals(1, preparations) }
+    }
+
+    private fun selectFile(path: String) {
+        compose.onNode(hasText("선택") and hasAnyAncestor(hasTestTag("file-selection-$path")))
+            .performScrollTo().performClick().assertIsOn()
+    }
+
+    private fun clearFileSelection() {
+        compose.onNodeWithContentDescription("파일 메뉴").performClick()
+        compose.onNodeWithText("선택 해제").performClick()
     }
 }

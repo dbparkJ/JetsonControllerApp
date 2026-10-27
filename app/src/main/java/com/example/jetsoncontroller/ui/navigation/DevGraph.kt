@@ -15,6 +15,9 @@ import com.example.jetsoncontroller.ui.field.OngoingRunStrip
 import com.example.jetsoncontroller.ui.pipelines.*
 import com.example.jetsoncontroller.ui.storage.*
 import com.example.jetsoncontroller.ui.upload.*
+import com.example.jetsoncontroller.ui.components.geo.GeoPropertyList
+import com.example.jetsoncontroller.ui.components.geo.GeoPropertyRow
+import com.example.jetsoncontroller.ui.model.Tone
 
 /** Canonical developer destinations; daily callers enter these routes directly. */
 internal fun NavGraphBuilder.devGraph(state: State<AppNavigationState>) {
@@ -202,9 +205,14 @@ internal fun NavGraphBuilder.devGraph(state: State<AppNavigationState>) {
         DevPage("보정 정보 중계", { app.navController.popBackStack() }) {
             val relay = app.pipelineState.mobileRtkRelay
             DevIdentity(app.selectedDeviceName)
-            DevText(if (relay.active) "중계 등록됨" else "꺼짐")
-            DevFeedback(relay.error, true)
-            DevText("직접 연결 후 수집 전에도 중계를 준비합니다. 실제 보정 수신과 RTK FIX는 장치의 위치 상태에서 확인하세요.")
+            DevSection("중계 상태") {
+                GeoPropertyList(listOf("상태")) {
+                    GeoPropertyRow("상태", if (relay.active) "중계 등록됨" else "꺼짐",
+                        tone = if (relay.active) Tone.INFO else Tone.UNKNOWN)
+                }
+                DevFeedback(relay.error, true)
+                DevText("직접 연결 후 수집 전에도 중계를 준비합니다. 실제 보정 수신과 RTK FIX는 장치의 위치 상태에서 확인하세요.")
+            }
             val dashboard = app.deviceDashboardState
             GnssDiagnosticsSection(dashboard.status.gnssSensor,
                 fresh = dashboard.isOnline && dashboard.status.sensorTelemetryFresh &&

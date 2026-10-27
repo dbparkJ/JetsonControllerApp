@@ -35,12 +35,14 @@ class TaskFlowScreenTest {
         var refreshes = 0
         var starts = 0
         var preparations = 0
+        var detailId by mutableStateOf<String?>(null)
         compose.setContent { JetsonControllerTheme {
             PipelineListScreen(state, {}, { refreshes++; state = state.copy(isLoading = true) }, {},
                 { _, _ -> starts++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001,
-                onPrepareRun = { preparations++ })
+                onPrepareRun = { preparations++ }, detailId = detailId, onDetails = { detailId = it.id })
         } }
-        compose.onNodeWithText("이 작업으로 수집 준비").performScrollTo().performClick()
+        compose.onNode(hasText(pipeline.label) and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithText("수집 준비").assertIsDisplayed().assertIsEnabled().performClick()
         compose.onNodeWithText("작업 시작 · 최종 점검").assertDoesNotExist()
         compose.runOnIdle {
             assertEquals(1, preparations)
@@ -69,7 +71,7 @@ class TaskFlowScreenTest {
         compose.onNodeWithText(state.error!!).assertIsDisplayed()
         compose.onNodeWithText(state.technicalError!!).assertDoesNotExist()
         compose.runOnIdle { developerMode = true }
-        compose.onNodeWithText(state.technicalError!!).assertIsDisplayed()
+        compose.onNodeWithText(state.technicalError!!).performScrollTo().assertIsDisplayed()
     }
 
     @Test fun historyRequiresTwoRightSwipesAndRunningRunsCannotBeDeleted() {

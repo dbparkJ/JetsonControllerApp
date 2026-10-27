@@ -187,7 +187,12 @@ internal fun GeoMapRoute(
             "${deviceName}에서 진행 중인 수집을 종료합니다. 종료되면 장치에 저장된 결과를 확인합니다.",
             "수집 종료", { event(RunStopEvent.CONFIRM) }, { event(RunStopEvent.DISMISS) },
             kind = GeoConfirmKind.DANGER, dismissLabel = "계속 수집", confirmEnabled = online && available && !busy && !awaiting,
-            disabledReason = if (!online) "연결되면 종료할 수 있습니다." else "수집 상태를 다시 확인하세요.", openerFocusRequester = focus)
+            disabledReason = if (!online) "연결되면 종료할 수 있습니다." else "수집 상태를 다시 확인하세요.", openerFocusRequester = focus,
+            facts = {
+                GeoPropertyRow("장치", deviceName)
+                GeoPropertyRow("구간", run.contextSnapshot.surveySectionLabel)
+                GeoCopyableValue(run.runId, label = "수집 ID")
+            })
     }
     GeoMapScreen(mode, data, onBack, gnss = gnss,
         runElapsed = run?.telemetry?.durationMillis?.let(::runDurationLabel),

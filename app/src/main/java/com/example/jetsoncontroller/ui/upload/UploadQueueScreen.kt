@@ -3,7 +3,6 @@ package com.example.jetsoncontroller.ui.upload
 import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -56,16 +55,16 @@ fun UploadQueueScreen(
     deletion?.let { (target, job) ->
         GeoConfirmDialog("전송 기록을 삭제할까요?", TransferRecordDeleteBody, "기록 삭제",
             onConfirm = { deletion = null; if (onFixedDelete != null) onFixedDelete(target) else onDeleteJob(job) },
-            onDismissRequest = { deletion = null },
-            confirmEnabled = mutationEnabled && !isLoading, disabledReason = "장치 연결을 확인하세요.")
+            onDismissRequest = { deletion = null }, kind = GeoConfirmKind.DANGER,
+            confirmEnabled = mutationEnabled && !isLoading, disabledReason = "장치 연결을 확인하세요.",
+            facts = { GeoCopyableValue(transferSourceName(job), label = "전송 자료") })
     }
     Box(Modifier.fillMaxSize()) {
         TransferPage("전송 기록", onBack) {
+            if (queue.isNotEmpty()) GeoFilterChipRow(options, selected, { selected = it },
+                contentPadding = PaddingValues(horizontal = transferGutter))
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
                 item { ongoingRun() }
-                if (queue.isNotEmpty()) item {
-                    GeoFilters(options, selected, { selected = it })
-                }
                 if (isLoading) item { GeoSkeleton("전송 기록을 불러오는 중", kind = GeoSkeletonKind.Rows) }
                 error?.let { item { GeoInlineNote("전송 기록을 불러오지 못했습니다. 다시 시도하세요.",
                     actionLabel = "다시 확인", onAction = onRefresh) } }

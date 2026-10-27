@@ -233,6 +233,12 @@ private fun DeviceDetailRoute(state: State<AppNavigationState>, entry: NavBackSt
     val requestedName by entry.savedStateHandle.getStateFlow<String?>("deviceTargetName", null).collectAsState()
     val targetName = requestedName ?: rememberSaveable(entry.id) { state.value.selectedDeviceName }
     with(state.value) {
+        if (targetId.isBlank()) {
+            DeviceDetailPlaceholder(deviceState.isLoading, deviceState.registeredDevices.isNotEmpty(),
+                onBack = { if (!navController.popBackStack()) navigateToDeviceRoot(navController) },
+                onRegister = { navController.navigateSingle(Routes.ONBOARDING) })
+            return@with
+        }
         val selected = sameDeviceTarget(targetId, selectedDeviceId)
         val targetDevice = deviceState.registeredDevices.firstOrNull { sameDeviceTarget(it.deviceId, targetId) }
         val snapshot = deviceSnapshots[deviceSnapshotKey(targetId)]

@@ -48,20 +48,21 @@ class SlateHarmonyScreenTest {
         }
         val list = compose.onNode(hasScrollToIndexAction())
         list.performScrollToNode(hasText("검사 폴더 15"))
-        compose.onNodeWithText("선택").performClick()
-        compose.onNodeWithText("검사 폴더 15").performClick()
-        compose.onNodeWithText("서버로 전송").assertIsEnabled()
+        compose.onNodeWithText("보낼 파일 선택").performClick()
+        compose.onNode(hasText("선택") and hasAnyAncestor(hasTestTag("file-selection-inspection15")))
+            .performScrollTo().performClick().assertIsOn()
+        compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled()
         val before = compose.onNodeWithText("검사 폴더 15").fetchSemanticsNode().boundsInRoot
         compose.runOnIdle { dark = true }
         compose.onNodeWithText("검사 폴더 15").assertIsDisplayed()
         assertEquals(before, compose.onNodeWithText("검사 폴더 15").fetchSemanticsNode().boundsInRoot)
         list.performScrollToIndex(0)
-        compose.onNodeWithTag("file-search").performScrollTo().performTextInput("검사")
-        compose.onNodeWithTag("file-search").assertIsFocused()
+        compose.onNodeWithContentDescription("검색").performTextInput("검사")
+        compose.onNodeWithContentDescription("검색").assertIsFocused()
         capture("selection-focus-dark")
         compose.runOnIdle { dark = false }
-        compose.onNodeWithTag("file-search").assertIsFocused().assertTextContains("검사")
-        compose.onNodeWithText("서버로 전송").assertIsEnabled()
+        compose.onNodeWithContentDescription("검색").assertIsFocused().assertTextContains("검사")
+        compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled()
         capture("selection-focus-light")
         compose.runOnIdle { assertEquals(0, transfers) }
     }
@@ -70,6 +71,7 @@ class SlateHarmonyScreenTest {
         var dark by mutableStateOf(false)
         var calls = 0
         var preparations = 0
+        var detailId by mutableStateOf<String?>(null)
         val task = ManagedPipeline("task", "검사 작업", state = PipelineState.STOPPED,
             entrypoint = "collect.py", config = "config.yaml", virtualenv = "venv")
         compose.setContent {
@@ -77,13 +79,14 @@ class SlateHarmonyScreenTest {
                 PipelineListScreen(PipelineUiState(deviceId = "A", controlAvailable = true,
                     pipelines = listOf(task), observedAtMillis = 1000), {}, {}, {},
                     { _, _ -> calls++ }, {}, {}, {}, {}, {}, {}, startCapability = true, nowMillis = 1001,
-                    onPrepareRun = { preparations++ })
+                    onPrepareRun = { preparations++ }, detailId = detailId, onDetails = { detailId = it.id })
             }
         }
-        compose.onNodeWithText("이 작업으로 수집 준비").performScrollTo().performClick()
+        compose.onNode(hasText(task.label) and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithText("수집 준비").assertIsDisplayed().assertIsEnabled().performClick()
         capture("pipeline-selection-light")
         compose.runOnIdle { dark = true }
-        compose.onNodeWithText("이 작업으로 수집 준비").assertIsEnabled()
+        compose.onNodeWithText("수집 준비").assertIsDisplayed().assertIsEnabled()
         capture("pipeline-selection-dark")
         compose.runOnIdle { assertEquals(0, calls); assertEquals(1, preparations) }
     }

@@ -1,10 +1,10 @@
 package com.example.jetsoncontroller.ui.tasks
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -12,21 +12,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import com.example.jetsoncontroller.ui.model.Tone
+import com.example.jetsoncontroller.data.server.ServerTicket
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow
+import com.example.jetsoncontroller.ui.components.geo.shell.*
 import com.example.jetsoncontroller.ui.model.NextActionCommand
 import com.example.jetsoncontroller.ui.model.OperationState
+import com.example.jetsoncontroller.ui.model.Tone
+import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
-import com.example.jetsoncontroller.ui.theme.*
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TasksHomeScreen(
     state: TasksHomeUiState,
@@ -55,315 +56,243 @@ internal fun TasksHomeScreen(
     onDeviceMap: (() -> Unit)? = null,
     onDeviceFiles: (() -> Unit)? = null,
     /** Opens the existing stop confirmation with its bound target and availability. */
-    stopAction: GeoButtonAction? = null
+    stopAction: GeoButtonAction? = null,
+    focusTicketRowId: String? = null
 ) {
-    val c = LocalGeoColors.current
     val window = LocalGeoWindow.current
-    val landscape = window.landscapeLayout
-    val gutter = window.gutterDp.dp
-    val tablet = window.widthDp >= 600f
-    val portraitGrid = tablet && !window.twoPane && !com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane.current &&
-        com.example.jetsoncontroller.ui.components.geo.shell.GeoTabletRules.homeGrid(
-            minOf(720f, window.paneWidthDp) - 2f * window.gutterDp, LocalDensity.current.fontScale)
-    val leftScroll = androidx.compose.foundation.lazy.rememberLazyListState()
-    val rightScroll = androidx.compose.foundation.lazy.rememberLazyListState()
+    val twoPane = window.twoPane && !LocalGeoPane.current
+    val leftScroll = rememberLazyListState()
+    val rightScroll = rememberLazyListState()
     val tickets = state.ticketSection
     var completedTickets by rememberSaveable(tickets?.profileId, tickets?.deviceId, tickets?.selectedUnit) { mutableStateOf(false) }
+    val actions = workHomeActions(state, onOpenTicket, onStartSurvey, onChangeSection, onOpenActiveRun,
+        onFocusAction, onServerConnection, focusReportLabel, focusReportEnabled, stopAction)
+    val featuredId = workHomeFeaturedTicket(state)?.rowId ?: focusTicketRowId
+    val quickActions = buildList {
+        onCamera?.let { add(GeoQuickAction("카메라 영상", GeoIcons.camera, it)) }
+        onDeviceMap?.let { add(GeoQuickAction("장치 위치 지도", GeoIcons.myLocation, it)) }
+        onSendFiles?.let { add(GeoQuickAction("파일 보내기", GeoIcons.send, it)) }
+        add(GeoQuickAction("수집 기록", GeoIcons.restore, onOpenHistory))
+        onDeviceFiles?.let { add(GeoQuickAction("장치 파일", GeoIcons.folder, it)) }
+    }
+    // Movable sections retain their composition when the window changes between one and two panes.
+    val focusContent by rememberUpdatedState<@Composable () -> Unit>({
+        WorkCurrentCard(state, focusReportMessage, Modifier.padding(horizontal = workContentGutter()))
+    })
+    val focus = remember { movableContentOf { focusContent() } }
     val deviceContent by rememberUpdatedState<@Composable () -> Unit>({
-        if (state.checkingDevice) GeoSkeleton("장치를 찾고 있습니다", kind = GeoSkeletonKind.DeviceCard)
-        else state.deviceStrip?.let { strip ->
-            GeoDevicePhotoCard(strip.deviceName, strip.connectionWord, strip.connectionTone,
-                strip.freshness, state.deviceFigures.ifEmpty { workUnknownFigures() }, onClick = onOpenDevice)
-            strip.firstAttention?.let {
-                GeoInlineNote(it, tone = Tone.WARNING, modifier = Modifier.padding(top = 12.dp))
+        Column(Modifier.padding(horizontal = workContentGutter(), vertical = 12.dp)) {
+            if (state.checkingDevice) GeoSkeleton("장치를 찾고 있습니다", kind = GeoSkeletonKind.DeviceCard)
+            else state.deviceStrip?.let { strip ->
+                GeoDevicePhotoCard(strip.deviceName, strip.connectionWord, strip.connectionTone,
+                    strip.freshness, state.deviceFigures.ifEmpty { workUnknownFigures() }, onClick = onOpenDevice)
+                strip.firstAttention?.let { GeoInlineNote(it, tone = Tone.WARNING, modifier = Modifier.padding(top = 12.dp)) }
             }
         }
     })
     val device = remember { movableContentOf { deviceContent() } }
-    val focusContent by rememberUpdatedState<@Composable () -> Unit>({
-        WorkCurrentCard(state, onOpenTicket, onStartSurvey, onChangeSection, onOpenActiveRun,
-            onFocusAction, onServerConnection, focusReportLabel, focusReportMessage,
-            focusReportEnabled, stopAction, Modifier.padding(top = if (portraitGrid) 0.dp else 24.dp))
-    })
-    val focus = remember { movableContentOf { focusContent() } }
     val quickContent by rememberUpdatedState<@Composable () -> Unit>({
-        GeoSection("빠른 기능") {
-            GeoQuickActions(buildList {
-                onCamera?.let { add(GeoQuickAction("카메라\n영상", GeoIcons.camera, it)) }
-                onSendFiles?.let { add(GeoQuickAction("파일\n보내기", GeoIcons.send, it)) }
-                onDeviceMap?.let { add(GeoQuickAction("장치 위치\n지도", GeoIcons.myLocation, it)) }
-                add(GeoQuickAction("수집\n기록", GeoIcons.restore, onOpenHistory))
-                onDeviceFiles?.let { add(GeoQuickAction("장치\n파일", GeoIcons.folder, it)) }
-            })
+        if (window.widthDp < 600f) {
+            GeoSection("빠른 기능", Modifier.padding(horizontal = workContentGutter()), first = true) {}
+            GeoHorizontalTiles(quickActions, contentPadding = PaddingValues(horizontal = workContentGutter()))
+        } else GeoSection("빠른 기능", Modifier.padding(horizontal = workContentGutter()), first = true) {
+            GeoQuickActions(quickActions)
         }
     })
     val quick = remember { movableContentOf { quickContent() } }
     val recentContent by rememberUpdatedState<@Composable () -> Unit>({
-        GeoSection("최근 수집", first = landscape,
+        GeoSection("최근 수집", Modifier.padding(horizontal = workContentGutter()),
             actionLabel = if (state.recent.isEmpty()) null else "전체 기록", onAction = onOpenHistory) {
-            if (state.recent.isEmpty()) state.deviceListsNote?.let {
-                if (state.checkingDevice) GeoSkeleton(it, kind = GeoSkeletonKind.Rows) else DeviceListsNote(it)
-            }
-                ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "완료한 수집이 없습니다", "수집을 마치면 여기에 남습니다."))
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                (if (landscape) state.recent.take(2) else state.recent).forEach { row ->
-                    WorkSurfaceCard {
-                        GeoRowList(GeoRowTrailing.None) {
-                            GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta,
-                                leading = { GeoIconTile(GeoIcons.restore) }, divider = false,
-                                contentPadding = PaddingValues(0.dp),
-                                extra = { GeoReceiptLine(row.receipt) })
-                        }
-                    }
+            if (state.recent.isEmpty()) {
+                state.deviceListsNote?.let { DeviceListsNote(it, state.checkingDevice) }
+                    ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "완료한 수집이 없습니다", "수집을 마치면 여기에 남습니다."))
+            } else GeoRowList(GeoRowTrailing.Status) {
+                state.recent.forEachIndexed { index, row ->
+                    GeoRow(row.title, { onOpenRun(row.runId) }, meta = row.meta,
+                        leading = { GeoIconTile(GeoIcons.restore) }, divider = index < state.recent.lastIndex,
+                        badge = { GeoReceiptLine(row.receipt, compact = true) })
                 }
             }
         }
     })
     val recent = remember { movableContentOf { recentContent() } }
     val queueContent by rememberUpdatedState<@Composable () -> Unit>({
-        WorkTicketsSection(state, onOpenTicket, onSelectTicketUnit, onChangeSection, onRefresh, onServerConnection, now,
-            completedTickets, { completedTickets = it }, first = window.twoPane && !landscape,
-            omitFeatured = landscape)
+        if (tickets != null) WorkTicketsSection(state, onOpenTicket, onSelectTicketUnit, onChangeSection,
+            onRefresh, now, completedTickets, { completedTickets = it }, featuredId,
+            showManual = state.focus?.primary != null || workHomeFeaturedTicket(state) != null,
+            modifier = Modifier.padding(horizontal = workContentGutter()))
     })
     val queue = remember { movableContentOf { queueContent() } }
     val tasksContent by rememberUpdatedState<@Composable () -> Unit>({
-        GeoSection("장치 작업") {
-            if (state.otherTasks.isEmpty()) state.deviceListsNote?.let {
-                if (state.checkingDevice) GeoSkeleton(it, kind = GeoSkeletonKind.Rows) else DeviceListsNote(it)
-            }
-                ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 장치에 등록된 작업이 없습니다", "작업 등록은 관리자에게 요청하세요."))
-            if (state.otherTasks.isNotEmpty()) WorkSurfaceCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                GeoRowList(GeoRowTrailing.Status) {
-                    state.otherTasks.forEachIndexed { index, task ->
-                        GeoRow(task.title, { onOpenTask(task.pipelineId) }, meta = task.caption,
-                            leading = { GeoIconTile(GeoIcons.tabDevice) }, divider = index < state.otherTasks.lastIndex,
-                            badge = { GeoBadge(task.stateLabel, workTaskTone(task.stateLabel)) })
-                    }
-                }
+        GeoGroupedSection("장치 작업", Modifier.padding(horizontal = workContentGutter()), trailingColumn = GeoRowTrailing.Status) {
+            if (state.otherTasks.isEmpty()) {
+                state.deviceListsNote?.let { DeviceListsNote(it, state.checkingDevice) }
+                    ?: GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 장치에 등록된 작업이 없습니다", "작업 등록은 관리자에게 요청하세요."))
+            } else state.otherTasks.forEachIndexed { index, task ->
+                GeoRow(task.title, { onOpenTask(task.pipelineId) }, meta = task.caption,
+                    leading = { GeoIconTile(GeoIcons.tabDevice) }, divider = index < state.otherTasks.lastIndex,
+                    badge = { GeoBadge(task.stateLabel, workTaskTone(task.stateLabel)) })
             }
         }
     })
     val tasks = remember { movableContentOf { tasksContent() } }
-    Column(Modifier.fillMaxSize().background(c.canvas)) {
-        WorkRootHeader(state, onSelectDevice, onAlerts, unreadCount, deviceOpener)
-        PullToRefreshBox(isRefreshing = state.ticketSection?.isLoading == true, onRefresh = onRefresh,
-            modifier = Modifier.weight(1f)) {
-            if (window.twoPane) {
-                com.example.jetsoncontroller.ui.components.geo.shell.GeoPaneLayout(
-                    policy = com.example.jetsoncontroller.ui.components.geo.shell.GeoPanePolicy.WORK_HOME,
-                    list = {
-                        LazyColumn(state = leftScroll, modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 24.dp, bottom = 32.dp)) {
-                            item(key = "device") { device() }
+    val date = DateTimeFormatter.ofPattern("M월 d일 EEEE", Locale.KOREAN).withZone(ZoneId.systemDefault()).format(now)
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        GeoLargeTitleScaffold("작업", modifier = if (twoPane) Modifier else Modifier.widthIn(max = 720.dp),
+            subtitle = date, primaryAction = actions.primary.takeUnless { twoPane },
+            secondaryAction = actions.secondary.takeUnless { twoPane }, actions = {
+                WorkDeviceSwitcher(state.deviceName, state.connectionTone, onSelectDevice, Modifier.focusRequester(deviceOpener))
+                GeoIconButton(GeoIcons.bell, if (unreadCount > 0) "알림 ${unreadCount}개" else "알림", onAlerts)
+            }) {
+            PullToRefreshBox(isRefreshing = tickets?.isLoading == true, onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize().semantics {
+                    customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
+                }) {
+                if (twoPane) GeoPaneLayout(policy = GeoPanePolicy.WORK_HOME, list = {
+                    Column(Modifier.fillMaxSize()) {
+                        LazyColumn(state = leftScroll, modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                             item(key = "focus") { focus() }
-                            item(key = "quick") { quick() }
-                            if (!landscape) item(key = "tasks") { tasks() }
+                            item(key = "device") { device() }
                         }
-                    }, detail = {
-                        LazyColumn(state = rightScroll, modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 24.dp, bottom = 32.dp)) {
-                            if (landscape) item(key = "recent") { recent() }
-                            if (state.ticketSection != null) item(key = "queue") { queue() }
-                            if (!landscape && (state.ticketSection != null || state.recent.isNotEmpty())) item(key = "recent") { recent() }
-                            if (landscape) item(key = "tasks") { tasks() }
-                        }
-                    })
-            } else LazyColumn(state = leftScroll, modifier = Modifier.fillMaxSize().semantics {
-                customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
-            }, contentPadding = PaddingValues(start = gutter, end = gutter, top = if (tablet) 24.dp else 16.dp, bottom = if (tablet) 32.dp else 40.dp)) {
-                if (portraitGrid) {
-                    item(key = "device") {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                            Box(Modifier.weight(1f)) { device() }
-                            Box(Modifier.weight(1f)) { focus() }
-                        }
+                        actions.primary?.let { GeoFixedActionBar(it, secondaryAction = actions.secondary) }
                     }
-                } else {
-                    item(key = "device") { device() }
+                }, detail = {
+                    LazyColumn(state = rightScroll, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                        item(key = "quick") { quick() }
+                        item(key = "recent") { recent() }
+                        item(key = "queue") { queue() }
+                        item(key = "tasks") { tasks() }
+                    }
+                }) else LazyColumn(state = leftScroll, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                     item(key = "focus") { focus() }
+                    item(key = "device") { device() }
+                    item(key = "quick") { quick() }
+                    item(key = "recent") { recent() }
+                    item(key = "queue") { queue() }
+                    item(key = "tasks") { tasks() }
                 }
-                item(key = "quick") { quick() }
-                if (portraitGrid) {
-                    item(key = "recent") {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                            if (state.ticketSection != null || state.recent.isNotEmpty()) Box(Modifier.weight(1f)) { recent() }
-                            if (state.ticketSection != null) Box(Modifier.weight(1f)) { queue() }
-                        }
-                    }
-                } else {
-                    if (state.ticketSection != null || state.recent.isNotEmpty()) item(key = "recent") { recent() }
-                    if (state.ticketSection != null) item(key = "queue") { queue() }
-                }
-                item(key = "tasks") { tasks() }
             }
         }
     }
 }
 
+@Composable
+private fun workContentGutter() = if (LocalGeoPane.current) 0.dp else 24.dp
+
 private fun workUnknownFigures() = listOf("저장 여유", "온도", "CPU", "GPU").map { GeoFigure(it, null) }
 
-@Composable
-private fun WorkCurrentCard(
+/** A ticket represented by the today card is omitted from the queue in every window size. */
+internal fun workHomeFeaturedTicket(state: TasksHomeUiState): ServerTicket? =
+    if (state.focus?.title != null && state.focus.primary != null) null
+    else state.ticketSection?.let { workTicketQueue(it.tickets, it.selectedUnit).open.firstOrNull() }
+
+internal fun workHomeVisibleQueue(tickets: ServerTicketUiState, featuredId: String?): WorkTicketQueue =
+    workTicketQueue(tickets.tickets, tickets.selectedUnit).let { queue ->
+        queue.copy(open = queue.open.filterNot { it.rowId == featuredId },
+            completed = queue.completed.filterNot { it.rowId == featuredId })
+    }
+
+internal data class WorkHomeActions(val primary: GeoButtonAction?, val secondary: GeoButtonAction? = null)
+
+internal fun workHomeActions(
     state: TasksHomeUiState, onTicket: (String) -> Unit, onStart: () -> Unit, onManual: () -> Unit,
     onRun: () -> Unit, onFocus: (NextActionCommand) -> Unit, onServer: () -> Unit,
-    reportLabel: String, reportMessage: String?, reportEnabled: Boolean, stopAction: GeoButtonAction?, modifier: Modifier
-) {
+    reportLabel: String, reportEnabled: Boolean, stopAction: GeoButtonAction?
+): WorkHomeActions {
     val focus = state.focus
     val command = focus?.primary
-    val current = state.ticketSection?.let { workTicketQueue(it.tickets, it.selectedUnit).open.firstOrNull() }
+    if (focus?.title != null && command != null) {
+        if (focus.operation == OperationState.COLLECTING) return WorkHomeActions(
+            GeoButtonAction("수집 화면 보기", onRun), stopAction?.copy(label = "수집 종료", style = GeoButtonStyle.DangerOutline, icon = GeoIcons.stop))
+        return WorkHomeActions(GeoButtonAction(if (command == NextActionCommand.REPORT) reportLabel else command.label,
+            { onFocus(command) }, enabled = command != NextActionCommand.REPORT || reportEnabled,
+            disabledReason = "수집 결과와 서버 수신을 다시 확인하세요.".takeIf { command == NextActionCommand.REPORT && !reportEnabled }),
+            focus.secondary?.let { secondary -> GeoButtonAction(secondary.label, { onFocus(secondary) }, style = GeoButtonStyle.Secondary) })
+    }
+    if (state.ticketSection == null) return WorkHomeActions(GeoButtonAction("서버 연결", onServer, icon = GeoIcons.link))
+    workHomeFeaturedTicket(state)?.let { ticket -> return WorkHomeActions(GeoButtonAction("준비하기", { onTicket(ticket.rowId) }, icon = GeoIcons.play)) }
+    if (state.ticketSection.isLoading) return WorkHomeActions(null)
+    return WorkHomeActions(GeoButtonAction("준비하기", if (state.pinned.scopeLabel == null) onManual else onStart,
+        enabled = state.pinned.changeEnabled, icon = GeoIcons.play, disabledReason = state.pinned.startBlockedReason))
+}
+
+@Composable
+private fun WorkCurrentCard(state: TasksHomeUiState, reportMessage: String?, modifier: Modifier = Modifier) {
+    val focus = state.focus
+    val command = focus?.primary
+    val current = workHomeFeaturedTicket(state)
     when {
         focus?.title != null && command != null -> {
             val collecting = focus.operation == OperationState.COLLECTING
-            GeoWorkCard(if (collecting) state.activeRun?.section ?: state.activeRun?.title ?: focus.title else focus.title,
-                action = if (collecting && stopAction != null) stopAction.copy(label = "수집 종료",
-                    style = GeoButtonStyle.DangerFilled, icon = GeoIcons.stop, disabledReason = null)
-                else GeoButtonAction(if (collecting) "수집 화면 보기" else if (command == NextActionCommand.REPORT) reportLabel else command.label,
-                    { if (collecting) onRun() else onFocus(command) },
-                    enabled = command != NextActionCommand.REPORT || reportEnabled),
-                modifier = modifier, label = if (collecting) "수집 중" else null,
+            GeoTodayCard(if (collecting) state.activeRun?.section ?: state.activeRun?.title ?: focus.title else focus.title,
+                modifier, label = if (collecting) "수집 중" else null,
                 meta = listOfNotNull(if (collecting) listOfNotNull(state.deviceName, state.activeRun?.project).joinToString(" · ")
                     else if (command == NextActionCommand.REPORT) reportMessage ?: focus.body else focus.body,
                     focus.transportRemedy?.detail).filter(String::isNotBlank).joinToString(" · ").takeIf(String::isNotBlank),
                 clock = state.activeClock.takeIf { collecting }, status = "진행 중".takeIf { collecting }) {
                 if (collecting) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text("수집 용량", style = LocalGeoType.current.supporting, color = LocalGeoColors.current.text)
-                        WorkFigureValue(state.activeBytes ?: "미확인", unknown = state.activeBytes == null)
-                    }
+                    Text("수집 용량 ${state.activeBytes ?: "미확인"}", style = LocalGeoType.current.body.copy(fontFeatureSettings = "tnum"),
+                        color = LocalGeoColors.current.text)
                     state.activePosition?.let { GeoBadge(it, Tone.UNKNOWN, variant = GeoBadgeVariant.INLINE) }
-                    if (stopAction != null) {
-                        val chosen = geoWorkCardColors(LocalGeoPalette.current)
-                        GeoButton("수집 화면 보기", onRun, Modifier.fillMaxWidth(), actionArea = true,
-                            containerColor = chosen.action, contentColor = chosen.onAction)
-                    }
-                    stopAction?.takeIf { !it.enabled }?.disabledReason?.let {
-                        Text(it, color = LocalGeoColors.current.text, style = LocalGeoType.current.supporting)
-                    }
-                }
-                focus.secondary?.let { secondary ->
-                    val chosen = geoWorkCardColors(LocalGeoPalette.current)
-                    GeoButton(secondary.label, { onFocus(secondary) }, Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary,
-                        containerColor = chosen.background, contentColor = chosen.content)
                 }
             }
         }
-        state.ticketSection == null -> WorkSurfaceCard(modifier, contentPadding = PaddingValues(24.dp)) {
-            GeoIconTile(GeoIcons.router)
-            Spacer(Modifier.height(24.dp))
-            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
-                "GEO& Work 수집 구간을 보려면 서버 연결이 필요합니다."))
-            GeoButton("서버 연결", onServer, Modifier.fillMaxWidth().padding(top = 12.dp), icon = GeoIcons.link)
-        }
-        current != null -> GeoWorkCard(current.title, GeoButtonAction("준비하기", { onTicket(current.rowId) }, icon = GeoIcons.play),
-            modifier, label = "오늘의 수집 구간", meta = listOfNotNull(current.project,
-                "마감 ${ticketDueLabel(current.dueDate)}").joinToString(" · "),
+        state.ticketSection == null -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
+            "GEO& Work 수집 구간을 보려면 서버 연결이 필요합니다."), modifier)
+        current != null -> GeoTodayCard(current.title, modifier, label = "오늘의 수집 구간",
+            meta = current.project, deadline = "마감 ${ticketDueLabel(current.dueDate)}",
             status = ticketStatusLabel(current), statusTone = ticketTone(current))
         state.ticketSection.isLoading -> GeoSkeleton("수집 구간을 불러오는 중", modifier, kind = GeoSkeletonKind.Rows)
-        else -> GeoWorkCard(state.pinned.scopeLabel ?: "아직 고른 구간이 없습니다",
-            GeoButtonAction("준비하기", if (state.pinned.scopeLabel == null) onManual else onStart,
-                enabled = state.pinned.changeEnabled, icon = GeoIcons.play),
-            modifier, label = "오늘의 수집 구간", meta = state.pinned.startBlockedReason ?: state.pinned.scopeCaption,
-            status = "대기")
+        state.ticketSection.quietError != null && state.ticketSection.tickets.isEmpty() ->
+            GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "수집 구간을 불러오지 못했습니다", state.ticketSection.quietError), modifier)
+        else -> GeoTodayCard(state.pinned.scopeLabel ?: "아직 고른 구간이 없습니다", modifier,
+            label = "오늘의 수집 구간", meta = state.pinned.startBlockedReason ?: state.pinned.scopeCaption, status = "대기")
     }
 }
 
 @Composable
 private fun WorkTicketsSection(
     state: TasksHomeUiState, onOpen: (String) -> Unit, onUnit: (String?) -> Unit,
-    onManual: () -> Unit, onRefresh: () -> Unit, onServer: () -> Unit, now: Instant,
-    completed: Boolean, onCompletedChange: (Boolean) -> Unit, first: Boolean = false,
-    omitFeatured: Boolean = false
+    onManual: () -> Unit, onRefresh: () -> Unit, now: Instant,
+    completed: Boolean, onCompletedChange: (Boolean) -> Unit, featuredId: String?, showManual: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    val tickets = state.ticketSection
-    val deviceUnit = tickets?.deviceUnit
-    GeoSection(if (omitFeatured) "다른 수집 구간" else "수집 구간", first = first) {
-        if (tickets == null) {
-            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "서버 연결 정보가 없습니다",
-                "GEO& Work 수집 구간을 보려면 서버 연결이 필요합니다.", "서버 연결"), onAction = onServer)
-        } else {
-            GeoFilters(listOf(state.deviceName, "전체"), if (tickets.selectedUnit == null) 1 else 0,
-                { onUnit(if (it == 0) deviceUnit else null) })
-            ticketSyncLabel(tickets, now)?.let { sync ->
-                Text(sync, style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary,
-                    modifier = Modifier.padding(top = 8.dp))
-            }
-            if (ticketRefreshVisible(tickets, now)) GeoButton("다시 확인", onRefresh,
-                style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !tickets.isLoading)
-            val queue = workTicketQueue(tickets.tickets, tickets.selectedUnit)
-            val featuredId = queue.open.firstOrNull()?.rowId.takeIf {
-                omitFeatured && !(state.focus?.title != null && state.focus?.primary != null)
-            }
-            val open = queue.open.filterNot { it.rowId == featuredId }
-            if (featuredId != null && open.isEmpty() && queue.completed.isEmpty()) Text(
-                "오늘의 수집 구간은 왼쪽에서 준비할 수 있습니다.",
-                Modifier.padding(top = 12.dp), style = LocalGeoType.current.supporting,
-                color = LocalGeoColors.current.textSecondary)
-            when {
-                tickets.isLoading && tickets.tickets.isEmpty() -> GeoSkeleton("수집 구간을 불러오는 중",
-                    Modifier.padding(top = 12.dp), kind = GeoSkeletonKind.Rows)
-                queue.open.isEmpty() && queue.completed.isEmpty() -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
-                    "이 호기에 배정된 수집 구간이 없습니다", "GEO& Work에서 배정되면 여기에 표시됩니다."), Modifier.padding(top = 16.dp))
-                else -> {
-                    if (open.isNotEmpty()) WorkSurfaceCard(Modifier.padding(top = 12.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp)) {
-                        GeoRowList(GeoRowTrailing.Status) {
-                            open.forEachIndexed { index, ticket ->
-                                GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < open.lastIndex,
-                                    leading = { GeoIconTile(GeoIcons.fitZone) },
-                                    badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
-                            }
-                        }
+    val tickets = state.ticketSection ?: return
+    GeoSection(if (featuredId == null) "수집 구간" else "다른 수집 구간", modifier) {
+        GeoFilters(listOf(state.deviceName, "전체"), if (tickets.selectedUnit == null) 1 else 0,
+            { onUnit(if (it == 0) tickets.deviceUnit else null) })
+        ticketSyncLabel(tickets, now)?.let { Text(it, style = LocalGeoType.current.caption,
+            color = LocalGeoColors.current.textSecondary, modifier = Modifier.padding(top = 8.dp)) }
+        tickets.quietError?.let { GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR,
+            actionLabel = "다시 확인", onAction = onRefresh) }
+        if (tickets.quietError == null && ticketRefreshVisible(tickets, now)) GeoButton("다시 확인", onRefresh,
+            style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !tickets.isLoading)
+        val queue = workTicketQueue(tickets.tickets, tickets.selectedUnit)
+        val visible = workHomeVisibleQueue(tickets, featuredId)
+        val open = visible.open
+        val finished = visible.completed
+        when {
+            tickets.isLoading && tickets.tickets.isEmpty() -> GeoSkeleton("수집 구간을 불러오는 중", kind = GeoSkeletonKind.Rows)
+            queue.open.isEmpty() && queue.completed.isEmpty() && tickets.quietError == null -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
+                "이 호기에 배정된 수집 구간이 없습니다", "GEO& Work에서 배정되면 여기에 표시됩니다."))
+            else -> {
+                if (open.isNotEmpty()) GeoRowList(GeoRowTrailing.Status, Modifier.padding(top = 12.dp)) {
+                    open.forEachIndexed { index, ticket ->
+                        GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < open.lastIndex,
+                            leading = { GeoIconTile(GeoIcons.fitZone) }, badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
                     }
-                    if (queue.completed.isNotEmpty()) {
-                        GeoRow("완료 ${queue.completed.size}개", { onCompletedChange(!completed) },
-                            modifier = Modifier.semantics { stateDescription = if (completed) "펼침" else "접힘" }, divider = completed)
-                        if (completed) WorkSurfaceCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                            GeoRowList(GeoRowTrailing.Status) {
-                                queue.completed.forEachIndexed { index, ticket ->
-                                    GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < queue.completed.lastIndex,
-                                        leading = { GeoIconTile(GeoIcons.fitZone) },
-                                        badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
-                                }
-                            }
-                        }
+                }
+                if (finished.isNotEmpty()) GeoRowList(GeoRowTrailing.Status, Modifier.padding(top = 12.dp)) {
+                    GeoRow("완료 ${finished.size}개", { onCompletedChange(!completed) }, leading = { GeoIconTile(GeoIcons.restore) },
+                        modifier = Modifier.semantics { stateDescription = if (completed) "펼침" else "접힘" }, divider = completed)
+                    if (completed) finished.forEachIndexed { index, ticket ->
+                        GeoRow(ticket.title, { onOpen(ticket.rowId) }, meta = ticketQueueMeta(ticket), divider = index < finished.lastIndex,
+                            leading = { GeoIconTile(GeoIcons.fitZone) }, badge = { GeoBadge(ticketStatusLabel(ticket), ticketTone(ticket)) })
                     }
                 }
             }
-            GeoButton("구간 직접 고르기", onManual, Modifier.fillMaxWidth().padding(top = 12.dp), style = GeoButtonStyle.Secondary)
         }
-    }
-}
-
-@Composable
-private fun WorkRootHeader(state: TasksHomeUiState, onDevice: () -> Unit, onAlerts: () -> Unit,
-    unread: Int, opener: FocusRequester) {
-    val c = LocalGeoColors.current
-    val type = LocalGeoType.current
-    val measurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    BoxWithConstraints(Modifier.fillMaxWidth().background(c.topBar).padding(horizontal = 4.dp)) {
-        val required = measurer.measure(AnnotatedString("작업"), type.heading).size.width +
-            measurer.measure(AnnotatedString(state.deviceName), type.titleSm).size.width +
-            with(density) { 152.dp.roundToPx() }
-        val stacked = required > constraints.maxWidth
-        val device: @Composable () -> Unit = {
-            WorkDeviceSwitcher(state.deviceName, state.connectionTone, onDevice, Modifier.focusRequester(opener))
-        }
-        Column {
-            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("작업", color = c.onTopBar, style = type.heading, modifier = Modifier.weight(1f))
-                if (!stacked) Box(Modifier.widthIn(max = this@BoxWithConstraints.maxWidth * .65f)) { device() }
-                Box {
-                    GeoIconButton(GeoIcons.bell, if (unread > 0) "알림 ${unread}개" else "알림", onAlerts, chrome = true)
-                    if (unread > 0) Text(unread.toString(), color = c.onAttention, style = type.count,
-                        modifier = Modifier.align(Alignment.TopEnd).background(c.attention,
-                            androidx.compose.foundation.shape.CircleShape).padding(horizontal = 5.dp, vertical = 1.dp)
-                            .clearAndSetSemantics {})
-                }
-            }
-            if (stacked) Box(Modifier.padding(start = 16.dp)) { device() }
-        }
+        if (showManual) GeoButton("구간 직접 고르기", onManual, Modifier.fillMaxWidth().padding(top = 12.dp), style = GeoButtonStyle.Secondary)
     }
 }
 
@@ -376,7 +305,7 @@ internal fun workTaskTone(word: String): Tone = when (word) {
 }
 
 @Composable
-private fun DeviceListsNote(text: String) {
-    Text(text, style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
+private fun DeviceListsNote(text: String, checking: Boolean) {
+    if (checking) GeoSkeleton(text, kind = GeoSkeletonKind.Rows)
+    else GeoInlineNote(text, tone = Tone.UNKNOWN)
 }
-

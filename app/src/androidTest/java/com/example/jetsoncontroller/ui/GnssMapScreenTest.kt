@@ -39,9 +39,7 @@ class GnssMapScreenTest {
         )
         detailAction.performClick()
         compose.onNodeWithText("위치 품질").assertIsDisplayed()
-        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("닫기")))
-            .performScrollToNode(hasText("닫기"))
-        compose.onNodeWithText("닫기").performClick()
+        compose.onNodeWithContentDescription("닫기").assertIsDisplayed().performClick()
         compose.onNodeWithContentDescription("뒤로").assertIsDisplayed().performClick()
         compose.runOnIdle { assertTrue(returns.get() == 1) }
         captureWindow("map-quality-normal")
@@ -54,14 +52,13 @@ class GnssMapScreenTest {
         assertTrue(compose.onNodeWithTag("gnss-map-pane").fetchSemanticsNode().boundsInRoot.height > 100f)
         val backgroundHeadlineHeight = compose.onNodeWithText("정밀 위치 50%")
             .fetchSemanticsNode().boundsInRoot.height
-        compose.onNodeWithContentDescription("패널 펼치기").performClick()
+        compose.onNodeWithContentDescription("패널 접기").assertIsDisplayed()
         compose.onNodeWithText("위치 품질 자세히").performScrollTo().assertIsDisplayed().performClick()
         val sheetTitleHeight = compose.onNodeWithText("위치 품질")
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot.height
         assertTrue(sheetTitleHeight >= backgroundHeadlineHeight)
-        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("닫기")))
-            .performScrollToNode(hasText("닫기"))
-        compose.onNodeWithText("닫기").assertIsDisplayed()
+        compose.onNode(hasText("정밀 위치") and hasAnyAncestor(isDialog()), useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("닫기").assertIsDisplayed()
         compose.onAllNodesWithText("FIXED", substring = true).assertCountEquals(0)
         captureWindow("map-quality-large-font")
     }

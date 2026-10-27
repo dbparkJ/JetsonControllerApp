@@ -6,12 +6,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasStateDescription
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.jetsoncontroller.data.network.WifiAccessPoint
 import com.example.jetsoncontroller.data.network.WifiSecurity
@@ -19,6 +27,7 @@ import com.example.jetsoncontroller.data.transport.TransportType
 import com.example.jetsoncontroller.ui.theme.JetsonControllerTheme
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
@@ -29,6 +38,7 @@ class NetworkSettingsScreenTest {
 
     @Test
     fun selectingSecuredNetworkExpandsPasswordFormInline() {
+        var applied: WifiApplyTarget? = null
         val accessPoint = WifiAccessPoint(
             ssid = "Office Wi-Fi",
             rssi = -48,
@@ -54,6 +64,7 @@ class NetworkSettingsScreenTest {
                     wifiScanPermissionGranted = true,
                     onRequestWifiScanPermission = {},
                     onScanAccessPoints = {},
+                    onApply = { applied = it },
                     onSelectAccessPoint = {
                         state = state.copy(
                             ssid = it.ssid,
@@ -68,7 +79,18 @@ class NetworkSettingsScreenTest {
         composeRule.onNodeWithText("Office Wi-Fi").performScrollTo().performClick()
         composeRule.onNodeWithTag("wifi-selected-network-form").assertIsDisplayed()
         composeRule.onNodeWithText("비밀번호").assertIsDisplayed()
-        composeRule.onNodeWithTag("wifi-connect-button").assertIsDisplayed()
+        val apply = composeRule.onNode(hasText("적용") and hasClickAction())
+        apply.assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithContentDescription("비밀번호").performTextInput("password123")
+        apply.assertIsEnabled().performClick()
+        composeRule.onNodeWithText("Office Wi-Fi에 연결할까요?", substring = true).assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(null, applied) }
+        composeRule.onNodeWithText("취소").performClick()
+        composeRule.runOnIdle { assertEquals(null, applied) }
+        apply.performClick()
+        composeRule.onNode(hasText("적용") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
+        composeRule.runOnIdle { assertEquals("Office Wi-Fi", applied?.ssid); assertEquals("device-a", applied?.deviceId) }
+        composeRule.onNodeWithText("Office Wi-Fi에 연결할까요?", substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -102,7 +124,7 @@ class NetworkSettingsScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("연결됨")
+        composeRule.onNode(hasStateDescription("연결됨"))
             .assertIsDisplayed()
         composeRule.onNodeWithTag("wifi-access-point-Lab Wi-Fi")
             .assertIsNotEnabled()

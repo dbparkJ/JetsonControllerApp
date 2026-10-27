@@ -65,21 +65,21 @@ class GeoFieldScreenTest {
                 currentRoot = RemoteRoot("recordings", "기록", null), entries = entries), true, null,
                 {}, {}, {}, {}, {}, { _, path -> requested = path }, {})
         } }
-        compose.onNodeWithContentDescription("파일 유형 필터").performClick()
-        compose.onNodeWithText("이미지").performClick()
+        compose.onNode(hasText("이미지") and isNotSelected()).performClick()
         compose.onNodeWithText("road.jpg").assertIsDisplayed()
         compose.onNodeWithText("track.csv").assertDoesNotExist()
         compose.onNodeWithText("오늘").assertIsDisplayed()
         capture("data-images")
-        compose.onNodeWithText("선택").performClick()
-        compose.onNodeWithText("road.jpg").performClick()
-        compose.onNodeWithText("서버로 전송").performClick()
+        compose.onNodeWithText("보낼 파일 선택").performClick()
+        compose.onNode(hasText("선택") and hasAnyAncestor(hasTestTag("file-selection-road.jpg"))).performScrollTo().performClick().assertIsOn()
+        compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals("road.jpg", requested) }
-        compose.onNodeWithText("취소").performClick()
+        compose.onNodeWithContentDescription("파일 메뉴").performClick()
+        compose.onNodeWithText("선택 해제").performClick()
         compose.onNodeWithText("전체").performClick()
-        compose.onNodeWithText("선택").performClick()
-        compose.onNodeWithText("구간 전체").performClick()
-        compose.onNodeWithText("서버로 전송").performClick()
+        compose.onNodeWithText("보낼 파일 선택").performClick()
+        compose.onNode(hasText("선택") and hasAnyAncestor(hasTestTag("file-selection-full-section"))).performScrollTo().performClick().assertIsOn()
+        compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals("full-section", requested) }
     }
 

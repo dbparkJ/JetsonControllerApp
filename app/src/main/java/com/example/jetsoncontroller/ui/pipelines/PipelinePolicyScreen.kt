@@ -1,10 +1,14 @@
 package com.example.jetsoncontroller.ui.pipelines
 
-import com.example.jetsoncontroller.ui.storage.R7Section as GeoSection
+import com.example.jetsoncontroller.ui.dev.DevSection as GeoSection
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -109,17 +113,19 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
     }
     val enabled = state.online && !state.busy
     val validUnits = minimumFree.bytes != null && minimumOutput.bytes != null
-    if (rootPicker) GeoSheet("결과 저장소", { rootPicker = false }) {
+    val focus = LocalFocusManager.current
+    val next = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Next) })
+    if (rootPicker) GeoSheet("결과 저장소", { rootPicker = false }, kind = GeoSheetKind.CHOICE) {
+        if (state.roots.isEmpty()) DevEmpty("선택할 저장소가 없습니다", "장치의 저장소를 확인한 뒤 다시 불러오세요.")
         state.roots.forEach { root -> GeoRadioRow(root.label, root.id == state.draft.outputRootId,
             { rootPicker = false; onEdit { copy(outputRootId = root.id) } }) }
     }
     if (confirmReload) GeoConfirmDialog("장치 설정을 다시 불러올까요?", "작성 중인 내용을 장치의 현재 설정으로 바꿉니다.", "다시 불러오기",
         { confirmReload = false; if (enabled) onReload() }, { confirmReload = false }, dismissLabel = "초안 유지", confirmEnabled = enabled,
         disabledReason = "장치에 연결되고 저장이 끝나야 다시 불러올 수 있습니다.")
-    DevPage("수집 정책", onBack, footer = {
-        GeoButton("정책 저장", onSave, Modifier.fillMaxWidth(), enabled = enabled && state.policy != null && state.draft.valid && validUnits && !state.needsReview,
-            actionArea = true, disabledReason = "장치 연결과 수집 정책 값을 확인하세요.")
-    }) {
+    DevPage("수집 정책", onBack, primaryAction = GeoButtonAction("정책 저장", onSave,
+        enabled = enabled && state.policy != null && state.draft.valid && validUnits && !state.needsReview,
+        disabledReason = "장치 연결과 수집 정책 값을 확인하세요.")) {
         DevIdentity(label, deviceName)
         DevFeedback(state.message, state.needsReview)
         if (state.busy) DevLoading()
@@ -135,18 +141,21 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
             GeoTextField(minimumFree.text, { value -> minimumFree = minimumFree.edit(value)
                 minimumFree.bytes?.let { onEdit { copy(minFreeBytes = it) } }
             }, "최소 여유 공간", numeric = true, unit = minimumFree.input.unit, enabled = enabled,
+                inputKind = GeoInputKind.TEXT, imeAction = ImeAction.Next, keyboardActions = next,
                 error = if (minimumFree.bytes == null) "0 이상의 용량을 입력하세요." else null,
                 disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
         }
         GeoSection("예상 결과") {
             val files: @Composable (Modifier) -> Unit = { modifier ->
                 GeoTextField(state.draft.outputMinFiles, { value -> onEdit { copy(outputMinFiles = value.take(9)) } }, "최소 파일 수", modifier,
+                    inputKind = GeoInputKind.CODE, imeAction = ImeAction.Next, keyboardActions = next,
                     numeric = true, unit = "개", enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
             }
             val size: @Composable (Modifier) -> Unit = { modifier ->
                 GeoTextField(minimumOutput.text, { value -> minimumOutput = minimumOutput.edit(value)
                     minimumOutput.bytes?.let { onEdit { copy(outputMinBytes = it) } }
                 }, "최소 용량", modifier, numeric = true, unit = minimumOutput.input.unit, enabled = enabled,
+                    inputKind = GeoInputKind.TEXT, imeAction = ImeAction.Next, keyboardActions = next,
                     error = if (minimumOutput.bytes == null) "0 이상의 용량을 입력하세요." else null,
                     disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
             }
@@ -160,9 +169,12 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
                 { rootPicker = true }, enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
             Spacer(Modifier.height(16.dp))
             GeoTextField(state.draft.outputPath, { value -> onEdit { copy(outputPath = value.take(512)) } }, "상대 경로",
+                inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Next, keyboardActions = next,
                 helper = "비워 두면 저장소 맨 위에 저장합니다.", enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
             Spacer(Modifier.height(16.dp))
             GeoTextField(state.draft.outputPatterns, { value -> onEdit { copy(outputPatterns = value.take(2000)) } }, "파일 패턴",
+                inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Done,
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
                 helper = "한 줄에 하나씩 입력하세요.", singleLine = false, enabled = enabled, disabledReason = "장치에 연결하면 바꿀 수 있습니다.")
         }
     }

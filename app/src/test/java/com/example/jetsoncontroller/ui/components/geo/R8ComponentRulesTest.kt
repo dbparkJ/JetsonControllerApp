@@ -7,10 +7,94 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleState
 import com.example.jetsoncontroller.ui.components.geo.shell.geoHeaderCollapsed
+import com.example.jetsoncontroller.ui.components.geo.shell.geoHeaderActionsStack
+import com.example.jetsoncontroller.ui.model.Tone
 import org.junit.Assert.*
 import org.junit.Test
 
 class R8ComponentRulesTest {
+    @Test fun todayDeadlineMovesBelowTheLabelAtLargeTextOrMeasuredOverflow() {
+        assertFalse(geoTodayLabelStacks(280f, 1f, 168f, 104f))
+        assertTrue(geoTodayLabelStacks(279f, 1f, 168f, 104f))
+        assertFalse(geoTodayLabelStacks(720f, 1.29f, 168f, 104f))
+        listOf(1.3f, 1.5f, 2f).forEach { assertTrue(geoTodayLabelStacks(720f, it, 168f, 104f)) }
+        val source = r8UiSource("components/geo/GeoCards.kt")
+        assertTrue(source.contains("deadline: String? = null"))
+        assertTrue(source.contains("geoTodayLabelStacks(maxWidth.value, density.fontScale, labelWidth, deadlineWidth)"))
+    }
+
+    @Test fun compactReceiptKeepsAllFourNamesAndTheirIndependentStates() {
+        val state = GeoReceiptState(
+            collection = GeoReceiptItem("종료", Tone.SUCCESS, done = true),
+            storage = GeoReceiptItem("저장 확인", Tone.SUCCESS, done = true))
+        assertEquals(listOf(true, true, false, false), state.rows().map { receiptDone(it.first, it.second) })
+        assertEquals("수집 종료: 종료, 장치 저장: 저장 확인, 서버 수신: 미확인, GEO& Work 보고: 보고 전", receiptDescription(state))
+        assertFalse(receiptDone(GeoReceiptStep.SERVER, GeoReceiptItem("미확인", Tone.SUCCESS)))
+        assertFalse(receiptDone(GeoReceiptStep.REPORT, GeoReceiptItem("해당 없음", Tone.SUCCESS, done = true)))
+        assertTrue(receiptDone(GeoReceiptStep.REPORT, GeoReceiptItem("보고 완료", Tone.SUCCESS, done = true)))
+    }
+
+    @Test fun compactReceiptUsesFourEightDpDotsWithFourDpGapsAndKeepsTheFullDefault() {
+        val source = r8UiSource("components/geo/GeoReceipt.kt")
+        assertTrue(source.contains("compact: Boolean = false"))
+        assertTrue(source.contains("modifier.size(44.dp, 8.dp)"))
+        assertTrue(source.contains("(4 + index * 12).dp.toPx()"))
+        assertTrue(source.contains("contentDescription = receiptDescription(state)"))
+        assertTrue(source.contains("else ReceiptTrack(state, modifier)"))
+    }
+
+    @Test fun selectionTitleUsesTheSharedRoleAndLargeTextPlacesBadgesBelowIt() {
+        val source = r8UiSource("components/geo/GeoSelection.kt")
+        assertTrue(source.contains("val stackBadge = LocalDensity.current.fontScale >= 1.3f"))
+        assertTrue(source.contains("style = LocalGeoType.current.titleSm"))
+        assertTrue(source.contains("if (!stackBadge) badge?.invoke()"))
+        assertTrue(source.contains("if (stackBadge && badge != null) Box(Modifier.align(Alignment.End))"))
+    }
+
+    @Test fun bothHeadersSeparateLargeOrNumerousActionsAndRetainTheirOrder() {
+        assertFalse(geoHeaderActionsStack(312f, 1f, 104f))
+        assertFalse(geoHeaderActionsStack(312f, 1.29f, 104f))
+        assertTrue(geoHeaderActionsStack(312f, 1.3f, 104f))
+        assertTrue(geoHeaderActionsStack(720f, 1f, 160f))
+        assertTrue(geoHeaderActionsStack(200f, 1f, 104f))
+        assertFalse(geoHeaderActionsStack(200f, 2f, 0f))
+        val source = r8UiSource("components/geo/shell/GeoLargeTitleScaffold.kt")
+        val expanded = source.substringAfter("subcompose(\"large\")").substringBefore("subcompose(\"compact\")")
+        val compact = source.substringAfter("subcompose(\"compact\")")
+        listOf(expanded, compact).forEach {
+            assertTrue(it.contains("if (stackActions) Row("))
+            assertTrue(it.contains("content = actions"))
+            assertFalse(it.contains("sorted"))
+        }
+        assertFalse(compact.contains("vertical = 8.dp"))
+    }
+
+    @Test fun mapFooterAppliesTheCallerModifierToItsButton() {
+        val source = r8UiSource("components/geo/GeoMapSheetScaffold.kt")
+        assertTrue(source.contains("primaryActionModifier: Modifier = Modifier"))
+        assertTrue(source.contains("GeoButton(primaryAction.label, primaryAction.onClick, primaryActionModifier.fillMaxWidth()"))
+    }
+
+    @Test fun mapBackdropBypassesTheColumnLimitEvenWhenLargeTextDisablesTwoPanes() {
+        val source = r8UiSource("components/geo/shell/GeoAppShell.kt")
+        val column = source.substringAfter("val column =").substringBefore("Box(column")
+        assertTrue(column.contains("if (mapBackdrop || fullBleed ||"))
+        assertTrue(column.contains("else Modifier.widthIn(max = 720.dp)"))
+    }
+
+    @Test fun forbiddingRevealOverridesAnyPreviouslySavedVisibleState() {
+        listOf(false, true).forEach { previouslyVisible ->
+            assertTrue(geoPasswordMasked(true, false, previouslyVisible))
+            assertFalse(geoPasswordMasked(false, false, previouslyVisible))
+        }
+        assertTrue(geoPasswordMasked(true, true, false))
+        assertFalse(geoPasswordMasked(true, true, true))
+        val source = r8UiSource("components/geo/GeoFields.kt")
+        assertTrue(source.contains("allowPasswordReveal: Boolean = true"))
+        assertTrue(source.contains("if (password && allowPasswordReveal) {"))
+        assertTrue(source.contains("visualTransformation = if (geoPasswordMasked(password, allowPasswordReveal, passwordVisible))"))
+    }
+
     @Test fun headerChangesOnlyAtTheMeasuredCollapseBoundary() {
         assertFalse(geoHeaderCollapsed(0f, 0f))
         assertFalse(geoHeaderCollapsed(39f, 40f))

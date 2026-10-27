@@ -227,6 +227,7 @@ private fun GeoSelectionRow(
     }
     val meta = if (enabled) description else listOfNotNull(description, disabledReason).joinToString(" ")
     val inChoiceSheet = LocalGeoChoiceSheet.current
+    val stackBadge = LocalDensity.current.fontScale >= 1.3f
     val fill = selectionRowFill(c, role, inChoiceSheet, selected, enabled, pressed)
     Row(
         modifier.fillMaxWidth().heightIn(min = if (meta.isNullOrEmpty()) 56.dp else 72.dp)
@@ -245,13 +246,13 @@ private fun GeoSelectionRow(
     ) {
         if (!trailing) indicator(focused)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // A badge sits on the title line, right after the title (board r3-work-device-switcher).
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f, fill = false),
-                    style = MaterialTheme.typography.titleSmall.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f),
+                    style = LocalGeoType.current.titleSm,
                     color = if (enabled) c.text else c.disabledText)
-                badge?.invoke()
+                if (!stackBadge) badge?.invoke()
             }
+            if (stackBadge && badge != null) Box(Modifier.align(Alignment.End)) { badge() }
             if (!meta.isNullOrEmpty()) Text(meta, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         }
         if (trailing) indicator(focused)

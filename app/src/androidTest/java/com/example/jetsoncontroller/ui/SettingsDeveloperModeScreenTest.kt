@@ -82,10 +82,10 @@ class SettingsDeveloperModeScreenTest {
         }
 
         compose.onNodeWithText("도움말").performScrollTo().performClick()
-        compose.onNodeWithText("수집 후 파일에서 저장 결과와 서버 수신을 확인할 수 있습니다.", substring = true)
-            .assertIsDisplayed()
+        compose.onNodeWithText("서버 수신을 확인한 뒤 GEO& Work에 완료를 보고할 수 있습니다.")
+            .performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("뒤로").performClick()
-        compose.onNodeWithText("수집 후 파일에서 저장 결과와 서버 수신을 확인할 수 있습니다.", substring = true)
+        compose.onNodeWithText("서버 수신을 확인한 뒤 GEO& Work에 완료를 보고할 수 있습니다.")
             .assertDoesNotExist()
     }
 
