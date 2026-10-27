@@ -11,6 +11,7 @@ import com.example.jetsoncontroller.ui.components.geo.shell.GeoTab
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
 import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.model.Tone
 
 @Composable
 fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDeviceDataClick: () -> Unit,
@@ -29,7 +30,8 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
                 if (deletionEnabled && state.controlAvailable && !state.isDeleting && state.sessions.any { it.sessionId == frozen.sessionId }) onDeleteSession(frozen)
             }, { pending = null }, kind = GeoConfirmKind.DANGER,
             confirmEnabled = deletionEnabled && state.controlAvailable && !state.isDeleting,
-            disabledReason = "이 화면에서는 서버 데이터를 지울 수 없습니다.", facts = {
+            disabledReason = if (deletionEnabled) "장치와 서버 삭제 상태를 다시 확인하세요."
+                else "이 화면에서는 서버 데이터를 지울 수 없습니다.", facts = {
                 GeoCopyableValue(frozen.displayFolderName, label = "저장 폴더")
                 GeoPropertyRow("서버", state.selectedTarget?.label ?: "선택 안 됨")
             })
@@ -52,38 +54,48 @@ fun ServerStorageScreen(state: ServerStorageUiState, onBack: () -> Unit, onDevic
         } else {
             GeoPickerField("서버", state.selectedTarget?.label ?: "선택 안 됨", { picker = true })
             Spacer(Modifier.height(12.dp))
-            DevText("${deviceName}을 거쳐 조회합니다. 이 화면에서는 지울 수 없습니다.", secondary = true)
-            DevFeedback(state.error, true)
-            if (state.isLoading) GeoSkeleton("확인 중", kind = GeoSkeletonKind.Rows)
+            DevText(if (deletionEnabled) "${deviceName}을 거쳐 조회합니다. 수신 결과 상세에서 서버 데이터를 삭제할 수 있습니다."
+                else "${deviceName}을 거쳐 조회합니다. 이 화면에서는 지울 수 없습니다.", secondary = true)
+            state.error?.let { error ->
+                GeoInlineNote(storageFailureDetail(error, "서버 목록을 불러오지 못했습니다"),
+                    tone = if (if (state.selectedSession == null) state.sessions.isNotEmpty() else state.entries.isNotEmpty())
+                        Tone.WARNING else Tone.ERROR)
+            }
             if (state.isDeleting) GeoProgress()
-            if (state.selectedSession == null) GeoSection("수신 결과", first = true, modifier = Modifier.padding(top = 24.dp), count = "${state.sessions.size}개",
+            if (state.selectedSession == null) GeoSection("수신 결과", first = true, modifier = Modifier.padding(top = 24.dp),
+                count = if (!state.isLoading && state.error == null && state.selectedTarget != null) "${state.sessions.size}개" else null,
                 trailingColumn = GeoRowTrailing.None) {
-                state.sessions.forEach { session ->
+                if (state.isLoading && state.sessions.isEmpty()) GeoSkeleton("수신 결과를 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
+                state.sessions.forEachIndexed { index, session ->
                     GeoRow(proxySessionTitle(session.displayFolderName, session.completedAt ?: session.createdAt), { onSessionClick(session) },
                         meta = listOfNotNull(devTimestamp(session.completedAt ?: session.createdAt), Formats.size(session.totalBytes)).joinToString(" · "),
-                        leading = { GeoIconTile(GeoIcons.folder) })
-                    if (deletionEnabled) GeoButton("영구 삭제", { pending = session }, style = GeoButtonStyle.DangerOutline, enabled = !state.isDeleting)
+                        leading = { GeoIconTile(GeoIcons.folder) }, divider = index < state.sessions.lastIndex)
                 }
-                if (state.sessions.isEmpty() && !state.isLoading && state.error == null) DevEmpty("수신 결과가 없습니다", "이 서버에 전송한 자료가 여기에 표시됩니다.")
+                if (state.sessions.isEmpty() && !state.isLoading && state.error == null)
+                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "수신 결과가 없습니다", "이 서버에 전송한 자료가 여기에 표시됩니다."))
                 if (state.nextOffset != null) GeoButton("이전 수신 결과 더 불러오기", onLoadMore, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !state.isLoading)
             } else {
-                DevIdentity(proxySessionTitle(state.selectedSession.displayFolderName, state.selectedSession.completedAt ?: state.selectedSession.createdAt),
-                    state.currentPath.ifEmpty { "맨 위" })
                 GeoCopyableValue(state.selectedSession.displayFolderName, label = "저장 폴더")
+                if (state.currentPath.isNotEmpty()) DevText(state.currentPath, secondary = true)
                 MediaFilters(category) { category = it }
                 GeoSection("파일", first = true, modifier = Modifier.padding(top = 24.dp), trailingColumn = GeoRowTrailing.None) {
                     val visible = state.entries.filter { it.type == RemoteEntryType.DIRECTORY || category == "전체" || mediaCategory(it) == category }
-                    visible.forEach { entry -> GeoRow(breakableFileName(entry.name),
+                    if (state.isLoading && state.entries.isEmpty()) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
+                    visible.forEachIndexed { index, entry -> GeoRow(breakableFileName(entry.name),
                         { if (entry.type == RemoteEntryType.DIRECTORY) onDirectoryClick(entry) else onFileClick(entry) },
-                        meta = if (entry.type == RemoteEntryType.DIRECTORY) "폴더" else Formats.size(entry.sizeBytes),
+                        meta = fileEntryMeta(entry),
                         leading = { MediaThumbnail(entry, "${state.deviceId}/${state.selectedTarget?.id}/${state.selectedSession.sessionId}", thumbnailLoader) },
-                        leadingIsPhoto = mediaCategory(entry) == "이미지",
-                        extra = { GeoCopyableValue(entry.name) }) }
-                    if (visible.isEmpty() && !state.isLoading && state.error == null) DevEmpty("빈 폴더입니다", "이 위치에는 표시할 파일이 없습니다.")
+                        leadingIsPhoto = mediaCategory(entry) == "이미지", divider = index < visible.lastIndex) }
+                    if (visible.isEmpty() && !state.isLoading && state.error == null)
+                        GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "빈 폴더입니다", "이 위치에는 표시할 파일이 없습니다."))
                     if (state.listingTruncated) DevText("항목이 많아 현재 폴더의 처음 500개만 표시합니다.")
                 }
-                GeoTechInfo(listOf(GeoTechnicalValue("수신 ID", state.selectedSession.sessionId),
-                    GeoTechnicalValue("저장 폴더", state.selectedSession.displayFolderName)), true, technical)
+                if (deletionEnabled) GeoSection("관리", danger = true) {
+                    GeoButton("영구 삭제", { pending = state.selectedSession }, Modifier.fillMaxWidth(),
+                        style = GeoButtonStyle.DangerOutline, enabled = !state.isDeleting,
+                        disabledReason = "서버 데이터를 삭제하고 있습니다.")
+                }
+                GeoTechInfo(listOf(GeoTechnicalValue("수신 ID", state.selectedSession.sessionId)), true, technical)
             }
             GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !state.isLoading)
         }

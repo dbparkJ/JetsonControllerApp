@@ -31,6 +31,7 @@ internal fun StoragePage(
     actions: @Composable RowScope.() -> Unit = {},
     showHeader: Boolean = true,
     primaryAction: GeoButtonAction? = null,
+    maxContentWidth: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp.Infinity,
     content: @Composable ColumnScope.() -> Unit
 ) {
     if (media) {
@@ -40,8 +41,11 @@ internal fun StoragePage(
             Column(Modifier.fillMaxSize(), content = content)
         }
     } else if (showHeader) {
-        GeoLargeTitleScaffold(title, onBack = onBack, actions = actions, primaryAction = primaryAction) {
-            Column(Modifier.fillMaxSize(), content = content)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            GeoLargeTitleScaffold(title, modifier = Modifier.widthIn(max = maxContentWidth).fillMaxSize(),
+                onBack = onBack, actions = actions, primaryAction = primaryAction) {
+                Column(Modifier.fillMaxSize(), content = content)
+            }
         }
     } else {
         Column(Modifier.fillMaxSize(), content = content)
@@ -52,8 +56,9 @@ internal fun StoragePage(
 @Composable
 internal fun StorageActionLayout(
     visible: Boolean,
-    action: @Composable () -> Unit,
+    action: (@Composable () -> Unit)? = null,
     primaryAction: GeoButtonAction? = null,
+    note: (@Composable () -> Unit)? = null,
     body: @Composable () -> Unit
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -61,11 +66,11 @@ internal fun StorageActionLayout(
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) { body() }
         if (visible) {
-            Column(Modifier.fillMaxWidth().heightIn(max = summaryLimit).geoContainScroll()
+            if (action != null) Column(Modifier.fillMaxWidth().heightIn(max = summaryLimit).geoContainScroll()
                 .verticalScroll(rememberScrollState()).padding(horizontal = storageGutter, vertical = 12.dp)) {
                 action()
             }
-            primaryAction?.let { GeoFixedActionBar(it) }
+            primaryAction?.let { GeoFixedActionBar(it, note = note) }
         }
     }
     }
@@ -103,16 +108,25 @@ internal fun StorageRefresh(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    PullToRefreshBox(refreshing, { if (enabled) onRefresh() }, modifier.semantics {
+    var userRefresh by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing) { if (!refreshing) userRefresh = false }
+    val refresh = {
+        if (enabled && !refreshing) {
+            userRefresh = true
+            onRefresh()
+        }
+    }
+    PullToRefreshBox(refreshing && userRefresh, refresh, modifier.semantics {
         customActions = listOf(CustomAccessibilityAction("새로 고침") {
-            if (enabled) onRefresh()
-            enabled
+            refresh()
+            enabled && !refreshing
         })
     }, content = content)
 }
 
 @Composable
-internal fun StorageFreshness(updatedAt: Long?, onRefresh: () -> Unit, prefix: String? = null, server: Boolean = true) {
+internal fun StorageFreshness(updatedAt: Long?, onRefresh: () -> Unit, prefix: String? = null, server: Boolean = true,
+    loading: Boolean = false, forceVisible: Boolean = false) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(updatedAt) {
         now = System.currentTimeMillis()
@@ -120,13 +134,15 @@ internal fun StorageFreshness(updatedAt: Long?, onRefresh: () -> Unit, prefix: S
     }
     val instant = updatedAt?.let(Instant::ofEpochMilli)
     val age = instant?.let { Duration.between(it, Instant.ofEpochMilli(now)).coerceAtLeast(Duration.ZERO) }
-    if (prefix != null || age == null || age >= Duration.ofSeconds(60)) {
+    if (loading && instant == null) return
+    if (forceVisible || prefix != null || age == null || age >= Duration.ofSeconds(60)) {
         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Text(if (prefix != null && server) "$prefix · 마지막 동기화 ${Formats.time(instant)}"
                 else if (prefix != null) "$prefix · ${Formats.freshness(age, instant)}"
                 else Formats.freshness(age, instant),
                 style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary)
-            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+            GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start,
+                enabled = !loading)
         }
     }
 }

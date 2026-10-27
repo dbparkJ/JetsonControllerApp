@@ -19,14 +19,14 @@ class GeoBadgeColorsTest {
         }
     }
 
-    @Test fun `explicit soft badges preserve their tone fills for compatibility`() {
+    @Test fun `legacy soft statuses use transparent fill`() {
         GeoPalette.entries.forEach { palette ->
             val c = palette.colors
             val expected = mapOf(Tone.SUCCESS to c.successSoft, Tone.WARNING to c.warningSoft, Tone.ERROR to c.dangerSoft,
                 Tone.INFO to c.primaryTint, Tone.PENDING to c.pendingSoft, Tone.UNKNOWN to c.neutralSoft)
             expected.forEach { (tone, fill) ->
                 val soft = geoBadgeColors(c, tone, GeoBadgeVariant.SOFT)
-                assertEquals(fill, soft.fill)
+                assertEquals(Color.Transparent, soft.fill)
                 assertEquals(geoBadgeColors(c, tone, GeoBadgeVariant.INLINE).ink, soft.ink)
             }
         }

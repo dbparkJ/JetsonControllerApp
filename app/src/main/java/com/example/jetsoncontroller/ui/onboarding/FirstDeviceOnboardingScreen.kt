@@ -56,7 +56,7 @@ fun FirstDeviceOnboardingScreen(
             GeoGroupedSection("등록에 필요한 권한") {
                 PermissionRow(GeoIcons.camera, "카메라", "QR 코드를 읽습니다.")
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                    PermissionRow(GeoIcons.bluetooth, "위치",
+                    PermissionRow(GeoIcons.myLocation, "위치",
                         "블루투스로 가까운 장치를 찾습니다. 위치 서비스도 켜세요.", divider = false)
                 } else {
                     PermissionRow(GeoIcons.bluetooth, "블루투스", "가까운 장치를 찾아 인증합니다.", divider = false)

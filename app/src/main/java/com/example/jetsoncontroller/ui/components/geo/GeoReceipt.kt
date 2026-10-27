@@ -71,6 +71,9 @@ fun GeoReceiptLine(state: GeoReceiptState, modifier: Modifier = Modifier, compac
 internal fun receiptDescription(state: GeoReceiptState): String =
     state.rows().joinToString(", ") { (step, item) -> "${step.title}: ${item.word}" }
 
+internal fun receiptTrackWord(index: Int, word: String): String =
+    if (word == listOf("종료", "저장", "수신", "보고")[index]) "완료" else word
+
 internal fun receiptDone(step: GeoReceiptStep, item: GeoReceiptItem): Boolean =
     item.done && !(step == GeoReceiptStep.REPORT && item.word == "해당 없음")
 
@@ -115,7 +118,7 @@ private fun ReceiptTrack(state: GeoReceiptState, modifier: Modifier = Modifier) 
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(listOf("종료", "저장", "수신", "보고")[index], color = colors.text,
                         style = LocalGeoType.current.caption, textAlign = TextAlign.Center)
-                    Text(item.word, color = colors.tone(receiptTone(step, item)),
+                    Text(receiptTrackWord(index, item.word), color = colors.tone(receiptTone(step, item)),
                         style = LocalGeoType.current.caption, textAlign = TextAlign.Center)
                 }
             }

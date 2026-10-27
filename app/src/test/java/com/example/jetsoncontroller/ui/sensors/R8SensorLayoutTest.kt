@@ -23,14 +23,33 @@ class R8SensorLayoutTest {
         assertTrue(camera.contains("ContentScale.Fit"))
     }
 
-    @Test fun captureDestinationsStayInAChoiceSheetAndStatusCanScroll() {
+    @Test fun captureDestinationsStayInAChoiceSheetAndMediaUsesDedicatedSlots() {
         val camera = source("CameraPreviewScreen")
         assertTrue(camera.contains("kind = GeoSheetKind.CHOICE"))
         assertTrue(camera.contains("GeoCheckboxRow(\"장치에 저장\""))
         assertTrue(camera.contains("GeoCheckboxRow(\"휴대폰 갤러리에 저장\""))
         assertTrue(camera.contains("GeoSheetFooter(GeoOverlayAction(\"캡처\""))
-        assertTrue(camera.contains("Modifier.weight(1f).verticalScroll(rememberScrollState())"))
-        assertTrue(camera.contains("GeoMediaIconButton(GeoIcons.refresh, \"다시 시도\", onRefresh"))
+        assertTrue(camera.contains("info = GeoMediaInfoSpec("))
+        assertTrue(camera.contains("caption = if (compactInfo) null"))
+        assertTrue(camera.contains("if (compactInfo) {"))
+        assertTrue(camera.contains("cameraPreviewErrorExplanation(state.error)"))
+        assertTrue(camera.contains("onRetry = if (stage == CameraStageState.ERROR) onRefresh else null"))
+        assertTrue(camera.contains("retryEnabled = !state.isRefreshing"))
+        assertTrue(camera.contains("loadingText = if (stage == CameraStageState.WAITING)"))
+        assertFalse(camera.contains("GeoMediaIconButton(GeoIcons.refresh"))
+        assertFalse(camera.contains("GeoSkeleton("))
+    }
+
+    @Test fun offlineSensorsKeepTheirStatusColumnWithoutEnablingNavigation() {
+        val sensors = source("SensorScreen")
+        assertTrue(sensors.contains("GeoRowList(GeoRowTrailing.Status)"))
+        assertTrue(sensors.contains("canOpen = current && control"))
+        assertTrue(sensors.contains("canOpen = current, unavailableReason"))
+        assertTrue(sensors.contains("if (!canOpen) disabled()"))
+        assertTrue(sensors.contains("navigable = canOpen"))
+        assertTrue(sensors.contains("meta = if (canOpen) meta else unavailableReason"))
+        assertFalse(sensors.contains("listOf(camera.badge"))
+        assertFalse(sensors.contains("listOf(location.word"))
     }
 
     @Test fun gnssKeepsTheSharedMapQualityAndFreshnessContract() {

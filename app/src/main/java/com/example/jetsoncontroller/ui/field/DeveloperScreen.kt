@@ -40,7 +40,8 @@ fun DeveloperScreen(
             onDeveloperModeChange(enabled)
             if (!enabled) onDeveloperDisabled()
         }, description = "끄면 설정으로 돌아갑니다.")
-        GeoSwitchRow("화면에 기술 정보 표시", technical, { technical = it }, description = "상세 화면 끝에 기술 정보를 보여 줍니다.")
+        GeoSwitchRow("화면에 기술 정보 표시", technical, { technical = it },
+            description = "상세 화면 끝에 기술 정보를 보여 줍니다.", divider = false)
         }
         devHubSections.forEach { (section, doors) ->
             GeoGroupedSection(section) {
@@ -53,10 +54,25 @@ fun DeveloperScreen(
                             DevDestination.TERMINAL, DevDestination.NETWORK, DevDestination.SENSOR_TEST -> open(door.destination.route)
                             else -> onAdminTools()
                         }
-                    }, leading = { GeoIconTile(GeoIcons.terminal) }, divider = doorIndex < doors.lastIndex)
+                    }, leading = { GeoIconTile(developerDoorIcon(door.destination)) }, divider = doorIndex < doors.lastIndex)
                 }
             }
         }
       }
     }
+}
+
+internal fun developerDoorIcon(destination: DevDestination) = when (destination) {
+    DevDestination.TERMINAL -> GeoIcons.terminal
+    DevDestination.FAN -> GeoIcons.fan
+    DevDestination.NETWORK -> GeoIcons.wifi
+    DevDestination.SENSOR_TEST -> GeoIcons.camera
+    DevDestination.PIPELINES -> GeoIcons.log
+    DevDestination.NEW_PIPELINE -> GeoIcons.add
+    DevDestination.UPLOAD_TARGETS -> GeoIcons.send
+    DevDestination.PROFILES -> GeoIcons.router
+    DevDestination.SERVER_TRASH -> GeoIcons.trash
+    DevDestination.SERVER_PROXY -> GeoIcons.link
+    DevDestination.DIAGNOSTICS -> GeoIcons.log
+    else -> GeoIcons.tabSettings
 }

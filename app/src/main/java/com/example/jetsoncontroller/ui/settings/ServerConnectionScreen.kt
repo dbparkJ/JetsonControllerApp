@@ -118,7 +118,7 @@ internal fun ServerConnectionScreen(
                     ServerConnectionStatusRow(state)
                     GeoPropertyList(listOf("서버", "주소", "환경", "직원", "프로젝트")) {
                     GeoFactRow("서버", profile.profile.displayName)
-                    GeoPropertyRow("주소", profile.profile.baseUrl, valueContent = { GeoCopyableValue(profile.profile.baseUrl) })
+                    GeoCopyableValue(profile.profile.baseUrl, Modifier.padding(vertical = 12.dp), label = "주소")
                     GeoFactRow("환경", serverEnvironmentLabel(profile.profile.environment))
                     GeoFactRow("직원", profile.profile.employeeId)
                     GeoFactRow("프로젝트", profile.profile.projectId)

@@ -54,6 +54,9 @@ fun GeoProgress(
     showPercentage: Boolean = true
 ) {
     val c = LocalGeoColors.current
+    val inverse = LocalGeoInverseSurface.current
+    val track = if (inverse) c.text.copy(alpha = .20f) else c.field
+    val fill = if (inverse) c.text else c.primary
     val fraction = progress?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
     val percent = fraction?.let { (it * 100).toInt() }
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -67,9 +70,9 @@ fun GeoProgress(
                 fraction, tween(180, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)), label = "geoProgress"
             )
             Canvas(barModifier) {
-                drawRoundRect(c.field, cornerRadius = CornerRadius(2.dp.toPx()))
+                drawRoundRect(track, cornerRadius = CornerRadius(2.dp.toPx()))
                 if (animated > 0f) {
-                    drawRoundRect(c.primary, size = Size(size.width * animated, size.height), cornerRadius = CornerRadius(2.dp.toPx()))
+                    drawRoundRect(fill, size = Size(size.width * animated, size.height), cornerRadius = CornerRadius(2.dp.toPx()))
                 }
             }
         } else {
@@ -78,8 +81,8 @@ fun GeoProgress(
                 -0.3f, 1f, infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart), label = "position"
             )
             Canvas(barModifier) {
-                drawRoundRect(c.field, cornerRadius = CornerRadius(2.dp.toPx()))
-                drawRoundRect(c.primary, topLeft = Offset(size.width * position, 0f),
+                drawRoundRect(track, cornerRadius = CornerRadius(2.dp.toPx()))
+                drawRoundRect(fill, topLeft = Offset(size.width * position, 0f),
                     size = Size(size.width * 0.3f, size.height), cornerRadius = CornerRadius(2.dp.toPx()))
             }
         }

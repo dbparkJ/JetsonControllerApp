@@ -109,6 +109,20 @@ internal fun ticketReportStateLabel(ticket: ServerTicket): String {
 internal fun ticketStatusLabel(ticket: ServerTicket): String =
     ticketSegmentState(ticket).word
 
+internal fun ticketTodayStatusLabel(ticket: ServerTicket): String =
+    if (ticketSegmentState(ticket) == TicketSegmentState.TODO) "수집 전" else ticketStatusLabel(ticket)
+
+/** The heading already names the failed operation; keep its cause and recovery here. */
+internal fun ticketLoadErrorDescription(error: String): String {
+    val detail = error.trim().removePrefix("수집 구간을 불러오지 못했습니다").trimStart('.', ' ', '\n', '\r')
+    return when {
+        detail.isBlank() -> "서버 연결 상태를 확인한 뒤 다시 시도하세요."
+        detail == "티켓 목록을 새로고침하지 못했습니다. 저장된 목록을 표시합니다." ->
+            "서버에서 최신 목록을 받지 못했습니다. 서버 연결 상태를 확인한 뒤 다시 시도하세요."
+        else -> detail
+    }
+}
+
 /** A person marked the ticket 막힘; the app never starts it or moves it on their behalf. */
 internal const val TICKET_BLOCKED_COPY = "막힘 상태입니다. GEO& Work에서 상태를 바꾼 뒤 시작하세요."
 

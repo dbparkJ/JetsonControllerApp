@@ -15,7 +15,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.SubcomposeLayout
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -33,12 +32,13 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoType
 fun geoHeaderCollapsed(offsetPx: Float, rangePx: Float): Boolean =
     rangePx > 0f && offsetPx >= rangePx - 0.5f
 
-/** Three 48dp targets with two 8dp gaps need their own action row. */
-internal fun geoHeaderActionsStack(widthDp: Float, fontScale: Float, actionsWidthDp: Float): Boolean =
-    actionsWidthDp > 0f && (fontScale >= 1.3f || actionsWidthDp >= 160f || actionsWidthDp * 2f > widthDp)
+/** Title and controls are measured at the current font scale before choosing a line. */
+@Suppress("UNUSED_PARAMETER")
+internal fun geoHeaderActionsStack(widthDp: Float, fontScale: Float, actionsWidthDp: Float, titleWidthDp: Float = 0f): Boolean =
+    actionsWidthDp > 0f && titleWidthDp + 8f + actionsWidthDp > widthDp
 
 internal fun geoHeaderTitleTrailingStacks(widthDp: Float, fontScale: Float, titleWidthDp: Float, trailingWidthDp: Float): Boolean =
-    fontScale >= 1.3f || titleWidthDp + 12f + trailingWidthDp > widthDp
+    titleWidthDp + 12f + trailingWidthDp > widthDp
 
 @Stable
 class GeoLargeTitleState {
@@ -82,9 +82,15 @@ fun rememberGeoLargeTitleState(): GeoLargeTitleState = rememberSaveable(saver = 
 @Composable
 fun GeoDetailToolbar(onBack: () -> Unit, modifier: Modifier = Modifier,
     actions: @Composable RowScope.() -> Unit = {}) {
-    Row(modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp),
+    GeoDetailTools(onBack, modifier, actions)
+}
+
+@Composable
+private fun GeoDetailTools(onBack: (() -> Unit)?, modifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit = {}) {
+    Row(modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = if (LocalGeoPane.current) 0.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        GeoIconButton(GeoIcons.back, "뒤로", onBack)
+        if (onBack != null) GeoIconButton(GeoIcons.back, "뒤로", onBack)
         Spacer(Modifier.weight(1f))
         actions()
     }
@@ -99,29 +105,37 @@ fun GeoLargeTitleHeader(
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     titleTrailingContent: (@Composable () -> Unit)? = null,
+    subtitleStatus: GeoStatusSpec? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val c = LocalGeoColors.current
     val t = LocalGeoType.current
     val back = onBack?.takeUnless { LocalGeoDetailRoot.current }
+    val detail = onBack != null || LocalGeoDetailRoot.current
     val gutter = if (LocalGeoPane.current) 0.dp else 24.dp
     val density = LocalDensity.current
-    var actionsWidthDp by remember { mutableFloatStateOf(0f) }
-    val actionModifier = Modifier.onSizeChanged { actionsWidthDp = it.width / density.density }
+    val measurer = rememberTextMeasurer()
+    val titleWidth = measurer.measure(AnnotatedString(title), t.largeTitle, softWrap = false).size.width
     SubcomposeLayout(modifier.fillMaxWidth().background(c.canvas).clipToBounds()) { constraints ->
         val loose = constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity)
         val availableWidth = (constraints.maxWidth - (gutter * 2).roundToPx()).coerceAtLeast(0)
-        val stackActions = geoHeaderActionsStack(availableWidth.toDp().value, density.fontScale, actionsWidthDp)
+        val actionWidth = subcompose("action-measure") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
+        }.single().measure(Constraints(maxWidth = availableWidth)).width
+        val actionModifier = Modifier
+        val showTools = detail && (back != null || actionWidth > 0)
+        val stackActions = !detail && geoHeaderActionsStack(availableWidth.toDp().value,
+            density.fontScale, actionWidth.toDp().value, titleWidth.toDp().value)
         val expanded = subcompose("large") {
             Column(Modifier.then(if (state.collapsed) Modifier.clearAndSetSemantics {} else Modifier)) {
-                if (back != null) GeoDetailToolbar(back, actions = {
-                    if (!stackActions) Row(actionModifier, horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
+                if (showTools) GeoDetailTools(back, actions = {
+                    Row(actionModifier, horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
                 })
                 Column(Modifier.padding(start = gutter, end = gutter, top = 8.dp, bottom = 20.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        GeoLargeTitleBlock(title, subtitle, titleTrailingContent, Modifier.weight(1f))
-                        if (back == null && !stackActions) Row(actionModifier, horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
+                        GeoLargeTitleBlock(title, subtitle, titleTrailingContent, Modifier.weight(1f), subtitleStatus)
+                        if (!detail && !stackActions) Row(actionModifier, horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
                     }
                     if (stackActions) Row(actionModifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
                 }
@@ -159,7 +173,7 @@ fun GeoLargeTitleHeader(
 /** Measure the photo independently so the title keeps its full width when the pair cannot fit. */
 @Composable
 private fun GeoLargeTitleBlock(title: String, subtitle: String?, titleTrailingContent: (@Composable () -> Unit)?,
-    modifier: Modifier = Modifier) {
+    modifier: Modifier = Modifier, subtitleStatus: GeoStatusSpec? = null) {
     val c = LocalGeoColors.current
     val t = LocalGeoType.current
     val density = LocalDensity.current
@@ -177,7 +191,7 @@ private fun GeoLargeTitleBlock(title: String, subtitle: String?, titleTrailingCo
         val text = subcompose("title-text") {
             Column {
                 Text(title, Modifier.semantics { heading() }, style = t.largeTitle, color = c.text, maxLines = 2)
-                subtitle?.let { Text(it, color = c.textSecondary, style = t.supporting) }
+                GeoSubtitleLine(subtitle, subtitleStatus)
             }
         }.single().measure(loose.copy(maxWidth = textWidth))
         val height = if (stacked) text.height + gap + trailing!!.height else maxOf(text.height, trailing?.height ?: 0)
@@ -195,13 +209,14 @@ fun GeoFixedActionBar(
     primaryAction: GeoButtonAction,
     modifier: Modifier = Modifier,
     secondaryAction: GeoButtonAction? = null,
-    systemInset: Boolean = false
+    systemInset: Boolean = false,
+    note: (@Composable () -> Unit)? = null
 ) {
     Box(modifier.fillMaxWidth().background(LocalGeoColors.current.canvas)
         .then(if (systemInset) Modifier.navigationBarsPadding() else Modifier)
         .padding(horizontal = if (LocalGeoPane.current) 0.dp else 24.dp,
-            vertical = if (LocalGeoPane.current) 0.dp else 12.dp), contentAlignment = Alignment.Center) {
-        GeoButtonActions(listOfNotNull(secondaryAction, primaryAction))
+            vertical = 12.dp), contentAlignment = Alignment.Center) {
+        GeoButtonActions(listOfNotNull(secondaryAction, primaryAction), note = note)
     }
 }
 
@@ -217,12 +232,28 @@ fun GeoLargeTitleScaffold(
     state: GeoLargeTitleState = rememberGeoLargeTitleState(),
     titleTrailingContent: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    subtitleStatus: GeoStatusSpec? = null,
+    note: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Column(modifier.fillMaxSize().background(LocalGeoColors.current.canvas).nestedScroll(state.connection)) {
         GeoLargeTitleHeader(title, state, subtitle = subtitle, onBack = onBack,
-            titleTrailingContent = titleTrailingContent, actions = actions)
+            titleTrailingContent = titleTrailingContent, actions = actions, subtitleStatus = subtitleStatus)
         Box(Modifier.weight(1f).fillMaxWidth()) { content() }
-        primaryAction?.let { GeoFixedActionBar(it, secondaryAction = secondaryAction) }
+        primaryAction?.let { GeoFixedActionBar(it, secondaryAction = secondaryAction, note = note) }
+    }
+}
+
+data class GeoStatusSpec(val word: String, val tone: com.example.jetsoncontroller.ui.model.Tone)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GeoSubtitleLine(subtitle: String?, status: GeoStatusSpec?) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        status?.let { GeoBadge(it.word, it.tone) }
+        subtitle?.let {
+            Text(if (status == null) it else "· $it", color = LocalGeoColors.current.textSecondary,
+                style = LocalGeoType.current.supporting)
+        }
     }
 }

@@ -271,7 +271,8 @@ class TransfersHomeUiStateTest {
         val row = state.awaitingVerification.single()
 
         assertEquals(Tone.PENDING, row.tone)
-        assertEquals("수신 확인 중", row.detail)
+        assertEquals("1.0 KB", row.detail)
+        assertFalse(row.detail.contains("수신 확인 중"))
         assertTrue(state.verified.isEmpty())
     }
 
@@ -426,7 +427,7 @@ class TransfersHomeUiStateTest {
 
         assertEquals("job-1", state.active.single().jobId)
         assertEquals(listOf("job-2"), state.queued.map { it.jobId })
-        assertEquals("대기 중", state.queued.single().detail)
+        assertEquals("1.0 KB", state.queued.single().detail)
     }
 
     @Test

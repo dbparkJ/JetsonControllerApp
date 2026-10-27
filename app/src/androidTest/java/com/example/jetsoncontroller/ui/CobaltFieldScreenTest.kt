@@ -178,7 +178,7 @@ class CobaltFieldScreenTest {
     }
 
     private fun selectFile(path: String) {
-        compose.onNode(hasText("선택") and hasAnyAncestor(hasTestTag("file-selection-$path")))
+        compose.onNode(isToggleable() and hasAnyAncestor(hasTestTag("file-selection-$path")))
             .performScrollTo().performClick().assertIsOn()
     }
 

@@ -14,6 +14,8 @@ class R8OnboardingLayoutTest {
         assertTrue(onboarding.contains("GeoButtonAction(\"장치 없이 서버 파일 보기\", it, GeoButtonStyle.Tertiary)"))
         assertTrue(onboarding.contains("GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY"))
         assertTrue(onboarding.contains("if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S)"))
+        assertTrue(onboarding.contains("PermissionRow(GeoIcons.myLocation, \"위치\""))
+        assertFalse(onboarding.contains("PermissionRow(GeoIcons.bluetooth, \"위치\""))
         assertTrue(onboarding.contains("GeoGroupedSection(\"등록에 필요한 권한\")"))
         assertFalse(onboarding.contains("WorkSurfaceCard"))
     }

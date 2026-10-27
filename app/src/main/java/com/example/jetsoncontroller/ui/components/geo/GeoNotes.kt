@@ -35,7 +35,8 @@ fun GeoInlineNote(
     val colors = LocalGeoColors.current
     Row(modifier.fillMaxWidth().background(colors.soft(tone), GeoShape.card)
         .then(if (kind == GeoNoteKind.LIVE_ERROR) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier)
-        .padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        .padding(horizontal = 16.dp, vertical = if (LocalGeoGroupInset.current) 12.dp else 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         GeoToneIcon(tone)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text, color = colors.text, style = LocalGeoType.current.body)

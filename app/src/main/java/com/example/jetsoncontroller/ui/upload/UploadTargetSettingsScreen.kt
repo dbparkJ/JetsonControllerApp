@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.model.UploadTarget
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.dev.*
+import com.example.jetsoncontroller.ui.model.Tone
 import java.net.URI
 
 @Composable
@@ -38,14 +39,21 @@ fun UploadTargetSettingsScreen(
         GeoIconButton(GeoIcons.add, "서버 추가", { open(null) }, enabled = controlAvailable, chrome = true)
     }) {
         DevFeedback(message)
-        DevFeedback(error, true)
+        error?.let {
+            GeoInlineNote("업로드 서버를 불러오지 못했습니다. 장치 연결을 확인하세요.",
+                tone = if (targets.isEmpty()) Tone.ERROR else Tone.WARNING)
+        }
         if (!controlAvailable) DevText("장치에 연결하면 서버를 설정할 수 있습니다.")
         when {
             isLoading -> DevLoading()
+            error != null && targets.isEmpty() -> Unit
             targets.isEmpty() -> DevEmpty("등록된 업로드 서버가 없습니다", "서버를 추가하면 여기에 표시됩니다.", "서버 추가", { open(null) })
             else -> GeoSection("서버", first = true, count = "${targets.size}개", note = "${deviceName}에 저장된 서버입니다.",
                 trailingColumn = GeoRowTrailing.None) {
-                targets.forEach { target -> DevAddressRow(target.label, target.baseUrl ?: "주소 미확인", { open(target) }) }
+                targets.forEachIndexed { index, target ->
+                    GeoRow(target.label, { open(target) }, meta = target.baseUrl ?: "주소 미확인",
+                        leading = { GeoIconTile(GeoIcons.router) }, divider = index < targets.lastIndex)
+                }
             }
         }
         GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = controlAvailable && !isLoading)

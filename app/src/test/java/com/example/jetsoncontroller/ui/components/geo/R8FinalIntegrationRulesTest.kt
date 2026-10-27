@@ -11,7 +11,7 @@ class R8FinalIntegrationRulesTest {
         listOf(pane, action).forEach { assertTrue(it.contains("leadingIsPhoto: Boolean = false")) }
         assertTrue(pane.contains("leadingIsPhoto = leadingIsPhoto"))
         assertTrue(action.contains("geoRowAnatomy(twoLine = true, photo = leadingIsPhoto)"))
-        assertTrue(action.contains("contentDivider(tone, anatomy.dividerXDp.dp)"))
+        assertTrue(action.contains("contentDivider(tone, if (leading == null) 16.dp else anatomy.dividerXDp.dp, enabled = divider)"))
         assertTrue(action.contains("anatomy.textXDp - anatomy.leadingXDp - anatomy.leadingSizeDp"))
         assertEquals(GeoRowAnatomy(72, 16, 40, 68, 68), geoRowAnatomy(true, true))
         assertEquals(PaneListRowCorners(false, false), paneListRowCorners(1, 3))
@@ -25,7 +25,7 @@ class R8FinalIntegrationRulesTest {
         assertFalse(geoHeaderTitleTrailingStacks(312f, 1f, 180f, 80f))
         assertFalse(geoHeaderTitleTrailingStacks(272f, 1.29f, 180f, 80f))
         assertTrue(geoHeaderTitleTrailingStacks(271f, 1f, 180f, 80f))
-        listOf(1.3f, 1.5f, 2f).forEach { assertTrue(geoHeaderTitleTrailingStacks(720f, it, 180f, 80f)) }
+        listOf(1.3f, 1.5f, 2f).forEach { assertFalse(geoHeaderTitleTrailingStacks(720f, it, 180f, 80f)) }
         val source = r8UiSource("components/geo/shell/GeoLargeTitleScaffold.kt")
         assertEquals(2, Regex("titleTrailingContent: \\(@Composable \\(\\) -> Unit\\)\\? = null").findAll(source).count())
         assertTrue(source.contains("titleTrailingContent = titleTrailingContent"))
@@ -59,6 +59,12 @@ class R8FinalIntegrationRulesTest {
 
     @Test fun pipelineErrorsKeepCopyableTechnicalDetailsBehindDeveloperMode() {
         val source = r8UiSource("pipelines/PipelineScreens.kt")
-        assertTrue(source.contains("if (developerModeEnabled) state.technicalError?.let { GeoCopyableValue(it, label = \"오류 상세\") }"))
+        val technicalDetails = Regex(
+            """if\s*\(([^)]+)\)\s*state\.technicalError\?\.let\s*\{\s*GeoCopyableValue\(it,\s*label\s*=\s*"오류 상세"\)\s*}"""
+        ).findAll(source).toList()
+        assertEquals(1, technicalDetails.size)
+        val conditions = technicalDetails.single().groupValues[1].split("&&").map(String::trim)
+        assertTrue(conditions.contains("developerModeEnabled"))
+        assertTrue(conditions.contains("!state.isLoading"))
     }
 }

@@ -2,6 +2,13 @@ package com.example.jetsoncontroller.ui.pipelines
 
 internal enum class PipelineDetailContent { OFFLINE, ERROR, LOADING, EMPTY, CONTENT }
 
+internal fun pipelineListContent(loading: Boolean, error: String?, hasItems: Boolean): PipelineDetailContent = when {
+    hasItems -> PipelineDetailContent.CONTENT
+    loading -> PipelineDetailContent.LOADING
+    error != null -> PipelineDetailContent.ERROR
+    else -> PipelineDetailContent.EMPTY
+}
+
 internal fun pipelineLogIsLive(available: Boolean, polling: Boolean, active: Boolean): Boolean = available && polling && active
 
 internal fun pipelineDetailContent(available: Boolean, loading: Boolean, error: String?, hasContent: Boolean): PipelineDetailContent = when {

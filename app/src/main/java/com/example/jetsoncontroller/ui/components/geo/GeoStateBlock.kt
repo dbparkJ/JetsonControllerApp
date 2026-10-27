@@ -5,6 +5,7 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -27,15 +28,21 @@ fun GeoStateBlock(
     onAction: (() -> Unit)? = null
 ) {
     val colors = LocalGeoColors.current
-    Column(modifier.fillMaxWidth().padding(top = if (fullScreen) 56.dp else 0.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(state.title, color = colors.text,
-            style = LocalGeoType.current.emptyStateTitle,
-            modifier = Modifier.semantics { heading() })
-        Text(state.explanation, color = colors.textSecondary, style = LocalGeoType.current.supporting)
-        if (state.actionLabel != null && onAction != null) {
-            Spacer(Modifier.height(4.dp))
-            GeoButton(state.actionLabel, onAction, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+    val inGroup = LocalGeoGroupInset.current
+    Box(modifier.fillMaxWidth().geoGroupInset(), contentAlignment =
+        if (inGroup) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopCenter) {
+        CompositionLocalProvider(LocalGeoGroupInset provides false) {
+            Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(top = if (fullScreen) 56.dp else 0.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(state.title, color = colors.text,
+                    style = LocalGeoType.current.emptyStateTitle,
+                    modifier = Modifier.semantics { heading() })
+                Text(state.explanation, color = colors.textSecondary, style = LocalGeoType.current.supporting)
+                if (state.actionLabel != null && onAction != null) {
+                    Spacer(Modifier.height(4.dp))
+                    GeoButton(state.actionLabel, onAction, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+                }
+            }
         }
     }
 }

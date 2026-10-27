@@ -181,7 +181,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
         }
         if (switcher) GeoSheet("장치 선택", { switcher = false }, kind = GeoSheetKind.CHOICE, openerFocusRequester = opener) {
           Column(Modifier.selectableGroup()) {
-            deviceState.registeredDevices.forEach { device ->
+            deviceState.registeredDevices.forEachIndexed { index, device ->
                 val current = device.deviceId.equals(selectedDeviceId, true)
                 val snapshot = deviceSnapshots[device.deviceId.lowercase()]
                 WorkDeviceChoiceRow(device.deviceName, current, {
@@ -192,7 +192,7 @@ private fun WorkRootRoute(state: State<AppNavigationState>) {
                     detail = if (current) tasks.deviceStrip?.facts?.joinToString(" · ")?.takeIf(String::isNotBlank)
                     else snapshot?.lastSeenAtEpochMillis?.let {
                         "마지막 응답 ${com.example.jetsoncontroller.ui.devices.formatSeenAt(it, now.toEpochMilli())}"
-                    } ?: "마지막 응답 미확인")
+                    } ?: "마지막 응답 미확인", divider = index < deviceState.registeredDevices.lastIndex)
             }
           }
             GeoButton("장치 관리", { switcher = false; navigateToDeviceRoot(navController) }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)

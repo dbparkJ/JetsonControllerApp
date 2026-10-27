@@ -183,7 +183,7 @@ class R7ComponentLayoutTest {
         }
     }
 
-    @Test fun cardHeaderBadgesAlignWithTheMeasuredFirstTitleLine() {
+    @Test fun deviceCardStatusAlignsWithTitleWhileTodayCardStatusFollowsDescription() {
         var scale by mutableFloatStateOf(1f)
         var multiline by mutableStateOf(false)
         var device by mutableStateOf(false)
@@ -194,7 +194,8 @@ class R7ComponentLayoutTest {
                     val title = if (multiline) "제목\n첫 줄" else "제목"
                     if (device) GeoDevicePhotoCard(title, "연결됨", Tone.SUCCESS, "마지막 확인",
                         List(4) { GeoFigure("항목 $it", "1") }, Modifier.width(364.dp))
-                    else GeoWorkCard(title, GeoButtonAction("열기", {}), Modifier.width(364.dp), status = "연결됨")
+                    else GeoWorkCard(title, GeoButtonAction("열기", {}), Modifier.width(364.dp),
+                        meta = "장치 정보", status = "연결됨")
                 }
             }
         }
@@ -203,10 +204,17 @@ class R7ComponentLayoutTest {
                 for (photoCard in listOf(false, true)) {
                     compose.runOnIdle { scale = fontScale; multiline = multipleLines; device = photoCard }
                     val title = compose.onNodeWithText(if (multipleLines) "제목\n첫 줄" else "제목", useUnmergedTree = true)
-                    val status = compose.onNode(hasStateDescription("연결됨"), useUnmergedTree = true)
-                        .fetchSemanticsNode().boundsInRoot
-                    assertEquals("scale=$fontScale multiline=$multipleLines device=$photoCard",
-                        title.firstLineCenter(), status.center.y, 1f)
+                    val context = "scale=$fontScale multiline=$multipleLines device=$photoCard"
+                    if (photoCard) {
+                        val status = compose.onNode(hasStateDescription("연결됨"), useUnmergedTree = true)
+                            .fetchSemanticsNode().boundsInRoot
+                        assertEquals(context, title.firstLineCenter(), status.center.y, 1f)
+                    } else {
+                        val description = compose.onNodeWithText("장치 정보 · 연결됨", useUnmergedTree = true)
+                            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                        assertTrue(context, description.top >= title.fetchSemanticsNode().boundsInRoot.bottom)
+                        compose.onNode(hasStateDescription("연결됨"), useUnmergedTree = true).assertDoesNotExist()
+                    }
                 }
             }
         }

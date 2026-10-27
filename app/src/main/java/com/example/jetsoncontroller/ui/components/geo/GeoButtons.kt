@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.jetsoncontroller.ui.theme.LocalGeoColors
+import com.example.jetsoncontroller.ui.theme.LocalGeoType
 
 internal val GeoControlShape = GeoShape.control
 
@@ -249,46 +250,63 @@ internal fun geoActionsFit(
 fun GeoButtonActions(
     actions: List<GeoButtonAction>,
     modifier: Modifier = Modifier,
-    layout: GeoActionLayout = GeoActionLayout.EqualShares
+    layout: GeoActionLayout = GeoActionLayout.EqualShares,
+    note: (@Composable () -> Unit)? = null
 ) {
     if (actions.isEmpty()) return
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val style = geoButtonTextStyle()
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val gap = with(density) { 8.dp.roundToPx() }
-        val widths = actions.map { action ->
-            val label = if (action.busy) action.busyLabel.orEmpty() else action.label
-            val padding = if (action.style == GeoButtonStyle.Tertiary) 24.dp else 32.dp
-            val adornment = if (action.busy) 26.dp else if (action.icon != null) 30.dp else 0.dp
-            maxOf(
-                with(density) { 48.dp.roundToPx() },
-                measurer.measure(AnnotatedString(label), style, softWrap = false, maxLines = 1).size.width +
-                    with(density) { (padding + adornment).roundToPx() }
-            )
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val reasons = actions.filter { !it.enabled }.mapNotNull { it.disabledReason }.distinct()
+        if (note != null || reasons.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                note?.invoke()
+                reasons.forEach { GeoActionNote(it) }
+            }
         }
-        val row = geoActionsFit(constraints.maxWidth, widths, gap, layout)
-        val pairedPrimary = actions.any { it.style == GeoButtonStyle.Primary || it.style == GeoButtonStyle.DangerFilled }
-        @Composable
-        fun action(action: GeoButtonAction, buttonModifier: Modifier) {
-            GeoButton(
-                action.label, action.onClick, buttonModifier, action.style,
-                action.enabled, action.busy, action.busyLabel, action.icon, action.disabledReason,
-                actionArea = pairedPrimary
-            )
-        }
-        if (row) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                actions.forEach { item ->
-                    action(item, Modifier.weight(1f))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val gap = with(density) { 8.dp.roundToPx() }
+            val widths = actions.map { action ->
+                val label = if (action.busy) action.busyLabel.orEmpty() else action.label
+                val padding = if (action.style == GeoButtonStyle.Tertiary) 24.dp else 32.dp
+                val adornment = if (action.busy) 26.dp else if (action.icon != null) 30.dp else 0.dp
+                maxOf(
+                    with(density) { 48.dp.roundToPx() },
+                    measurer.measure(AnnotatedString(label), style, softWrap = false, maxLines = 1).size.width +
+                        with(density) { (padding + adornment).roundToPx() }
+                )
+            }
+            val row = geoActionsFit(constraints.maxWidth, widths, gap, layout)
+            val pairedPrimary = actions.any { it.style == GeoButtonStyle.Primary || it.style == GeoButtonStyle.DangerFilled }
+            @Composable
+            fun action(action: GeoButtonAction, buttonModifier: Modifier) {
+                GeoButton(
+                    action.label, action.onClick, buttonModifier, action.style,
+                    action.enabled, action.busy, action.busyLabel, action.icon, disabledReason = null,
+                    actionArea = pairedPrimary
+                )
+            }
+            if (row) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    actions.forEach { item ->
+                        action(item, Modifier.weight(1f))
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    actions.forEach { action(it, Modifier.fillMaxWidth()) }
                 }
             }
-        } else {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                actions.sortedBy {
-                    if (it.style == GeoButtonStyle.Primary || it.style == GeoButtonStyle.DangerFilled) 0 else 1
-                }.forEach { action(it, Modifier.fillMaxWidth()) }
-            }
         }
+    }
+}
+
+/** Footer evidence and disabled reasons share the full action-group width. */
+@Composable
+fun GeoActionNote(text: String, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+        icon?.let { Icon(it, null, Modifier.size(16.dp), tint = LocalGeoColors.current.textSecondary) }
+        Text(text, style = LocalGeoType.current.supporting, color = LocalGeoColors.current.textSecondary)
     }
 }

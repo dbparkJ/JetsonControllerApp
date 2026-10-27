@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -27,37 +28,39 @@ fun GeoSkeleton(
 ) {
     require(loadingText.isNotBlank())
     require(rowCount >= 0)
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            GeonLoader(size = 40.dp)
-            Text(loadingText, style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
-        }
-        Column(Modifier.fillMaxWidth().clearAndSetSemantics {}) {
-            when (kind) {
-                GeoSkeletonKind.DeviceCard -> Column(Modifier.fillMaxWidth()
-                    .background(LocalGeoColors.current.surface, GeoShape.card).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SkeletonBlock(Modifier.size(72.dp, 64.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SkeletonBlock(Modifier.fillMaxWidth(.7f).height(28.dp))
-                            SkeletonBlock(Modifier.fillMaxWidth().height(20.dp), field = true)
+    Column(modifier.fillMaxWidth().geoGroupInset(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        CompositionLocalProvider(LocalGeoGroupInset provides false) {
+            Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GeonLoader(size = 40.dp)
+                Text(loadingText, style = LocalGeoType.current.body, color = LocalGeoColors.current.textSecondary)
+            }
+            Column(Modifier.fillMaxWidth().clearAndSetSemantics {}) {
+                when (kind) {
+                    GeoSkeletonKind.DeviceCard -> Column(Modifier.fillMaxWidth()
+                        .background(LocalGeoColors.current.surface, GeoShape.card).padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SkeletonBlock(Modifier.size(72.dp, 64.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SkeletonBlock(Modifier.fillMaxWidth(.7f).height(28.dp))
+                                SkeletonBlock(Modifier.fillMaxWidth().height(20.dp), field = true)
+                            }
                         }
+                        FigureSkeleton()
                     }
-                    FigureSkeleton()
-                }
-                GeoSkeletonKind.Figures -> FigureSkeleton()
-                GeoSkeletonKind.Rows -> repeat(rowCount) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(vertical = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                        SkeletonBlock(Modifier.size(40.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            SkeletonBlock(Modifier.fillMaxWidth(.7f).height(24.dp))
-                            SkeletonBlock(Modifier.fillMaxWidth().height(20.dp), field = true)
+                    GeoSkeletonKind.Figures -> FigureSkeleton()
+                    GeoSkeletonKind.Rows -> repeat(rowCount) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                            SkeletonBlock(Modifier.size(24.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                SkeletonBlock(Modifier.fillMaxWidth(.7f).height(24.dp))
+                                SkeletonBlock(Modifier.fillMaxWidth().height(20.dp), field = true)
+                            }
+                            SkeletonBlock(Modifier.width(72.dp).height(24.dp), field = true)
+                            Spacer(Modifier.width(24.dp))
                         }
-                        SkeletonBlock(Modifier.width(72.dp).height(24.dp), field = true)
-                        Spacer(Modifier.width(24.dp))
                     }
                 }
             }

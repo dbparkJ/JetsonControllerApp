@@ -52,6 +52,7 @@ fun GeoTodayCard(
     status: String? = null,
     statusTone: Tone = Tone.UNKNOWN,
     deadline: String? = null,
+    descriptionStatus: String? = null,
     content: @Composable ColumnScope.() -> Unit = {}
 ) {
     val chosen = geoWorkCardColors(LocalGeoPalette.current)
@@ -63,7 +64,7 @@ fun GeoTodayCard(
     val alignment = rememberFirstLineAlignment()
     Column(modifier.fillMaxWidth().clip(GeoShape.card).background(chosen.background)
         .padding(if (tablet) 24.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        CompositionLocalProvider(LocalGeoColors provides c.copy(text = chosen.content, textSecondary = chosen.content,
+        CompositionLocalProvider(LocalGeoInverseSurface provides true, LocalGeoColors provides c.copy(text = chosen.content, textSecondary = chosen.content,
             neutral = chosen.content, success = chosen.content, warning = chosen.content,
             danger = chosen.content, primary = chosen.content, pending = chosen.content)) {
             if (label != null || deadline != null) {
@@ -79,7 +80,7 @@ fun GeoTodayCard(
                     if (geoTodayLabelStacks(maxWidth.value, density.fontScale, labelWidth, deadlineWidth)) {
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             label?.let { Text(it, style = type.badge, color = chosen.content) }
-                            deadline?.let { Text(it, Modifier.align(Alignment.End), style = type.badge, color = chosen.content) }
+                            deadline?.let { Text(it, style = type.badge, color = chosen.content) }
                         }
                     } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -89,17 +90,14 @@ fun GeoTodayCard(
                     }
                 }
             }
-            val stacked = LocalDensity.current.fontScale >= 1.3f
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Text(title, Modifier.weight(1f), style = titleStyle, color = chosen.content,
                     onTextLayout = alignment::onTextLayout)
-                if (!stacked && status != null) Box(Modifier.alignToFirstTitleLine(alignment).heightIn(min = firstLine),
-                    contentAlignment = Alignment.Center) { GeoBadge(status, statusTone, variant = GeoBadgeVariant.INLINE) }
             }
-            if (stacked && status != null) GeoBadge(status, statusTone,
-                Modifier.align(Alignment.End), variant = GeoBadgeVariant.INLINE)
-            meta?.let { Text(it, style = type.supporting, color = chosen.content) }
-            clock?.let { Text(it, style = type.clock, color = chosen.content) }
+            val description = listOfNotNull(meta, descriptionStatus ?: status).joinToString(" · ")
+            if (description.isNotEmpty()) Text(description, style = type.supporting, color = chosen.content)
+            clock?.let { Text(it, Modifier.heightIn(min = with(LocalDensity.current) { type.clock.lineHeight.toDp() }),
+                style = if (it == "미확인") type.titleSm else type.clock, color = chosen.content) }
             content()
         }
     }
@@ -131,7 +129,7 @@ fun GeoDevicePhotoCard(name: String, status: String, statusTone: Tone, meta: Str
                 divider = false)
         }
         androidx.compose.material3.HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = LocalGeoColors.current.border)
-        GeoMetricStrip(figures, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+        GeoMetricStrip(figures)
     }
 }
 
@@ -153,8 +151,8 @@ fun GeoQuickActions(actions: List<GeoQuickAction>, modifier: Modifier = Modifier
         val columns = tabletQuickActionColumns(maxWidth.value, LocalDensity.current.fontScale)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             actions.chunked(columns).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { GeoQuickTile(it, Modifier.weight(1f)) }
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { GeoQuickTile(it, Modifier.weight(1f).fillMaxHeight()) }
                     repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
@@ -169,9 +167,17 @@ fun tabletQuickActionColumns(widthDp: Float, fontScale: Float): Int = GeoTabletR
 fun GeoHorizontalTiles(actions: List<GeoQuickAction>, modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp)) {
     val state = rememberLazyListState()
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val style = LocalGeoType.current.caption
+    val labelHeight = actions.maxOfOrNull {
+        measurer.measure(AnnotatedString(it.label.replace('\n', ' ')), style,
+            constraints = androidx.compose.ui.unit.Constraints(maxWidth = with(density) { 88.dp.roundToPx() })).size.height
+    } ?: 0
+    val tileHeight = maxOf(96.dp, with(density) { labelHeight.toDp() } + 64.dp)
     LazyRow(modifier.fillMaxWidth().testTag("geo-horizontal-tiles"), state = state, contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(8.dp), flingBehavior = rememberSnapFlingBehavior(state)) {
-        items(actions) { GeoQuickTile(it, Modifier.width(104.dp)) }
+        items(actions) { GeoQuickTile(it, Modifier.width(104.dp).height(tileHeight)) }
     }
 }
 
@@ -183,7 +189,7 @@ fun GeoQuickTile(action: GeoQuickAction, modifier: Modifier = Modifier) {
         .geoClickable(shape = GeoShape.card, background = if (action.selected) c.primaryTint else c.surface,
             onClick = action.onClick).padding(horizontal = 8.dp, vertical = 16.dp)
         .semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Top)) {
         Icon(action.icon, null, Modifier.size(24.dp), tint = if (action.selected) c.primaryTintText else c.text)
         Text(action.label.replace('\n', ' '), style = LocalGeoType.current.caption,
             color = if (action.selected) c.primaryTintText else c.text, textAlign = TextAlign.Center)

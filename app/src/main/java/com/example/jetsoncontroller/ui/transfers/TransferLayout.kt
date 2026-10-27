@@ -18,10 +18,12 @@ internal fun TransferPage(
     actions: @Composable RowScope.() -> Unit = {},
     primaryAction: GeoButtonAction? = null,
     subtitle: String? = null,
+    subtitleStatus: com.example.jetsoncontroller.ui.components.geo.shell.GeoStatusSpec? = null,
+    note: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     GeoLargeTitleScaffold(title, onBack = onBack, subtitle = subtitle,
-        primaryAction = primaryAction, actions = actions) {
+        primaryAction = primaryAction, actions = actions, subtitleStatus = subtitleStatus, note = note) {
         Column(Modifier.fillMaxSize(), content = content)
     }
 }

@@ -24,6 +24,13 @@ class AlertPresentationTest {
     }
 
     @Test
+    fun timeAndUnreadStatusShareOneSupportingLine() {
+        assertEquals("12:30 · 읽지 않음", alertSupportingText("", "12:30", false))
+        assertEquals("전송이 끝났습니다.\n12:30 · 읽지 않음", alertSupportingText("전송이 끝났습니다.", "12:30", false))
+        assertEquals("12:30", alertSupportingText("  ", "12:30", true))
+    }
+
+    @Test
     fun onlyIdsArrivingAfterTheScreenOpensGetTheVisitDot() {
         val initial = setOf("old-a", "old-b")
         assertEquals(setOf("new-c"), newlyArrivedAlertIds(initial, initial + "new-c"))

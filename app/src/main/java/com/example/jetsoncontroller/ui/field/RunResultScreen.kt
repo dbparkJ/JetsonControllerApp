@@ -167,6 +167,8 @@ internal fun RunResultScreen(
                             ResultAction.NEXT -> onNewSurvey()
                         }
                     }, enabled = chain.enabled && callbackAvailable)
+                    val actionExplanation = if (callbackAvailable) chain.explanation
+                        else "화면을 다시 열어 전송 상태를 확인하세요."
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics {
                     customActions = listOf(CustomAccessibilityAction("새로 고침") { onRefresh(); true })
                 }, contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp)) {
@@ -175,8 +177,6 @@ internal fun RunResultScreen(
                             resultMessage?.let { GeoInlineNote(it) }
                             Text("${resultTime(run.finishedAt)} 종료 · ${resultDuration(run)} · $deviceName",
                                 style = LocalGeoType.current.caption, color = c.textSecondary)
-                            GeoReadinessLine("$deviceName · $connectionLabel · ${chain.explanation}",
-                                if (chain.enabled) Tone.SUCCESS else Tone.WARNING)
                             Spacer(Modifier.height(24.dp))
                             GeoSection("수집 영수증", first = true) {
                                 GeoReceipt(chain.receipt)
@@ -203,9 +203,14 @@ internal fun RunResultScreen(
                                     subtitle = "${run.contextSnapshot.surveySectionLabel} · ${resultDuration(run)}")
                                }
                             }
-                            GeoCopyableValue(run.runId, label = "수집 ID")
-                            GeoCopyableValue("${run.output.rootId}/${run.output.path}", label = "경로")
-                            GeoCopyableValue(run.output.outputId, label = "출력 ID")
+                            GeoPropertyList(listOf("수집 ID", "경로", "출력 ID")) {
+                                GeoPropertyRow("수집 ID", run.runId,
+                                    valueContent = { GeoCopyableValue(run.runId) })
+                                val path = "${run.output.rootId}/${run.output.path}"
+                                GeoPropertyRow("경로", path, valueContent = { GeoCopyableValue(path) })
+                                GeoPropertyRow("출력 ID", run.output.outputId,
+                                    valueContent = { GeoCopyableValue(run.output.outputId) })
+                            }
                             FieldTechnicalInfo(run.runId, buildList {
                                 add(GeoTechnicalValue("수집 ID", run.runId))
                                 add(GeoTechnicalValue("경로", "${run.output.rootId}/${run.output.path}"))
@@ -232,6 +237,8 @@ internal fun RunResultScreen(
                                 else -> onConnectionMethods()
                             }
                         }, style = GeoButtonStyle.Secondary)
+                    }, note = {
+                        GeoActionNote("$deviceName · $connectionLabel · $actionExplanation")
                     })
                 }
             }
@@ -257,14 +264,19 @@ private fun ResultFolderRow(folder: String?, onOpen: () -> Unit, enabled: Boolea
 
 @Composable
 private fun ResultMetrics(run: PipelineRun, observation: ResultZoneObservation?) {
+    GeoMetricStrip(resultFigures(run, observation))
+}
+
+internal fun resultFigures(run: PipelineRun, observation: ResultZoneObservation?): List<GeoFigure> {
     val telemetry = verifiedRunTelemetry(run)
     val manifest = run.output.manifest?.takeIf { runOutputStored(run) }
-    GeoMetricStrip(listOf(
-        GeoFigure("수집 시간", resultDuration(run)),
-        GeoFigure("수집 용량", Formats.size(telemetry?.collectedBytes ?: manifest?.bytesTotal)),
-        GeoFigure("정밀 위치", precisionMetricLabel(run.quality)),
+    fun figure(label: String, value: String?) = GeoFigure(label, value?.takeUnless { it == "미확인" })
+    return listOf(
+        figure("수집 시간", resultDuration(run)),
+        figure("수집 용량", Formats.size(telemetry?.collectedBytes ?: manifest?.bytesTotal)),
+        figure("정밀 위치", precisionMetricLabel(run.quality)),
         GeoFigure("구역 밖 기록", observation?.let { "${it.excursions}회" }, detail = "관찰한 시간 기준")
-    ))
+    )
 }
 
 /** Compatibility for the root while it migrates to the shared receipt line. */

@@ -86,7 +86,11 @@ internal fun DevicesHomeScreen(
         registeredDevices.none { sameDeviceTarget(endpoint.deviceId, it.deviceId) }
     }.distinctBy { it.deviceId.lowercase() }
     val fallbackAttention = attention.takeIf { healthItems.isEmpty() && "unsent" !in hiddenKeys }
-    GeoLargeTitleScaffold("장치", actions = {
+    val empty = !loadingDevices && registeredDevices.isEmpty()
+    GeoLargeTitleScaffold("장치",
+        primaryAction = if (empty) GeoButtonAction("QR 코드 스캔", onAddDevice) else null,
+        secondaryAction = if (empty) GeoButtonAction("장치 없이 서버 파일 보기", onServerFiles, GeoButtonStyle.Tertiary) else null,
+        actions = {
             GeoIconButton(GeoIcons.add, "장치 등록", onAddDevice)
             DeviceAlertButton(unreadAlertCount, onAlertsClick)
         }) {
@@ -101,9 +105,7 @@ internal fun DevicesHomeScreen(
                         DevicesHomeLoading()
                     } else if (registeredDevices.isEmpty()) {
                         GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "등록된 장치가 없습니다",
-                            "장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다.", "QR 코드 스캔"),
-                            onAction = onAddDevice)
-                        GeoButton("장치 없이 서버 파일 보기", onServerFiles, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+                            "장치 본체의 QR 코드를 스캔하면 GEO-X에서 장치를 관리할 수 있습니다."))
                     } else {
                         GeoGroupedSection("장치 목록", first = true, trailingColumn = GeoRowTrailing.Status,
                             modifier = Modifier.testTag("device-list-card")) {
@@ -173,10 +175,7 @@ internal fun DevicesHomeScreen(
 /** The host supplies its real inventory loading state; an empty list alone is not loading. */
 @Composable
 internal fun DevicesHomeLoading() {
-    GeoSkeleton("장치를 불러오고 있습니다", kind = GeoSkeletonKind.DeviceCard)
-    GeoGroupedSection("장치 목록") {
-        DeviceSurface {
-            GeoSkeleton("연결 상태와 센서 정보를 확인합니다.", kind = GeoSkeletonKind.Rows)
-        }
+    GeoGroupedSection("장치 목록", first = true, trailingColumn = GeoRowTrailing.Status) {
+        GeoSkeleton("장치를 불러오고 있습니다", kind = GeoSkeletonKind.Rows)
     }
 }

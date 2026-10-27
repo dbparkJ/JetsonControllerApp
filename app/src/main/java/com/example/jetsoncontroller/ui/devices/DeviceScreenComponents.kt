@@ -24,6 +24,9 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleHeader
 import com.example.jetsoncontroller.ui.components.geo.shell.rememberGeoLargeTitleState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 
 /** Kept for existing layout-test callers; production pages own their R8 scaffold. */
 @Suppress("UNUSED_PARAMETER")
@@ -120,6 +123,28 @@ internal fun DeviceConnectionChoice(title: String, icon: ImageVector, meta: Stri
     enabled: Boolean = true, disabledReason: String? = null, divider: Boolean = true) {
     GeoRow(title, onClick, meta = meta, leading = { GeoIconTile(icon) },
         enabled = enabled, disabledReason = disabledReason, divider = divider)
+}
+
+/** Identity follows the same icon and text columns as the navigation rows above it. */
+@Composable
+internal fun DeviceIdentityRow(deviceId: String) {
+    val clipboard = LocalClipboardManager.current
+    val titleAlignment = rememberFirstLineAlignment()
+    val c = LocalGeoColors.current
+    val type = LocalGeoType.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(24.dp).alignToFirstTitleLine(titleAlignment)) { GeoIconTile(GeoIcons.tabDevice) }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("장치 ID", style = type.titleSm, color = c.text, onTextLayout = titleAlignment::onTextLayout)
+            SelectionContainer {
+                Text(geoBreakableValue(deviceId.ifBlank { "미확인" }), style = type.supporting, color = c.textSecondary)
+            }
+        }
+        if (deviceId.isNotBlank()) GeoIconButton(GeoIcons.copy, "장치 ID 복사", {
+            clipboard.setText(AnnotatedString(deviceId))
+        }, Modifier.alignToFirstTitleLine(titleAlignment))
+    }
 }
 
 @Composable

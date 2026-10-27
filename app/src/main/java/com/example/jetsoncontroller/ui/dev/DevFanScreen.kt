@@ -78,7 +78,7 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
     DevIdentity(state.deviceName, "${Formats.temperature(temperature)} · ${Formats.freshness(state.statusAgeSeconds?.let(java.time.Duration::ofSeconds))}",
         status = connection.word, tone = connection.tone)
     when (fanPageState(state)) {
-        FanPageState.CHECKING -> DevLoading()
+        FanPageState.CHECKING -> DevLoading("팬 상태를 불러오는 중")
         FanPageState.OFFLINE -> {
             DevEmpty("팬 상태를 확인할 수 없습니다", "장치를 같은 네트워크나 직접 연결로 연결하면 사용할 수 있습니다.")
             GeoButton("다시 시도", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = false,
@@ -94,21 +94,24 @@ private fun FanBody(state: DashboardUiState, selection: FanSelection, onRefresh:
                 GeoFactRow("제어 방식", if (status.mode == "AUTO") "자동 온도 제어" else "수동 ${status.percent?.let { "$it%" } ?: "미확인"}")
                 GeoFactRow("회전 속도", status.rpm?.let { "${NumberFormat.getIntegerInstance(Locale.KOREA).format(it)} RPM" } ?: "미확인", numeric = true)
             }
-            GeoSection("팬 설정") {
-                DevChoice("제어 방식", listOf("자동", "수동"), if (manual) 1 else 0, { index ->
-                    manual = index == 1
-                    if (!manual && status.mode != "AUTO" && status.autoAvailable) onAuto()
-                })
+            GeoSection("팬 설정", insetContent = false) {
+                Column(Modifier.padding(16.dp)) {
+                    DevChoice("제어 방식", listOf("자동", "수동"), if (manual) 1 else 0, { index ->
+                        manual = index == 1
+                        if (!manual && status.mode != "AUTO" && status.autoAvailable) onAuto()
+                    })
+                }
                 if (!manual) {
-                    Spacer(Modifier.height(12.dp))
-                    DevText("온도에 따라 장치가 팬 속도를 정합니다.")
+                    DevText("온도에 따라 장치가 팬 속도를 정합니다.",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                     if (!status.autoAvailable) DevFeedback("이 장치에서는 자동 온도 제어를 사용할 수 없습니다.")
                 } else {
                     val values = fanManualValues(status.minimumManualPercent)
                     if (values.size > 1) GeoSliderRow("팬 속도", values.indexOf(percent).coerceAtLeast(0).toFloat(), "$percent%",
-                        { percent = values[it.toInt().coerceIn(values.indices)] }, 0f..values.lastIndex.toFloat())
-                    else GeoFactRow("팬 속도", "$percent%", numeric = true)
-                    DevText("${status.minimumManualPercent}%부터 100%까지 10%씩 바꿀 수 있습니다.", secondary = true)
+                        { percent = values[it.toInt().coerceIn(values.indices)] }, 0f..values.lastIndex.toFloat(), divider = false)
+                    else GeoFactRow("팬 속도", "$percent%", Modifier.padding(horizontal = 16.dp), numeric = true)
+                    DevText("${status.minimumManualPercent}%부터 100%까지 10%씩 바꿀 수 있습니다.", secondary = true,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                 }
             }
         }

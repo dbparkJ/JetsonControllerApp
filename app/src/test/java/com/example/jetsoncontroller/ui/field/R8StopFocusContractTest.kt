@@ -10,7 +10,7 @@ class R8StopFocusContractTest {
         assertTrue(screen.contains("openerFocusRequester = stopFocus,"))
         assertFalse(screen.contains("stopFocus.takeIf"))
         assertTrue(screen.contains("primaryActionModifier = Modifier.focusRequester(stopFocus).testTag(\"request-stop\")"))
-        assertTrue(screen.contains("GeoFixedActionBar(action, Modifier.focusRequester(stopFocus).testTag(\"request-stop\"))"))
+        assertTrue(screen.contains("GeoFixedActionBar(action, Modifier.focusRequester(stopFocus).testTag(\"request-stop\"),"))
         assertTrue(screen.contains("GeoConfirmKind.DANGER"))
         assertTrue(screen.contains("stopEvent(RunStopEvent.CONFIRM)"))
     }

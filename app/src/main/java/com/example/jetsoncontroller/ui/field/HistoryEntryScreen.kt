@@ -65,7 +65,7 @@ internal fun HistoryEntryScreen(
                     GeoReceipt(historyReceipt(entry, uploadJobs))
                 }
                 GeoSection("수집 기록") {
-                 GeoPropertyList(listOf("시작", "작업", "결과", "저장 폴더")) {
+                 GeoPropertyList(listOf("시작", "작업", "결과", "저장 폴더", "기록 ID", "수집 ID", "경로")) {
                     GeoFactRow("시작", resultTime(entry.startedAt))
                     GeoFactRow("작업", entry.label)
                     GeoFactRow("결과", historyRunPresentation(entry, online, false).first.removePrefix("결과 "))
@@ -75,11 +75,16 @@ internal fun HistoryEntryScreen(
                             onClick = onOpenFiles, enabled = online,
                             disabledReason = "장치에 연결한 뒤 저장 폴더를 볼 수 있습니다.")
                     }
+                    GeoPropertyRow("기록 ID", entry.id, valueContent = { GeoCopyableValue(entry.id) })
+                    entry.runId?.let { id ->
+                        GeoPropertyRow("수집 ID", id, valueContent = { GeoCopyableValue(id) })
+                    }
+                    entry.output?.let { output ->
+                        val path = "${output.rootId}/${output.path}"
+                        GeoPropertyRow("경로", path, valueContent = { GeoCopyableValue(path) })
+                    }
                 }
                 }
-                GeoCopyableValue(entry.id, label = "기록 ID")
-                entry.runId?.let { GeoCopyableValue(it, label = "수집 ID") }
-                entry.output?.let { GeoCopyableValue("${it.rootId}/${it.path}", label = "경로") }
                 Spacer(Modifier.height(24.dp))
                 mapCard()
                 FieldTechnicalInfo(

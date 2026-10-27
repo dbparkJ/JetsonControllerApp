@@ -17,7 +17,7 @@ class R8ComponentRulesTest {
         assertFalse(geoTodayLabelStacks(280f, 1f, 168f, 104f))
         assertTrue(geoTodayLabelStacks(279f, 1f, 168f, 104f))
         assertFalse(geoTodayLabelStacks(720f, 1.29f, 168f, 104f))
-        listOf(1.3f, 1.5f, 2f).forEach { assertTrue(geoTodayLabelStacks(720f, it, 168f, 104f)) }
+        listOf(1.3f, 1.5f, 2f).forEach { assertFalse(geoTodayLabelStacks(720f, it, 168f, 104f)) }
         val source = r8UiSource("components/geo/GeoCards.kt")
         assertTrue(source.contains("deadline: String? = null"))
         assertTrue(source.contains("geoTodayLabelStacks(maxWidth.value, density.fontScale, labelWidth, deadlineWidth)"))
@@ -51,12 +51,12 @@ class R8ComponentRulesTest {
         assertTrue(source.contains("if (stackBadge && badge != null) Box(Modifier.align(Alignment.End))"))
     }
 
-    @Test fun bothHeadersSeparateLargeOrNumerousActionsAndRetainTheirOrder() {
-        assertFalse(geoHeaderActionsStack(312f, 1f, 104f))
-        assertFalse(geoHeaderActionsStack(312f, 1.29f, 104f))
-        assertTrue(geoHeaderActionsStack(312f, 1.3f, 104f))
-        assertTrue(geoHeaderActionsStack(720f, 1f, 160f))
-        assertTrue(geoHeaderActionsStack(200f, 1f, 104f))
+    @Test fun bothHeadersMeasureActionsAndRetainTheirOrder() {
+        assertFalse(geoHeaderActionsStack(312f, 1f, 104f, 80f))
+        assertFalse(geoHeaderActionsStack(312f, 1.29f, 104f, 80f))
+        assertFalse(geoHeaderActionsStack(312f, 1.3f, 104f, 80f))
+        assertFalse(geoHeaderActionsStack(720f, 1f, 160f, 80f))
+        assertTrue(geoHeaderActionsStack(200f, 1f, 104f, 100f))
         assertFalse(geoHeaderActionsStack(200f, 2f, 0f))
         val source = r8UiSource("components/geo/shell/GeoLargeTitleScaffold.kt")
         val expanded = source.substringAfter("subcompose(\"large\")").substringBefore("subcompose(\"compact\")")

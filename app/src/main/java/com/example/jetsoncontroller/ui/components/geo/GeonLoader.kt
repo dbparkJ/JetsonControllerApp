@@ -12,6 +12,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ColorFilter
+import com.example.jetsoncontroller.ui.theme.GeoFixedColors
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.imageResource
@@ -38,7 +40,8 @@ internal fun loaderFrame(size: Float, fraction: Float, reducedMotion: Boolean = 
 fun GeonLoader(
     modifier: Modifier = Modifier,
     size: Dp = 64.dp,
-    reducedMotion: Boolean = geoReducedMotion()
+    reducedMotion: Boolean = geoReducedMotion(),
+    media: Boolean = LocalGeoMediaStage.current
 ) {
     val resources = LocalContext.current.resources
     val symbol = remember(resources) { ImageBitmap.imageResource(resources, R.drawable.geo_symbol) }
@@ -48,20 +51,21 @@ fun GeonLoader(
             infiniteRepeatable(tween(GeoMotion.loaderCycle, easing = LinearEasing)), label = "reveal")
         progress
     }
-    Canvas(modifier.size(size)) {
+    val tint = if (media) ColorFilter.tint(GeoFixedColors.mediaText) else null
+    Canvas(modifier.geoGroupInset().size(size)) {
         val scale = minOf(this.size.width / symbol.width, this.size.height / symbol.height)
         val width = (symbol.width * scale).roundToInt()
         val height = (symbol.height * scale).roundToInt()
         val offset = IntOffset(((this.size.width - width) / 2f).roundToInt(), ((this.size.height - height) / 2f).roundToInt())
         val destination = IntSize(width, height)
         if (reducedMotion) {
-            drawImage(symbol, dstOffset = offset, dstSize = destination)
+            drawImage(symbol, dstOffset = offset, dstSize = destination, colorFilter = tint)
         } else {
-            drawImage(symbol, dstOffset = offset, dstSize = destination, alpha = .16f)
+            drawImage(symbol, dstOffset = offset, dstSize = destination, alpha = .16f, colorFilter = tint)
             val frame = loaderFrame(height.toFloat(), fraction)
             clipRect(left = offset.x.toFloat(), top = offset.y + frame.clipTop,
                 right = (offset.x + width).toFloat(), bottom = (offset.y + height).toFloat()) {
-                drawImage(symbol, dstOffset = offset, dstSize = destination, alpha = frame.foregroundAlpha)
+                drawImage(symbol, dstOffset = offset, dstSize = destination, alpha = frame.foregroundAlpha, colorFilter = tint)
             }
         }
     }

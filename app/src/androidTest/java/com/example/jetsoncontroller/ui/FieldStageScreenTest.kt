@@ -167,7 +167,7 @@ class FieldStageScreenTest {
         compose.onAllNodesWithText("미확인")[0].assertIsDisplayed()
         capture("result-terminal")
         compose.onNodeWithText("서버로 보내기").assertIsDisplayed().assertIsEnabled().performClick()
-        compose.onNodeWithText("/data/raw/run-1").assertDoesNotExist()
+        compose.onNode(hasVisibleText("/data/raw/run-1")).assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, transfers) }
     }
 

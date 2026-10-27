@@ -68,7 +68,7 @@ fun SettingsHubScreen(
                 item {
                     GeoSection("화면", first = true) {
                         SettingsNavigationRow("테마", { onTheme?.invoke() }, selectedPage == "settings/theme", meta = appearance.summary,
-                            leading = { GeoIconTile(GeoIcons.tabSettings) })
+                            leading = { GeoIconTile(GeoIcons.layers) })
                     }
                 }
                 item {
@@ -109,7 +109,7 @@ fun SettingsHubScreen(
                     GeoSection("정보", trailingColumn = GeoRowTrailing.None) {
                         SettingsNavigationRow(
                             title = "도움말",
-                            leading = { GeoIconTile(GeoIcons.info) },
+                            leading = { GeoIconTile(GeoIcons.unknown) },
                             onClick = { onHelp?.invoke() ?: run { embeddedPage = "help" } },
                             selected = selectedPage == "settings/help", rowCount = 2,
                             nextSelected = selectedPage == "settings/about"

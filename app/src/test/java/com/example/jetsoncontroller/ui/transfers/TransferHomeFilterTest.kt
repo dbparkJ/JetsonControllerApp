@@ -5,6 +5,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class TransferHomeFilterTest {
+    @Test fun `legacy status-only detail is not repeated beside the status`() {
+        val row = TransferRowState("receipt", "수집 자료", "수신 확인 전", Tone.PENDING)
+        org.junit.Assert.assertNull(transferHomeRowMeta(row))
+        assertEquals("수신 서버 · 1.0 KB", transferHomeRowMeta(row.copy(detail = "수신 서버 · 1.0 KB")))
+    }
+
     @Test fun `in flight filter includes queued records and receipts awaiting verification`() {
         val state = empty().copy(
             queued = listOf(TransferRowState("queued", "대기 자료", "대기 중", Tone.UNKNOWN)),

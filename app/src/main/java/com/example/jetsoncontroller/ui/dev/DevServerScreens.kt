@@ -8,6 +8,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.jetsoncontroller.data.server.*
@@ -28,13 +30,20 @@ internal data class ServerPurgeTarget(val profileId: String, val sessions: List<
 internal fun DevServerProfilesScreen(state: DirectServerUiState, onBack: () -> Unit,
     onEdit: (String?) -> Unit, onConnect: (String) -> Unit) {
     DevPage("서버 프로필", onBack, primaryAction = GeoButtonAction("프로필 추가", { onEdit(null) })) {
-        if (state.profiles.isEmpty()) DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 설정하세요.")
-        else GeoSection("프로필", first = true, trailingColumn = GeoRowTrailing.None) {
-            state.profiles.forEach { stored ->
-                DevAddressRow(stored.profile.displayName, stored.profile.baseUrl, { onEdit(stored.profile.profileId) })
+        when (serverProfilesContent(state.isLoading || state.isConnecting, state.messageIsError, state.profiles.isNotEmpty())) {
+            ServerProfilesContent.LOADING -> DevLoading("서버 프로필을 불러오는 중")
+            ServerProfilesContent.ERROR -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
+                "서버 연결 정보를 불러오지 못했습니다", "관리자에게 받은 정보로 프로필을 추가해 주세요."), fullScreen = true)
+            ServerProfilesContent.EMPTY -> DevEmpty("서버 연결 정보가 없습니다", "관리자에게 서버 연결 정보를 받아 프로필을 추가하세요.")
+            ServerProfilesContent.CONTENT -> {
+                GeoSection("프로필", first = true, trailingColumn = GeoRowTrailing.None) {
+                    state.profiles.forEach { stored ->
+                        DevAddressRow(stored.profile.displayName, stored.profile.baseUrl, { onEdit(stored.profile.profileId) })
+                    }
+                }
+                DevFeedback(state.message?.let { if (state.messageIsError) "서버 연결 정보를 확인하지 못했습니다. 프로필을 확인하세요." else it }, state.messageIsError)
             }
         }
-        DevFeedback(state.message?.let { if (state.messageIsError) "서버 연결 정보를 확인하지 못했습니다. 다시 시도하세요." else it }, state.messageIsError)
     }
 }
 
@@ -112,6 +121,7 @@ internal fun DevServerProfileEditor(state: DirectServerUiState, profileId: Strin
 @Composable
 internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit, onRefresh: () -> Unit,
     onConnect: () -> Unit, onPurge: (String, List<String>) -> Unit) {
+    val clipboard = LocalClipboardManager.current
     var pending by remember(state.selectedProfileId) { mutableStateOf<ServerPurgeTarget?>(null) }
     val eligible = state.trash.filter(::isServerPurgeEligible).map { it.sessionId }
     val busy = state.isLoading || state.isConnecting || state.isEmptyingTrash
@@ -128,7 +138,10 @@ internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit
             confirmEnabled = profile?.profileId == frozen.profileId && frozen.valid(state.selectedProfileId, eligible, state.trashEmptySupported, busy),
             disabledReason = "서버와 표시된 휴지통 항목을 다시 확인하세요.")
     }
-    DevPage("서버 휴지통", onBack, primaryAction = if (profile != null && state.trashEmptySupported && eligible.isNotEmpty())
+    DevPage("서버 휴지통", onBack, actions = {
+        if (profile != null && content != ServerTrashContent.ERROR)
+            GeoIconButton(GeoIcons.refresh, "휴지통 다시 조회", onRefresh, enabled = !busy)
+    }, primaryAction = if (profile != null && state.trashEmptySupported && eligible.isNotEmpty())
         GeoButtonAction("표시된 ${eligible.size}개 비우기", {
             state.selectedProfileId?.let { pending = ServerPurgeTarget(it, eligible.toList()) }
         }, style = GeoButtonStyle.DangerFilled, enabled = !busy) else null) {
@@ -138,20 +151,22 @@ internal fun DevServerTrashScreen(state: DirectServerUiState, onBack: () -> Unit
         }
         DevText(listOfNotNull(profile?.displayName, state.refreshedAt?.let { "마지막 동기화 ${devTimestamp(it)}" }).joinToString(" · "))
         if (state.capabilities == null) GeoButton("연결 확인", onConnect, style = GeoButtonStyle.Secondary, enabled = !busy)
-        GeoSection("휴지통", first = true, modifier = Modifier.padding(top = 24.dp)) {
-            if (content == ServerTrashContent.CONTENT || content == ServerTrashContent.EMPTY)
-                DevText("전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다.")
+        GeoSection("휴지통", first = true, modifier = Modifier.padding(top = 24.dp),
+            trailingColumn = GeoRowTrailing.Status,
+            note = if (content == ServerTrashContent.CONTENT || content == ServerTrashContent.EMPTY)
+                "전체 ${state.trashTotal}개 중 ${state.trash.size}개를 표시합니다." else null) {
             state.trash.forEach { job ->
-                GeoPropertyRow("수집", job.sourceName,
-                    valueContent = { GeoCopyableValue(job.sourceName) },
-                    supportingText = "${Formats.size(job.totalBytes)} · ${if (job.state == "PURGING") "삭제 처리 중" else if (job.restoreSupported == false) "복원할 수 없음" else "복원 가능"}")
+                GeoRow(job.sourceName, {}, navigable = false, leading = { GeoIconTile(GeoIcons.folder) },
+                    meta = "${Formats.size(job.totalBytes)} · ${if (job.state == "PURGING") "삭제 처리 중" else if (job.restoreSupported == false) "복원할 수 없음" else "복원 가능"}",
+                    badge = { GeoIconButton(GeoIcons.copy, "수집 이름 복사", { clipboard.setText(AnnotatedString(job.sourceName)) }) })
             }
-            if (content == ServerTrashContent.EMPTY) DevEmpty("서버 휴지통이 비어 있습니다", "휴지통으로 옮긴 수신 결과가 여기에 표시됩니다.")
-            if (content == ServerTrashContent.ERROR) DevEmpty("서버 휴지통을 불러오지 못했습니다", "서버 연결을 확인하고 다시 시도하세요.", "다시 시도", onRefresh)
-            if (!state.trashEmptySupported && state.capabilities != null) DevText("이 서버에서는 휴지통 비우기를 지원하지 않습니다.")
-            if (busy) DevLoading()
-            DevFeedback(state.message, state.messageIsError)
-            GeoButton("다시 조회", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !busy)
+            if (content == ServerTrashContent.EMPTY) DevEmpty("서버 휴지통이 비어 있습니다", "휴지통으로 옮긴 수신 결과가 여기에 표시됩니다.", fullScreen = false)
+            if (content == ServerTrashContent.ERROR) GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
+                "서버 휴지통을 불러오지 못했습니다", "서버 연결을 확인하고 다시 시도하세요.", "다시 시도"), onAction = onRefresh)
+            if (!state.trashEmptySupported && state.capabilities != null) DevText("이 서버에서는 휴지통 비우기를 지원하지 않습니다.",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+            if (busy) DevLoading("서버 휴지통을 불러오는 중")
+            if (content != ServerTrashContent.ERROR) DevFeedback(state.message, state.messageIsError)
         }
     }
 }

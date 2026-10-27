@@ -163,7 +163,9 @@ fun UploadProgressScreen(
                 }, destructive = true, enabled = deviceDeletionEnabled,
                     disabledReason = "장치 연결을 확인하세요.")))
     Box(Modifier.fillMaxSize()) {
-        TransferPage("전송 상세", onBack, actions = {
+        TransferPage(job?.let(::transferSourceName) ?: "전송 상세", onBack,
+            subtitle = job?.let { "$deviceName → ${targetLabel ?: "받는 서버"}" },
+            subtitleStatus = actions?.let { com.example.jetsoncontroller.ui.components.geo.shell.GeoStatusSpec(it.word, it.tone) }, actions = {
             if (job != null && isDeletableUploadJob(job))
                 GeoIconButton(GeoIcons.more, "더 보기", { menu = true }, chrome = true)
         }) {
@@ -207,7 +209,7 @@ fun UploadProgressScreen(
                     enabled = primaryEnabled, disabledReason = primaryReason,
                     busy = isLoading || (reportPending && actions.primary == TransferDetailAction.REPORT),
                     busyLabel = "확인 중")
-                StorageActionLayout(visible = actions.primary != TransferDetailAction.NONE, primaryAction = progressAction, action = {
+                StorageActionLayout(visible = actions.primary != TransferDetailAction.NONE, primaryAction = progressAction, note = {
                     if (actions.primary != TransferDetailAction.NONE) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         GeoReadinessLine(when (actions.primary) {
                             TransferDetailAction.CANCEL -> "$deviceName · 취소하면 처음부터 다시 보내야 합니다."
@@ -215,8 +217,7 @@ fun UploadProgressScreen(
                             else -> "$deviceName · ${actions.word}"
                         }, when {
                             actions.primary == TransferDetailAction.CANCEL -> Tone.WARNING
-                            primaryEnabled -> Tone.SUCCESS
-                            else -> Tone.WARNING
+                            else -> actions.tone
                         })
                         if (!primaryEnabled && actions.primary in setOf(TransferDetailAction.RETRY, TransferDetailAction.VERIFY)) {
                             GeoButton("장치 Wi-Fi 설정", onConnectionRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
@@ -228,8 +229,6 @@ fun UploadProgressScreen(
                         bottom = if (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f) 32.dp else 16.dp)) {
                         item { ongoingRun() }
                         item {
-                            TransferHeading(transferSourceName(job), "$deviceName → ${targetLabel ?: "받는 서버"}",
-                                badge = { GeoBadge(actions.word, actions.tone) })
                             if (isActiveUploadState(job.state)) {
                                 val rate = estimateTransferRate(emptyList(), job.bytesTotal, job.bytesTransferred,
                                     job.throughputBytesPerSecond, job.etaSeconds)

@@ -67,7 +67,8 @@ fun AlertSettingsScreen(
                 GeoSection(
                     title = "장치 상태",
                     first = notificationPermissionGranted,
-                    note = "기준을 넘을 때마다 한 번만 알립니다."
+                    note = "기준을 넘을 때마다 한 번만 알립니다.",
+                    insetContent = false
                 ) {
                     AlertThresholdControl(
                         title = "저장 공간",
@@ -102,7 +103,7 @@ fun AlertSettingsScreen(
                 }
             }
             item {
-                GeoSection(title = "작업") {
+                GeoSection(title = "작업", insetContent = false) {
                     AlertToggle(
                         "작업 시작", settings.pipelineStartedEnabled,
                         onChange = {
@@ -120,7 +121,7 @@ fun AlertSettingsScreen(
                 }
             }
             item {
-                GeoSection(title = "전송") {
+                GeoSection(title = "전송", insetContent = false) {
                     AlertToggle(
                         "전송 시작", settings.uploadStartedEnabled,
                         onChange = {
@@ -159,7 +160,8 @@ private fun AlertThresholdControl(
             title = title,
             description = description(roundedValue),
             checked = enabled,
-            onCheckedChange = onEnabledChange
+            onCheckedChange = onEnabledChange,
+            divider = false
         )
         GeoAlertThresholdSlider(
             title = title,

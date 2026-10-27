@@ -71,7 +71,7 @@ fun figureGridColumns(availableWidthDp: Float, fontScale: Float, contained: Bool
 }
 
 fun figurePresentation(figure: GeoFigure): GeoFigurePresentation {
-    if (!figure.valid || figure.value.isNullOrBlank()) {
+    if (!figure.valid || figure.value.isNullOrBlank() || figure.value == "미확인") {
         return GeoFigurePresentation("미확인", unknown = true, warning = false, detail = null, staleDetail = null)
     }
     val warning = !figure.exceededThreshold.isNullOrBlank()
@@ -88,8 +88,7 @@ fun GeoFigureGrid(figures: List<GeoFigure>, modifier: Modifier = Modifier, conta
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val columns = figureGridColumns(maxWidth.value, LocalDensity.current.fontScale, contained,
             tablet = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f)
-        Column(Modifier.fillMaxWidth().clip(GeoShape.card).background(colors.surface)
-            .then(if (contained) Modifier.padding(16.dp) else Modifier)) {
+        Column(Modifier.fillMaxWidth().clip(GeoShape.card).background(colors.surface)) {
             figures.chunked(columns).forEachIndexed { rowIndex, row ->
                 Row(Modifier.fillMaxWidth().drawBehind {
                     if (rowIndex > 0) drawLine(colors.border, Offset.Zero, Offset(size.width, 0f), 1f)
@@ -99,7 +98,7 @@ fun GeoFigureGrid(figures: List<GeoFigure>, modifier: Modifier = Modifier, conta
                     }
                 }) {
                     row.forEachIndexed { index, figure -> FigureCell(figure, Modifier.weight(1f)
-                        .padding(horizontal = if (index == 0) 0.dp else 12.dp, vertical = 8.dp)) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp)) }
                     repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
@@ -129,26 +128,26 @@ private fun FigureCell(figure: GeoFigure, modifier: Modifier) {
     Column(modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text(figure.label, color = colors.textSecondary, style = LocalGeoType.current.caption)
-            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = if (preferredSp == 22) 28.dp else 36.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = with(density) { figureStyle.lineHeight.toDp() })) {
                 val padding = figureValuePadding(constraints.maxWidth, with(density) { 0.dp.roundToPx() },
                     measurer.measure(AnnotatedString(number),
-                        if (shown.unknown) type.caption else figureStyle, softWrap = false).size.width)
+                        if (shown.unknown) type.titleSm else figureStyle, softWrap = false).size.width)
                 val layout = figureValueLayout((constraints.maxWidth - padding * 2).coerceAtLeast(0),
                     if (unit.isEmpty()) 0 else measurer.measure(AnnotatedString(unit), type.unit, softWrap = false).size.width,
                     with(density) { 2.dp.roundToPx() }, preferredSp) { size ->
                     measurer.measure(AnnotatedString(number),
-                        if (shown.unknown) type.caption else figureStyle.copy(fontSize = size.sp), softWrap = false).size.width
+                        if (shown.unknown) type.titleSm else figureStyle.copy(fontSize = size.sp), softWrap = false).size.width
                 }
-                val numberStyle = if (shown.unknown) type.caption else figureStyle.copy(fontSize = layout.numberSp.sp,
+                val numberStyle = if (shown.unknown) type.titleSm else figureStyle.copy(fontSize = layout.numberSp.sp,
                     lineHeight = if (layout.numberSp == 22) 28.sp else if (layout.numberSp == 26) 32.sp else 36.sp)
                 val inset = with(density) { padding.toDp() }
                 if (layout.stackedUnit) {
                     Column(Modifier.padding(horizontal = inset)) {
-                        Text(number, color = if (shown.warning) colors.warning else colors.text, style = numberStyle)
+                        Text(number, color = if (shown.unknown) colors.textSecondary else if (shown.warning) colors.warning else colors.text, style = numberStyle)
                         if (unit.isNotEmpty()) Text(unit, color = colors.textSecondary, style = type.unit)
                     }
                 } else Row(Modifier.padding(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
-                    Text(number, Modifier.alignByBaseline(), color = if (shown.warning) colors.warning else colors.text,
+                    Text(number, Modifier.alignByBaseline(), color = if (shown.unknown) colors.textSecondary else if (shown.warning) colors.warning else colors.text,
                         style = numberStyle, maxLines = 1, softWrap = false)
                     if (unit.isNotEmpty()) Text(unit, Modifier.alignByBaseline(), color = colors.textSecondary,
                         style = type.unit, maxLines = 1, softWrap = false)

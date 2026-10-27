@@ -2,6 +2,8 @@ package com.example.jetsoncontroller.ui.pipelines
 
 import com.example.jetsoncontroller.model.PipelineState
 
+internal fun taskSupportingText(status: String): String? = status.substringAfter(" · ", "").takeIf { it.isNotBlank() }
+
 /** Poll interval is 5 seconds. After three missed observations, never claim live execution. */
 fun tasksAreFresh(available: Boolean, observedAt: Long?, now: Long): Boolean =
     available && observedAt != null && now >= observedAt && now - observedAt <= 15_000L

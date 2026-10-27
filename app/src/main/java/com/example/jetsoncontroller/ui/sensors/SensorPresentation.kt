@@ -309,5 +309,20 @@ internal fun cameraStageState(active: Boolean, hasFrame: Boolean, receivedAt: Lo
 internal fun cameraCaptureEnabled(stage: CameraStageState, busy: Boolean, device: Boolean, mobile: Boolean): Boolean =
     stage == CameraStageState.LIVE && !busy && (device || mobile)
 
+internal fun cameraCaptureDestinationText(device: Boolean, mobile: Boolean): String =
+    listOfNotNull("장치에 저장".takeIf { device }, "휴대폰 갤러리에 저장".takeIf { mobile })
+        .joinToString(" · ").ifEmpty { "저장 위치를 선택하세요." }
+
+/** The state title already states that receiving failed; retain only cause and recovery. */
+internal fun cameraPreviewErrorExplanation(error: String?): String {
+    val fallback = "장치 연결과 카메라 상태를 확인한 뒤 다시 시도하세요."
+    val duplicateSummaries = listOf("카메라 영상을 받지 못했습니다.", "영상을 받지 못했습니다.",
+        "카메라 프리뷰를 불러오지 못했습니다.", "카메라 영상을 불러오지 못했습니다.")
+    val text = error.orEmpty().trim()
+    val summary = duplicateSummaries.firstOrNull { text.startsWith(it) }
+    val detail = if (summary == null) text else text.removePrefix(summary).trim()
+    return detail.takeUnless { it.isBlank() || it == "다시 시도하세요." || it == "다시 시도해 주세요." } ?: fallback
+}
+
 internal fun cameraTargetCanStream(visible: Boolean, sensorActive: Boolean, targetId: String?, selectedId: String?, connectedId: String?): Boolean =
     visible && sensorActive && !targetId.isNullOrBlank() && targetId.equals(selectedId, true) && targetId.equals(connectedId, true)

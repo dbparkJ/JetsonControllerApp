@@ -14,6 +14,7 @@ import com.example.jetsoncontroller.ui.components.geo.GeoOperationMessageHost
 import com.example.jetsoncontroller.ui.components.geo.*
 import com.example.jetsoncontroller.ui.transfers.*
 import com.example.jetsoncontroller.ui.model.Formats
+import com.example.jetsoncontroller.ui.model.Tone
 import java.time.Instant
 import java.time.ZoneId
 import com.example.jetsoncontroller.ui.storage.R7Section
@@ -66,9 +67,9 @@ fun UploadQueueScreen(
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = transferGutter, vertical = 16.dp)) {
                 item { ongoingRun() }
                 if (isLoading) item { GeoSkeleton("전송 기록을 불러오는 중", kind = GeoSkeletonKind.Rows) }
-                error?.let { item { GeoInlineNote("전송 기록을 불러오지 못했습니다. 다시 시도하세요.",
-                    actionLabel = "다시 확인", onAction = onRefresh) } }
-                if (visible.isEmpty() && !isLoading) item {
+                error?.let { item { GeoInlineNote("전송 기록을 불러오지 못했습니다. 연결 상태를 확인하세요.",
+                    tone = if (queue.isEmpty()) Tone.ERROR else Tone.WARNING) } }
+                if (visible.isEmpty() && !isLoading && error == null) item {
                     GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "전송 기록이 없습니다",
                         "파일을 보내면 여기에 남습니다."), fullScreen = true)
                 }
@@ -79,23 +80,26 @@ fun UploadQueueScreen(
                             val actions = transferDetailActions(job)
                             var menu by remember(deviceId, job.id) { mutableStateOf(false) }
                                 GeoRow(transferSourceName(job), { onJobClick(job) },
-                                    meta = if (job.state == com.example.jetsoncontroller.model.UploadJobState.FAILED)
-                                        "연결이 끊겨 멈췄습니다." else listOfNotNull(
+                                    meta = listOfNotNull(actions.word,
+                                            if (job.state == com.example.jetsoncontroller.model.UploadJobState.FAILED) "연결이 끊겨 멈췄습니다." else null,
                                             targets.firstOrNull { it.id == job.targetId }?.let(::transferTargetLabel),
                                             job.bytesTotal?.let(Formats::size)).joinToString(" · "),
-                                    badge = { GeoBadge(actions.word, actions.tone) },
+                                    badge = {
+                                        if (isDeletableUploadJob(job)) Box {
+                                            GeoIconButton(GeoIcons.more, "${transferSourceName(job)} 메뉴", { menu = true })
+                                            GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
+                                                deletion = transferActionTarget(deviceId.orEmpty(), job) to job
+                                            }, destructive = true, enabled = mutationEnabled && !isLoading,
+                                                disabledReason = "장치 연결을 확인하세요.")))
+                                        } else GeoIconButton(GeoIcons.chevronRight, "${transferSourceName(job)} 상세", { onJobClick(job) })
+                                    },
                                     leading = { GeoIconTile(GeoIcons.tabTransfer) }, divider = index < jobs.lastIndex,
-                                    extra = if (isDeletableUploadJob(job)) ({ Box(Modifier.align(Alignment.End)) {
-                                    GeoIconButton(GeoIcons.more, "${transferSourceName(job)} 메뉴", { menu = true })
-                                    GeoMenu(menu, { menu = false }, listOf(GeoMenuItem("기록 삭제", {
-                                        deletion = transferActionTarget(deviceId.orEmpty(), job) to job
-                                    }, destructive = true, enabled = mutationEnabled && !isLoading,
-                                        disabledReason = "장치 연결을 확인하세요.")))
-                                } }) else null)
+                                    navigable = false,
+                                    modifier = Modifier.geoClickable(onClick = { onJobClick(job) }))
                         } }
                     }
                 }
-                item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start) }
+                item { GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = !isLoading) }
             }
         }
         Box(Modifier.align(Alignment.BottomCenter)) { GeoOperationMessageHost(message, onDismissMessage) }

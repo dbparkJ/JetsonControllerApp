@@ -34,6 +34,7 @@ class SurveyRunScreenTest {
         compose.onNodeWithText("도로 수집").assertIsDisplayed()
         compose.onNodeWithText("시작 결과 확인").assertIsDisplayed().assertIsEnabled().performClick()
         compose.onNodeWithText("수집 시작").assertDoesNotExist()
+        compose.onNodeWithText("시작 전 점검").assertDoesNotExist()
         compose.onNodeWithText("정책 저장").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, retries) }
     }
@@ -56,7 +57,7 @@ class SurveyRunScreenTest {
         compose.onNodeWithText("강남대로 1구간").assertIsDisplayed()
         compose.onNodeWithText("테헤란로 2구간").assertIsDisplayed()
         compose.onNodeWithText("강남대로 1구간").assertIsSelected()
-        compose.onNodeWithText("수집 시작").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("시작 전 점검").assertIsDisplayed().assertIsEnabled()
         capture("survey-prep")
     }
 
@@ -79,17 +80,19 @@ class SurveyRunScreenTest {
             }
         }
 
-        compose.onNodeWithText("수집 시작").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("시작 전 점검").assertIsDisplayed().assertIsEnabled()
         capture("survey-start-2x")
     }
 
     @Test fun readyPreflightStillRequiresExplicitConfirmationBeforeStart() {
         var starts = 0
-        show(readyState(), onStart = { starts++ })
+        var checks = 0
+        show(readyState(), onStart = { starts++ }, onPreflight = { checks++ })
 
-        compose.onNodeWithText("수집 시작").assertIsDisplayed().assertIsEnabled().performClick()
+        compose.onNodeWithText("수집 시작").assertDoesNotExist()
+        compose.onNodeWithText("시작 전 점검").assertIsDisplayed().assertIsEnabled().performClick()
         compose.onNodeWithText("강남대로 1구간 수집을 시작할까요?").assertIsDisplayed()
-        compose.runOnIdle { assertEquals(0, starts) }
+        compose.runOnIdle { assertEquals(1, checks); assertEquals(0, starts) }
         compose.onNode(hasText("수집 시작") and hasClickAction() and hasAnyAncestor(isDialog())).assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, starts) }
     }
@@ -106,7 +109,7 @@ class SurveyRunScreenTest {
             current.value, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {},
             { current.value = current.value.copy(operation = "create_context") }, {}, {}, {}
         ) } }
-        compose.onNodeWithText("수집 시작").assertIsDisplayed().performClick()
+        compose.onNodeWithText("시작 전 점검").assertIsDisplayed().performClick()
         compose.onNodeWithTag("start-sheet").assertExists()
         compose.onNodeWithText("점검하는 중").assertIsNotEnabled()
         compose.runOnIdle {
@@ -124,9 +127,10 @@ class SurveyRunScreenTest {
     private fun show(
         state: SurveyRunUiState,
         onRetry: () -> Unit = {},
-        onStart: () -> Unit = {}
+        onStart: () -> Unit = {},
+        onPreflight: () -> Unit = {}
     ) = compose.setContent { JetsonControllerTheme { SurveyRunScreen(
-        state, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, onStart, onRetry, {}
+        state, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, onPreflight, onStart, onRetry, {}
     ) } }
 
     private fun readyState(): SurveyRunUiState {

@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -38,14 +40,24 @@ import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 internal fun Modifier.contentTarget(enabled: Boolean = true, onClick: () -> Unit): Modifier =
     geoClickable(enabled = enabled, onClick = onClick)
 
-internal fun Modifier.contentDivider(tone: Tone? = null, startIndent: Dp = 0.dp): Modifier = composed {
+internal fun Modifier.contentDivider(tone: Tone? = null, startIndent: Dp = 0.dp, enabled: Boolean = true): Modifier = composed {
     val colors = LocalGeoColors.current
+    val group = LocalGeoGroup.current
+    val key = remember { Any() }
+    var bottom by remember { mutableFloatStateOf(Float.NEGATIVE_INFINITY) }
+    DisposableEffect(group, key) { onDispose { group?.rowBottoms?.remove(key) } }
     val color = when (tone) {
         Tone.WARNING -> colors.warningBorder
         Tone.ERROR -> colors.dangerBorder
         else -> colors.border
     }
-    drawBehind { drawLine(color, Offset(startIndent.toPx(), size.height), Offset(size.width, size.height), 1f) }
+    onGloballyPositioned {
+        bottom = it.positionInRoot().y + it.size.height
+        group?.rowBottoms?.set(key, bottom)
+    }.drawBehind {
+        val last = group != null && geoGroupLastRow(bottom, group.rowBottoms.values.maxOrNull() ?: bottom)
+        if (enabled && !last) drawLine(color, Offset(startIndent.toPx(), size.height), Offset(size.width, size.height), 1f)
+    }
 }
 
 enum class GeoRowTrailing { None, Status }
@@ -68,7 +80,9 @@ fun GeoRowList(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val widths = remember { mutableStateMapOf<Any, Dp>() }
-    CompositionLocalProvider(LocalGeoRowTrailing provides trailingColumn, LocalGeoStatusWidths provides widths) {
+    val group = remember { GeoGroupContext() }
+    CompositionLocalProvider(LocalGeoRowTrailing provides trailingColumn, LocalGeoStatusWidths provides widths,
+        LocalGeoGroup provides group, LocalGeoGroupInset provides true) {
         Column(modifier.fillMaxWidth().clip(com.example.jetsoncontroller.ui.theme.GeoShape.card)
             .background(LocalGeoColors.current.surface), content = content)
     }
@@ -103,7 +117,7 @@ fun GeoRow(
     val rowKey = remember { Any() }
     var badgeWidth by remember { mutableStateOf(0.dp) }
     val valueWidth = value?.let { with(density) {
-        measurer.measure(AnnotatedString(it), type.inlineStatus, softWrap = false).size.width.toDp()
+        measurer.measure(AnnotatedString(it), type.inlineStatus.copy(fontFeatureSettings = "tnum"), softWrap = false).size.width.toDp() + 1.dp
     } } ?: 0.dp
     val requiredWidth = if (enabled) maxOf(valueWidth, if (badge != null) badgeWidth else 0.dp) else 0.dp
     SideEffect { widths?.set(rowKey, requiredWidth) }
@@ -112,10 +126,14 @@ fun GeoRow(
     val stackedWidth = maxOf(sharedWidth, widths?.values?.maxOrNull() ?: requiredWidth)
     val firstLine = with(density) { type.titleSm.lineHeight.toDp() }
     val titleAlignment = rememberFirstLineAlignment()
+    val group = LocalGeoGroup.current
+    SideEffect { group?.navigation?.set(rowKey, navigable) }
+    DisposableEffect(group, rowKey) { onDispose { group?.navigation?.remove(rowKey) } }
+    val reserveChevron = geoReserveChevron(navigable, group?.navigation?.values ?: emptyList())
     val hasMeta = !(if (enabled) meta else disabledReason).isNullOrBlank()
     val anatomy = geoRowAnatomy(hasMeta, leadingIsPhoto)
     BoxWithConstraints(modifier.fillMaxWidth().then(if (navigable) Modifier.contentTarget(enabled, onClick) else Modifier)
-        .then(if (divider) Modifier.contentDivider(startIndent = anatomy.dividerXDp.dp) else Modifier)
+        .contentDivider(startIndent = if (leading == null) 16.dp else anatomy.dividerXDp.dp, enabled = divider)
         .semantics(mergeDescendants = true) {}) {
         val tabletScale = com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f && density.fontScale >= 1.3f && maxWidth < 480.dp
         val stacked = hasStatus && (tabletScale || rowStatusStacks(maxWidth.value, density.fontScale, requiredWidth.value))
@@ -124,8 +142,9 @@ fun GeoRow(
         Column(Modifier.fillMaxWidth().heightIn(min = anatomy.minimumHeightDp.dp).padding(contentPadding),
             verticalArrangement = Arrangement.Center) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap),
-                verticalAlignment = if (hasMeta) Alignment.Top else Alignment.CenterVertically) {
-                Box(Modifier.width((anatomy.textXDp - 16 - 8).dp).height(anatomy.leadingSizeDp.dp),
+                verticalAlignment = Alignment.Top) {
+                if (leading != null) Box(Modifier.width((anatomy.textXDp - 16 - 8).dp).height(anatomy.leadingSizeDp.dp)
+                    .alignToFirstTitleLine(titleAlignment),
                     contentAlignment = Alignment.CenterStart) { leading?.invoke() }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(title, color = if (enabled) colors.text else colors.disabledText, style = type.titleSm,
@@ -135,8 +154,8 @@ fun GeoRow(
                     }
                 }
                 if (hasStatus && !stacked) RowStatusCell(titleHeight, sharedWidth, enabled, value, badge,
-                    Modifier.alignToFirstTitleLine(titleAlignment, titleCentered = !hasMeta)) { badgeWidth = it }
-                Box(Modifier.alignToFirstTitleLine(titleAlignment, titleCentered = !hasMeta)
+                    Modifier.alignToFirstTitleLine(titleAlignment)) { badgeWidth = it }
+                if (reserveChevron) Box(Modifier.alignToFirstTitleLine(titleAlignment)
                     .width(24.dp).height(titleHeight), contentAlignment = Alignment.Center) {
                     if (enabled && navigable) RowChevron()
                 }
@@ -146,7 +165,7 @@ fun GeoRow(
                     Spacer(Modifier.weight(1f))
                     RowStatusCell(firstLine, stackedWidth, enabled, value, badge,
                         wrap = true) { badgeWidth = it }
-                    Spacer(Modifier.width(24.dp))
+                    if (reserveChevron) Spacer(Modifier.width(24.dp))
                 }
             }
             if (extra != null) Column(Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -170,7 +189,7 @@ private fun RowStatusCell(
         if (enabled) CompositionLocalProvider(LocalGeoRowStatus provides true, LocalGeoStatusWrap provides wrap,
             LocalGeoStatusWidthReporter provides reportWidth) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.Center) {
-                if (value != null) Text(value, color = LocalGeoColors.current.textSecondary,
+                if (value != null) Text(geoBreakableStatus(value), color = LocalGeoColors.current.textSecondary,
                     style = LocalGeoType.current.inlineStatus.copy(fontFeatureSettings = "tnum"), textAlign = TextAlign.End,
                     maxLines = if (wrap) Int.MAX_VALUE else 1, softWrap = wrap,
                     modifier = Modifier.fillMaxWidth())
@@ -193,7 +212,7 @@ fun GeoActionRow(
     disabledReason: String? = null,
     divider: Boolean = true,
     tone: Tone? = null,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     leadingIsPhoto: Boolean = false
 ) {
     require(actionEnabled || !disabledReason.isNullOrBlank()) { "Disabled actions need a visible reason" }
@@ -202,10 +221,16 @@ fun GeoActionRow(
     val density = LocalDensity.current
     val titleAlignment = rememberFirstLineAlignment()
     val anatomy = geoRowAnatomy(twoLine = true, photo = leadingIsPhoto)
-    BoxWithConstraints(modifier.fillMaxWidth().then(if (divider) Modifier.contentDivider(tone, anatomy.dividerXDp.dp) else Modifier)) {
-        val stacked = density.fontScale >= 1.3f || maxWidth < 280.dp ||
-            (com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoWindow.current.widthDp >= 600f &&
-                density.fontScale >= 1.3f && maxWidth < 480.dp)
+    val measurer = rememberTextMeasurer()
+    val group = LocalGeoGroup.current
+    val key = remember { Any() }
+    val labelWidth = with(density) { measurer.measure(AnnotatedString(actionLabel), type.caption, softWrap = false).size.width.toDp().value + 17f }
+    SideEffect { group?.actionWidths?.set(key, labelWidth) }
+    DisposableEffect(group, key) { onDispose { group?.actionWidths?.remove(key) } }
+    val actionWidth = geoActionWidth(group?.actionWidths?.values ?: listOf(labelWidth)).dp
+    val titleWidth = with(density) { measurer.measure(AnnotatedString(title), type.titleSm, softWrap = false).size.width.toDp().value }.coerceAtMost(144f)
+    BoxWithConstraints(modifier.fillMaxWidth().contentDivider(tone, if (leading == null) 16.dp else anatomy.dividerXDp.dp, enabled = divider)) {
+        val stacked = geoActionStacks(maxWidth.value, actionWidth.value, titleWidth)
         Column(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(contentPadding),
             verticalArrangement = Arrangement.Center) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
@@ -220,7 +245,7 @@ fun GeoActionRow(
                     .semantics(mergeDescendants = true) {
                         contentDescription = listOfNotNull(title, meta, "상세 보기").joinToString(", ")
                     }, horizontalArrangement = Arrangement.spacedBy((anatomy.textXDp - anatomy.leadingXDp - anatomy.leadingSizeDp).dp)) {
-                    Box(Modifier.size(anatomy.leadingSizeDp.dp).alignToFirstTitleLine(titleAlignment), contentAlignment = Alignment.TopCenter) { leading?.invoke() }
+                    if (leading != null) Box(Modifier.size(anatomy.leadingSizeDp.dp).alignToFirstTitleLine(titleAlignment), contentAlignment = Alignment.TopCenter) { leading() }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(title, color = tone?.let(colors::tone) ?: colors.text, style = type.titleSm,
                             onTextLayout = titleAlignment::onTextLayout)
@@ -228,9 +253,9 @@ fun GeoActionRow(
                         if (!actionEnabled) Text(disabledReason.orEmpty(), color = colors.textSecondary, style = type.supporting)
                     }
                 }
-                if (!stacked) FixedRowAction(actionLabel, actionEnabled, onAction, tone = tone)
+                if (!stacked) FixedRowAction(actionLabel, actionEnabled, onAction, Modifier.width(actionWidth), tone)
             }
-            if (stacked) FixedRowAction(actionLabel, actionEnabled, onAction, Modifier.align(Alignment.End).padding(top = 8.dp), tone)
+            if (stacked) FixedRowAction(actionLabel, actionEnabled, onAction, Modifier.fillMaxWidth().padding(top = 8.dp), tone)
         }
     }
 }
@@ -238,13 +263,13 @@ fun GeoActionRow(
 @Composable
 private fun FixedRowAction(label: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, tone: Tone? = null) {
     var focused by remember { mutableStateOf(false) }
-    Box(modifier.width(88.dp).heightIn(min = 56.dp)
+    Box(modifier.heightIn(min = 56.dp)
         .onFocusChanged { focused = it.isFocused }
         .geoFocusRing(GeoControlShape, focused)
         .geoClickable(enabled = enabled, onClick = onClick)
         .padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
         Text(label, color = if (enabled) tone?.let(LocalGeoColors.current::tone) ?: LocalGeoColors.current.primary else LocalGeoColors.current.disabledText,
-            style = LocalGeoType.current.caption, textAlign = TextAlign.Center)
+            style = LocalGeoType.current.caption, textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
     }
 }
 

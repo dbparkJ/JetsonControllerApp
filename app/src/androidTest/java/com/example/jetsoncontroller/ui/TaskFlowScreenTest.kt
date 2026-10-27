@@ -53,13 +53,13 @@ class TaskFlowScreenTest {
 
     @Test fun pipelineTechnicalErrorIsVisibleOnlyInDeveloperMode() {
         var developerMode by mutableStateOf(false)
-        val state = PipelineUiState(
+        var state by mutableStateOf(PipelineUiState(
             deviceId = "A",
             controlAvailable = true,
             observedAtMillis = 1000,
             error = "장치에 연결할 수 없습니다. 같은 네트워크인지 확인하고 다시 시도하세요.",
             technicalError = "ConnectException: /111.111.111.110:44181"
-        )
+        ))
         compose.setContent { JetsonControllerTheme {
             PipelineListScreen(
                 state, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {},
@@ -69,9 +69,13 @@ class TaskFlowScreenTest {
         } }
 
         compose.onNodeWithText(state.error!!).assertIsDisplayed()
-        compose.onNodeWithText(state.technicalError!!).assertDoesNotExist()
+        compose.onNode(hasVisibleText(state.technicalError!!)).assertDoesNotExist()
         compose.runOnIdle { developerMode = true }
-        compose.onNodeWithText(state.technicalError!!).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasVisibleText(state.technicalError!!)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("오류 상세 복사").assertExists()
+        compose.runOnIdle { state = state.copy(isLoading = true) }
+        compose.onNode(hasVisibleText(state.technicalError!!)).assertDoesNotExist()
+        compose.onNodeWithContentDescription("오류 상세 복사").assertDoesNotExist()
     }
 
     @Test fun historyRequiresTwoRightSwipesAndRunningRunsCannotBeDeleted() {

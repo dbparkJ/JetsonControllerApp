@@ -17,6 +17,7 @@ import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoPane
 import com.example.jetsoncontroller.ui.components.geo.shell.LocalGeoDetailRoot
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoDetailToolbar
 import com.example.jetsoncontroller.ui.components.geo.shell.GeoLargeTitleScaffold
+import com.example.jetsoncontroller.ui.components.geo.shell.GeoStatusSpec
 import com.example.jetsoncontroller.ui.connection.DeviceConnectionUi
 import com.example.jetsoncontroller.ui.dashboard.DashboardUiState
 import com.example.jetsoncontroller.ui.dashboard.StatusFreshness
@@ -102,6 +103,7 @@ internal fun DeviceDetailScreen(
         GeoLargeTitleScaffold(deviceName, modifier = Modifier.weight(1f),
             subtitle = if (online) listOfNotNull(deviceTransportLabel(dashboard.transportType), freshness).joinToString(" · ")
                 else lastSeenText?.let { "마지막 응답 $it" } ?: "현재 상태 미확인",
+            subtitleStatus = GeoStatusSpec(connection.label, connection.tone),
             titleTrailingContent = { DevicePhoto(80.dp) }, actions = {
             if (detailRoot) GeoIconButton(GeoIcons.more, "더 보기", { menu = true })
         }) {
@@ -117,9 +119,7 @@ internal fun DeviceDetailScreen(
             }
             item {
                 Column(Modifier.padding(horizontal = gutter)) {
-                    GeoBadge(connection.label, connection.tone, variant = GeoBadgeVariant.INLINE)
-                    Spacer(Modifier.height(12.dp))
-                    DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+                    DeviceSurface {
                         GeoMetricStrip(devicePhotoFigures(dashboard.status.takeIf { current }, snapshot))
                     }
                     val sensors: @Composable () -> Unit = {
@@ -135,14 +135,7 @@ internal fun DeviceDetailScreen(
                                         meta = dashboard.status.wifiSsid?.takeIf(String::isNotBlank) ?: "미확인",
                                         leading = { GeoIconTile(GeoIcons.wifi) }, enabled = online,
                                         disabledReason = disabledReason)
-                                    DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                                        GeoPropertyList(listOf("장치 ID")) {
-                                            GeoPropertyRow("장치 ID", deviceId.ifBlank { "미확인" }, valueContent = {
-                                                GeoCopyableValue(deviceId.ifBlank { "미확인" },
-                                                    showCopyButton = deviceId.isNotBlank())
-                                            })
-                                        }
-                                    }
+                                    DeviceIdentityRow(deviceId)
                         }
                     }
                     val dataSection: @Composable () -> Unit = {

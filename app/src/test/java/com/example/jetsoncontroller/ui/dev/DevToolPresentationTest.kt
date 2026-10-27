@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.dev
 
 import com.example.jetsoncontroller.model.DeviceNetworkAddress
+import com.example.jetsoncontroller.model.DeviceNetworkDiagnostics
 import com.example.jetsoncontroller.model.SensorTestResult
 import com.example.jetsoncontroller.ui.model.ConnectionState
 import com.example.jetsoncontroller.ui.model.Tone
@@ -9,6 +10,25 @@ import org.junit.Test
 import java.time.Instant
 
 class DevToolPresentationTest {
+    @Test fun missingNetworkResultNeverBecomesAnUnexplainedBlankCard() {
+        assertEquals(NetworkContent.LOADING, networkContent(true, true, null, null))
+        assertEquals(NetworkContent.NOT_QUERIED, networkContent(true, false, null, null))
+        assertEquals(NetworkContent.ERROR, networkContent(true, false, "failed", null))
+        assertEquals(NetworkContent.OFFLINE, networkContent(false, false, null, null))
+        assertEquals(NetworkContent.EMPTY, networkContent(true, false, null, DeviceNetworkDiagnostics()))
+        assertEquals(NetworkContent.ERROR, networkContent(true, false, "failed", DeviceNetworkDiagnostics()))
+        val previous = DeviceNetworkDiagnostics(interfaces = listOf(DeviceNetworkAddress(address = "192.168.1.2")))
+        assertEquals(NetworkContent.CONTENT, networkContent(false, false, "failed", previous))
+        assertEquals(NetworkContent.LOADING, networkContent(true, true, "failed", previous))
+    }
+
+    @Test fun failedProfilesDoNotClaimThatNoServersAreRegistered() {
+        assertEquals(ServerProfilesContent.ERROR, serverProfilesContent(false, true, false))
+        assertEquals(ServerProfilesContent.LOADING, serverProfilesContent(true, true, false))
+        assertEquals(ServerProfilesContent.EMPTY, serverProfilesContent(false, false, false))
+        assertEquals(ServerProfilesContent.CONTENT, serverProfilesContent(false, true, true))
+    }
+
     @Test fun basicConnectionDoesNotGetAConnectedSuccessBadge() {
         assertEquals(ConnectionState.CONNECTED, devConnectionState(true, true))
         assertEquals(ConnectionState.DEFAULT_CONNECTION, devConnectionState(true, false))

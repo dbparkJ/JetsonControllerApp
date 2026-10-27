@@ -137,13 +137,14 @@ class R7PhoneLayoutTest {
         assertTrue(status.top >= title.bottom)
     }
 
-    @Test fun standaloneBadgesRetainWrappingOutsideTheRowStatusColumn() {
+    @Test fun standaloneTagBadgesRetainWrappingOutsideTheRowStatusColumn() {
         var density = 1f
         compose.setContent {
             density = LocalDensity.current.density
             JetsonControllerTheme(palette = GeoPalette.STANDARD) {
                 Box(Modifier.testTag("standalone-badge")) {
-                    GeoBadge("장치 상태를 다시 확인하세요", Tone.WARNING, Modifier.width(90.dp))
+                    GeoBadge("장치 상태를 다시 확인하세요", Tone.WARNING, Modifier.width(90.dp),
+                        variant = GeoBadgeVariant.TAG)
                 }
             }
         }

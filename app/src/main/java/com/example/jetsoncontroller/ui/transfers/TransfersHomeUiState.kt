@@ -150,7 +150,7 @@ internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHome
             TransferRowState(
                 jobId = job.id,
                 title = transferTitle(job, input.runs),
-                detail = "대기 중",
+                detail = transferRowMeta(job, input),
                 tone = Tone.UNKNOWN
             )
         }
@@ -162,7 +162,7 @@ internal fun buildTransfersHomeUiState(input: TransfersHomeInput): TransfersHome
             TransferRowState(
                 jobId = job.id,
                 title = transferTitle(job, input.runs),
-                detail = "수신 확인 중",
+                detail = transferRowMeta(job, input),
                 tone = Tone.PENDING
             )
         }
@@ -323,6 +323,12 @@ private fun verifiedRow(job: UploadJob, input: TransfersHomeInput): TransferRowS
         tone = Tone.SUCCESS
     )
 }
+
+private fun transferRowMeta(job: UploadJob, input: TransfersHomeInput): String = listOfNotNull(
+    input.upload.targets.firstOrNull { it.id == job.targetId }?.label,
+    job.bytesTotal?.let(::formatSize),
+    job.filesTotal?.let { "파일 ${String.format(Locale.US, "%,d", it)}개" }
+).joinToString(" · ").ifBlank { "받는 서버에서 확인할 자료" }
 
 /** Why uploads may be unavailable, in one line. Only same-network uploads are allowed. */
 private fun explanationFor(transport: TransportType?): Pair<String, Tone> {

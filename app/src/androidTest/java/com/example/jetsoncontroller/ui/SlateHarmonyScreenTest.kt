@@ -49,7 +49,7 @@ class SlateHarmonyScreenTest {
         val list = compose.onNode(hasScrollToIndexAction())
         list.performScrollToNode(hasText("검사 폴더 15"))
         compose.onNodeWithText("보낼 파일 선택").performClick()
-        compose.onNode(hasText("선택") and hasAnyAncestor(hasTestTag("file-selection-inspection15")))
+        compose.onNode(hasContentDescription("검사 폴더 15 선택") and hasAnyAncestor(hasTestTag("file-selection-inspection15")))
             .performScrollTo().performClick().assertIsOn()
         compose.onNodeWithText("선택한 파일 보내기").assertIsEnabled()
         val before = compose.onNodeWithText("검사 폴더 15").fetchSemanticsNode().boundsInRoot

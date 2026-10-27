@@ -43,6 +43,6 @@ internal fun WorkDeviceSwitcher(name: String, tone: Tone, onClick: () -> Unit, m
 /** The choice sheet owns the edge-to-edge selection surface; connection remains a separate fact. */
 @Composable
 internal fun WorkDeviceChoiceRow(name: String, selected: Boolean, onClick: () -> Unit,
-    word: String, tone: Tone, detail: String?) {
-    GeoRadioRow(name, selected, onClick, description = detail, badge = { GeoBadge(word, tone) })
+    word: String, tone: Tone, detail: String?, divider: Boolean = true) {
+    GeoRadioRow(name, selected, onClick, description = detail, badge = { GeoBadge(word, tone) }, divider = divider)
 }

@@ -13,8 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
@@ -269,21 +267,26 @@ private class GalleryPreferences : SharedPreferences {
 }
 
 private fun click(rule: ComposeContentTestRule, text: String) {
+    R8GalleryDeadline.check()
     // File labels add zero-width break opportunities without changing their visible text.
-    val visibleText = SemanticsMatcher("보이는 글자: $text") { node ->
-        node.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text.replace("\u200B", "") == text }
-    }
+    val visibleText = hasVisibleText(text)
     val matcher = visibleText and hasClickAction()
     var candidates = rule.onAllNodes(matcher)
     if (candidates.fetchSemanticsNodes().isEmpty()) {
         val scrolls = rule.onAllNodes(hasScrollToIndexAction())
-        for (index in scrolls.fetchSemanticsNodes().indices) {
-            try { scrolls[index].performScrollToNode(visibleText) } catch (_: AssertionError) { }
+        // Bound both the number of scroll containers and attempts per container.
+        for (index in 0 until minOf(scrolls.fetchSemanticsNodes().size, 4)) {
+            for (attempt in 0 until 3) {
+                R8GalleryDeadline.check()
+                if (rule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()) break
+                try { scrolls[index].performScrollToNode(visibleText) } catch (_: AssertionError) { }
+            }
             if (rule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()) break
         }
         candidates = rule.onAllNodes(matcher)
     }
     check(candidates.fetchSemanticsNodes().isNotEmpty()) { "버튼을 찾지 못했습니다: $text" }
+    R8GalleryDeadline.check()
     val target = candidates[0]
     try { target.performScrollTo() } catch (_: AssertionError) { }
     target.performClick()
@@ -291,8 +294,19 @@ private fun click(rule: ComposeContentTestRule, text: String) {
     rule.waitForIdle()
 }
 private fun icon(rule: ComposeContentTestRule, description: String) {
-    rule.onAllNodesWithContentDescription(description)[0].performClick()
+    R8GalleryDeadline.check()
+    val candidates = rule.onAllNodesWithContentDescription(description)
+    check(candidates.fetchSemanticsNodes().isNotEmpty()) { "아이콘을 찾지 못했습니다: $description" }
+    candidates[0].performClick()
     rule.mainClock.advanceTimeBy(600L); rule.waitForIdle()
+}
+
+internal object R8GalleryDeadline {
+    var deadlineNanos: Long = Long.MAX_VALUE
+
+    fun check() {
+        kotlin.check(System.nanoTime() <= deadlineNanos) { "장면 준비 제한 시간 초과" }
+    }
 }
 
 @Composable private fun Work(kind: String = "wait") {
@@ -1216,12 +1230,16 @@ internal fun r8TransferScenes(): List<R8GalleryScene> = buildList {
                 isLoading = kind == "loading", error = if (kind == "error") "서버 파일 목록을 불러오지 못했습니다." else null))
         })
     }
-    add(R8GalleryScene("text-preview", "storage/MediaPresentation.kt; storage/DeviceStorageScreen.kt · FilePreview", "긴 파일명 · 텍스트 미리보기", tab = GeoTab.TRANSFERS, media = true) {
-        FilePreview(RemoteFileContent("중앙로_동측_교차로부터_보행교까지_정밀측량_실행로그_20261027.txt", "text/plain", G.pipelines.logContent.toByteArray()), G.NAME)
+    add(R8GalleryScene("text-preview", "storage/MediaPresentation.kt; storage/FileBrowser.kt · StoragePage / FilePreview", "긴 파일명 · 텍스트 미리보기", tab = GeoTab.TRANSFERS) {
+        StoragePage("파일 미리보기", onBack = {}) {
+            FilePreview(RemoteFileContent("중앙로_동측_교차로부터_보행교까지_정밀측량_실행로그_20261027.txt", "text/plain", G.pipelines.logContent.toByteArray()), G.NAME)
+        }
     })
-    add(R8GalleryScene("image-preview", "storage/MediaPresentation.kt; storage/DeviceStorageScreen.kt · FilePreview", "긴 파일명 · 합성 이미지 미리보기", tab = GeoTab.TRANSFERS, media = true) {
+    add(R8GalleryScene("image-preview", "storage/MediaPresentation.kt; storage/FileBrowser.kt · StoragePage / FilePreview", "긴 파일명 · 합성 이미지 미리보기", tab = GeoTab.TRANSFERS, media = true) {
         val bytes = remember { java.io.ByteArrayOutputStream().use { out -> G.cameraFrame.compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray() } }
-        FilePreview(RemoteFileContent(G.FILE, "image/png", bytes), G.NAME, G.entries[1])
+        StoragePage("파일 미리보기", onBack = {}, media = true) {
+            FilePreview(RemoteFileContent(G.FILE, "image/png", bytes), G.NAME, G.entries[1])
+        }
     })
 }
 
@@ -1334,7 +1352,10 @@ internal fun r8OverlayScenes(): List<R8GalleryScene> = buildList {
     add(overlayScene("project-picker", "survey/SurveyRunScreen.kt · 프로젝트 선택", "실제 준비 화면에서 열기", host = true,
         prepare = { click(it, G.project.label) }) { Prepare() })
     add(overlayScene("prepare-relay", "survey/SurveyRunScreen.kt · 보정 중계 정보", "실제 준비 화면에서 열기", host = true,
-        prepare = { click(it, "보정 정보 중계") }) { Prepare() })
+        prepare = { click(it, "보정 정보 중계") }) {
+        Prepare(G.survey.copy(preparationTelemetry = PreparationTelemetry(
+            deviceId = G.DEVICE, status = G.status, correctionRelay = "중계 중")))
+    })
     listOf(GeoStartPhase.CHECKING, GeoStartPhase.PASSED, GeoStartPhase.FAILED).forEach { phase ->
         add(overlayScene("survey-start-${phase.name.lowercase()}", "survey/SurveyRunScreen.kt · SurveyStartSheet", "시작 시트 · ${galleryStateLabel(phase.name.lowercase())}") {
             SurveyStartSheet(G.start(phase), {}, {}, {})
@@ -1374,13 +1395,13 @@ internal fun r8OverlayScenes(): List<R8GalleryScene> = buildList {
     })
     add(overlayScene("connection-method", "devices/ConnectMethodSheet.kt · ConnectMethodSheet", "장치 연결 방법 선택") { Connections() })
     add(overlayScene("connection-direct-confirm", "devices/ConnectMethodSheet.kt · 직접 연결", "실제 연결 방법 시트에서 열기", host = true,
-        prepare = { click(it, "직접 연결") }) { Connections() })
+        prepare = { click(it, "장치에 직접 연결") }) { Connections() })
     listOf("reboot" to "재부팅", "shutdown" to "전원 종료", "forget" to "등록 해제").forEach { (id, label) ->
         add(overlayScene("device-$id", "devices/DeviceDetailScreen.kt · 장치 위험 동작($label)", "실제 장치 상세 메뉴에서 열기", host = true,
             prepare = { click(it, label) }) { DeviceDetail() })
     }
     add(overlayScene("manual-code", "pairing/QrScannerScreen.kt · 수동 등록 코드", "실제 권한 안내 화면에서 수동 등록 열기 · 코드 비움", host = true,
-        prepare = { icon(it, "코드 직접 입력") }) { Scanner() })
+        prepare = { click(it, "코드 직접 입력") }) { Scanner() })
     listOf(PairingPhase.QR_SCANNED, PairingPhase.CONNECTING, PairingPhase.AUTHENTICATING, PairingPhase.ERROR).forEach { phase ->
         add(overlayScene("pairing-${phase.name.lowercase()}", "pairing/PairingScreen.kt · PairingScreen / 등록 진행", "등록 단계 · ${galleryStateLabel(phase.name.lowercase())}", host = true) {
             PairingScreen(PairingUiState(phase = phase, displayDeviceName = G.NAME,
@@ -1395,8 +1416,8 @@ internal fun r8OverlayScenes(): List<R8GalleryScene> = buildList {
         prepare = { icon(it, "더 보기"); click(it, "연결 상태") }) { Network() })
     add(overlayScene("wifi-direct-confirm", "wifi/WifiDirectScreen.kt · 직접 연결 확인", "실제 주변 장치 행에서 열기", host = true,
         prepare = { click(it, G.NAME); click(it, "직접 연결") }) { Direct() })
-    add(overlayScene("transfer-cancel", "transfers/TransfersHomeScreen.kt · 취소", "실제 전송 홈에서 열기", host = true,
-        prepare = { click(it, "전송 취소") }) { Transfers() })
+    add(overlayScene("transfer-cancel", "transfers/TransfersHomeScreen.kt → upload/UploadProgressScreen.kt · 취소", "전송 홈에서 이동하는 진행 상세 하단에서 열기", host = true,
+        prepare = { click(it, "전송 취소") }) { Progress() })
     add(overlayScene("queue-delete", "upload/UploadQueueScreen.kt · 기록 삭제", "실제 전송 기록 메뉴에서 열기", host = true,
         prepare = { icon(it, "중앙로 동측 메뉴"); click(it, "기록 삭제") }) { Queue() })
     add(overlayScene("progress-cancel", "upload/UploadProgressScreen.kt · 취소", "실제 진행 상세에서 열기", host = true,
@@ -1412,7 +1433,13 @@ internal fun r8OverlayScenes(): List<R8GalleryScene> = buildList {
             "완료 보고", {}, {}, facts = { DemoReceipt() })
     })
     add(overlayScene("file-trash", "storage/FileBrowser.kt · 휴지통 이동", "실제 파일 선택·메뉴에서 열기", host = true,
-        prepare = { icon(it, "파일 메뉴"); click(it, "선택"); click(it, "선택"); icon(it, "파일 메뉴"); click(it, "휴지통으로 이동") }) {
+        prepare = { rule ->
+            click(rule, "보낼 파일 선택")
+            rule.onNode(hasContentDescription("${G.entries[1].name} 선택") and isToggleable(), useUnmergedTree = true)
+                .performScrollTo().assertIsOff().performClick().assertIsOn()
+            icon(rule, "파일 메뉴")
+            click(rule, "휴지통으로 이동")
+        }) {
         Files(G.storage.copy(entries = listOf(G.entries[1])))
     })
     add(overlayScene("server-trash", "storage/DirectServerScreen.kt · 휴지통 이동", "서버 수신 결과 메뉴에서 열기", host = true,
@@ -1426,8 +1453,10 @@ internal fun r8OverlayScenes(): List<R8GalleryScene> = buildList {
         prepare = { icon(it, "휴지통 메뉴"); click(it, "휴지통 비우기") }) { Trash() })
     add(overlayScene("server-picker", "storage/ServerStorageScreen.kt · 서버 선택", "실제 서버 목록의 선택 필드에서 열기", host = true,
         prepare = { click(it, G.targets.first().label) }) { ServerFiles() })
-    add(overlayScene("server-storage-delete", "storage/ServerStorageScreen.kt · 영구 삭제", "실제 서버 수신 결과에서 열기", host = true,
-        prepare = { click(it, "영구 삭제") }) { ServerFiles() })
+    add(overlayScene("server-storage-delete", "storage/ServerStorageScreen.kt · 영구 삭제", "수신 결과 상세의 관리 묶음에서 열기", host = true,
+        prepare = { click(it, "영구 삭제") }) {
+        ServerFiles(G.serverStorage.copy(selectedSession = G.librarySession, entries = listOf(G.entries[1])))
+    })
     add(overlayScene("theme-mode", "settings/ThemeScreen.kt · 모드", "동일 CHOICE 구성 재현 · 테마 저장소 사용 안 함") {
         GeoSheet("모드", {}) { ThemeMode.entries.forEach { GeoRadioRow(it.label, it == ThemeMode.SYSTEM, {}) } }
     })

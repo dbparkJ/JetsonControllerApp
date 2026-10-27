@@ -44,7 +44,14 @@ class R8DeviceLayoutTest {
         val detail = source("devices/DeviceDetailScreen.kt")
         assertTrue(detail.contains("if (!detailRoot) GeoDetailToolbar(onBack)"))
         assertTrue(detail.contains("GeoMetricStrip(devicePhotoFigures("))
-        assertTrue(detail.contains("GeoCopyableValue(deviceId.ifBlank"))
+        assertTrue(detail.contains("DeviceIdentityRow(deviceId)"))
+        val identity = source("devices/DeviceScreenComponents.kt").substringAfter("internal fun DeviceIdentityRow")
+            .substringBefore("/** Rows own their insets")
+        assertTrue(identity.contains("GeoIconTile(GeoIcons.tabDevice)"))
+        assertTrue(identity.contains("Text(\"장치 ID\", style = type.titleSm"))
+        assertTrue(identity.contains("SelectionContainer"))
+        assertTrue(identity.contains("clipboard.setText(AnnotatedString(deviceId))"))
+        assertTrue(identity.contains("if (deviceId.isNotBlank()) GeoIconButton"))
         assertTrue(detail.contains("kind = GeoConfirmKind.DANGER"))
         assertTrue(detail.contains("if (enabled) when { forget -> onForget?.invoke(); reboot -> onReboot(); else -> onShutdown() }"))
         val graph = source("navigation/DeviceGraph.kt")
@@ -52,6 +59,24 @@ class R8DeviceLayoutTest {
         assertTrue(graph.contains("DeviceDetailPlaceholder(deviceState.isLoading"))
         assertTrue(detail.contains("if (loading) GeoSkeleton("))
         assertTrue(detail.contains("else GeoStateBlock("))
+    }
+
+    @Test fun detailStatusAndMetricsUseTheSharedSlotsWithoutDuplicateInsets() {
+        val detail = source("devices/DeviceDetailScreen.kt")
+        assertTrue(detail.contains("subtitleStatus = GeoStatusSpec(connection.label, connection.tone)"))
+        assertFalse(detail.contains("GeoBadge(connection.label"))
+        assertTrue(detail.contains("DeviceSurface {\n                        GeoMetricStrip"))
+    }
+
+    @Test fun emptyInventoryHasAFixedQrActionAndLoadingMatchesTheList() {
+        val root = source("devices/DevicesHomeScreen.kt")
+        assertTrue(root.contains("val empty = !loadingDevices && registeredDevices.isEmpty()"))
+        assertTrue(root.contains("primaryAction = if (empty) GeoButtonAction(\"QR 코드 스캔\", onAddDevice)"))
+        assertTrue(root.contains("secondaryAction = if (empty) GeoButtonAction(\"장치 없이 서버 파일 보기\", onServerFiles, GeoButtonStyle.Tertiary)"))
+        val loading = root.substringAfter("internal fun DevicesHomeLoading()")
+        assertTrue(loading.contains("GeoGroupedSection(\"장치 목록\", first = true"))
+        assertTrue(loading.contains("kind = GeoSkeletonKind.Rows"))
+        assertFalse(loading.contains("GeoSkeletonKind.DeviceCard"))
     }
 
     @Test fun ownedPagesDoNotReintroducePrivateBarsRawClicksOrFixedTypography() {

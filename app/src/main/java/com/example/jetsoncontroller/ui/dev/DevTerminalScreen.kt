@@ -41,7 +41,7 @@ internal fun DevTerminalScreen(state: FieldState, onExecute: (String) -> Unit, o
     DevFrame("원격 터미널", onBack, primaryAction = GeoButtonAction("명령 실행",
         { state.deviceId?.let { pending = RemoteCommandTarget(it, command) } },
         enabled = canExecute, busy = state.terminalBusy, busyLabel = "명령 실행 중",
-        disabledReason = if (!state.online) "장치 연결 후 명령을 실행할 수 있습니다." else null)) {
+        disabledReason = terminalDisabledReason(state.deviceId, state.online, state.terminalBusy, command))) {
       BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
         val logHeight = maxHeight / 2
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -49,7 +49,7 @@ internal fun DevTerminalScreen(state: FieldState, onExecute: (String) -> Unit, o
         DevIdentity(deviceName, "단일 명령 · 최대 15초 · 출력 64KB", status = if (state.online) "연결됨" else "연결 안 됨",
             tone = if (state.online) Tone.SUCCESS else Tone.UNKNOWN)
         Spacer(Modifier.height(24.dp))
-        GeoTextField(command, { if (it.length <= 4096) command = it }, "명령어", placeholder = "pwd",
+        GeoTextField(command, { if (it.length <= 4096) command = it }, "명령어", placeholder = "예: pwd",
             singleLine = true, enabled = !state.terminalBusy, disabledReason = "명령을 실행하고 있습니다.",
             inputKind = GeoInputKind.IDENTIFIER, imeAction = ImeAction.Done,
             keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }))
@@ -60,9 +60,14 @@ internal fun DevTerminalScreen(state: FieldState, onExecute: (String) -> Unit, o
                 live = false, modifier = Modifier.fillMaxWidth().height(logHeight).geoContainScroll())
             else GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "출력 없음", "명령을 실행하면 결과가 여기에 표시됩니다."))
         }
-        Spacer(Modifier.height(16.dp))
-        DevText("$deviceName · ${if (state.terminalBusy) "명령을 실행하고 있습니다." else if (state.online) "명령을 실행할 수 있습니다." else "장치에 연결하면 명령을 실행할 수 있습니다."}", secondary = true)
         }
       }
     }
+}
+
+internal fun terminalDisabledReason(deviceId: String?, online: Boolean, busy: Boolean, command: String): String? = when {
+    deviceId == null || !online -> "장치 연결 후 명령을 실행할 수 있습니다."
+    busy -> "명령을 실행하고 있습니다."
+    command.isBlank() -> "명령어를 입력하세요."
+    else -> null
 }

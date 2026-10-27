@@ -7,6 +7,34 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 class FileBrowserStateTest {
+    @Test fun `file selection requires an available nonempty listing`() {
+        val state = DeviceStorageUiState(controlAvailable = true,
+            currentRoot = RemoteRoot("data", "수집 자료", null), entries = listOf(entry("capture.jpg")))
+        assertTrue(browserCanSelectFiles(state))
+        assertFalse(browserCanSelectFiles(state.copy(entries = emptyList())))
+        assertFalse(browserCanSelectFiles(state.copy(currentRoot = null)))
+        assertFalse(browserCanSelectFiles(state.copy(isLoading = true)))
+        assertFalse(browserCanSelectFiles(state.copy(isDeleting = true)))
+        assertFalse(browserCanSelectFiles(state.copy(controlAvailable = false)))
+        assertFalse(browserCanSelectFiles(state.copy(error = "조회 실패")))
+        assertFalse(browserCanSelectFiles(state, "전송 준비 실패"))
+    }
+
+    @Test fun `error detail preserves the cause without repeating its title`() {
+        val title = "파일 목록을 불러오지 못했습니다"
+        assertEquals("연결 상태를 확인한 뒤 다시 확인하세요.", storageFailureDetail("$title.", title))
+        assertEquals("장치 연결이 끊겼습니다.", storageFailureDetail("$title. 장치 연결이 끊겼습니다.", title))
+        assertEquals("권한이 없습니다.", storageFailureDetail("권한이 없습니다.", title))
+    }
+
+    @Test fun `file metadata contains type size and time without repeating its name`() {
+        val file = entry("capture.jpg").copy(sizeBytes = 1024L)
+        val meta = fileEntryMeta(file)
+        assertTrue(meta.contains("이미지"))
+        assertTrue(meta.contains("KB"))
+        assertFalse(meta.contains(file.name))
+    }
+
     @Test fun `five picker choices include logs and filtering keeps folders navigable`() {
         assertEquals(listOf("전체", "이미지", "영상", "센서", "로그"), mediaCategories)
         val folder = entry("run", RemoteEntryType.DIRECTORY)

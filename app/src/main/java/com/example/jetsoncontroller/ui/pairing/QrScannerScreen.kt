@@ -40,7 +40,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.jetsoncontroller.ui.components.geo.*
-import com.example.jetsoncontroller.ui.theme.LocalGeoColors
 import com.example.jetsoncontroller.ui.theme.LocalGeoType
 import com.example.jetsoncontroller.ui.theme.GeoFixedColors
 import com.example.jetsoncontroller.ui.theme.GeoShape
@@ -88,10 +87,12 @@ fun QrScannerScreen(
         } else manualError = INVALID_PAIRING_CODE
     }
     GeoImmersiveMediaFrame(controls = {
-        ScannerControls(onBack, { freezePreview?.invoke(); showManualEntry = true },
-            Modifier.focusRequester(manualOpener)) {
-            if (!cameraPermissionGranted && !showManualEntry) CameraPermissionContent(onRequestCameraPermission)
-            else ScannerFrameOverlay(errorMessage?.let { INVALID_PAIRING_CODE } ?: cameraError)
+        val openManual = { freezePreview?.invoke(); showManualEntry = true }
+        if (!cameraPermissionGranted && !showManualEntry) {
+            CameraPermissionControls(onBack, onRequestCameraPermission, openManual,
+                Modifier.focusRequester(manualOpener))
+        } else ScannerControls(onBack, openManual, Modifier.focusRequester(manualOpener)) {
+            ScannerFrameOverlay(errorMessage?.let { INVALID_PAIRING_CODE } ?: cameraError)
         }
     }) {
             when {
@@ -139,6 +140,7 @@ internal fun FrozenPairingScanner(onBack: () -> Unit) {
 
 @Composable
 private fun BoxScope.ScannerControls(onBack: () -> Unit, onManual: () -> Unit, manualModifier: Modifier = Modifier,
+    footer: (@Composable () -> Unit)? = null,
     center: @Composable BoxScope.() -> Unit = { ScannerFrameOverlay(null) }) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Row(Modifier.fillMaxWidth().padding(end = 64.dp),
@@ -149,7 +151,7 @@ private fun BoxScope.ScannerControls(onBack: () -> Unit, onManual: () -> Unit, m
             style = LocalGeoType.current.titleSm, color = GeoFixedColors.mediaText)
     }
     Box(Modifier.weight(1f).fillMaxWidth(), content = center)
-    Column(Modifier.align(Alignment.CenterHorizontally), horizontalAlignment = Alignment.CenterHorizontally,
+    if (footer != null) footer() else Column(Modifier.align(Alignment.CenterHorizontally), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         GeoMediaIconButton(GeoIcons.qr, "코드 직접 입력", onManual, manualModifier)
         Text("코드 직접 입력", style = LocalGeoType.current.caption, color = GeoFixedColors.mediaText)
@@ -165,22 +167,30 @@ private fun ScannerStage(image: ImageBitmap? = null) {
 }
 
 @Composable
-private fun CameraPermissionContent(onRequestPermission: () -> Unit) {
+private fun BoxScope.CameraPermissionControls(onBack: () -> Unit, onRequestPermission: () -> Unit,
+    onManual: () -> Unit, manualModifier: Modifier) {
     val context = LocalContext.current
     var requested by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)) {
-        CompositionLocalProvider(LocalGeoColors provides LocalGeoColors.current.copy(
-            text = GeoFixedColors.mediaText, textSecondary = GeoFixedColors.mediaText)) {
-            GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "카메라 권한이 꺼져 있습니다",
-                "QR 코드를 읽으려면 카메라 권한이 필요합니다."))
+    ScannerControls(onBack, onManual, manualModifier, footer = {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                GeoButton("코드 직접 입력", onManual, manualModifier.fillMaxWidth(),
+                    style = GeoButtonStyle.Tertiary, contentColor = GeoFixedColors.mediaText)
+                if (requested) {
+                    GeoButton("설정에서 허용", {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+                    }, Modifier.fillMaxWidth())
+                } else {
+                    GeoButton("권한 허용", { requested = true; onRequestPermission() }, Modifier.fillMaxWidth())
+                }
+            }
         }
-        if (requested) {
-            GeoButton("설정에서 허용", {
-                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
-            })
-        } else {
-            GeoButton("권한 허용", { requested = true; onRequestPermission() })
+    }) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "카메라 권한이 꺼져 있습니다",
+                "QR 코드를 읽으려면 카메라 권한이 필요합니다."), Modifier.widthIn(max = 560.dp))
         }
     }
 }

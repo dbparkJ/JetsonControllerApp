@@ -6,6 +6,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskPresentationTest {
+    @Test fun listSupportingTextDoesNotRepeatItsTrailingState() {
+        assertNull(taskSupportingText(taskStateLabel(PipelineState.STOPPED, true)))
+        assertNull(taskSupportingText(taskStateLabel(PipelineState.FAILED, true)))
+        assertEquals("마지막 대기", taskSupportingText(taskStateLabel(PipelineState.STOPPED, false)))
+        assertEquals("실행 확인 대기", taskSupportingText(taskStateLabel(PipelineState.RUNNING, true, "start")))
+    }
+
     @Test fun staleOrDisconnectedRunningIsNeverLive() {
         assertFalse(tasksAreFresh(false, 1000, 1001))
         assertFalse(tasksAreFresh(true, null, 1001))

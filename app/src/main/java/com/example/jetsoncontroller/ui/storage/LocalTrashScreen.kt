@@ -69,16 +69,17 @@ fun LocalTrashScreen(
                     item {
                         // The freshness line holds the screen's one "다시 확인"; the notes below never repeat it.
                         StorageFreshness(state.refreshedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() },
-                            onRefresh, state.deviceName, server = false)
-                        GeoInlineNote(when {
+                            onRefresh, state.deviceName, server = false, loading = state.loading)
+                        if (state.error == null && (!state.loading || state.hasLoaded || !state.online)) GeoInlineNote(when {
                             !state.online -> "장치에 연결하면 복원 가능한 항목과 영구 삭제 지원 여부를 확인할 수 있습니다."
                             !state.hasLoaded -> "장치 휴지통을 확인하고 있습니다."
                             state.emptySupported -> "복원 가능한 항목은 원래 위치로 되돌릴 수 있습니다. 휴지통을 비우면 표시된 항목이 영구 삭제됩니다."
                             else -> "이 장치는 휴지통 비우기를 지원하지 않습니다. 장치 소프트웨어 업데이트가 필요합니다."
                         })
-                        if (state.loading) GeoSkeleton("장치 휴지통을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
-                        else if (busy) GeoProgress()
-                        state.error?.let { GeoInlineNote(it, tone = Tone.WARNING, kind = GeoNoteKind.LIVE_ERROR) }
+                        Spacer(Modifier.height(24.dp))
+                        if (state.loading && !state.hasLoaded) GeoSkeleton("장치 휴지통을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
+                        else if (busy && !state.loading) GeoProgress()
+                        state.error?.let { GeoInlineNote(it, tone = if (state.hasLoaded) Tone.WARNING else Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR) }
                     }
                     items(state.entries, key = { it.trashId }) { entry ->
                         LocalTrashEntry(entry, state.online, busy) { onRestore(entry) }

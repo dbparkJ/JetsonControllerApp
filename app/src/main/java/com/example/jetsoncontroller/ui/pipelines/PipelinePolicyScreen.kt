@@ -128,9 +128,12 @@ internal fun PipelinePolicyScreen(state: PipelinePolicyState, label: String, dev
         disabledReason = "장치 연결과 수집 정책 값을 확인하세요.")) {
         DevIdentity(label, deviceName)
         DevFeedback(state.message, state.needsReview)
-        if (state.busy) DevLoading()
-        GeoButton("장치 설정 다시 불러오기", { confirmReload = true }, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start, enabled = enabled)
-        GeoSection("센서", first = true, modifier = Modifier.padding(top = 24.dp)) {
+        if (state.busy) DevLoading("수집 정책을 불러오거나 저장하는 중")
+        GeoSection("정책 관리", first = true, modifier = Modifier.padding(top = 24.dp), trailingColumn = GeoRowTrailing.None) {
+            GeoRow("장치 설정 다시 불러오기", { confirmReload = true }, leading = { GeoIconTile(GeoIcons.refresh) },
+                enabled = enabled, disabledReason = "장치에 연결되고 저장이 끝나야 다시 불러올 수 있습니다.", divider = false)
+        }
+        GeoSection("센서") {
             for ((key, name) in listOf("camera" to "카메라", "gnss" to "위치(GNSS)", "imu" to "움직임(IMU)")) {
                 DevChoice(name, listOf("필수", "선택", "사용 안 함"), (state.draft.sensors[key] ?: SensorRequirementChoice.NOT_USED).ordinal,
                     { choice -> onEdit { copy(sensors = sensors + (key to SensorRequirementChoice.entries[choice])) } }, enabled)

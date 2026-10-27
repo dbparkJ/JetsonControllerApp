@@ -27,17 +27,25 @@ internal fun DevNetworkScreen(state: FieldState, onRefresh: () -> Unit, onBack: 
 
 @Composable
 internal fun DevNetworkContent(state: FieldState) {
-    GeoSection("주소", first = true, modifier = Modifier.padding(top = 24.dp)) {
-        if (state.networkBusy) DevLoading()
-        if (!state.online) DevText("장치를 같은 네트워크나 직접 연결로 연결하면 조회할 수 있습니다.")
-        state.network?.interfaces?.distinctBy { it.interfaceName to it.address }?.groupBy(::networkAddressLabel)?.forEach { (label, addresses) ->
-            addresses.forEach { address ->
-                val family = if (':' in address.address) "IPv6" else "IPv4"
-                DevCopyValue(if (addresses.size > 1) "$label · $family" else label, address.address)
+    GeoSection("주소", first = true, modifier = Modifier.padding(top = 24.dp), insetContent = false) {
+        when (networkContent(state.online, state.networkBusy, state.networkError, state.network)) {
+            NetworkContent.LOADING -> DevLoading("네트워크 주소를 불러오는 중")
+            NetworkContent.ERROR -> GeoStateBlock(GeoStateContent(GeoStateKind.ERROR,
+                "네트워크 주소를 불러오지 못했습니다", state.networkError ?: "다시 조회해 주세요."))
+            NetworkContent.OFFLINE -> DevEmpty("장치에 연결해 주세요", "같은 네트워크나 직접 연결로 연결하면 주소를 조회할 수 있습니다.", fullScreen = false)
+            NetworkContent.NOT_QUERIED -> DevEmpty("아직 주소를 조회하지 않았습니다", "다시 조회를 누르면 장치의 네트워크 주소를 확인합니다.", fullScreen = false)
+            NetworkContent.EMPTY -> DevEmpty("활성 네트워크 주소가 없습니다", "조회한 장치에 활성 네트워크 주소가 없습니다.", fullScreen = false)
+            NetworkContent.CONTENT -> {
+                state.network?.interfaces?.distinctBy { it.interfaceName to it.address }?.groupBy(::networkAddressLabel)?.forEach { (label, addresses) ->
+                    addresses.forEach { address ->
+                        val family = if (':' in address.address) "IPv6" else "IPv4"
+                        GeoCopyableValue(address.address, Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            label = if (addresses.size > 1) "$label · $family" else label)
+                    }
+                }
+                DevFeedback(state.networkError, true)
             }
         }
-        if (state.network?.interfaces?.isEmpty() == true) DevEmpty("활성 네트워크 주소가 없습니다.", "조회한 장치에 활성 네트워크 주소가 없습니다.")
-        DevFeedback(state.networkError, true)
     }
 }
 

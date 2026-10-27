@@ -4,7 +4,6 @@ import com.example.jetsoncontroller.ui.storage.R7InlineNote as GeoInlineNote
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,6 +72,7 @@ internal fun FileBrowser(
     var targetPicker by rememberSaveable(entryPoint, state.deviceId) { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     var menu by rememberSaveable(location) { mutableStateOf(false) }
+    var folderInformation by rememberSaveable(location) { mutableStateOf(false) }
     var deletion by rememberSaveable(location, stateSaver = geoSnapshotSaver(DataDeletionSnapshot::class.java)) {
         mutableStateOf<DataDeletionSnapshot?>(null)
     }
@@ -105,6 +105,10 @@ internal fun FileBrowser(
             facts = { GeoCopyableValue(snapshot.entry.name, label = "원본 파일명") })
     }
     val sendTarget = send?.targets?.firstOrNull { it.id == targetId } ?: send?.targets?.firstOrNull()
+    if (folderInformation) GeoInfoDialog("폴더 정보", { folderInformation = false }) {
+        GeoCopyableValue(state.currentPath, label = "폴더 경로")
+        GeoPropertyRow("장치", state.deviceName)
+    }
     val sendSummary = send?.summary?.takeIf { it.rootId == root && it.relativePath == sendPath }
     if (targetPicker && send != null) GeoSheet("받는 서버", { targetPicker = false }, kind = GeoSheetKind.CHOICE) {
         send.targets.forEach { target -> GeoRadioRow(target.label, target.id == sendTarget?.id,
@@ -119,8 +123,15 @@ internal fun FileBrowser(
     val browseAction = if (send == null && onSend != null) GeoButtonAction(
         if (sendPath != null) "선택한 파일 보내기" else "보낼 파일 선택", {
             if (root != null && sendPath != null) onSend(root, sendPath) else selecting = true
-        }, enabled = state.controlAvailable && !state.isDeleting,
-        disabledReason = "장치에 연결되면 파일을 선택할 수 있습니다.") else null
+        }, enabled = browserCanSelectFiles(state, error),
+        disabledReason = when {
+            !state.controlAvailable -> "장치에 연결되면 파일을 선택할 수 있습니다."
+            state.isLoading -> "파일 목록을 확인하고 있습니다."
+            state.isDeleting -> "파일을 정리하고 있습니다."
+            state.error != null || error != null -> "파일 목록을 다시 불러오세요."
+            root == null -> "수집 자료 위치를 확인하세요."
+            else -> "보낼 파일이 없습니다."
+        }) else null
     val previewContent by rememberUpdatedState<@Composable () -> Unit>({
         state.preview?.let { preview ->
             FilePreview(preview, state.deviceName, state.entries.firstOrNull { it.name == preview.name })
@@ -133,11 +144,12 @@ internal fun FileBrowser(
         return
     }
     val browserActions: @Composable RowScope.() -> Unit = {
-        if (onDelete != null || onTrash != null) {
+        if (onDelete != null || onTrash != null || state.currentPath.isNotBlank()) {
             GeoIconButton(GeoIcons.more, "파일 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
         }
     }
     StorageMenuSheet("파일 메뉴", menu, { menu = false }, buildList {
+                if (state.currentPath.isNotBlank()) add(GeoMenuItem("폴더 정보", { folderInformation = true }))
                 add(GeoMenuItem(if (selecting) "선택 해제" else "선택", {
                     selecting = !selecting; selectedPath = null
                 }))
@@ -148,7 +160,7 @@ internal fun FileBrowser(
                     disabledReason = "장치에 연결되면 쓸 수 있습니다."))
     }, openerFocusRequester = menuOpener)
     StoragePage(if (send == null) "장치 파일" else "파일 보내기", onBack, actions = browserActions,
-        showHeader = !wideSend, primaryAction = browseAction) {
+        showHeader = !wideSend, primaryAction = browseAction, maxContentWidth = 720.dp) {
         Box(Modifier.fillMaxSize()) {
             val review: @Composable () -> Unit = {
                 if (send != null && sendPath != null && root != null) {
@@ -197,21 +209,25 @@ internal fun FileBrowser(
                             GeoButton("연결 방법", onConnection, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                         }
                         item {
-                            if (state.isLoading) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
+                            if (state.isLoading && state.entries.isEmpty()) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
                             if (state.isDeleting) GeoProgress()
                         }
                         val failure = error ?: state.error
                         if (failure != null) item {
                             Spacer(Modifier.height(24.dp))
-                            GeoStateBlock(GeoStateContent(GeoStateKind.ERROR, "파일 목록을 불러오지 못했습니다",
-                                failure, "다시 시도"), onAction = onRefresh)
+                            val title = "파일 목록을 불러오지 못했습니다"
+                            GeoInlineNote("$title. ${storageFailureDetail(failure, title)}",
+                                tone = if (state.entries.isEmpty()) Tone.ERROR else Tone.WARNING,
+                                kind = GeoNoteKind.LIVE_ERROR)
                         }
                         val days = entries.groupBy { browserDay(it.modifiedAt) }
                         days.entries.forEachIndexed { groupIndex, (day, group) ->
-                            item(key = "day:$day") { GeoSection(day, first = groupIndex == 0, modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp)) {} }
-                            itemsIndexed(group, key = { _, it -> it.relativePath }) { index, entry ->
+                            item(key = "day:$day") {
+                            R7Section(day, first = groupIndex == 0,
+                                modifier = Modifier.padding(top = if (groupIndex == 0) 24.dp else 0.dp), trailingColumn = GeoRowTrailing.Status) {
+                            group.forEachIndexed { index, entry ->
                                 val directory = entry.type == RemoteEntryType.DIRECTORY
-                                val divider = index < group.lastIndex || groupIndex == days.size - 1
+                                val divider = index < group.lastIndex
                                 val select = {
                                     selectedPath = if (selectedPath == entry.relativePath) null else entry.relativePath
                                     if (wideSend && selectedPath != null && !directory) {
@@ -232,19 +248,17 @@ internal fun FileBrowser(
                                         }
                                     },
                                     enabled = state.controlAvailable, disabledReason = "장치에 연결되면 쓸 수 있습니다.",
-                                    modifier = Modifier.padding(bottom = 8.dp))
-                                else R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(0.dp)) {
-                                GeoRowList(GeoRowTrailing.Status) {
+                                    divider = divider)
+                                else {
                                 GeoRow(breakableFileName(entry.name), {
                                     if (!state.controlAvailable) onConnection()
                                     else if (directory) onDirectory(entry) else onFile(entry)
                                 },
-                                    meta = if (directory) "폴더" else mediaCategory(entry), divider = false,
-                                    value = entry.sizeBytes?.let(Formats::size),
-                                    leading = { GeoIconTile(if (directory) GeoIcons.folder else mediaIcon(entry)) },
-                                    extra = { GeoCopyableValue(entry.name) })
+                                    meta = fileEntryMeta(entry), divider = divider,
+                                    leading = { GeoIconTile(if (directory) GeoIcons.folder else mediaIcon(entry)) })
                                 }
                                 }
+                            }
                             }
                         }
                         if (entries.isEmpty() && !state.isLoading && failure == null) item {
@@ -254,7 +268,7 @@ internal fun FileBrowser(
                                 if (filtered) "다른 이름이나 유형으로 찾아보세요." else "수집을 마치면 여기에 표시됩니다."))
                         }
                         item {
-                            StorageFreshness(state.loadedAtEpochMillis, onRefresh)
+                            StorageFreshness(state.loadedAtEpochMillis, onRefresh, loading = state.isLoading, forceVisible = failure != null)
                         }
                     }
                 }

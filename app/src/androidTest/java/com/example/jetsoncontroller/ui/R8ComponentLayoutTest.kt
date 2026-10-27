@@ -9,6 +9,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -156,7 +157,7 @@ class R8ComponentLayoutTest {
         assertEquals(before, compose.onNodeWithText("선택 사진", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot)
     }
 
-    @Test fun titlePhotoCentersBesideTheWholeTitleBlockStacksAndDisappearsWhenCollapsed() {
+    @Test fun titlePhotoCentersBesideTheWholeTitleBlockStacksOnOverflowAndDisappearsWhenCollapsed() {
         var width by mutableFloatStateOf(412f)
         var scale by mutableFloatStateOf(1f)
         lateinit var header: GeoLargeTitleState
@@ -174,15 +175,75 @@ class R8ComponentLayoutTest {
         val photo = compose.onNodeWithTag("title-photo").assertWidthIsEqualTo(80.dp).fetchSemanticsNode().boundsInRoot
         assertTrue(photo.left >= title.right)
         assertEquals((title.top + subtitle.bottom) / 2f, photo.center.y, 1f)
-        listOf(412f to 1.3f, 412f to 2f, 240f to 1f).forEach { (w, font) ->
+        listOf(Triple(412f, 1.3f, false), Triple(600f, 2f, false),
+            Triple(240f, 1f, true), Triple(240f, 2f, true)).forEach { (w, font, stacked) ->
             compose.runOnIdle { width = w; scale = font }
+            val heading = compose.onNodeWithText("장치 이름").fetchSemanticsNode().boundsInRoot
             val supporting = compose.onNodeWithText("마지막 응답").fetchSemanticsNode().boundsInRoot
-            val below = compose.onNodeWithTag("title-photo").fetchSemanticsNode().boundsInRoot
-            assertTrue(below.top >= supporting.bottom)
+            val currentPhoto = compose.onNodeWithTag("title-photo").fetchSemanticsNode().boundsInRoot
+            if (stacked) assertTrue(currentPhoto.top >= supporting.bottom)
+            else {
+                assertTrue(currentPhoto.left >= heading.right)
+                assertEquals((heading.top + supporting.bottom) / 2f, currentPhoto.center.y, 1f)
+            }
         }
         compose.runOnIdle { header.connection.onPreScroll(Offset(0f, -10_000f), NestedScrollSource.UserInput) }
         compose.onNodeWithTag("title-photo").assertDoesNotExist()
         compose.onNodeWithTag("geo-compact-bar").assertHeightIsEqualTo(64.dp)
+    }
+
+    @Test fun propertyLabelsShareMeasuredWidthAndStackWhenValueSpaceOrFontRequiresIt() {
+        var width by mutableFloatStateOf(608f)
+        var scale by mutableFloatStateOf(1f)
+        var explicitWidth by mutableStateOf<androidx.compose.ui.unit.Dp?>(null)
+        var withIcons by mutableStateOf(false)
+        val properties = listOf("담당" to "관리자", "GEO& Work 보고" to "보고 전", "마지막 서버 수신 확인" to "확인됨")
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(.5f, scale)) {
+                JetsonControllerTheme {
+                    GeoPropertyList(properties.map { it.first }, Modifier.requiredWidth(width.dp),
+                        hasIcons = withIcons, labelWidth = explicitWidth) {
+                        properties.forEach { (label, value) ->
+                            GeoPropertyRow(label, value, icon = if (withIcons) GeoIcons.info else null)
+                        }
+                    }
+                }
+            }
+        }
+        fun checkColumns(expectedWidth: Float? = null) {
+            val values = properties.map { (label, value) ->
+                val labelNode = compose.onNodeWithText(label, useUnmergedTree = true)
+                val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                labelNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                assertEquals(1, layouts.single().lineCount)
+                assertFalse(layouts.single().hasVisualOverflow)
+                val labelBounds = labelNode.fetchSemanticsNode().boundsInRoot
+                val valueBounds = compose.onNodeWithText(value, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                assertTrue(valueBounds.left - labelBounds.right >= 8f * .5f - 1f)
+                assertTrue(valueBounds.top < labelBounds.bottom)
+                valueBounds
+            }
+            assertEquals(values[0].left, values[1].left, .5f)
+            val firstLabel = compose.onNodeWithText(properties.first().first, useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot
+            if (expectedWidth != null) {
+                val iconInset = if (withIcons) 26f else 0f
+                assertEquals((expectedWidth + 8f - iconInset) * .5f, values.first().left - firstLabel.left, 1f)
+            } else assertTrue(values.first().left - firstLabel.left > (104f + 8f) * .5f)
+        }
+        checkColumns()
+        compose.runOnIdle { explicitWidth = 180.dp; withIcons = true }
+        checkColumns(180f)
+        compose.runOnIdle { explicitWidth = null; withIcons = false }
+        listOf(260f to 1f, 608f to 1.3f).forEach { (w, font) ->
+            compose.runOnIdle { width = w; scale = font }
+            properties.forEach { (label, value) ->
+                val labelBounds = compose.onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                val valueBounds = compose.onNodeWithText(value, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                assertEquals(labelBounds.left, valueBounds.left, .5f)
+                assertTrue(valueBounds.top >= labelBounds.bottom)
+            }
+        }
     }
 
     @Test fun bothOverlayFooterActionsAndStandaloneButtonShowTheirDisabledReasons() {

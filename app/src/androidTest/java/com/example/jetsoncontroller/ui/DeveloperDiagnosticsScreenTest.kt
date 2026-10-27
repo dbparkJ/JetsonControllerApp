@@ -43,8 +43,8 @@ class DeveloperDiagnosticsScreenTest {
                     { requested = it }, {}, {}, {})
             }
         }
-        compose.onNodeWithText("111.111.111.45").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("100.76.81.78").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasVisibleText("111.111.111.45")).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasVisibleText("100.76.81.78")).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("다시 조회").performClick()
         compose.runOnIdle { assertTrue(refreshes >= 2) }
         compose.runOnIdle { sensors = true }

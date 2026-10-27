@@ -88,19 +88,17 @@ fun NetworkSettingsScreen(
                             if (!wifiScanPermissionGranted) {
                                 GeoStateBlock(GeoStateContent(GeoStateKind.PERMISSION, "위치 권한이 꺼져 있습니다",
                                     "주변 네트워크를 찾으려면 위치 권한이 필요합니다.", "권한 허용"),
-                                    Modifier.padding(16.dp), onAction = onRequestWifiScanPermission)
+                                    onAction = onRequestWifiScanPermission)
                             } else {
-                                GeoActionRow("주변 네트워크", "다시 검색", onScanAccessPoints, onScanAccessPoints,
+                                GeoActionRow("네트워크 찾기", "다시 검색", onScanAccessPoints, onScanAccessPoints,
                                     leading = { GeoIconTile(GeoIcons.search) })
                                 if (state.scanningAccessPoints) GeoSkeleton("주변 네트워크를 찾고 있습니다.",
-                                    Modifier.padding(16.dp), kind = GeoSkeletonKind.Rows)
+                                    kind = GeoSkeletonKind.Rows)
                                 state.accessPointError?.let {
-                                    GeoInlineNote(it, Modifier.padding(16.dp), tone = Tone.ERROR,
-                                        kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 시도", onAction = onScanAccessPoints)
+                                    GeoInlineNote(it, tone = Tone.ERROR, kind = GeoNoteKind.LIVE_ERROR)
                                 }
                                 if (!state.scanningAccessPoints && state.accessPointError == null && state.accessPoints.isEmpty()) {
-                                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "주변 네트워크가 없습니다.", ""),
-                                        Modifier.padding(16.dp))
+                                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "주변 네트워크가 없습니다.", ""))
                                 }
                                 Column(Modifier.selectableGroup()) {
                                     state.accessPoints.filterNot { state.isCurrentJetsonWifi(it.ssid) }.forEach { accessPoint ->

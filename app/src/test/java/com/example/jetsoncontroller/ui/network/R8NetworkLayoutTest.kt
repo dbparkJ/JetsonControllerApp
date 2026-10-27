@@ -37,4 +37,18 @@ class R8NetworkLayoutTest {
         assertTrue(direct.contains("confirmLabel = \"직접 연결\", kind = GeoConfirmKind.DANGER"))
         assertTrue(direct.contains("if (canConnectDirectPeer(state, permissionGranted, pendingPeer.deviceAddress)) onConnectClick(pendingPeer)"))
     }
+
+    @Test fun scanAndDiscoveryHaveOneRecoveryActionWithoutDuplicateInsetsOrProgressNotes() {
+        val wifi = source("network/NetworkSettingsScreen.kt")
+        assertTrue(wifi.contains("GeoGroupedSection(\"주변 네트워크\")"))
+        assertTrue(wifi.contains("GeoActionRow(\"네트워크 찾기\", \"다시 검색\""))
+        assertFalse(wifi.contains("GeoActionRow(\"주변 네트워크\""))
+        val error = wifi.substringAfter("state.accessPointError?.let").substringBefore("if (!state.scanningAccessPoints")
+        assertFalse(error.contains("actionLabel"))
+        assertFalse(error.contains("onAction"))
+        val direct = source("wifi/WifiDirectScreen.kt")
+        assertTrue(direct.contains("busy = state.discovering, busyLabel = \"검색 중\""))
+        assertFalse(direct.contains("disabledReason = \"장치를 찾고 있습니다.\""))
+        assertFalse(direct.substringAfter("private fun DirectState").contains("padding("))
+    }
 }

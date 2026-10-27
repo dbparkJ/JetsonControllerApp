@@ -110,49 +110,72 @@ internal fun DirectServerScreen(
         if (state.selectedJob != null && !trash)
             GeoIconButton(GeoIcons.more, "서버 작업 메뉴", { menu = true }, Modifier.focusRequester(menuOpener), chrome = true)
     }
-    StoragePage("서버 수신 결과", onBack, actions = serverActions, showHeader = !twoPanes) {
-        Box(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize()) {
-                ongoingRun()
-                when {
-                    state.requiresLogin -> ServerState("다시 로그인해야 합니다",
-                        "직원 인증이 거절되었습니다. 다시 로그인하세요.", "다시 로그인", onRelogin ?: settings)
-                    state.profiles.isEmpty() -> ServerState("서버 연결 정보가 없습니다",
-                        "관리자에게 서버 연결 정보를 받아 설정하세요.", "서버 연결", settings)
-                    else -> {
-                        if (state.selectedJob == null || trash) {
-                            Column(Modifier.padding(horizontal = storageGutter)) {
-                                StorageFreshness(state.refreshedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
-                                    ?: state.cachedAtEpochMillis, refresh, profile?.displayName ?: "서버")
-                            }
-                            GeoFilterChipRow(listOf("수신 결과", "휴지통"), if (trash) 1 else 0,
-                                { onSection(if (it == 0) DirectServerSection.DATA else DirectServerSection.TRASH) },
-                                contentPadding = PaddingValues(horizontal = storageGutter))
-                        }
-                        state.message?.let { message ->
-                            GeoInlineNote(if (!state.messageIsError || message == UNKNOWN_SERVER_MUTATION) message
-                                else if (state.jobsSource == ServerJobsSource.CACHE) "서버에 연결하지 못해 마지막으로 본 수신 결과를 표시합니다."
-                                else if (state.errorActionLabel in setOf("프로필 인증 확인", "프로필 편집", "서버 환경 확인",
-                                    "서버 인증서 확인", "프로젝트 권한 확인")) directServerOperatorMessage(message) else message,
-                                Modifier.padding(horizontal = storageGutter, vertical = 8.dp),
-                                tone = if (state.messageIsError) Tone.WARNING else Tone.INFO,
-                                kind = GeoNoteKind.LIVE_ERROR, actionLabel = "다시 확인", onAction = refresh)
-                        }
-                        if (trash) ServerTrashPane(state, onRestore, onRefreshTrash, canMutate,
+    val serverContext: @Composable () -> Unit = {
+        Column {
+            ongoingRun()
+            if (!state.requiresLogin && state.profiles.isNotEmpty() && (state.selectedJob == null || trash)) {
+                Column(Modifier.padding(horizontal = storageGutter)) {
+                    StorageFreshness(state.refreshedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+                        ?: state.cachedAtEpochMillis, refresh, loading = state.isLoading || state.isConnecting,
+                        forceVisible = state.messageIsError)
+                }
+                GeoTabs(listOf("수신 결과", "휴지통"), if (trash) 1 else 0,
+                    { onSection(if (it == 0) DirectServerSection.DATA else DirectServerSection.TRASH) })
+            }
+            state.message?.let { message ->
+                val hasPreviousResults = when {
+                    trash -> state.trash.isNotEmpty()
+                    state.selectedJob != null -> state.files.isNotEmpty()
+                    else -> state.jobsSource != null
+                }
+                GeoInlineNote(if (!state.messageIsError || message == UNKNOWN_SERVER_MUTATION) message
+                    else if (state.jobsSource == ServerJobsSource.CACHE) "서버에 연결하지 못해 마지막으로 본 수신 결과를 표시합니다."
+                    else if (state.errorActionLabel in setOf("프로필 인증 확인", "프로필 편집", "서버 환경 확인",
+                        "서버 인증서 확인", "프로젝트 권한 확인")) directServerOperatorMessage(message) else message,
+                    Modifier.padding(horizontal = storageGutter, vertical = 8.dp),
+                    tone = when {
+                        !state.messageIsError -> Tone.INFO
+                        hasPreviousResults -> Tone.WARNING
+                        else -> Tone.ERROR
+                    },
+                    kind = GeoNoteKind.LIVE_ERROR,
+                    actionLabel = "다시 확인".takeIf { state.selectedJob != null && !trash && !state.isLoading && !state.isConnecting },
+                    onAction = refresh)
+            }
+        }
+    }
+    StoragePage("서버 수신 결과", onBack, showHeader = false) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            if (twoPanes) GeoPaneLayout(singlePane = if (state.selectedJob == null) GeoPaneSelection.LIST else GeoPaneSelection.DETAIL,
+                list = { GeoLargeTitleScaffold("서버 수신 결과", onBack = onBack, subtitle = profile?.displayName) {
+                    Column(Modifier.fillMaxSize()) {
+                        serverContext()
+                        JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.weight(1f))
+                    }
+                } },
+                detail = { GeoLargeTitleScaffold(state.selectedJob?.sourceName ?: "수신 상세", actions = serverActions,
+                    subtitle = profile?.displayName) {
+                    JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory, onOpenFile, onReceipt,
+                        Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
+                } })
+            else GeoLargeTitleScaffold(state.selectedJob?.sourceName?.takeUnless { trash } ?: "서버 수신 결과",
+                modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
+                onBack = onBack, subtitle = profile?.displayName, actions = serverActions) {
+                Column(Modifier.fillMaxSize()) {
+                    serverContext()
+                    when {
+                        state.requiresLogin -> ServerState("다시 로그인해야 합니다",
+                            "직원 인증이 거절되었습니다. 다시 로그인하세요.", "다시 로그인", onRelogin ?: settings)
+                        state.profiles.isEmpty() -> ServerState("서버 연결 정보가 없습니다",
+                            "관리자에게 서버 연결 정보를 받아 설정하세요.", "서버 연결", settings)
+                        trash -> ServerTrashPane(state, onRestore, onRefreshTrash, canMutate,
                             developerModeEnabled, onDeveloperTrash)
-                        else if (state.capabilities == null && state.jobsSource == null && !state.isConnecting) {
+                        state.capabilities == null && state.jobsSource == null && !state.isConnecting -> {
                             ServerState("서버 연결 확인 필요", "서버 연결을 확인한 뒤 수신 결과를 볼 수 있습니다.", "연결 확인", onConnect)
-                        } else if (twoPanes) GeoPaneLayout(singlePane = if (state.selectedJob == null) GeoPaneSelection.LIST else GeoPaneSelection.DETAIL,
-                            list = { GeoLargeTitleScaffold("서버 수신 결과", onBack = onBack) {
-                                JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.fillMaxSize())
-                            } },
-                            detail = { GeoLargeTitleScaffold("수신 상세", actions = serverActions) {
-                                JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory, onOpenFile, onReceipt,
-                                    Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
-                            } })
-                        else if (state.selectedJob != null) JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory,
+                        }
+                        state.selectedJob != null -> JobDetail(state, profile?.displayName.orEmpty(), onOpenDirectory,
                             onOpenFile, onReceipt, Modifier.fillMaxSize(), developerModeEnabled, showTechnicalInfo)
-                        else JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.fillMaxSize())
+                        else -> JobsList(state, onRefreshJobs, onOpenJob, onLoadMoreJobs, Modifier.fillMaxSize())
                     }
                 }
             }
@@ -176,7 +199,7 @@ private fun JobsList(state: DirectServerUiState, onRefresh: () -> Unit, onJob: (
     onLoadMore: () -> Unit, modifier: Modifier) {
     StorageRefresh(state.isLoading, !state.isConnecting, onRefresh, modifier) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
-            if (state.isLoading || state.isConnecting) item { GeoSkeleton("수신 결과를 불러오는 중", kind = GeoSkeletonKind.Rows) }
+            if ((state.isLoading || state.isConnecting) && state.jobs.isEmpty()) item { GeoSkeleton("수신 결과를 불러오는 중", kind = GeoSkeletonKind.Rows) }
             items(state.jobs, key = { it.sessionId }) { job ->
                 val status = serverJobState(job.state)
                 R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(0.dp)) {
@@ -193,7 +216,7 @@ private fun JobsList(state: DirectServerUiState, onRefresh: () -> Unit, onJob: (
                 GeoButton("이전 수신 결과 더 불러오기", onLoadMore, Modifier.fillMaxWidth(), style = GeoButtonStyle.Secondary,
                     enabled = !state.isLoading && !state.isConnecting, disabledReason = "수신 결과를 불러오고 있습니다.")
             }
-            if (state.jobs.isEmpty() && !state.isLoading && state.message == null) item {
+            if (state.jobs.isEmpty() && !state.isLoading && !state.isConnecting && state.message == null) item {
                 GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY, "수신 결과가 없습니다", "서버가 파일을 받으면 여기에 표시됩니다."))
             }
         }
@@ -222,8 +245,6 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
     }
     LazyColumn(modifier, contentPadding = PaddingValues(storageGutter, 16.dp)) {
         item {
-            GeoCopyableValue(job.sourceName, label = "원본 파일명")
-            Spacer(Modifier.height(8.dp))
             val status = serverJobState(job.state)
             GeoBadge(status.word, status.tone)
             Text("${job.deviceId.takeIf { it.startsWith("GEO-X-", true) } ?: "장치"} → $server",
@@ -235,23 +256,23 @@ private fun JobDetail(state: DirectServerUiState, server: String, onDirectory: (
                 if (job.state == "COMPLETED") GeoRow("서버 수신 영수증", { onReceipt(job) },
                     leading = { GeoIconTile(GeoIcons.file) }, divider = false)
             }
-            com.example.jetsoncontroller.ui.components.geo.GeoSection(if (state.currentPath.isBlank()) "파일" else "파일 / ${state.currentPath.substringAfterLast('/')}") {}
-            if (state.isLoading) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
             if (state.filesTruncated) GeoInlineNote("파일 목록 일부만 표시됩니다. 하위 폴더에서 다시 확인하세요.")
         }
-        items(state.files, key = { it.relativePath }) { file ->
-            val directory = file.type.equals("directory", true)
-            R7Card(Modifier.padding(bottom = 8.dp), contentPadding = PaddingValues(0.dp)) {
-            GeoRowList(GeoRowTrailing.Status) {
-            GeoRow(breakableFileName(file.name), { if (directory) onDirectory(file) else onFile(file) },
-                meta = if (directory) "폴더" else serverFileCategory(file.name), value = file.sizeBytes?.let(Formats::size),
-                leading = { GeoIconTile(if (directory) GeoIcons.folder else GeoIcons.file) }, divider = false,
-                extra = { GeoCopyableValue(file.name) })
+        item {
+            GeoSection(if (state.currentPath.isBlank()) "파일" else "파일 / ${state.currentPath.substringAfterLast('/')}",
+                trailingColumn = GeoRowTrailing.None) {
+                if (state.isLoading && state.files.isEmpty()) GeoSkeleton("파일을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
+                state.files.forEachIndexed { index, file ->
+                    val directory = file.type.equals("directory", true)
+                    GeoRow(breakableFileName(file.name), { if (directory) onDirectory(file) else onFile(file) },
+                        meta = listOfNotNull(if (directory) "폴더" else serverFileCategory(file.name), file.sizeBytes?.let(Formats::size),
+                            file.modifiedAt?.let { localTimeOrDateLabel(it) }).joinToString(" · "),
+                        leading = { GeoIconTile(if (directory) GeoIcons.folder else GeoIcons.file) }, divider = index < state.files.lastIndex)
+                }
+                if (state.files.isEmpty() && !state.isLoading && state.message == null) {
+                    GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 폴더에 파일이 없습니다", "다른 폴더를 선택하세요."))
+                }
             }
-            }
-        }
-        if (state.files.isEmpty() && !state.isLoading && state.message == null) item {
-            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "이 폴더에 파일이 없습니다", "다른 폴더를 선택하세요."))
         }
         item { GeoTechInfo(listOf(GeoTechnicalValue("세션", job.sessionId), GeoTechnicalValue("장치", job.deviceId),
             GeoTechnicalValue("프로젝트", job.accessProjectId ?: job.projectId)), developer, technical) }
@@ -277,8 +298,8 @@ private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> U
     StorageRefresh(state.isLoading, !state.isConnecting, onRefresh) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(storageGutter, 16.dp)) {
             item {
-                if (state.isLoading || state.isConnecting) GeoSkeleton("휴지통을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
-                Text(serverTrashCount(state.trash.size, state.trashTotal), style = LocalGeoType.current.body,
+                if ((state.isLoading || state.isConnecting) && state.trash.isEmpty()) GeoSkeleton("휴지통을 확인하고 있습니다.", kind = GeoSkeletonKind.Rows)
+                if (!state.isLoading && !state.isConnecting && !state.messageIsError) Text(serverTrashCount(state.trash.size, state.trashTotal), style = LocalGeoType.current.body,
                     color = LocalGeoColors.current.textSecondary)
                 if (developer && onDeveloperTrash != null) GeoRow("개발자 도구에서 비우기", onDeveloperTrash)
             }
@@ -292,7 +313,7 @@ private fun ServerTrashPane(state: DirectServerUiState, onRestore: (String) -> U
                     disabledReason = if (!restorable) serverTrashStatus(job) else "서버 연결과 복원 권한을 확인하세요.")
                 }
             }
-            if (state.trash.isEmpty() && !state.isLoading && state.message == null) item {
+            if (state.trash.isEmpty() && !state.isLoading && !state.isConnecting && state.message == null) item {
                 GeoStateBlock(fullScreen = true, state = GeoStateContent(GeoStateKind.EMPTY, "휴지통이 비어 있습니다", "서버 휴지통으로 옮긴 수신 결과가 여기에 표시됩니다."))
             }
         }

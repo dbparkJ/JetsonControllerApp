@@ -94,8 +94,9 @@ class R7LandscapeLayoutTest {
         }
     }
 
-    @Test fun exhibitionHomeShowsCoreActionsOnceAndAlignsManualButton() {
+    @Test fun exhibitionHomeShowsCoreActionsOnceAndAlignsManualSectionAction() {
         var opened: String? = null
+        var manualSelections = 0
         compose.setContent {
             Viewport(1280f, 776f, rail = true) {
                 val state = buildTasksHomeUiState(TasksHomeInput("GEO-X-1", true,
@@ -107,7 +108,7 @@ class R7LandscapeLayoutTest {
                     ticketSection = ServerTicketUiState(tickets = listOf(
                         ServerTicket("today", "전시 수집 구간", dueDate = "2026-10-26", status = ServerTicketStatus(name = "할 일", category = "OPEN")))),
                     recent = (1..3).map { RecentRunState("run-$it", "최근 수집 $it", "10월 23일 · 32분 · 63.6 GB", emptyList()) })
-                TasksHomeScreen(state, onSelectDevice = {}, onStartSurvey = {}, onChangeSection = {},
+                TasksHomeScreen(state, onSelectDevice = {}, onStartSurvey = {}, onChangeSection = { manualSelections++ },
                     onOpenActiveRun = {}, onOpenRun = {}, onOpenHistory = {}, onOpenTask = {},
                     onOpenTicket = { opened = it }, onCamera = {}, onSendFiles = {}, onDeviceMap = {}, onDeviceFiles = {})
             }
@@ -117,7 +118,15 @@ class R7LandscapeLayoutTest {
         }
         compose.onAllNodesWithText("전시 수집 구간").assertCountEquals(1)
         compose.onNodeWithText("최근 수집 3").performScrollTo().assertIsDisplayed()
-        compose.onNode(hasText("구간 직접 고르기") and hasClickAction()).performScrollTo().assertWidthIsEqualTo(608.dp)
+        val manual = compose.onNode(hasText("구간 직접 고르기") and hasClickAction())
+            .performScrollTo().assertIsDisplayed().assertIsEnabled().assertHeightIsAtLeast(48.dp)
+        val heading = compose.onNodeWithText("다른 수집 구간", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val action = manual.fetchSemanticsNode().boundsInRoot
+        assertTrue(action.left >= heading.right)
+        assertTrue(action.top <= heading.center.y && action.bottom >= heading.center.y)
+        manual.performClick()
+        compose.runOnIdle { assertEquals(1, manualSelections) }
         compose.onNodeWithText("장치 파일").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("준비하기").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("today", opened) }

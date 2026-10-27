@@ -40,7 +40,7 @@ internal data class GeoBadgeColors(val ink: Color, val fill: Color)
 internal fun geoBadgeColors(colors: GeoColors, tone: Tone, variant: GeoBadgeVariant): GeoBadgeColors = when (variant) {
     GeoBadgeVariant.INLINE -> GeoBadgeColors(colors.tone(tone), Color.Transparent)
     GeoBadgeVariant.TAG -> GeoBadgeColors(colors.primary, colors.primaryTint)
-    GeoBadgeVariant.SOFT -> GeoBadgeColors(colors.tone(tone), colors.soft(tone))
+    GeoBadgeVariant.SOFT -> GeoBadgeColors(colors.tone(tone), Color.Transparent)
     GeoBadgeVariant.ON_MAP -> GeoBadgeColors(colors.tone(tone), colors.mapPlate)
     GeoBadgeVariant.ON_DARK -> GeoBadgeColors(mediaTone(tone), GeoFixedColors.mediaBadge)
 }
@@ -51,12 +51,12 @@ fun GeoBadge(
     word: String,
     tone: Tone,
     modifier: Modifier = Modifier,
-    variant: GeoBadgeVariant = GeoBadgeVariant.SOFT,
+    variant: GeoBadgeVariant = GeoBadgeVariant.INLINE,
     highContrast: Boolean = LocalGeoPalette.current.highContrast,
     minWidth: androidx.compose.ui.unit.Dp = 64.dp,
     singleLine: Boolean = false
 ) {
-    val inline = LocalGeoRowStatus.current || variant == GeoBadgeVariant.INLINE
+    val inline = LocalGeoRowStatus.current || variant == GeoBadgeVariant.INLINE || variant == GeoBadgeVariant.SOFT
     val wrap = inline && LocalGeoStatusWrap.current && !singleLine
     val style = if (inline) LocalGeoType.current.inlineStatus else LocalGeoType.current.badge
     val report = LocalGeoStatusWidthReporter.current

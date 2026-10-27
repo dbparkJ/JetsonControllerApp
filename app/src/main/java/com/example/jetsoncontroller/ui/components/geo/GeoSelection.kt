@@ -105,10 +105,11 @@ fun GeoSwitchRow(
     modifier: Modifier = Modifier,
     description: String? = null,
     enabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    divider: Boolean = true
 ) {
     GeoSelectionRow(title, description, enabled, disabledReason, modifier,
-        trailing = true, selected = checked, role = Role.Switch, onSelect = { onCheckedChange(!checked) }
+        trailing = true, selected = checked, role = Role.Switch, onSelect = { onCheckedChange(!checked) }, divider = divider
     ) { focused ->
         val c = LocalGeoColors.current
         val position by animateDpAsState(
@@ -132,10 +133,11 @@ fun GeoCheckboxRow(
     modifier: Modifier = Modifier,
     description: String? = null,
     enabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    divider: Boolean = true
 ) {
     GeoSelectionRow(title, description, enabled, disabledReason, modifier,
-        trailing = false, selected = checked, role = Role.Checkbox, onSelect = { onCheckedChange(!checked) }
+        trailing = false, selected = checked, role = Role.Checkbox, onSelect = { onCheckedChange(!checked) }, divider = divider
     ) { focused ->
         val c = LocalGeoColors.current
         Canvas(Modifier.size(20.dp).geoFocusRing(RoundedCornerShape(6.dp), focused)) {
@@ -166,10 +168,11 @@ fun GeoRadioRow(
     description: String? = null,
     enabled: Boolean = true,
     disabledReason: String? = null,
-    badge: (@Composable () -> Unit)? = null
+    badge: (@Composable () -> Unit)? = null,
+    divider: Boolean = true
 ) {
     GeoSelectionRow(title, description, enabled, disabledReason, modifier,
-        trailing = false, selected = selected, role = Role.RadioButton, onSelect = onClick, badge = badge
+        trailing = false, selected = selected, role = Role.RadioButton, onSelect = onClick, badge = badge, divider = divider
     ) { focused ->
         val c = LocalGeoColors.current
         Canvas(Modifier.size(20.dp).geoFocusRing(CircleShape, focused)) {
@@ -196,7 +199,8 @@ fun GeoRadioGroup(
     Column(modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = label }) {
         Text(label, style = geoLabelTextStyle(), color = c.text)
         options.forEachIndexed { index, option ->
-            GeoRadioRow(option, index == selectedIndex, { onSelect(index) }, enabled = enabled, disabledReason = disabledReason)
+            GeoRadioRow(option, index == selectedIndex, { onSelect(index) }, enabled = enabled, disabledReason = disabledReason,
+                divider = index < options.lastIndex)
         }
     }
 }
@@ -213,6 +217,7 @@ private fun GeoSelectionRow(
     role: Role,
     onSelect: () -> Unit,
     badge: (@Composable () -> Unit)? = null,
+    divider: Boolean = true,
     indicator: @Composable (focused: Boolean) -> Unit
 ) {
     require(enabled || !disabledReason.isNullOrBlank()) { "Disabled controls require a visible reason" }
@@ -228,6 +233,7 @@ private fun GeoSelectionRow(
     val meta = if (enabled) description else listOfNotNull(description, disabledReason).joinToString(" ")
     val inChoiceSheet = LocalGeoChoiceSheet.current
     val stackBadge = LocalDensity.current.fontScale >= 1.3f
+    val titleAlignment = rememberFirstLineAlignment()
     val fill = selectionRowFill(c, role, inChoiceSheet, selected, enabled, pressed)
     Row(
         modifier.fillMaxWidth().heightIn(min = if (meta.isNullOrEmpty()) 56.dp else 72.dp)
@@ -237,25 +243,25 @@ private fun GeoSelectionRow(
                 val gutter = if (inChoiceSheet) 24.dp.toPx() else 0f
                 drawRect(fill, topLeft = Offset(-gutter, 0f), size = Size(size.width + gutter * 2, size.height))
             }
-            .contentDivider()
+            .contentDivider(startIndent = if (trailing) 16.dp else 56.dp, enabled = divider)
             .geoPressFeedback(source, enabled)
             .then(interaction)
-            .padding(vertical = if (meta.isNullOrEmpty()) 16.dp else 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        if (!trailing) indicator(focused)
+        if (!trailing) Box(Modifier.size(24.dp).alignToFirstTitleLine(titleAlignment), contentAlignment = Alignment.Center) { indicator(focused) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f),
                     style = LocalGeoType.current.titleSm,
-                    color = if (enabled) c.text else c.disabledText)
+                    color = if (enabled) c.text else c.disabledText, onTextLayout = titleAlignment::onTextLayout)
                 if (!stackBadge) badge?.invoke()
             }
             if (stackBadge && badge != null) Box(Modifier.align(Alignment.End)) { badge() }
             if (!meta.isNullOrEmpty()) Text(meta, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         }
-        if (trailing) indicator(focused)
+        if (trailing) Box(Modifier.alignToFirstTitleLine(titleAlignment)) { indicator(focused) }
     }
 }
 
@@ -356,7 +362,8 @@ fun GeoSliderRow(
     step: Float = 1f,
     enabled: Boolean = true,
     disabledReason: String? = null,
-    onValueChangeFinished: (() -> Unit)? = null
+    onValueChangeFinished: (() -> Unit)? = null,
+    divider: Boolean = true
 ) {
     require(valueRange.start.isFinite() && valueRange.endInclusive.isFinite() && valueRange.endInclusive > valueRange.start)
     require(step.isFinite() && step > 0f && value.isFinite())
@@ -369,7 +376,8 @@ fun GeoSliderRow(
     fun change(newValue: Float) {
         onValueChange(sliderStepValue(newValue, valueRange, step))
     }
-    Column(modifier.fillMaxWidth().contentDivider().padding(vertical = 12.dp),
+    Column(modifier.fillMaxWidth().contentDivider(startIndent = 16.dp, enabled = divider)
+        .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,

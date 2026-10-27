@@ -174,7 +174,7 @@ internal fun ZoomableImagePreview(
 
     val c = LocalGeoColors.current
     CompositionLocalProvider(LocalGeoColors provides c.copy(text = GeoFixedColors.mediaText,
-        textSecondary = GeoFixedColors.mediaPending, surface = GeoFixedColors.mediaBadge,
+        textSecondary = GeoFixedColors.mediaText, textSubtle = GeoFixedColors.mediaText, surface = GeoFixedColors.mediaBadge,
         primary = GeoFixedColors.mediaText)) {
     BoxWithConstraints(Modifier.fillMaxSize().background(GeoFixedColors.mediaStage)) {
     val mediaHeight = (maxHeight * .62f).coerceAtLeast(240.dp)
@@ -203,11 +203,6 @@ internal fun ZoomableImagePreview(
                     clip = true
                 }
         )
-        dimensions?.let {
-            Text(it, Modifier.align(Alignment.BottomStart).padding(16.dp)
-                .background(GeoFixedColors.mediaPlate, GeoShape.badge).padding(8.dp),
-                style = LocalGeoType.current.caption, color = GeoFixedColors.mediaText)
-        }
         Box(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GeoMediaIconButton(GeoIcons.zoomOut, "축소", { updateTransform(scale / 1.5f) })
@@ -216,7 +211,8 @@ internal fun ZoomableImagePreview(
             }
         }
     }
-    PreviewFileInformation(name, details, Modifier.padding(horizontal = storageGutter, vertical = 24.dp))
+    PreviewFileInformation(name, listOfNotNull(dimensions?.let { "해상도" to it }) + details,
+        Modifier.padding(horizontal = storageGutter, vertical = 24.dp))
     }
     }
     }

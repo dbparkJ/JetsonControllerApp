@@ -53,9 +53,6 @@ internal fun TransfersHomeScreen(
     val t = LocalGeoType.current
     val scroll = com.example.jetsoncontroller.ui.components.geo.shell.rememberGeoPaneListState("transfers")
     var filter by rememberSaveable(deviceId) { mutableIntStateOf(0) }
-    var cancel by rememberSaveable(deviceId, stateSaver = geoSnapshotSaver(ActiveTransferState::class.java)) {
-        mutableStateOf<ActiveTransferState?>(null)
-    }
     // The first transfer group starts without a section divider.
     val firstSection = when {
         state.active.isNotEmpty() -> "보내는 중"
@@ -65,30 +62,13 @@ internal fun TransfersHomeScreen(
         state.awaitingVerification.isNotEmpty() -> "수신 확인 중"
         else -> "서버 수신 확인"
     }
-    LaunchedEffect(deviceId) {
-        if (cancel != null && cancel?.target?.deviceId?.equals(deviceId, true) == false) {
-            cancel = null
-            onDeviceConfirmationClosed()
-        }
-    }
-    cancel?.let { fixed ->
-        GeoConfirmDialog("${fixed.title} 전송을 취소할까요?", TransferCancelBody, "전송 취소",
-            onConfirm = {
-                cancel = null
-                if (fixed.target != null && onFixedCancel != null) onFixedCancel(fixed.target)
-                else onCancelTransfer(fixed.jobId)
-            },
-            onDismissRequest = { cancel = null }, dismissLabel = "계속 보내기", kind = GeoConfirmKind.DANGER,
-            facts = {
-                GeoCopyableValue(fixed.title, label = "보내는 자료")
-                GeoPropertyRow("보내는 장치", deviceName)
-                fixed.target?.let { GeoCopyableValue(it.path, label = "원본 경로") }
-            })
-    }
     TransferPage("전송", subtitle = deviceName, actions = {
         GeoIconButton(GeoIcons.tabDevice, "장치 선택", onDevicePicker)
         GeoIconButton(GeoIcons.bell, "알림", onAlerts)
-    }, primaryAction = GeoButtonAction("파일 보내기", onPickFiles)) {
+    }, primaryAction = GeoButtonAction("파일 보내기", onPickFiles), note = {
+        GeoReadinessLine(readiness, if (sendEnabled) connectionTone else Tone.WARNING)
+        if (!sendEnabled) GeoButton("연결 방법", onConnectionRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
+    }) {
         GeoFilterChipRow(listOf("전체", "보내는 중 ${state.active.size}", "확인 필요 ${state.failed.size}",
             "보낼 수집 ${state.sendableRuns.size}", "수신 확인 ${state.verified.size}"), filter, { filter = it },
             contentPadding = PaddingValues(horizontal = transferGutter))
@@ -108,19 +88,16 @@ internal fun TransfersHomeScreen(
                                 active.remainingLabel?.let { "$it 남음" }).joinToString(" · ")) {
                             active.speedLabel?.let { Text(it.replace("/s", "/초"), style = t.supporting.copy(fontFeatureSettings = "tnum"),
                                 color = LocalGeoColors.current.text) }
-                            GeoProgress(active.progress)
+                            GeoProgress(active.progress, showPercentage = false)
                             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 active.progress?.let { Text("${(it * 100).toInt()}%", style = t.caption.copy(fontFeatureSettings = "tnum"), color = LocalGeoColors.current.text) }
                                 Text(active.sentLabel, style = t.caption.copy(fontFeatureSettings = "tnum"), color = LocalGeoColors.current.text)
                             }
                         }
+                        Spacer(Modifier.height(12.dp))
                         GeoRowList(GeoRowTrailing.None) {
-                            if (active.canCancel) GeoActionRow(active.title, "전송 취소",
-                                { onOpenTransfer(active.jobId) }, { cancel = active },
-                                leading = { GeoIconTile(GeoIcons.tabTransfer) }, actionEnabled = controlAvailable,
-                                disabledReason = readiness, divider = false)
-                            else GeoRow("전송 상세", { onOpenTransfer(active.jobId) }, divider = false)
+                            GeoRow("전송 상세", { onOpenTransfer(active.jobId) }, divider = false)
                         }
                         } else R7Section(active.stateLabel, trailingColumn = GeoRowTrailing.Status) {
                             GeoRow(active.title, { onOpenTransfer(active.jobId) }, divider = false,
@@ -131,9 +108,6 @@ internal fun TransfersHomeScreen(
                                     Text(listOfNotNull(active.sentLabel, active.speedLabel?.replace("/s", "/초"),
                                         active.remainingLabel?.let { "$it 남음" }).joinToString(" · "),
                                         style = t.supporting, color = c.textSecondary)
-                                    if (active.canCancel) GeoButton("전송 취소", { cancel = active },
-                                        style = GeoButtonStyle.DangerOutline, enabled = controlAvailable,
-                                        disabledReason = readiness)
                                 })
                         }
                     }
@@ -168,8 +142,7 @@ internal fun TransfersHomeScreen(
                         trailingColumn = GeoRowTrailing.Status) {
                         state.verified.forEachIndexed { index, row -> TransferHomeRow(row, onOpenTransfer, index < state.verified.lastIndex) }
                         state.emptyText?.let {
-                            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "보낸 파일이 없습니다", it),
-                                Modifier.padding(horizontal = 8.dp, vertical = 24.dp))
+                            GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY, "보낸 파일이 없습니다", it))
                         }
                     }
                 }
@@ -188,19 +161,23 @@ internal fun TransfersHomeScreen(
                     }
                     if (refreshVisible) GeoButton("다시 확인", onRefresh, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
                 }
-                item {
-                    GeoReadinessLine(readiness, if (sendEnabled) connectionTone else Tone.WARNING)
-                    if (!sendEnabled) GeoButton("연결 방법", onConnectionRemedy, style = GeoButtonStyle.Tertiary, edge = GeoButtonEdge.Start)
-                }
             }
     }
 }
 
 @Composable
 private fun TransferHomeRow(row: TransferRowState, onOpen: (String) -> Unit, divider: Boolean = true) {
-    GeoRow(row.title, { onOpen(row.jobId) }, meta = row.detail, divider = divider,
+    GeoRow(row.title, { onOpen(row.jobId) }, meta = transferHomeRowMeta(row), divider = divider,
         leading = { GeoIconTile(GeoIcons.tabTransfer) },
-        badge = { GeoBadge(if (row.tone == Tone.SUCCESS) "수신 확인" else row.detail, row.tone) })
+        badge = { GeoBadge(when (row.tone) {
+            Tone.SUCCESS -> "수신 확인"
+            Tone.PENDING -> "수신 확인 중"
+            else -> "대기 중"
+        }, row.tone) })
+}
+
+internal fun transferHomeRowMeta(row: TransferRowState): String? = row.detail.takeUnless {
+    it in setOf("수신 확인", "수신 확인 전", "수신 확인 중", "대기 중") || it.isBlank()
 }
 
 /** Count only records in the selected presentation group; progress is not receipt evidence. */

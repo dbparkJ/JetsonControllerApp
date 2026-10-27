@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui.dev
 
 import com.example.jetsoncontroller.model.DeviceNetworkAddress
+import com.example.jetsoncontroller.model.DeviceNetworkDiagnostics
 import com.example.jetsoncontroller.model.SensorTestResult
 import com.example.jetsoncontroller.ui.model.ConnectionState
 import com.example.jetsoncontroller.ui.model.Formats
@@ -20,6 +21,17 @@ internal fun networkAddressLabel(address: DeviceNetworkAddress): String = when (
     else -> address.interfaceName
 }
 
+internal enum class NetworkContent { OFFLINE, LOADING, ERROR, NOT_QUERIED, EMPTY, CONTENT }
+
+internal fun networkContent(online: Boolean, busy: Boolean, error: String?, network: DeviceNetworkDiagnostics?): NetworkContent = when {
+    busy -> NetworkContent.LOADING
+    !network?.interfaces.isNullOrEmpty() -> NetworkContent.CONTENT
+    error != null -> NetworkContent.ERROR
+    !online -> NetworkContent.OFFLINE
+    network == null -> NetworkContent.NOT_QUERIED
+    else -> NetworkContent.EMPTY
+}
+
 internal data class SensorTestBatch(val sensor: String, val previousResult: SensorTestResult?) {
     fun finished(testingSensor: String?, result: SensorTestResult?): Boolean =
         testingSensor == null && result != null && result != previousResult
@@ -33,6 +45,15 @@ internal data class SensorTestBatch(val sensor: String, val previousResult: Sens
 }
 
 internal enum class ServerTrashContent { NO_PROFILE, LOADING, ERROR, EMPTY, CONTENT }
+
+internal enum class ServerProfilesContent { LOADING, ERROR, EMPTY, CONTENT }
+
+internal fun serverProfilesContent(busy: Boolean, failed: Boolean, hasItems: Boolean): ServerProfilesContent = when {
+    hasItems -> ServerProfilesContent.CONTENT
+    busy -> ServerProfilesContent.LOADING
+    failed -> ServerProfilesContent.ERROR
+    else -> ServerProfilesContent.EMPTY
+}
 
 internal fun serverTrashContent(hasProfile: Boolean, busy: Boolean, failed: Boolean, hasItems: Boolean): ServerTrashContent = when {
     !hasProfile -> ServerTrashContent.NO_PROFILE

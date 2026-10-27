@@ -1,6 +1,7 @@
 package com.example.jetsoncontroller.ui
 
 import android.graphics.Bitmap
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
@@ -106,10 +107,20 @@ class R8ScreenGalleryTest {
                     settle()
                     checkDeadline("화면 표시")
                     compose.mainClock.autoAdvance = true
+                    R8GalleryDeadline.deadlineNanos = deadlineNanos
                     scene.prepare?.invoke(compose)
                     checkDeadline("장면 준비")
-                    compose.mainClock.autoAdvance = false
-                    settle()
+                    R8GalleryDeadline.deadlineNanos = Long.MAX_VALUE
+                    if (scene.overlay) {
+                        // Compose transitions and platform window animations use different clocks.
+                        compose.mainClock.autoAdvance = true
+                        settle()
+                        SystemClock.sleep(900L)
+                        compose.waitForIdle()
+                    } else {
+                        compose.mainClock.autoAdvance = false
+                        settle()
+                    }
                     checkDeadline("촬영 직전")
                     if (scene.overlay) check(compose.onAllNodes(isDialog()).fetchSemanticsNodes().isNotEmpty()) {
                         "별도 오버레이 창이 열리지 않았습니다: ${scene.id}"
@@ -131,6 +142,7 @@ class R8ScreenGalleryTest {
                     failures += "$relative\t${firstLine.replace('\t', ' ')}"
                     rows += tsv("-", scene.source, "실패 $relative: $firstLine", window.name, font, palette.name)
                 } finally {
+                    R8GalleryDeadline.deadlineNanos = Long.MAX_VALUE
                     compose.mainClock.autoAdvance = true
                     publish()
                 }

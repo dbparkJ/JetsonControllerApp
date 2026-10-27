@@ -69,15 +69,14 @@ fun WifiDirectScreen(
         DirectStage.EMPTY, DirectStage.DISCOVERING, DirectStage.PEERS ->
             if (selectedPeer != null) GeoButtonAction("직접 연결", { pendingAddress = selectedPeer.deviceAddress })
             else GeoButtonAction("다시 찾기", onDiscoveryClick, enabled = !state.discovering,
-                busy = state.discovering, busyLabel = "검색 중", disabledReason = "장치를 찾고 있습니다.")
+                busy = state.discovering, busyLabel = "검색 중")
         else -> null
     }
     val secondary = when (stage) {
         DirectStage.PREPARATION_ERROR -> GeoButtonAction("연결 취소", onCancel, GeoButtonStyle.Secondary)
         DirectStage.AUTHENTICATION_ERROR -> GeoButtonAction("연결 취소", cancelConnection, GeoButtonStyle.Secondary)
         DirectStage.PEERS, DirectStage.DISCOVERING -> if (selectedPeer != null)
-            GeoButtonAction("다시 찾기", onDiscoveryClick, GeoButtonStyle.Secondary, enabled = !state.discovering,
-                disabledReason = "장치를 찾고 있습니다.") else null
+            GeoButtonAction("다시 찾기", onDiscoveryClick, GeoButtonStyle.Secondary, enabled = !state.discovering) else null
         else -> null
     }
     GeoLargeTitleScaffold("직접 연결", onBack = onBack, primaryAction = primary, secondaryAction = secondary) {
@@ -144,7 +143,7 @@ fun WifiDirectScreen(
                 }
                 DirectStage.EMPTY, DirectStage.DISCOVERING, DirectStage.PEERS -> item {
                     GeoGroupedSection("주변 장치", first = true, trailingColumn = GeoRowTrailing.Status) {
-                        if (state.discovering) GeoSkeleton("장치를 찾고 있습니다", Modifier.padding(16.dp), kind = GeoSkeletonKind.Rows)
+                        if (state.discovering) GeoSkeleton("장치를 찾고 있습니다", kind = GeoSkeletonKind.Rows)
                         if (state.peers.isEmpty() && !state.discovering) {
                             DirectState("찾은 장치가 없습니다", "장치 전원과 거리를 확인하세요.")
                         }
@@ -196,5 +195,5 @@ fun WifiDirectScreen(
 @Composable
 private fun DirectState(title: String, explanation: String, kind: GeoStateKind = GeoStateKind.EMPTY) {
     GeoStateBlock(GeoStateContent(kind, title, explanation),
-        Modifier.padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite })
+        Modifier.semantics { liveRegion = LiveRegionMode.Polite })
 }

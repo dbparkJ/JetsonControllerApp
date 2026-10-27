@@ -9,6 +9,10 @@ import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -18,6 +22,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
 import com.example.jetsoncontroller.ui.theme.*
 
 /** Group heading is inset 16dp and sits 8dp above a zero-padding surface. */
@@ -36,19 +41,27 @@ fun GeoGroupedSection(title: String, modifier: Modifier = Modifier, first: Boole
 fun GeoCopyableValue(value: String, modifier: Modifier = Modifier, label: String? = null,
     showCopyButton: Boolean = true, onCopied: () -> Unit = {}) {
     val clipboard = LocalClipboardManager.current
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+    val alignment = rememberFirstLineAlignment()
+    val style = LocalGeoType.current.body
+    val density = LocalDensity.current
+    var labelHeight by remember(label) { mutableIntStateOf(0) }
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(Modifier.weight(1f)) {
-            label?.let { Text(it, style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary) }
+            label?.let { Text(it, style = LocalGeoType.current.caption, color = LocalGeoColors.current.textSecondary,
+                onTextLayout = { result -> labelHeight = result.size.height }) }
             SelectionContainer {
-                Text(value, style = LocalGeoType.current.body, color = LocalGeoColors.current.text)
+                Text(geoBreakableValue(value), style = style, color = LocalGeoColors.current.text,
+                    onTextLayout = alignment::onTextLayout)
             }
         }
         if (showCopyButton) DisableSelection {
+            Box(Modifier.offset(y = with(density) { labelHeight.toDp() }).alignToFirstTitleLine(alignment)) {
             GeoIconButton(GeoIcons.copy, if (label == null) "값 복사" else "$label 복사", {
                 clipboard.setText(AnnotatedString(value))
                 onCopied()
             })
+            }
         }
     }
 }

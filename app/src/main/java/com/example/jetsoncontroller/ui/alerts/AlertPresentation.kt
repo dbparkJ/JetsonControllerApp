@@ -31,6 +31,10 @@ internal fun newlyArrivedAlertIds(
     currentIds: Set<String>
 ): Set<String> = currentIds - previousIds
 
+internal fun alertSupportingText(message: String, time: String, read: Boolean): String =
+    listOfNotNull(message.takeIf { it.isNotBlank() },
+        listOfNotNull(time, "읽지 않음".takeUnless { read }).joinToString(" · ")).joinToString("\n")
+
 internal fun alertDayBoundaryEpochMillis(
     date: LocalDate,
     zone: ZoneId = ZoneId.systemDefault()

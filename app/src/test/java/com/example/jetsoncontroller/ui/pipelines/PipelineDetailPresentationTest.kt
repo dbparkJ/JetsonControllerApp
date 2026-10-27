@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PipelineDetailPresentationTest {
+    @Test fun taskListLoadingFailureAndEmptyAreExclusive() {
+        assertEquals(PipelineDetailContent.LOADING, pipelineListContent(true, "failed", false))
+        assertEquals(PipelineDetailContent.ERROR, pipelineListContent(false, "failed", false))
+        assertEquals(PipelineDetailContent.EMPTY, pipelineListContent(false, null, false))
+        assertEquals(PipelineDetailContent.CONTENT, pipelineListContent(true, "failed", true))
+    }
+
     @Test fun disconnectedAndFailedLoadsNeverClaimEmptyContent() {
         assertEquals(PipelineDetailContent.OFFLINE, pipelineDetailContent(false, false, null, false))
         assertEquals(PipelineDetailContent.OFFLINE, pipelineDetailContent(false, true, "failed", false))

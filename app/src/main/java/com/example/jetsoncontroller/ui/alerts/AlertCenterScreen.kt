@@ -95,8 +95,7 @@ fun AlertCenterScreen(state: AlertCenterUiState, onBack: () -> Unit, onAlertClic
 private fun AlertRow(alert: AlertRecord, isNewThisVisit: Boolean, onClick: () -> Unit, onDelete: () -> Unit,
     divider: Boolean) {
     GeoActionRow(alert.title, "삭제", onClick, onDelete,
-        meta = listOfNotNull(alert.message, formatAlertTime(alert.createdAtEpochMillis),
-            "읽지 않음".takeUnless { alert.read }).joinToString("\n"), divider = divider,
+        meta = alertSupportingText(alert.message, formatAlertTime(alert.createdAtEpochMillis), alert.read), divider = divider,
         leading = {
             Box {
                 GeoIconTile(alertIcon(alert.severity), tone = when (alert.severity) {

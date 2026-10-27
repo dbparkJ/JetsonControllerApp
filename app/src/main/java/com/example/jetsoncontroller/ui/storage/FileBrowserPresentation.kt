@@ -71,3 +71,13 @@ internal fun storageObjectName(name: String): String {
     val hasFinalConsonant = if (last in '가'..'힣') (last.code - '가'.code) % 28 != 0 else last in "013678"
     return name + if (hasFinalConsonant) "을" else "를"
 }
+
+/** Keep a useful cause while avoiding a title repeated verbatim as its own description. */
+internal fun storageFailureDetail(message: String, title: String): String {
+    val detail = message.trim().removePrefix(title).trimStart(' ', '.', '!', '·', ':', '\n')
+    return detail.ifBlank { "연결 상태를 확인한 뒤 다시 확인하세요." }
+}
+
+internal fun browserCanSelectFiles(state: DeviceStorageUiState, error: String? = null): Boolean =
+    state.controlAvailable && !state.isDeleting && !state.isLoading && state.error == null && error == null &&
+        state.currentRoot != null && state.entries.isNotEmpty()

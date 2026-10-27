@@ -39,7 +39,7 @@ internal fun GeoAlertThresholdSlider(
 ) {
     val c = LocalGeoColors.current
     var focused by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GeoIconButton(GeoIcons.zoomOut, "$title 감소", { onStep((value - 1).coerceIn(range)) },

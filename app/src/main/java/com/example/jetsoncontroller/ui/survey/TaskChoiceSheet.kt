@@ -56,7 +56,7 @@ internal fun TaskChoiceSheet(
                 "수집 작업을 불러오지 못했습니다", state.error))
             state.pipelines.isEmpty() -> GeoStateBlock(GeoStateContent(GeoStateKind.EMPTY,
                 "이 장치에 수집 작업이 없습니다", "관리자에게 작업 등록을 요청하세요."))
-            else -> Column(Modifier.selectableGroup()) { state.pipelines.forEach { pipeline ->
+            else -> Column(Modifier.selectableGroup()) { state.pipelines.forEachIndexed { index, pipeline ->
                 val word = taskChoiceState(pipeline)
                 GeoRadioRow(pipeline.label, selectedPipelineId == pipeline.id, {
                     // A tap on a stale row cannot select a task on the next device.
@@ -68,7 +68,7 @@ internal fun TaskChoiceSheet(
                     runCatching { Instant.parse(time) }.getOrNull()?.let { "마지막 실행 ${Formats.time(it)}" }
                 }, badge = { GeoBadge(word.word, word.tone) },
                     enabled = state.controlAvailable && state.busyPipelineId == null,
-                    disabledReason = "연결되면 작업을 선택할 수 있습니다.")
+                    disabledReason = "연결되면 작업을 선택할 수 있습니다.", divider = index < state.pipelines.lastIndex)
             } }
         }
     }
