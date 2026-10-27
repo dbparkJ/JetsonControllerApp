@@ -42,7 +42,8 @@ fun GeoPropertyList(
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val style = LocalGeoType.current.propertyLabel
-    BoxWithConstraints(modifier.fillMaxWidth()) {
+    BoxWithConstraints(modifier.fillMaxWidth()
+        .padding(horizontal = if (LocalGeoGroupInset.current) 16.dp else 0.dp)) {
         val iconWidth = if (hasIcons) 26.dp else 0.dp
         val longestLabelWidth = labels.maxOfOrNull {
             with(density) { measurer.measure(AnnotatedString(it), style, softWrap = false).size.width.toDp() }
@@ -53,7 +54,8 @@ fun GeoPropertyList(
         val lines = labels.map { measurer.measure(AnnotatedString(it), style,
             constraints = Constraints(maxWidth = textWidthPx)).lineCount }
         val stacked = geoPropertyListStacks(density.fontScale, (maxWidth - sharedLabelWidth - 8.dp).value, lines)
-        CompositionLocalProvider(LocalPropertyStacked provides stacked, LocalPropertyLabelWidth provides sharedLabelWidth) {
+        CompositionLocalProvider(LocalPropertyStacked provides stacked, LocalPropertyLabelWidth provides sharedLabelWidth,
+            LocalGeoGroupInset provides false) {
             Column(Modifier.fillMaxWidth(), content = content)
         }
     }
@@ -84,7 +86,8 @@ fun GeoPropertyRow(
     val listLabelWidth = LocalPropertyLabelWidth.current
     BoxWithConstraints(modifier.fillMaxWidth()
         .then(if (onClick != null) Modifier.contentTarget(enabled, onClick) else Modifier)
-        .semantics(mergeDescendants = true) {}) {
+        .semantics(mergeDescendants = true) {}
+        .padding(horizontal = if (LocalGeoGroupInset.current) 16.dp else 0.dp)) {
         val labelWidth = listLabelWidth ?: 104.dp
         val iconWidth = if (icon == null) 0.dp else 26.dp
         val lines = measurer.measure(AnnotatedString(label), type.propertyLabel,

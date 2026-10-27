@@ -365,8 +365,7 @@ internal fun ActiveRunScreen(
                         leading = { GeoIconTile(GeoIcons.link) }, divider = false, badge = { GeoBadge(relay.word, relay.tone) })
                 }
             }
-            GeoPropertyList(listOf("현재 위치", "수집 구역", "카메라", "정밀 위치 비율", "구역 밖 기록", "마지막 확인"),
-                Modifier.padding(horizontal = AppSpacing.cardInset)) {
+            GeoPropertyList(listOf("현재 위치", "수집 구역", "카메라", "정밀 위치 비율", "구역 밖 기록", "마지막 확인")) {
                 positionLabel?.let { GeoPropertyRow("현재 위치", it, tone = positionTone) }
                 zone.badge?.let { GeoPropertyRow("수집 구역", it, tone = zone.tone) }
                 if (observedRun == null || awaitingStart) {

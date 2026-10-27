@@ -64,7 +64,8 @@ class R8ThirdReviewComponentTest {
 
     @Test fun ordinaryStateColumnsStartAtTheirPaneTitleWhileMediaCanCenter() {
         val state = source("GeoStateBlock")
-        assertTrue(state.contains("if (fullScreen || LocalGeoMediaStage.current)"))
+        assertTrue(state.contains("if (LocalGeoMediaStage.current)"))
+        assertFalse(state.contains("if (fullScreen || LocalGeoMediaStage.current)"))
         assertTrue(state.contains("else androidx.compose.ui.Alignment.TopStart"))
         assertTrue(state.contains("Modifier.widthIn(max = 560.dp).fillMaxWidth()"))
     }

@@ -28,8 +28,9 @@ fun GeoStateBlock(
     onAction: (() -> Unit)? = null
 ) {
     val colors = LocalGeoColors.current
+    // fullScreen adds vertical breathing room; only a media stage centers the content column.
     Box(modifier.fillMaxWidth().geoGroupInset(), contentAlignment =
-        if (fullScreen || LocalGeoMediaStage.current) androidx.compose.ui.Alignment.TopCenter else androidx.compose.ui.Alignment.TopStart) {
+        if (LocalGeoMediaStage.current) androidx.compose.ui.Alignment.TopCenter else androidx.compose.ui.Alignment.TopStart) {
         CompositionLocalProvider(LocalGeoGroupInset provides false) {
             Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(top = if (fullScreen) 56.dp else 0.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {

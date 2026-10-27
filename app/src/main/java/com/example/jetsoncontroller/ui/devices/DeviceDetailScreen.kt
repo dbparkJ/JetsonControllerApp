@@ -108,8 +108,9 @@ internal fun DeviceDetailScreen(
             if (detailRoot) GeoIconButton(GeoIcons.more, "더 보기", { menu = true })
         }) {
         Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (!online || ongoingStrip != null) item {
                 GeoStatusStrip(listOfNotNull(
                     if (!online) GeoStatusStripState(GeoStripKind.DISCONNECTED, deviceName,
                         listOfNotNull("연결이 끊겼습니다", lastSeenText?.let { "마지막 응답 $it" }).joinToString(" · "),
@@ -149,7 +150,7 @@ internal fun DeviceDetailScreen(
                     }
                     val statusSection: @Composable () -> Unit = {
                         GeoGroupedSection("상태") {
-                            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                            DeviceSurface {
                                 val memory = deviceFigureItems(dashboard.status.takeIf { current }, snapshot).last()
                                 val shown = deviceFigurePresentation(memory)
                                 GeoFactRow(memory.label, listOfNotNull(shown.value, shown.detail, shown.staleDetail).joinToString(" · "))

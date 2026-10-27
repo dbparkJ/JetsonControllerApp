@@ -71,7 +71,7 @@ fun ConnectionDiagnosticsScreen(onBack: () -> Unit) {
         Text("연결이 끊기면 이 화면에서 시점을 표시하고 기록을 저장하세요.",
             style = LocalGeoType.current.body, color = LocalGeoColors.current.text)
         GeoGroupedSection("기록 상태") {
-            DeviceSurface(contentPadding = PaddingValues(horizontal = 16.dp)) {
+            DeviceSurface {
                 GeoPropertyList(listOf("마지막 저장", "장애 기록 보존", "직접 표시한 시각", "저장량", "저장 · 누락 · 쓰기 오류")) {
                     GeoPropertyRow("마지막 저장", diagnosticTime(health.lastWrittenUtcMs))
                     GeoPropertyRow("장애 기록 보존", diagnosticTime(health.lastIncidentUtcMs))
